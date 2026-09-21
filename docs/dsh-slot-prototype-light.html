@@ -1,0 +1,1628 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=1440, initial-scale=1" />
+<title>DSH Slot 原型 · 亮色版 — Web UI 高保真标注</title>
+<style>
+  /* ========== 设计变量（DSH 亮色调：白底/浅灰卡片/blue accent） ========== */
+  :root {
+    --bg-0: #f7f8fa;          /* 框架底（页面背景） */
+    --bg-1: #ffffff;          /* 一级面板（sidebar/main/rightbar 卡片） */
+    --bg-2: #f2f3f6;          /* 二级面板/卡片底 */
+    --bg-3: #e8eaef;          /* hover/selected */
+    --bg-4: #d8dce4;          /* 边框/分隔线 */
+    --bg-input: #ffffff;      /* 输入框底 */
+    --bg-overlay: rgba(15, 23, 42, 0.35);
+
+    --fg-0: #111418;          /* 主要文本 */
+    --fg-1: #4a5260;          /* 次要文本 */
+    --fg-2: #767f8c;          /* 辅助文本 */
+    --fg-3: #a0a8b4;          /* 占位/最弱 */
+
+    --accent: #2a6df4;        /* blue accent（DSH 亮色版主色） */
+    --accent-soft: rgba(42, 109, 244, 0.10);
+    --accent-2: #7a4ff0;      /* 紫（用于品牌渐变） */
+    --danger: #e84141;
+
+    /* slot 高亮配色（亮色调下保证对比度，避免背景过亮） */
+    --s-single-bg: rgba(214, 138, 0, 0.10);
+    --s-single-bd: rgba(214, 138, 0, 0.85);
+    --s-single-tag: #b97a00;
+
+    --s-list-bg: rgba(0, 145, 80, 0.10);
+    --s-list-bd: rgba(0, 145, 80, 0.85);
+    --s-list-tag: #00804a;
+
+    --s-keyed-bg: rgba(122, 79, 240, 0.10);
+    --s-keyed-bd: rgba(122, 79, 240, 0.85);
+    --s-keyed-tag: #6b3fdb;
+
+    --s-chain-bg: rgba(214, 36, 71, 0.10);
+    --s-chain-bd: rgba(214, 36, 71, 0.85);
+    --s-chain-tag: #c2204a;
+
+    --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+    --shadow-md: 0 6px 18px rgba(15, 23, 42, 0.08);
+    --shadow-lg: 0 18px 40px rgba(15, 23, 42, 0.14);
+
+    --font: -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg-0); color: var(--fg-0);
+    font-family: var(--font);
+  }
+  body { min-height: 100vh; }
+
+  /* ========== 顶部 Tab Bar ========== */
+  .topbar {
+    position: sticky; top: 0; z-index: 100;
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--bg-4);
+    padding: 14px 24px;
+    display: flex; align-items: center; gap: 16px;
+    box-shadow: var(--shadow-sm);
+  }
+  .topbar h1 {
+    font-size: 14px; font-weight: 700; margin: 0;
+    color: var(--fg-0); letter-spacing: 0.3px;
+  }
+  .topbar .meta {
+    font-size: 12px; color: var(--fg-2);
+    font-family: var(--mono);
+  }
+  .topbar .tabs {
+    margin-left: auto;
+    display: flex; gap: 4px;
+  }
+  .topbar .tab {
+    appearance: none; border: 1px solid var(--bg-4);
+    background: var(--bg-1); color: var(--fg-1);
+    padding: 7px 14px; border-radius: 6px;
+    font: 500 12px/1 var(--font);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .topbar .tab:hover { background: var(--bg-3); color: var(--fg-0); }
+  .topbar .tab.active {
+    background: var(--accent); border-color: var(--accent);
+    color: #fff; box-shadow: 0 2px 6px rgba(42,109,244,0.30);
+  }
+  .topbar .legend {
+    display: flex; gap: 10px; font-size: 11px;
+    color: var(--fg-2); margin-left: 8px;
+  }
+  .topbar .legend .chip {
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .topbar .legend .dot {
+    width: 10px; height: 10px; border-radius: 3px;
+    border: 1.5px solid;
+  }
+
+  /* ========== Slot 标注样式 ========== */
+  .slot {
+    display: block;
+    position: relative;
+    border: 1.5px dashed transparent;
+    border-radius: 8px;
+    padding: 8px 10px;
+    margin: 4px 0;
+    transition: all 0.18s ease;
+  }
+  .slot:hover { transform: translateY(-1px); box-shadow: var(--shadow-sm); }
+  .slot:hover .slot-info { opacity: 1; transform: translate(-50%, 0); }
+
+  /* 4 种 kind */
+  .slot.s-single { background: var(--s-single-bg); border-color: var(--s-single-bd); }
+  .slot.s-list   { background: var(--s-list-bg);   border-color: var(--s-list-bd); }
+  .slot.s-keyed  { background: var(--s-keyed-bg);  border-color: var(--s-keyed-bd); }
+  .slot.s-chain  { background: var(--s-chain-bg);  border-color: var(--s-chain-bd); }
+
+  .slot .slot-name {
+    font: 600 12px/1.2 var(--mono);
+    color: var(--fg-0);
+    letter-spacing: 0.2px;
+    word-break: break-all;
+  }
+  .slot .slot-meta {
+    font: 500 10px/1.3 var(--mono);
+    color: var(--fg-1);
+    margin-top: 4px;
+  }
+  .slot .slot-kind {
+    display: inline-block;
+    font: 700 9px/1 var(--mono);
+    text-transform: uppercase;
+    padding: 2px 5px;
+    border-radius: 3px;
+    margin-right: 4px;
+    vertical-align: middle;
+    color: #fff;
+  }
+  .slot.s-single .slot-kind { background: var(--s-single-tag); }
+  .slot.s-list   .slot-kind { background: var(--s-list-tag); }
+  .slot.s-keyed  .slot-kind { background: var(--s-keyed-tag); }
+  .slot.s-chain  .slot-kind { background: var(--s-chain-tag); }
+
+  /* 弹层信息卡（hover 显示） */
+  .slot-info {
+    position: absolute; left: 50%; bottom: calc(100% + 6px);
+    transform: translate(-50%, 6px);
+    background: #ffffff;
+    border: 1px solid var(--bg-4);
+    border-radius: 8px;
+    padding: 12px 14px;
+    min-width: 320px; max-width: 420px;
+    font-size: 11.5px; line-height: 1.6;
+    color: var(--fg-1);
+    box-shadow: var(--shadow-lg);
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.18s, transform 0.18s;
+    z-index: 200;
+  }
+  .slot-info .row { display: flex; gap: 8px; }
+  .slot-info .row .k { color: var(--fg-2); min-width: 70px; font-family: var(--mono); font-size: 11px; }
+  .slot-info .row .v { color: var(--fg-0); font-family: var(--mono); font-size: 11px; }
+  .slot-info .title { font-weight: 700; color: var(--fg-0); margin-bottom: 6px; font-size: 12px; }
+  .slot-info .src { color: var(--accent); font-family: var(--mono); font-size: 10.5px; margin-top: 8px; display: block; }
+
+  /* 占位填充 */
+  .slot-ph {
+    background: rgba(15, 23, 42, 0.02);
+    border: 1px dashed rgba(15, 23, 42, 0.08);
+    border-radius: 5px;
+    padding: 6px 8px;
+    color: var(--fg-3); font-size: 10.5px;
+    font-family: var(--mono);
+    margin-top: 4px;
+  }
+
+  /* ========== 视图容器 ========== */
+  .view {
+    display: none;
+    padding: 16px 24px 80px;
+    min-height: calc(100vh - 50px);
+  }
+  .view.active { display: block; }
+  .view-title {
+    font-size: 16px; font-weight: 700;
+    margin: 0 0 4px;
+  }
+  .view-sub {
+    font-size: 12px; color: var(--fg-2); margin: 0 0 16px;
+  }
+
+  /* ========== AppFrame 三栏 ========== */
+  .appframe {
+    height: calc(100vh - 110px);
+    min-height: 720px;
+    background: var(--bg-1);
+    border-radius: 12px;
+    border: 1px solid var(--bg-4);
+    overflow: hidden;
+    display: grid;
+    grid-template-columns: 260px 1fr 320px;
+    grid-template-rows: 1fr;
+    position: relative;
+    box-shadow: var(--shadow-md);
+  }
+
+  /* ===== Sidebar (左) ===== */
+  .sidebar-col {
+    background: var(--bg-1);
+    border-right: 1px solid var(--bg-4);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .sb-brand-row {
+    display: flex; align-items: center;
+    padding: 14px 14px 12px;
+    border-bottom: 1px solid var(--bg-4);
+    gap: 8px;
+    min-height: 56px;
+  }
+  .sb-brand-row .brand-icon {
+    width: 28px; height: 28px;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+    border-radius: 7px;
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; color: #fff; font-size: 14px;
+  }
+  .sb-brand-row .brand-name {
+    font-size: 13px; font-weight: 600; color: var(--fg-0);
+  }
+
+  .sb-toggle-row {
+    padding: 8px 14px 10px;
+  }
+  .sb-toggle {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 10px;
+    background: var(--bg-2);
+    border-radius: 6px;
+    font-size: 11px; color: var(--fg-1);
+  }
+  .sb-toggle .badge {
+    background: var(--accent); color: #fff;
+    border-radius: 4px; padding: 2px 6px;
+    font-family: var(--mono); font-size: 10px;
+  }
+
+  .sb-panellist {
+    padding: 4px 8px;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .sb-panel-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    color: var(--fg-1);
+    font-size: 12px;
+    cursor: default;
+  }
+  .sb-panel-row:hover { background: var(--bg-2); }
+  .sb-panel-row.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .sb-panel-row .glyph {
+    width: 18px; height: 18px; border-radius: 4px;
+    background: var(--bg-3);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px;
+  }
+
+  .sb-workspaces {
+    flex: 1; min-height: 0;
+    margin: 12px 8px;
+    padding: 10px;
+    background: var(--bg-2);
+    border-radius: 8px;
+    overflow: hidden;
+    display: flex; flex-direction: column;
+    gap: 8px;
+  }
+  .sb-ws-search {
+    height: 26px; background: var(--bg-1);
+    border: 1px solid var(--bg-4); border-radius: 5px;
+    display: flex; align-items: center;
+    padding: 0 8px;
+    font-size: 11px; color: var(--fg-3);
+  }
+  .sb-ws-list {
+    display: flex; flex-direction: column; gap: 2px;
+    overflow: hidden;
+  }
+  .sb-ws-item {
+    padding: 7px 9px; border-radius: 5px;
+    font-size: 12px; color: var(--fg-1);
+    cursor: default;
+  }
+  .sb-ws-item:hover { background: var(--bg-3); }
+  .sb-ws-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .sb-ws-item .sub {
+    font-size: 10px; color: var(--fg-3);
+    margin-top: 2px;
+  }
+
+  .sb-bottom {
+    border-top: 1px solid var(--bg-4);
+    padding: 8px;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .sb-foot-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 10px; border-radius: 6px;
+    font-size: 12px; color: var(--fg-1);
+  }
+  .sb-foot-row:hover { background: var(--bg-2); }
+  .sb-foot-row .glyph {
+    width: 16px; height: 16px;
+    background: var(--bg-3); border-radius: 4px;
+  }
+
+  /* ===== Main (中) ===== */
+  .main-col {
+    display: flex; flex-direction: column;
+    overflow: hidden;
+    background: var(--bg-0);
+  }
+  .conv-header {
+    display: grid;
+    grid-template-columns: 32px 1fr auto auto 32px;
+    align-items: center; gap: 10px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--bg-4);
+    background: var(--bg-1);
+    min-height: 52px;
+  }
+  .conv-header .leading { width: 32px; height: 32px; }
+  .conv-header .crumbs {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 13px;
+  }
+  .conv-header .crumb {
+    padding: 3px 8px; border-radius: 4px;
+    color: var(--fg-1); background: transparent;
+    border: 0; font: 500 12px/1.4 var(--font);
+  }
+  .conv-header .crumb.current { color: var(--fg-0); font-weight: 600; }
+  .conv-header .crumb-sep { color: var(--fg-3); }
+  .conv-header .header-actions {
+    display: flex; gap: 6px;
+  }
+  .conv-header .header-action {
+    width: 28px; height: 28px; border-radius: 5px;
+    background: var(--bg-1); border: 1px solid var(--bg-4);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--fg-1); font-size: 12px;
+  }
+  .conv-header .header-action:hover { background: var(--bg-2); }
+  .conv-header .header-corner {
+    width: 32px; height: 32px; border-radius: 6px;
+    background: var(--bg-1); border: 1px solid var(--bg-4);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--fg-1);
+  }
+
+  /* View Tabs */
+  .view-tabs {
+    display: flex; gap: 2px;
+    padding: 0 14px;
+    border-bottom: 1px solid var(--bg-4);
+    background: var(--bg-1);
+  }
+  .view-tab {
+    padding: 10px 16px;
+    font-size: 12px;
+    color: var(--fg-2);
+    border-bottom: 2px solid transparent;
+    cursor: default;
+  }
+  .view-tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+    font-weight: 600;
+  }
+
+  /* Chat scroll body */
+  .conv-body {
+    flex: 1; overflow-y: auto;
+    padding: 16px 24px;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .msg {
+    max-width: 75%;
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-size: 13px; line-height: 1.55;
+    color: var(--fg-0);
+    box-shadow: var(--shadow-sm);
+  }
+  .msg.user {
+    background: var(--accent);
+    color: #fff;
+    align-self: flex-end;
+  }
+  .msg.assistant {
+    background: var(--bg-1);
+    border: 1px solid var(--bg-4);
+  }
+  .msg.tool {
+    background: var(--bg-2);
+    border: 1px solid var(--bg-4);
+    font-family: var(--mono);
+    font-size: 11.5px;
+    align-self: flex-start;
+    color: var(--fg-1);
+  }
+  .msg.tool .toolhead {
+    color: var(--accent); font-weight: 600;
+    margin-bottom: 6px; font-size: 11px;
+  }
+
+  /* Composer */
+  .composer-seat {
+    background: var(--bg-1);
+    border-top: 1px solid var(--bg-4);
+    padding: 12px 24px 16px;
+  }
+  .composer-input {
+    background: var(--bg-input);
+    border: 1px solid var(--bg-4);
+    border-radius: 12px;
+    padding: 12px 14px;
+    min-height: 72px;
+    position: relative;
+    box-shadow: var(--shadow-sm);
+  }
+  .composer-input:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  .composer-input .input-area {
+    font-size: 13px; color: var(--fg-3);
+    font-style: italic;
+  }
+  .composer-toolrow {
+    display: flex; align-items: center; gap: 6px;
+    margin-top: 8px;
+    flex-wrap: wrap;
+  }
+  .composer-tool {
+    height: 28px; min-width: 32px; padding: 0 10px;
+    background: var(--bg-1); border: 1px solid var(--bg-4);
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; color: var(--fg-1);
+    cursor: default;
+  }
+  .composer-tool:hover { background: var(--bg-2); }
+  .composer-tool.primary {
+    background: var(--accent); color: #fff; border-color: var(--accent);
+    margin-left: auto;
+  }
+  .composer-tool.plan { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+  .composer-tool .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent); margin-right: 6px;
+  }
+
+  /* Hero */
+  .hero-shell {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 18px;
+    padding: 40px 24px;
+  }
+  .hero-mark {
+    width: 64px; height: 64px;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+    border-radius: 18px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 28px; color: #fff;
+    box-shadow: 0 8px 24px rgba(42,109,244,0.30);
+  }
+  .hero-headline {
+    font-size: 22px; font-weight: 700; color: var(--fg-0);
+  }
+  .hero-subline { font-size: 13px; color: var(--fg-2); margin-top: 4px; }
+  .hero-workspace-row {
+    display: flex; gap: 8px;
+    margin-top: 10px;
+  }
+  .hero-chip {
+    height: 36px; padding: 0 14px;
+    background: var(--bg-1); border: 1px solid var(--bg-4);
+    border-radius: 18px;
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; color: var(--fg-0);
+    box-shadow: var(--shadow-sm);
+  }
+  .hero-chip .chev { color: var(--fg-3); font-size: 9px; }
+  .hero-preset {
+    height: 36px; padding: 0 14px;
+    background: var(--accent-soft); border: 1px solid transparent;
+    border-radius: 18px;
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; color: var(--accent); font-weight: 600;
+  }
+
+  /* ===== Rightbar (右) ===== */
+  .rightbar-col {
+    background: var(--bg-1);
+    border-left: 1px solid var(--bg-4);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .rb-tabs {
+    display: flex; gap: 2px;
+    padding: 8px 8px 0;
+    border-bottom: 1px solid var(--bg-4);
+  }
+  .rb-tab {
+    height: 28px; padding: 0 10px;
+    background: var(--bg-2);
+    border-radius: 5px 5px 0 0;
+    font-size: 11px; color: var(--fg-1);
+    display: flex; align-items: center;
+    border: 1px solid var(--bg-4);
+    border-bottom: 0;
+  }
+  .rb-tab.active { background: var(--bg-1); color: var(--fg-0); border-bottom: 1px solid var(--bg-1); margin-bottom: -1px; }
+  .rb-body {
+    flex: 1; padding: 12px;
+    overflow-y: auto;
+  }
+  .rb-card {
+    background: var(--bg-2);
+    border: 1px solid var(--bg-4);
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 8px;
+    font-size: 12px; color: var(--fg-1);
+  }
+  .rb-card .card-title {
+    font-weight: 600; color: var(--fg-0);
+    margin-bottom: 4px;
+  }
+  .rb-card .card-sub {
+    font-size: 11px; color: var(--fg-2);
+  }
+
+  /* ===== Plugin Manager Page ===== */
+  .pm-root { display: flex; flex-direction: column; height: 100%; }
+  .pm-header {
+    padding: 14px 24px;
+    border-bottom: 1px solid var(--bg-4);
+    background: var(--bg-1);
+  }
+  .pm-header h2 { margin: 0; font-size: 18px; font-weight: 700; color: var(--fg-0); }
+  .pm-body { flex: 1; overflow-y: auto; padding: 24px; }
+  .pm-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+  }
+  .pm-card {
+    background: var(--bg-1);
+    border: 1px solid var(--bg-4);
+    border-radius: 10px;
+    padding: 16px;
+    box-shadow: var(--shadow-sm);
+  }
+  .pm-card .name {
+    font-size: 14px; font-weight: 600; color: var(--fg-0);
+    margin-bottom: 8px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .pm-card .badge {
+    font-size: 10px; padding: 2px 8px; border-radius: 4px;
+    background: var(--bg-2); color: var(--fg-2);
+    font-weight: 600;
+  }
+  .pm-card .badge.on { background: rgba(0, 145, 80, 0.15); color: var(--s-list-tag); }
+  .pm-card .summary { font-size: 12px; color: var(--fg-2); line-height: 1.5; }
+  .pm-card .desc {
+    margin-top: 10px;
+    font-size: 11px; color: var(--fg-2);
+    background: var(--bg-2);
+    padding: 8px 10px; border-radius: 5px;
+    border-left: 2px solid var(--accent);
+  }
+
+  /* ===== Settings Modal ===== */
+  .settings-overlay {
+    position: fixed; inset: 0;
+    background: var(--bg-overlay);
+    backdrop-filter: blur(4px);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 50;
+  }
+  .settings-modal {
+    width: 920px; height: 620px;
+    background: var(--bg-1);
+    border: 1px solid var(--bg-4);
+    border-radius: 14px;
+    box-shadow: var(--shadow-lg);
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    overflow: hidden;
+  }
+  .settings-nav {
+    background: var(--bg-2);
+    border-right: 1px solid var(--bg-4);
+    padding: 16px 12px;
+    display: flex; flex-direction: column;
+  }
+  .settings-nav .nav-title {
+    padding: 6px 12px; margin-bottom: 12px;
+    font-size: 16px; font-weight: 700; color: var(--fg-0);
+  }
+  .settings-nav .nav-cell {
+    padding: 9px 12px; border-radius: 6px;
+    font-size: 13px; color: var(--fg-1);
+    cursor: default;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .settings-nav .nav-cell:hover { background: var(--bg-3); }
+  .settings-nav .nav-cell.active {
+    background: var(--accent); color: #fff;
+    box-shadow: 0 2px 6px rgba(42,109,244,0.25);
+  }
+  .settings-nav .nav-cell .glyph {
+    width: 16px; height: 16px;
+    background: rgba(15, 23, 42, 0.08); border-radius: 4px;
+  }
+  .settings-nav .nav-cell.active .glyph { background: rgba(255,255,255,0.25); }
+
+  .settings-content {
+    display: flex; flex-direction: column; overflow: hidden;
+    background: var(--bg-1);
+  }
+  .settings-content-header {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--bg-4);
+    display: flex; align-items: center; gap: 12px;
+  }
+  .settings-content-header h3 { margin: 0; font-size: 16px; font-weight: 700; color: var(--fg-0); }
+  .settings-content-header .actions {
+    margin-left: auto; display: flex; gap: 6px;
+  }
+  .settings-content-header .action {
+    height: 28px; padding: 0 12px;
+    background: var(--bg-1); border: 1px solid var(--bg-4);
+    border-radius: 6px;
+    font-size: 12px; color: var(--fg-1);
+    display: flex; align-items: center;
+  }
+  .settings-content-header .action:hover { background: var(--bg-2); }
+  .settings-content-header .close {
+    width: 28px; height: 28px;
+    background: var(--bg-1); border: 1px solid var(--bg-4);
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--fg-1);
+    font-size: 14px;
+  }
+  .settings-content-header .close:hover { background: var(--bg-2); }
+  .settings-content-body {
+    flex: 1; overflow-y: auto;
+    padding: 16px 20px;
+  }
+  .settings-row {
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 16px;
+    background: var(--bg-2);
+    border: 1px solid var(--bg-4);
+    border-radius: 8px;
+    margin-bottom: 8px;
+  }
+  .settings-row .label { flex: 1; font-size: 13px; color: var(--fg-0); font-weight: 600; }
+  .settings-row .sub { font-size: 11px; color: var(--fg-2); margin-top: 2px; font-weight: 400; }
+  .settings-row .control {
+    font-size: 11px; color: var(--fg-1);
+    padding: 5px 10px;
+    background: var(--bg-1); border: 1px solid var(--bg-4); border-radius: 5px;
+  }
+
+  /* Onboarding (above settings) */
+  .onboarding {
+    position: absolute;
+    width: 420px;
+    background: var(--bg-1);
+    border: 1px solid var(--bg-4);
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: var(--shadow-lg);
+    right: 60px; bottom: 60px;
+  }
+  .onboarding .o-title { font-size: 14px; font-weight: 700; margin-bottom: 8px; color: var(--fg-0); }
+  .onboarding .o-body { font-size: 12px; color: var(--fg-1); line-height: 1.5; }
+
+  /* ===== SidebarChat (subagent) ===== */
+  .subagent-overlay {
+    position: fixed; right: 24px; bottom: 24px;
+    width: 480px; height: 600px;
+    background: var(--bg-1);
+    border: 1px solid var(--bg-4);
+    border-radius: 12px;
+    box-shadow: var(--shadow-lg);
+    display: flex; flex-direction: column;
+    z-index: 40;
+  }
+  .subagent-overlay .sa-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--bg-4);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .subagent-overlay .sa-body { flex: 1; padding: 12px 16px; overflow-y: auto; }
+  .subagent-overlay .sa-composer { padding: 12px 16px; border-top: 1px solid var(--bg-4); }
+
+  /* Misc */
+  .placeholder {
+    color: var(--fg-3);
+    font-size: 11px;
+    font-family: var(--mono);
+    text-align: center;
+    padding: 18px 8px;
+    border: 1px dashed rgba(15, 23, 42, 0.10);
+    border-radius: 6px;
+    background: rgba(15, 23, 42, 0.02);
+  }
+
+  /* Shell overlay (small badge in corner) */
+  .shell-overlay-mock {
+    position: absolute; right: 16px; bottom: 16px;
+    background: #ffffff;
+    border: 1px solid var(--bg-4);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 12px; color: var(--fg-1);
+    display: flex; gap: 8px; align-items: center;
+    z-index: 30;
+    box-shadow: var(--shadow-md);
+  }
+  .shell-overlay-mock .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--danger);
+  }
+
+  /* narrow compact slot helper */
+  .slot-stack { display: flex; flex-direction: column; gap: 6px; }
+  .slot-row { display: flex; gap: 6px; align-items: stretch; }
+  .slot-row .slot { flex: 1; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>DSH Slot 原型 · 亮色版</h1>
+  <span class="meta">packages/client/ui-slots · SlotCore · @master · light theme</span>
+  <div class="legend">
+    <span class="chip"><span class="dot" style="background:var(--s-single-tag);border-color:var(--s-single-bd);"></span>single</span>
+    <span class="chip"><span class="dot" style="background:var(--s-list-tag);border-color:var(--s-list-bd);"></span>list</span>
+    <span class="chip"><span class="dot" style="background:var(--s-keyed-tag);border-color:var(--s-keyed-bd);"></span>keyed</span>
+    <span class="chip"><span class="dot" style="background:var(--s-chain-tag);border-color:var(--s-chain-bd);"></span>chain</span>
+  </div>
+  <div class="tabs" id="tabs">
+    <button class="tab active" data-view="frame">1. AppFrame 总览</button>
+    <button class="tab" data-view="conv">2. Conversation</button>
+    <button class="tab" data-view="plugins">3. Plugins</button>
+    <button class="tab" data-view="settings">4. Settings</button>
+    <button class="tab" data-view="subagent">5. Sidebar Chat</button>
+  </div>
+</div>
+
+<!-- =========================================================== -->
+<!-- 视图 1：AppFrame 总览                                              -->
+<!-- =========================================================== -->
+<section class="view active" id="view-frame">
+  <h2 class="view-title">1 · AppFrame 三栏总览</h2>
+  <p class="view-sub">
+    整个 Web 应用即 <code>root</code> slot（单一 occupant = AppFrame）。
+    在 <code>AppFrame.tsx</code> 内部声明了 4 个子槽：
+    <code>sidebar</code>、<code>main</code>、<code>rightbar</code>、<code>shell.overlay</code>。
+  </p>
+
+  <div class="appframe">
+    <!-- 左侧 sidebar 槽 -->
+    <div class="sidebar-col">
+      <span class="slot s-single" style="margin: 8px; flex-shrink: 0;">
+        <span class="slot-kind">single</span>
+        <span class="slot-name">sidebar</span>
+        <span class="slot-meta">root · occupant: ui-sidebar/SidebarRoot</span>
+        <span class="slot-info">
+          <div class="title">sidebar</div>
+          <div class="row"><span class="k">kind</span><span class="v">single / root</span></div>
+          <div class="row"><span class="k">declarer</span><span class="v">ui-layout/index.ts</span></div>
+          <div class="row"><span class="k">registrant</span><span class="v">ui-sidebar/SidebarRoot</span></div>
+          <div class="row"><span class="k">renders</span><span class="v">AppFrame.tsx:196</span></div>
+          <div class="row"><span class="k">children</span><span class="v">brand.mark / .name / toggle.badge / panellist / workspaces / settings / footer.action</span></div>
+        </span>
+      </span>
+
+      <!-- 实际 SidebarRoot 内容 -->
+      <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
+        <div class="sb-brand-row">
+          <div class="brand-icon">DS</div>
+          <div style="flex: 1;">
+            <span class="slot s-single" style="padding: 0; border: 0; background: transparent; display: inline-block;">
+              <span class="slot-name" style="font-size: 10.5px;">sidebar.brand.mark</span>
+            </span>
+          </div>
+          <div class="brand-name">
+            <span class="slot s-single" style="padding: 0; border: 0; background: transparent; display: inline-block;">
+              <span class="slot-name" style="font-size: 10.5px;">.brand.name</span>
+            </span>
+          </div>
+        </div>
+
+        <div class="sb-toggle-row">
+          <div class="sb-toggle">
+            <span>◧</span>
+            <span class="badge">2</span>
+            <span class="slot s-single" style="padding: 0; border: 0; background: transparent; display: inline-block; margin-left: 4px;">
+              <span class="slot-name" style="font-size: 10.5px;">toggle.badge</span>
+            </span>
+          </div>
+        </div>
+
+        <div class="sb-panellist">
+          <span class="slot s-list" style="margin: 0;">
+            <span class="slot-kind">list</span>
+            <span class="slot-name">sidebar.panellist</span>
+            <span class="slot-meta">root · id='plugins' → ui-plugin-manager/PluginsPanelIcon</span>
+          </span>
+          <div class="sb-panel-row active">
+            <div class="glyph">💬</div><span>Chat</span>
+          </div>
+          <div class="sb-panel-row">
+            <div class="glyph">🧩</div><span>Plugins</span>
+          </div>
+        </div>
+
+        <div class="sb-workspaces">
+          <span class="slot s-single" style="margin: 0; padding: 6px 10px;">
+            <span class="slot-kind">single</span>
+            <span class="slot-name">sidebar.workspaces</span>
+            <span class="slot-meta">root · ui-workspace</span>
+          </span>
+          <div class="sb-ws-search">🔍 &nbsp;Search workspaces…</div>
+          <div class="sb-ws-list">
+            <div class="sb-ws-item active">
+              📁 Project · main
+              <div class="sub">12 sessions</div>
+            </div>
+            <div class="sb-ws-item">📁 scratchpad
+              <div class="sub">3 sessions</div>
+            </div>
+            <div class="sb-ws-item">📁 experiments
+              <div class="sub">7 sessions</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="sb-bottom">
+          <span class="slot s-list" style="margin: 0;">
+            <span class="slot-kind">list</span>
+            <span class="slot-name">sidebar.footer.action</span>
+            <span class="slot-meta">root · id='cordis' → ui-cordis</span>
+          </span>
+          <div class="sb-foot-row">
+            <div class="glyph">⚙</div>
+            <span style="flex: 1;">
+              <span class="slot s-single" style="padding: 0; border: 0; background: transparent; display: inline-block;">
+                <span class="slot-name" style="font-size: 10.5px;">sidebar.settings</span>
+              </span>
+            </span>
+            <span style="color: var(--fg-3);">›</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 中央 main 槽 -->
+    <div class="main-col">
+      <span class="slot s-keyed" style="margin: 8px; flex-shrink: 0;">
+        <span class="slot-kind">keyed</span>
+        <span class="slot-name">main</span>
+        <span class="slot-meta">
+          root · entryKey='conversation' → ConversationPanel  ·  entryKey='plugins' → PluginManagerPage
+        </span>
+        <span class="slot-info">
+          <div class="title">main (keyed / root)</div>
+          <div class="row"><span class="k">AppFrame</span><span class="v">:42  usePanelInfo → entryKey</span></div>
+          <div class="row"><span class="k">key</span><span class="v">'conversation' / 'plugins'</span></div>
+          <div class="row"><span class="k">child</span><span class="v">'main.conversation' : single/session-maybe</span></div>
+        </span>
+      </span>
+
+      <div style="flex: 1; padding: 24px; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+        <div class="placeholder" style="max-width: 500px;">
+          main 槽按 <code style="color:var(--accent)">activePanelId</code> 切换渲染 Conversation 或 Plugins。<br/>
+          详见视图 2 / 3。
+        </div>
+      </div>
+    </div>
+
+    <!-- 右侧 rightbar 槽 -->
+    <div class="rightbar-col">
+      <span class="slot s-single" style="margin: 8px; flex-shrink: 0;">
+        <span class="slot-kind">single</span>
+        <span class="slot-name">rightbar</span>
+        <span class="slot-meta">
+          root · 仅 conversation 模式显示 → RightbarRoot → <code style="color:var(--accent)">renderSlot('rightbar.session')</code>
+        </span>
+      </span>
+
+      <div class="rb-body">
+        <span class="slot s-keyed" style="margin: 0 0 8px;">
+          <span class="slot-kind">keyed</span>
+          <span class="slot-name">sidebar.right.pane.tab</span>
+          <span class="slot-meta">session · key=guide/files/terminal/...</span>
+        </span>
+        <div class="rb-card">
+          <div class="card-title">Guide</div>
+          <div class="card-sub">key='guide' → ui-sidebar-right/GuideBody</div>
+        </div>
+        <div class="rb-card">
+          <div class="card-title">Files</div>
+          <div class="card-sub">key='files' → ui-sidebar-files</div>
+        </div>
+        <div class="rb-card">
+          <div class="card-title">Terminal</div>
+          <div class="card-sub">key='terminal' → ui-sidebar-terminal</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- shell.overlay -->
+    <div class="shell-overlay-mock">
+      <span class="dot"></span>
+      <span class="slot s-list" style="padding: 0; border: 0; background: transparent; display: inline-block;">
+        <span class="slot-kind" style="font-size: 8px;">list</span>
+        <span class="slot-name" style="font-size: 10.5px;">shell.overlay</span>
+      </span>
+      <span>· terminal cleanup failed</span>
+    </div>
+  </div>
+</section>
+
+
+<!-- =========================================================== -->
+<!-- 视图 2：Conversation（active 模式）                                  -->
+<!-- =========================================================== -->
+<section class="view" id="view-conv">
+  <h2 class="view-title">2 · Conversation（active 模式，已有会话）</h2>
+  <p class="view-sub">
+    <code>main</code>(entryKey='conversation') → <code>ConversationPanel</code> →
+    <code>ConversationMainPanel</code> 渲染 <code>conversation.session.header</code> +
+    factory <code>conversation.content</code>。
+  </p>
+
+  <div class="appframe">
+    <div class="sidebar-col">
+      <div style="padding: 14px; color: var(--fg-3); font-size: 12px; border-bottom: 1px solid var(--bg-4);">← sidebar（详见视图 1）</div>
+      <div style="flex: 1; padding: 16px;" class="placeholder">sidebar 槽 + 7 个子槽</div>
+    </div>
+
+    <div class="main-col">
+
+      <span class="slot s-single" style="margin: 6px 8px 0; flex-shrink: 0;">
+        <span class="slot-kind">single</span>
+        <span class="slot-name">conversation.session.header</span>
+        <span class="slot-meta">session · ui-conversation/SessionHeader</span>
+      </span>
+
+      <div class="conv-header">
+        <div class="leading">
+          <span class="slot s-single" style="padding: 4px 6px;">
+            <span class="slot-name" style="font-size: 9.5px;">.leading</span>
+          </span>
+        </div>
+        <div class="crumbs">
+          <button class="crumb">main</button>
+          <span class="crumb-sep">/</span>
+          <button class="crumb current">
+            Edit README
+            <span class="slot s-single" style="padding: 0; border: 0; background: transparent; display: inline; margin-left: 4px;">
+              <span style="font-family: var(--mono); font-size: 9.5px; color: var(--s-single-tag); font-weight: 700;">[.lineage]</span>
+            </span>
+          </button>
+          <span style="margin-left: 10px;" class="slot s-list">
+            <span class="slot-kind">list</span>
+            <span class="slot-name" style="font-size: 9.5px;">.actions</span>
+          </span>
+          <div class="header-actions">
+            <div class="header-action">📅</div>
+            <div class="header-action">⟳</div>
+          </div>
+        </div>
+        <div style="display:flex; gap:6px;" class="slot s-list">
+          <span class="slot-kind">list</span>
+          <span class="slot-name" style="font-size: 9.5px;">.utilities</span>
+          <div class="header-action">↗</div>
+        </div>
+        <div class="header-corner">
+          <span class="slot s-single" style="padding: 4px 6px;">
+            <span class="slot-name" style="font-size: 9.5px;">.corner</span>
+          </span>
+          ⊏
+        </div>
+      </div>
+
+      <div class="view-tabs">
+        <div class="view-tab active">
+          Chat
+          <span class="slot s-list" style="padding: 0; border: 0; background: transparent; display: inline; margin-left: 6px;">
+            <span class="slot-kind" style="font-size: 8px;">list</span>
+            <span class="slot-name" style="font-size: 9.5px;">conversation.view</span>
+          </span>
+        </div>
+        <div class="view-tab">Trajectory</div>
+      </div>
+
+      <span class="slot s-single" style="margin: 6px 8px 0; flex-shrink: 0;">
+        <span class="slot-kind">factory</span>
+        <span class="slot-name">conversation.content</span>
+        <span class="slot-meta">
+          session-maybe · 子槽: session / composer / composer.bar / input.dock / hero.{brand.mark,workspace,agentPreset}
+        </span>
+      </span>
+
+      <div class="conv-body">
+        <span class="slot s-single" style="margin: 0;">
+          <span class="slot-kind">single</span>
+          <span class="slot-name">conversation.session</span>
+          <span class="slot-meta">session · 子: conversation.view</span>
+        </span>
+
+        <span class="slot s-keyed" style="margin: 0;">
+          <span class="slot-kind">keyed</span>
+          <span class="slot-name">conversation.chat.node</span>
+          <span class="slot-meta">
+            session · 14 keys: user / steering / context / system-prompt / assistant-step / command / manual-compaction /
+            compaction / model-retry / turn-error / turn-max-tokens / turn-process / turn-tail / unknown
+          </span>
+        </span>
+
+        <div class="msg user">Help me write a TypeScript function that debounces async fetches.</div>
+
+        <div class="msg assistant">
+          Sure — here's a minimal debounce implementation that handles the race between
+          in-flight requests and rapid successive calls:<br/><br/>
+          <code style="font-family: var(--mono); background: var(--bg-2); padding: 1px 5px; border-radius: 3px;">function debounceAsync(fn, wait) { ... }</code>
+        </div>
+
+        <span class="slot s-keyed" style="margin: 0;">
+          <span class="slot-kind">keyed</span>
+          <span class="slot-name">tool.call.toolview</span>
+          <span class="slot-meta">
+            session · key=bash/edit/write/read/grep/glob/todo_write/web_search/web_fetch/ask_user_question/skill/present/...
+          </span>
+        </span>
+        <div class="msg tool">
+          <div class="toolhead">⌨ bash · $ pnpm test</div>
+          <span style="color: var(--fg-2);">$ pnpm test<br/>PASS  src/debounce.test.ts<br/>(12 tests, 12 passed)</span>
+        </div>
+
+        <span class="slot s-list" style="margin: 0;">
+          <span class="slot-kind">list</span>
+          <span class="slot-name">conversation.chat.turnTail</span>
+          <span class="slot-meta">session · id='deliverables' / 'plan-tail'</span>
+        </span>
+        <span class="slot s-list" style="margin: 0;">
+          <span class="slot-kind">list</span>
+          <span class="slot-name">conversation.chat.assistant-actions</span>
+          <span class="slot-meta">session · id='message-feedback' → ui-message-feedback</span>
+        </span>
+
+        <div class="msg tool" style="border-left: 3px solid var(--s-list-tag);">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="color: var(--s-list-tag);">●</span>
+            <span>📁 3 files changed (deliverables)</span>
+            <span style="margin-left:auto; color:var(--fg-2); font-size:11px;">[ 👍 👎 📋 ]</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="composer-seat">
+        <span class="slot s-chain" style="margin: 0;">
+          <span class="slot-kind">chain</span>
+          <span class="slot-name">conversation.composer</span>
+          <span class="slot-meta">
+            session · chain: ApprovalComposer → QuestionComposer → SubagentReadOnlyComposer(priority=-10)
+          </span>
+        </span>
+
+        <div style="margin-top: 8px;">
+          <span class="slot s-list" style="margin: 0 0 6px;">
+            <span class="slot-kind">list</span>
+            <span class="slot-name">conversation.input.dock</span>
+            <span class="slot-meta">session · id='todo' / 'queue'</span>
+          </span>
+        </div>
+
+        <span class="slot s-single" style="margin: 0;">
+          <span class="slot-kind">single</span>
+          <span class="slot-name">conversation.composer.bar</span>
+          <span class="slot-meta">session-maybe · fallback of composer chain → InputBar</span>
+        </span>
+
+        <div class="composer-input">
+          <div class="input-area">Type a message…</div>
+
+          <span class="slot s-list" style="position:absolute; right:8px; top:8px; margin:0;">
+            <span class="slot-kind">list</span>
+            <span class="slot-name" style="font-size: 9.5px;">input.overlay</span>
+          </span>
+
+          <span class="slot s-single" style="margin: 0;">
+            <span class="slot-kind">single</span>
+            <span class="slot-name">conversation.input.attachments</span>
+            <span class="slot-meta">session-maybe · ui-attachment/AttachmentRail</span>
+          </span>
+
+          <div class="composer-toolrow">
+            <span class="slot s-list" style="margin: 0;">
+              <span class="slot-kind">list</span>
+              <span class="slot-name" style="font-size: 9.5px;">input.left</span>
+            </span>
+            <div class="composer-tool">📎</div>
+            <div class="composer-tool">⌘K</div>
+
+            <span class="slot s-single" style="margin: 0;">
+              <span class="slot-kind">single</span>
+              <span class="slot-name" style="font-size: 9.5px;">input.plan</span>
+            </span>
+            <div class="composer-tool plan"><span class="dot"></span>Plan</div>
+
+            <span class="slot s-single" style="margin: 0;">
+              <span class="slot-kind">single</span>
+              <span class="slot-name" style="font-size: 9.5px;">input.permission</span>
+            </span>
+            <div class="composer-tool">🔓 Auto</div>
+
+            <span class="slot s-single" style="margin: 0;">
+              <span class="slot-kind">single</span>
+              <span class="slot-name" style="font-size: 9.5px;">input.model</span>
+            </span>
+            <div class="composer-tool">🧠 DeepSeek V3</div>
+
+            <span class="slot s-list" style="margin: 0 0 0 auto;">
+              <span class="slot-kind">list</span>
+              <span class="slot-name" style="font-size: 9.5px;">input.right</span>
+            </span>
+            <div class="composer-tool primary">Send ↵</div>
+          </div>
+        </div>
+
+        <span class="slot s-list" style="margin: 6px 0 0;">
+          <span class="slot-kind">list</span>
+          <span class="slot-name">conversation.composer.dock</span>
+          <span class="slot-meta">session · composer 下方 ambient 条</span>
+        </span>
+      </div>
+    </div>
+
+    <div class="rightbar-col">
+      <div style="padding: 14px; color: var(--fg-3); font-size: 12px; border-bottom: 1px solid var(--bg-4);">← rightbar（详见视图 1）</div>
+      <div style="flex: 1; padding: 16px;" class="placeholder">rightbar.session → 多个 pane.tab key</div>
+    </div>
+  </div>
+</section>
+
+
+<!-- =========================================================== -->
+<!-- 视图 2b：Conversation (hero 模式)                                   -->
+<!-- =========================================================== -->
+<section class="view" id="view-conv-hero">
+  <h2 class="view-title">2b · Conversation（hero 模式，新会话）</h2>
+  <p class="view-sub">
+    无当前会话时渲染空白欢迎页：居中品牌 + 工作区选择 + agent preset，
+    下方 composer 处于 inert（占位文案"Choose workspace"）。
+  </p>
+
+  <div class="appframe">
+    <div class="sidebar-col">
+      <div style="padding: 14px; color: var(--fg-3); font-size: 12px; border-bottom: 1px solid var(--bg-4);">← sidebar</div>
+      <div style="flex: 1; padding: 16px;" class="placeholder">侧栏同前</div>
+    </div>
+
+    <div class="main-col">
+      <div class="conv-header" style="grid-template-columns: 1fr 32px;">
+        <div></div>
+        <div class="header-corner">⊏</div>
+      </div>
+
+      <div style="flex: 1; display: flex; flex-direction: column;">
+        <div class="hero-shell">
+          <span class="slot s-single">
+            <span class="slot-kind">single</span>
+            <span class="slot-name">conversation.hero.brand.mark</span>
+            <span class="slot-meta">root · ui-brand-official（34px）</span>
+          </span>
+          <div class="hero-mark">DS</div>
+          <div>
+            <div class="hero-headline">How can I help you today?</div>
+            <div class="hero-subline">Pick a workspace to start a new session.</div>
+          </div>
+
+          <div class="hero-workspace-row">
+            <span class="slot s-single" style="margin: 0;">
+              <span class="slot-kind">single</span>
+              <span class="slot-name">conversation.hero.workspace</span>
+              <span class="slot-meta">root · ui-workspace/WorkspacePicker（内含 .directoryFlow 子槽）</span>
+            </span>
+            <div class="hero-chip">📁 Project · main <span class="chev">▾</span></div>
+
+            <span class="slot s-single" style="margin: 0;">
+              <span class="slot-kind">single</span>
+              <span class="slot-name">conversation.hero.agentPreset</span>
+              <span class="slot-meta">session-maybe · ui-agent-preset</span>
+            </span>
+            <div class="hero-preset">🤖 Default Agent <span class="chev">▾</span></div>
+          </div>
+        </div>
+
+        <div class="composer-seat">
+          <div class="composer-input">
+            <div class="input-area">Choose a workspace to start…</div>
+            <div class="composer-toolrow">
+              <div class="composer-tool plan"><span class="dot"></span>Plan</div>
+              <div class="composer-tool">🔓 Auto</div>
+              <div class="composer-tool">🧠 DeepSeek V3</div>
+              <div class="composer-tool primary" style="opacity:.4;">Send ↵</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="rightbar-col">
+      <div style="padding: 14px; color: var(--fg-3); font-size: 12px; border-bottom: 1px solid var(--bg-4);">← rightbar</div>
+      <div style="flex: 1; padding: 16px;" class="placeholder">右栏（hero 模式下不显示，因为 activePanelId 仍为 conversation）</div>
+    </div>
+  </div>
+</section>
+
+
+<!-- =========================================================== -->
+<!-- 视图 3：Plugins 面板                                                -->
+<!-- =========================================================== -->
+<section class="view" id="view-plugins">
+  <h2 class="view-title">3 · Plugins 面板（<code>main</code> entryKey='plugins'）</h2>
+  <p class="view-sub">
+    通过 <code>sidebar.panellist</code> 切到 Plugins 图标即触发。
+    <code>PluginManagerPage</code> 渲染 3 类插件配置入口：
+    <code>plugins.item</code>（列表/详情都使用）、<code>plugins.bundle.config</code>（每个 bundle）、<code>plugins.row.config</code>（每个 row）。
+  </p>
+
+  <div class="appframe">
+    <div class="sidebar-col">
+      <div style="padding: 14px; color: var(--fg-3); font-size: 12px; border-bottom: 1px solid var(--bg-4);">← sidebar</div>
+      <div style="flex: 1; padding: 16px;" class="placeholder">侧栏同前</div>
+    </div>
+
+    <div class="main-col">
+      <div class="pm-root">
+        <div class="pm-header">
+          <h2>Plugins</h2>
+          <span class="slot s-list" style="margin: 8px 0 0;">
+            <span class="slot-kind">list</span>
+            <span class="slot-name">plugins.item</span>
+            <span class="slot-meta">
+              root · id='shell' / 'agent-loop' / 'subagent+model-selection' / 'web-search' →
+              ui-settings-plugins（注册各插件卡片摘要）
+            </span>
+          </span>
+        </div>
+
+        <div class="pm-body">
+          <div class="pm-grid">
+            <div class="pm-card">
+              <div class="name">Shell <span class="badge on">on</span></div>
+              <div class="summary">Built-in shell execution and command parser.</div>
+              <div class="desc">
+                <span class="slot s-list" style="padding:0; border:0; background:transparent; display:inline;">
+                  <span class="slot-name" style="font-size:9.5px;">plugins.item[view='summary']</span>
+                </span>
+                — 一句话摘要由 ui-settings-plugins 提供
+              </div>
+            </div>
+
+            <div class="pm-card">
+              <div class="name">Agent Loop <span class="badge on">on</span></div>
+              <div class="summary">Built-in agent runtime and conversation loop.</div>
+              <div class="desc">
+                <span class="slot s-list" style="padding:0; border:0; background:transparent; display:inline;">
+                  <span class="slot-name" style="font-size:9.5px;">plugins.item[view='summary']</span>
+                </span>
+              </div>
+            </div>
+
+            <div class="pm-card">
+              <div class="name">Subagent + Model <span class="badge">off</span></div>
+              <div class="summary">Subagent runtime with model selection.</div>
+              <div class="desc">
+                <span class="slot s-list" style="padding:0; border:0; background:transparent; display:inline;">
+                  <span class="slot-name" style="font-size:9.5px;">plugins.item[view='summary']</span>
+                </span>
+              </div>
+            </div>
+
+            <div class="pm-card">
+              <div class="name">Web Search <span class="badge">off</span></div>
+              <div class="summary">External web search and fetch tool.</div>
+              <div class="desc">
+                <span class="slot s-list" style="padding:0; border:0; background:transparent; display:inline;">
+                  <span class="slot-name" style="font-size:9.5px;">plugins.item[view='summary']</span>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div style="margin-top: 32px; padding: 16px; background: var(--bg-2); border-radius: 8px; border: 1px solid var(--bg-4);">
+            <div style="font-size: 14px; font-weight: 700; margin-bottom: 8px; color: var(--fg-0);">点击卡片进入详情（view='page'）：</div>
+            <span class="slot s-list">
+              <span class="slot-kind">list</span>
+              <span class="slot-name">plugins.item[view='page']</span>
+            </span>
+            <span class="slot s-keyed" style="margin-left: 8px;">
+              <span class="slot-kind">keyed</span>
+              <span class="slot-name">plugins.bundle.config</span>
+              <span class="slot-meta">entryKey=&lt;bundle 包名&gt;</span>
+            </span>
+            <span class="slot s-keyed" style="margin-left: 8px;">
+              <span class="slot-kind">keyed</span>
+              <span class="slot-name">plugins.row.config</span>
+              <span class="slot-meta">entryKey=&lt;pkg&gt;#&lt;rowId&gt;</span>
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="rightbar-col">
+      <div style="padding: 14px; color: var(--fg-3); font-size: 12px; border-bottom: 1px solid var(--bg-4);">← rightbar</div>
+      <div style="flex: 1; padding: 16px;" class="placeholder">Plugins 面板下右栏不显示（RightbarRoot 只在 conversation 模式挂载）</div>
+    </div>
+  </div>
+</section>
+
+
+<!-- =========================================================== -->
+<!-- 视图 4：Settings 模态                                              -->
+<!-- =========================================================== -->
+<section class="view" id="view-settings">
+  <h2 class="view-title">4 · Settings 模态面板</h2>
+  <p class="view-sub">
+    点击 <code>sidebar.settings</code> 触发。模态本身由 <code>ui-settings-general/SettingsRoot</code> 渲染；
+    内部声明 10 个槽位（见下方标注）。
+  </p>
+
+  <div style="background: var(--bg-1); border: 1px solid var(--bg-4); border-radius: 12px; min-height: 720px; position: relative; padding: 24px; box-shadow: var(--shadow-md);">
+    <div style="font-size: 13px; color: var(--fg-2); margin-bottom: 12px;">
+      （底层主界面被模态盖住，简化显示 ↓）
+    </div>
+
+    <span class="slot s-single" style="position: absolute; left: 30px; bottom: 30px; width: 200px;">
+      <span class="slot-kind">single</span>
+      <span class="slot-name">sidebar.settings</span>
+      <span class="slot-meta">root · 侧栏底触发器</span>
+    </span>
+    <div style="position: absolute; left: 30px; bottom: 8px; padding: 8px 12px; background: var(--bg-1); border: 1px solid var(--bg-4); border-radius: 6px; width: 200px; box-shadow: var(--shadow-sm);">
+      ⚙ Settings
+    </div>
+
+    <div class="settings-modal" style="margin: 30px auto;">
+      <div class="settings-nav">
+        <span class="slot s-single" style="margin: 0 0 12px;">
+          <span class="slot-kind">single</span>
+          <span class="slot-name">settings.header</span>
+          <span class="slot-meta">root · 模态标题</span>
+        </span>
+        <div class="nav-title">Settings</div>
+
+        <span class="slot s-list" style="margin: 0;">
+          <span class="slot-kind">list</span>
+          <span class="slot-name">settings.section</span>
+          <span class="slot-meta">root · 按 only={active} 过滤</span>
+        </span>
+        <div class="nav-cell active">
+          <div class="glyph">🌐</div><span>General</span>
+        </div>
+        <div class="nav-cell">
+          <div class="glyph">🧠</div><span>Models</span>
+        </div>
+        <div class="nav-cell">
+          <div class="glyph">🧩</div><span>Plugins</span>
+        </div>
+        <div class="nav-cell">
+          <div class="glyph">🤖</div><span>Agent Preset</span>
+        </div>
+        <div class="nav-cell">
+          <div class="glyph">📦</div><span>Unarchive Sessions</span>
+        </div>
+      </div>
+
+      <div class="settings-content">
+        <div class="settings-content-header">
+          <h3>General</h3>
+          <span class="slot s-list">
+            <span class="slot-kind">list</span>
+            <span class="slot-name" style="font-size: 9.5px;">settings.action</span>
+          </span>
+          <div class="actions">
+            <div class="action">Reset</div>
+          </div>
+          <span class="slot s-single" style="margin: 0;">
+            <span class="slot-kind">single</span>
+            <span class="slot-name" style="font-size: 9.5px;">settings.close</span>
+          </span>
+          <div class="close">✕</div>
+        </div>
+
+        <div class="settings-content-body">
+          <span class="slot s-list" style="margin: 0 0 10px;">
+            <span class="slot-kind">list</span>
+            <span class="slot-name">settings.general.item</span>
+            <span class="slot-meta">
+              root · id='locale' / 'theme' (×2) / 'composer-enter' / 'permission-presets' / 'models-extras'
+            </span>
+          </span>
+
+          <div class="settings-row">
+            <div class="label">Language<div class="sub">id='locale' → client/locale</div></div>
+            <div class="control">English ▾</div>
+          </div>
+          <div class="settings-row">
+            <div class="label">Theme<div class="sub">id='theme' → ui-theme（注册 light/dark 两行）</div></div>
+            <div class="control">Dark ▾</div>
+          </div>
+          <div class="settings-row">
+            <div class="label">Composer Enter Behavior<div class="sub">id='composer-enter' → ui-conversation</div></div>
+            <div class="control">Send ↵</div>
+          </div>
+          <div class="settings-row">
+            <div class="label">Permission Presets<div class="sub">id='permission-presets' → ui-permission-presets</div></div>
+            <div class="control">Standard ▾</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="position: absolute; top: 90px; right: 60px; width: 280px; background: var(--bg-2); border: 1px solid var(--bg-4); border-radius: 8px; padding: 12px;">
+        <div style="font-size: 11px; color: var(--s-keyed-tag); margin-bottom: 4px; font-weight: 600;">
+          ⓘ Models Section 内部（id='models' → ui-settings-models/ModelsSection）
+        </div>
+        <span class="slot s-keyed" style="margin: 4px 0;">
+          <span class="slot-kind">keyed</span>
+          <span class="slot-name" style="font-size: 10.5px;">settings.models.provider-card</span>
+        </span>
+        <span class="slot s-list" style="margin: 4px 0;">
+          <span class="slot-kind">list</span>
+          <span class="slot-name" style="font-size: 10.5px;">settings.models.footer</span>
+        </span>
+      </div>
+    </div>
+
+    <div class="onboarding">
+      <span class="slot s-list">
+        <span class="slot-kind">list</span>
+        <span class="slot-name">settings.onboarding</span>
+        <span class="slot-meta">
+          root · id='welcome-notice' (order=-100) / 'deepseek-official' (order=0) →
+          ui-settings-models
+        </span>
+      </span>
+      <div class="o-title" style="margin-top: 8px;">👋 Welcome to DeepSeek Harness</div>
+      <div class="o-body">
+        Configure your first model provider to start chatting.
+        You can always come back to this from Settings → Models.
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- =========================================================== -->
+<!-- 视图 5：Sidebar Chat（subagent）                                    -->
+<!-- =========================================================== -->
+<section class="view" id="view-subagent">
+  <h2 class="view-title">5 · Sidebar Chat（subagent 聊天，<code>sidebar.chat.conversation</code>）</h2>
+  <p class="view-sub">
+    在右栏打开 <code>key='subagentchat'</code> 的 tab 时，
+    <code>ui-subagent</code> 在该 tab 内挂载一个独立的 <code>conversation.content</code> 子树：
+    <code>sidebar.chat.conversation</code>（single/session）。
+  </p>
+
+  <div class="appframe">
+    <div class="sidebar-col">
+      <div style="padding: 14px; color: var(--fg-3); font-size: 12px; border-bottom: 1px solid var(--bg-4);">← sidebar</div>
+      <div style="flex: 1; padding: 16px;" class="placeholder">侧栏同前</div>
+    </div>
+
+    <div class="main-col">
+      <div class="conv-header" style="grid-template-columns: 32px 1fr 32px;">
+        <div class="leading"></div>
+        <div class="crumbs">
+          <button class="crumb">main</button>
+          <span class="crumb-sep">/</span>
+          <button class="crumb current">Research subagent</button>
+        </div>
+        <div class="header-corner">⊏</div>
+      </div>
+
+      <div class="conv-body">
+        <div class="msg user">Research the latest TypeScript ORM trends.</div>
+        <div class="msg assistant">
+          I'll research this in the background and ping you when done.<br/>
+          (子会话由 subagent 异步处理)
+        </div>
+        <div class="msg tool">
+          <div class="toolhead">🤖 subagent dispatched → <code style="color:var(--accent)">sidebar.chat.conversation</code></div>
+        </div>
+      </div>
+
+      <div class="composer-seat">
+        <div class="composer-input">
+          <div class="input-area">Type a message…</div>
+          <div class="composer-toolrow">
+            <div class="composer-tool">📎</div>
+            <div class="composer-tool">🔓 Auto</div>
+            <div class="composer-tool">🧠 DeepSeek V3</div>
+            <div class="composer-tool primary">Send ↵</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="rightbar-col">
+      <div style="padding: 14px; color: var(--fg-3); font-size: 12px; border-bottom: 1px solid var(--bg-4);">← rightbar</div>
+
+      <div style="flex: 1; display: flex; flex-direction: column; padding: 8px;">
+        <div class="rb-tabs">
+          <div class="rb-tab">Guide</div>
+          <div class="rb-tab">Files</div>
+          <div class="rb-tab active">Subagent Chat</div>
+        </div>
+
+        <span class="slot s-keyed" style="margin: 8px 0;">
+          <span class="slot-kind">keyed</span>
+          <span class="slot-name">sidebar.right.pane.tab</span>
+          <span class="slot-meta">key='subagentchat' → ui-subagent</span>
+        </span>
+
+        <span class="slot s-single" style="margin: 0 0 8px;">
+          <span class="slot-kind">single</span>
+          <span class="slot-name">sidebar.chat.conversation</span>
+          <span class="slot-meta">session · ui-subagent/SubagentChatConversation</span>
+        </span>
+
+        <div style="background: var(--bg-2); border: 1px solid var(--bg-4); border-radius: 8px; padding: 10px; flex: 1;">
+          <div style="font-size: 11px; color: var(--fg-2); margin-bottom: 6px;">subagent chat · 子视图</div>
+          <div class="msg tool" style="margin-bottom: 6px;">
+            <div class="toolhead">🌐 web_search</div>
+            TypeScript ORM comparison 2026
+          </div>
+          <div class="msg tool" style="margin-bottom: 6px;">
+            <div class="toolhead">🌐 web_fetch</div>
+            prisma.io/docs/latest
+          </div>
+          <div class="msg assistant" style="font-size: 12px;">
+            Found 3 leading ORMs: Drizzle, Prisma, Kysely…
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- =========================================================== -->
+<script>
+  const tabs = document.querySelectorAll('#tabs .tab');
+  const views = document.querySelectorAll('.view');
+  tabs.forEach(t => {
+    t.addEventListener('click', () => {
+      tabs.forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+      const id = 'view-' + t.dataset.view;
+      views.forEach(v => v.classList.toggle('active', v.id === id));
+    });
+  });
+
+  // 视图 2 ↔ 2b 切换按钮
+  document.querySelector('#view-conv .view-sub').appendChild(
+    Object.assign(document.createElement('button'), {
+      className: 'tab',
+      textContent: '↩ Switch to Hero',
+      style: 'margin-left:8px;',
+      onclick: () => {
+        document.querySelectorAll('#tabs .tab').forEach(x => x.classList.remove('active'));
+        document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+        document.getElementById('view-conv-hero').classList.add('active');
+      }
+    })
+  );
+  document.querySelector('#view-conv-hero .view-sub').appendChild(
+    Object.assign(document.createElement('button'), {
+      className: 'tab',
+      textContent: '↩ Switch to Active',
+      style: 'margin-left:8px;',
+      onclick: () => {
+        document.querySelectorAll('#tabs .tab').forEach(x => x.classList.remove('active'));
+        document.querySelector('[data-view="conv"]').classList.add('active');
+        document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+        document.getElementById('view-conv').classList.add('active');
+      }
+    })
+  );
+</script>
+
+</body>
+</html>
