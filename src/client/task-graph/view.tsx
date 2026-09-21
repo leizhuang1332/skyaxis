@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useSyncExternalStore } from 'react'
 import type { JSX } from 'react'
 import {
   ReactFlow,
@@ -16,33 +16,38 @@ import {
 import reactFlowCss from '@xyflow/react/dist/style.css?inline'
 import { layoutTaskGraph } from './layout.js'
 import type { TaskNode, TaskEdge } from './types.js'
+import type { TaskGraphStore } from './store.js'
 
 /**
- * 种子数据 — ADR §5.1 最小集合：root + 2 step + 1 subagent。
- * v0.1 后续迭代从 trajectory 推断出真实任务树时，此 seed 由数据源替换。
+ * Slot entry: `conversation.view` 在 DSH 会话视图内渲染此组件。
+ * 外层仅做 Provider 包装，把 hooks 留给内部画布组件使用。
+ * `store` 由 register.ts 在 apply 阶段创建并通过 props 注入（plan 决策 1：
+ * 不走 store seat，实例跟随 register 的 disposer）。
  */
-const seed: { nodes: TaskNode[]; edges: TaskEdge[] } = {
-  nodes: [
-    { id: 'root', type: 'root',     position: { x: 0, y: 0 }, data: { label: 'Session root',         status: 'running' } },
-    { id: 's1',   type: 'step',     position: { x: 0, y: 0 }, data: { label: 'Step 1: read file',    status: 'done' } },
-    { id: 's2',   type: 'step',     position: { x: 0, y: 0 }, data: { label: 'Step 2: refactor',     status: 'running' } },
-    { id: 'sa',   type: 'subagent', position: { x: 0, y: 0 }, data: { label: 'Subagent: search',     status: 'pending' } },
-  ],
-  edges: [
-    { id: 'e-r-1', source: 'root', target: 's1' },
-    { id: 'e-r-2', source: 'root', target: 's2' },
-    { id: 'e-r-a', source: 'root', target: 'sa' },
-  ],
+interface TaskGraphViewProps {
+  store: TaskGraphStore
+}
+
+export function TaskGraphView({ store }: TaskGraphViewProps): JSX.Element {
+  return (
+    <ReactFlowProvider>
+      <TaskGraphBoard store={store} />
+    </ReactFlowProvider>
+  )
 }
 
 /**
  * 实际画布组件，必须包在 <ReactFlowProvider> 内才能用 useReactFlow。
+ *
+ * 数据流：`store`（connector 写入）→ `useSyncExternalStore` → `layoutTaskGraph`
+ * → React Flow 受控 nodes/edges。
  */
-function TaskGraphBoard(): JSX.Element {
-  const initial = useMemo(() => layoutTaskGraph(seed.nodes, seed.edges, 'TB'), [])
-  const [nodes, , onNodesChange] = useNodesState<TaskNode>(initial.nodes)
-  const [edges, , onEdgesChange] = useEdgesState<TaskEdge>(initial.edges)
-  const { fitView } = useReactFlow()
+function TaskGraphBoard({ store }: TaskGraphViewProps): JSX.Element {
+  const { sessionId, nodes: inferredNodes, edges: inferredEdges, loading } =
+    useSyncExternalStore(
+      (l) => store.subscribe(l),
+      () => store.getSnapshot(),
+    )
 
   // DSH web 的 plugin loader 只扫 `*.module.css`，对 `@tsdown/css` 抽出来的
   // `lib/style.css` 不做注入。React Flow 的样式不进 `<head>` 就全是浏览器默认
@@ -60,12 +65,77 @@ function TaskGraphBoard(): JSX.Element {
     }
   }, [])
 
+  const laidOut = useMemo(() => {
+    if (inferredNodes.length === 0) return null
+    return layoutTaskGraph(inferredNodes, inferredEdges, 'TB')
+  }, [inferredNodes, inferredEdges])
+
+  const [nodes, setNodes, onNodesChange] = useNodesState<TaskNode>([])
+  const [edges, setEdges, onEdgesChange] = useEdgesState<TaskEdge>([])
+
+  // 推断结果变化时同步到 React Flow 的内部 state（用户拖动后会被新数据覆盖——
+  // 数据源是真相，拖动只是视图层临时位移；新事件到来意味着布局整体更新）。
+  useEffect(() => {
+    if (laidOut) {
+      setNodes(laidOut.nodes)
+      setEdges(laidOut.edges)
+    } else {
+      setNodes([])
+      setEdges([])
+    }
+  }, [laidOut, setNodes, setEdges])
+
+  const { fitView } = useReactFlow()
+
   // research §2.4：fitView 前包一层 rAF，等 React Flow 量完新坐标再 fit，
-  // 否则 fitView 取到旧 bbox，首屏定位会偏。
+  // 否则 fitView 取到旧 bbox，首屏定位会偏。依赖 laidOut 让"新 session 进
+  // 数据"也触发一次 fitView。
   useEffect(() => {
     const id = window.requestAnimationFrame(() => fitView())
     return () => window.cancelAnimationFrame(id)
-  }, [fitView])
+  }, [fitView, laidOut])
+
+  // 无 selection：empty placeholder（fallback 路径）。
+  if (!sessionId) {
+    return (
+      <div
+        role="region"
+        aria-label="任务图"
+        style={{
+          width: '100%',
+          height: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          opacity: 0.6,
+          fontSize: 14,
+        }}
+      >
+        暂无选中的 session — 请在左侧打开一个会话。
+      </div>
+    )
+  }
+
+  // binding 还没 mint：list → scope 之间的过渡帧。
+  if (loading) {
+    return (
+      <div
+        role="region"
+        aria-label="任务图"
+        style={{
+          width: '100%',
+          height: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          opacity: 0.6,
+          fontSize: 14,
+        }}
+      >
+        加载中…
+      </div>
+    )
+  }
 
   return (
     <div
@@ -85,17 +155,5 @@ function TaskGraphBoard(): JSX.Element {
         <MiniMap />
       </ReactFlow>
     </div>
-  )
-}
-
-/**
- * Slot entry: `conversation.view` 在 DSH 会话视图内渲染此组件。
- * 外层仅做 Provider 包装，把 hooks 留给内部画布组件使用。
- */
-export function TaskGraphView(): JSX.Element {
-  return (
-    <ReactFlowProvider>
-      <TaskGraphBoard />
-    </ReactFlowProvider>
   )
 }

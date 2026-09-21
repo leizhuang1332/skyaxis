@@ -31,9 +31,17 @@
  * this cordis-level declaration.
  */
 import type { Context } from '@deepseek-ai/cordis'
-import { registerTaskGraphView } from './task-graph/register.js'
+import { registerTaskGraphView } from './task-graph/register.jsx'
 
-export const inject: readonly string[] = ['locale', 'slots']
+/**
+ * Inject list — cordis reflect 层会在 apply 阶段校验 ctx 属性读取是否在 inject 列表里。
+ *  - `locale`  — 由 `@deepseek-ai/dsh-client-locale` install，提供 `LocaleRuntime`
+ *  - `slots`  — 由 `@deepseek-ai/dsh-client-ui-renderer` install，提供 `SlotRegistry`
+ *  - `sessions` — 由 `@deepseek-ai/dsh-api-session-controller` install，提供 `ISessions`；
+ *                task-graph connector 用 `ctx.sessions.list` + `binding(id).eventSource`
+ *                拉真实 session 事件窗口（research/0002 §3.2 出路 A）。
+ */
+export const inject: readonly string[] = ['locale', 'slots', 'sessions']
 
 export function apply(ctx: Context): () => void {
   return registerTaskGraphView(ctx)

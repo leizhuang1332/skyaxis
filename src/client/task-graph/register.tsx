@@ -10,6 +10,7 @@
  *   - locale : TASK_GRAPH_LOCALE_NS / "view.taskGraph"
  */
 import type { Context } from '@deepseek-ai/cordis'
+import type { ReactNode } from 'react'
 // Side-effect imports: both /client entries contain `declare module
 // '@deepseek-ai/cordis'` blocks that add `locale: LocaleRuntime` and
 // `slots: SlotRegistry` to the host `Context` interface. Without these, the
@@ -21,6 +22,8 @@ import {
   registerTaskGraphDictionaries,
 } from './dictionary.js'
 import { TaskGraphView } from './view.js'
+import { createTaskGraphStore } from './store.js'
+import { startTaskGraphConnector } from './connector.js'
 
 /** Stable entry id used as the persisted selection key in ConversationStoreState.view. */
 export const TASK_GRAPH_VIEW_ID = 'task-graph'
@@ -32,6 +35,16 @@ export function registerTaskGraphView(ctx: Context): () => void {
   registerTaskGraphDictionaries(ctx)
   const t = ctx.locale.bind(TASK_GRAPH_LOCALE_NS)
 
+  // plan 决策 1：store / connector 跟随 apply 的 disposer 一起销毁；
+  // 不走 store seat（v0.1 demo 不需要跨 slot 共享，scope 协议代价不值）。
+  const store = createTaskGraphStore()
+  const stopConnector = startTaskGraphConnector(ctx, store)
+
+  // 直接传组件函数，store 通过 prop 注入。SlotComponent<P> = (props: P) => ReactNode
+  // 要求 props 类型对齐 ComposedProps；TaskGraphView 自己的 props 是 { store }，多余
+  // 字段（标准 kit 注入的 useStore / actions 等）会被丢弃——此 entry 不消费它们。
+  const Component = (): ReactNode => <TaskGraphView store={store} />
+
   const dispose = ctx.slots.inject('conversation.view', () =>
     ctx.slots.register(
       {
@@ -41,12 +54,13 @@ export function registerTaskGraphView(ctx: Context): () => void {
         locale: TASK_GRAPH_LOCALE_NS,
         label: () => t('view.taskGraph'),
       },
-      TaskGraphView,
+      Component,
     ),
   )
 
   return () => {
     dispose()
+    stopConnector()
   }
 }
 
