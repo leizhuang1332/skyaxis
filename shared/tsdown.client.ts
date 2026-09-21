@@ -33,6 +33,19 @@ const PLATFORM_MODULES: readonly string[] = [
   '@deepseek-ai/dsh-workspace',
   '@deepseek-ai/dsh-settings',
   '@deepseek-ai/dsh-system-prompt',
+  // React identity shared with the host web shell via the frozen module
+  // table. The host's `dsh-client-ui-renderer` factory head
+  // (node_modules/@deepseek-ai/dsh-client-ui-renderer/lib/client.js)
+  // requires these four specifiers verbatim — proof the host answers
+  // them. Bundling a second copy inlines a private React whose
+  // ReactCurrentDispatcher.current is null when the host renders any
+  // plugin slot (e.g. `conversation.view`), surfacing as
+  // "Cannot read properties of null (reading 'useState')". @xyflow/*
+  // and friends stay inlined (they never cross a slot boundary).
+  'react',
+  'react-dom',
+  'react-dom/client',
+  'react/jsx-runtime',
 ]
 
 /**

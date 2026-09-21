@@ -167,6 +167,8 @@ window.requestAnimationFrame(() => fitView())   // 包一层 rAF：等 React Flo
 
 DSH 的 `shared/tsdown.client.ts` 默认 `noExternal` 全 inline（除 module table 条目），`@xyflow/react` 与 `@dagrejs/dagre` 不在 `CLIENT_EXTERNALS` 中，会自动 inline。`lib/client.js` 从当前 ~25KB 膨胀到 ~300-400KB 区间，DSH web 可接受（DSH 自身已在加载十几个 `@deepseek-ai/*` 模块）。
 
+注：`react` / `react-dom` / `react-dom/client` / `react/jsx-runtime` 列入 `CLIENT_EXTERNALS`（与宿主共享 React identity —— 不 inline，否则宿主渲染 slot 时插件的 ReactCurrentDispatcher 是 null，`useState` 抛 `Cannot read properties of null`）。`scheduler` 仍 inline（react-dom 内部实现细节）。
+
 需要同步在 `tsdown.config.ts` 的 `libExternal` 列表显式声明（host 端不需这两个包，保持显式以便审计）。
 
 ---

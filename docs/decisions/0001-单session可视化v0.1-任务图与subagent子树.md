@@ -141,6 +141,8 @@ v0.1 任务图与 subagent 子树的画布渲染采用：
 
 DSH 的 `shared/tsdown.client.ts` 默认 `noExternal` 全 inline（除 module table 条目），`@xyflow/react` 与 `@dagrejs/dagre` 不在 `CLIENT_EXTERNALS` 中，会自动 inline。`lib/client.js` 从当前 ~25KB 膨胀到 ~300-400KB 区间，DSH web 可接受（DSH 自身已在加载十几个 `@deepseek-ai/*` 模块）。
 
+注：`react` / `react-dom` / `react-dom/client` / `react/jsx-runtime` 也在 `CLIENT_EXTERNALS`（与宿主共享 dispatcher 与 jsx runtime identity，**不** inline；否则插件 ReactCurrentDispatcher 与宿主 React 实例脱钩，宿主渲染 slot 时 `useState` 命中 null —— 见 [`shared/tsdown.client.ts`](../../shared/tsdown.client.ts) `PLATFORM_MODULES` 与宿主 renderer 同一组 require）。`scheduler` 仍 inline（`react-dom` 内部实现细节，无跨模块身份）。
+
 ### 4.5 关键依赖
 
 新增到 `package.json`：
