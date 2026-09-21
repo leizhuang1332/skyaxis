@@ -1,0 +1,1797 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>deepseek-harness Web UI · Slot 原型</title>
+<style>
+/* ============================================================
+   Design tokens（对齐 dsh-web-frontend/dist/index.css）
+   ============================================================ */
+:root {
+  --bg-base:        #ffffff;
+  --bg-surface:     #f7f8fa;
+  --bg-surface-2:   #f1f2f5;
+  --bg-elev:        #ffffff;
+  --label-primary:  #0f1115;
+  --label-secondary:#61666b;
+  --label-tertiary: #81858c;
+  --border-l1:      rgba(0,0,0,.06);
+  --border-l2:      rgba(0,0,0,.10);
+  --border-l3:      rgba(0,0,0,.14);
+  --interactive-bg: #f1f2f5;
+  --interactive-bg-hover:#e8eaee;
+  --brand:          #0f1115;
+  --accent:         #4d6bff;
+  --accent-soft:    #e6ecff;
+  --ok:             #18a957;
+  --warn:           #e18a00;
+  --danger:         #d63a3a;
+
+  /* Slot 标注配色 */
+  --slot-single:    #4d6bff;
+  --slot-list:      #18a957;
+  --slot-keyed:     #8b5cf6;
+  --slot-chain:     #e18a00;
+
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.04);
+  --shadow-md: 0 6px 16px rgba(15,17,21,.06), 0 1px 2px rgba(15,17,21,.04);
+  --shadow-lg: 0 12px 32px rgba(15,17,21,.10), 0 2px 6px rgba(15,17,21,.05);
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+               "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Fira Code",
+               Consolas, "PingFang SC", "Microsoft YaHei", monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; height: 100%; font-family: var(--font-sans); color: var(--label-primary); background: var(--bg-base); font-size: 14px; line-height: 22px; -webkit-font-smoothing: antialiased; }
+button { font-family: inherit; cursor: pointer; }
+
+/* ============================================================
+   浏览器外壳
+   ============================================================ */
+.window {
+  position: fixed; inset: 0;
+  display: grid; grid-template-rows: 36px 1fr 28px;
+  background: var(--bg-base);
+}
+.titlebar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 0 16px;
+  background: linear-gradient(180deg, #fafbfc, #f4f5f7);
+  border-bottom: 1px solid var(--border-l2);
+  -webkit-app-region: drag;
+}
+.titlebar .dots { display: flex; gap: 8px; }
+.titlebar .dot { width: 12px; height: 12px; border-radius: 50%; box-shadow: inset 0 0 0 0.5px rgba(0,0,0,.15); }
+.titlebar .dot.r { background: #ff5f57; }
+.titlebar .dot.y { background: #febc2e; }
+.titlebar .dot.g { background: #28c840; }
+.titlebar .title { font-size: 12px; color: var(--label-secondary); flex: 1; text-align: center; letter-spacing: .02em; }
+.titlebar .url { font-size: 11px; color: var(--label-tertiary); padding: 3px 10px; border-radius: 6px; background: var(--bg-base); border: 1px solid var(--border-l1); }
+.statusbar {
+  display: flex; align-items: center; gap: 12px; padding: 0 16px;
+  font-size: 11px; color: var(--label-tertiary);
+  border-top: 1px solid var(--border-l2);
+  background: #fafbfc;
+}
+.statusbar .legend { display: flex; gap: 14px; margin-left: auto; }
+.statusbar .legend span { display: inline-flex; align-items: center; gap: 6px; }
+
+/* ============================================================
+   Slot 标注（dashed 边框 + 角标徽章）
+   ============================================================ */
+.slot {
+  position: relative;
+  border: 1.5px dashed transparent;
+  border-radius: var(--radius-md);
+  transition: background .15s, border-color .15s, box-shadow .15s;
+}
+.slot.kind-single { border-color: rgba(77,107,255,.30); background: rgba(77,107,255,.025); }
+.slot.kind-list   { border-color: rgba(24,169,87,.30);  background: rgba(24,169,87,.025); }
+.slot.kind-keyed  { border-color: rgba(139,92,246,.32); background: rgba(139,92,246,.025); }
+.slot.kind-chain  { border-color: rgba(225,138,0,.32);  background: rgba(225,138,0,.025); }
+.slot:hover { box-shadow: var(--shadow-md); }
+.slot.kind-single:hover { border-color: var(--slot-single); background: rgba(77,107,255,.06); }
+.slot.kind-list:hover   { border-color: var(--slot-list);   background: rgba(24,169,87,.06); }
+.slot.kind-keyed:hover  { border-color: var(--slot-keyed);  background: rgba(139,92,246,.07); }
+.slot.kind-chain:hover  { border-color: var(--slot-chain);  background: rgba(225,138,0,.07); }
+
+.slot-badge {
+  position: absolute; top: -10px; left: 10px;
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 8px;
+  font-family: var(--font-mono);
+  font-size: 10.5px; line-height: 16px; letter-spacing: .01em;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0,0,0,.06), 0 0 0 1px rgba(0,0,0,.06);
+  white-space: nowrap;
+  z-index: 2;
+}
+.slot-badge .name { font-weight: 600; }
+.slot-badge .kind { padding: 1px 5px; border-radius: 999px; font-size: 9.5px; color: #fff; letter-spacing: .04em; }
+.slot.kind-single .kind { background: var(--slot-single); }
+.slot.kind-list   .kind { background: var(--slot-list); }
+.slot.kind-keyed  .kind { background: var(--slot-keyed); }
+.slot.kind-chain  .kind { background: var(--slot-chain); }
+.slot-badge .scope { color: var(--label-tertiary); font-size: 9.5px; }
+
+/* 让嵌套 slot 的角标不重叠：错位 */
+.slot > .slot-badge { left: 10px; }
+.slot > .slot > .slot-badge { left: 18px; }
+.slot > .slot > .slot > .slot-badge { left: 26px; }
+
+/* ============================================================
+   AppFrame 主网格
+   ============================================================ */
+.app {
+  position: relative;
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr) 320px;
+  height: 100%;
+  background: var(--bg-base);
+}
+
+/* 左侧栏 */
+.sidebar {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  gap: 8px;
+  padding: 12px 8px 8px 12px;
+  background: var(--bg-base);
+  border-right: 1px solid var(--border-l1);
+  min-width: 0;
+}
+.logo-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 6px;
+}
+.logo-row .brand {
+  display: flex; align-items: center; gap: 8px;
+  flex: 1;
+  border-radius: 8px;
+  padding: 4px 6px;
+}
+.logo-row .brand:hover { background: var(--interactive-bg); }
+.logo-row .toggle {
+  width: 28px; height: 28px;
+  display: grid; place-items: center;
+  background: transparent; border: none;
+  border-radius: 6px;
+  color: var(--label-secondary);
+}
+.logo-row .toggle:hover { background: var(--interactive-bg-hover); color: var(--label-primary); }
+
+.new-chat {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  background: transparent; border: 1px solid var(--border-l2);
+  border-radius: 8px;
+  color: var(--label-primary);
+  font-size: 13px;
+}
+.new-chat:hover { background: var(--interactive-bg); }
+
+.panel-list { display: grid; gap: 4px; padding: 4px 0; }
+.panel-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px;
+  border: none; background: transparent;
+  border-radius: 8px;
+  color: var(--label-secondary);
+  font-size: 13px; text-align: left;
+}
+.panel-row .glyph {
+  width: 22px; height: 22px;
+  display: grid; place-items: center;
+  color: var(--label-secondary);
+}
+.panel-row:hover { background: var(--interactive-bg); color: var(--label-primary); }
+.panel-row.active { background: var(--accent-soft); color: var(--accent); }
+.panel-row.active .glyph { color: var(--accent); }
+
+.region-area { padding-top: 4px; }
+.workspaces {
+  border: 1px solid var(--border-l1);
+  border-radius: 10px;
+  padding: 8px;
+  background: var(--bg-surface);
+  display: grid; gap: 6px;
+}
+.ws-row { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 6px; }
+.ws-row:hover { background: var(--interactive-bg); }
+.ws-row .ico { width: 16px; height: 16px; color: var(--label-secondary); }
+.ws-row .label { font-size: 12.5px; color: var(--label-primary); }
+
+.foot-area {
+  display: grid; gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-l1);
+}
+.footer-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+.iconbtn {
+  width: 32px; height: 32px;
+  display: grid; place-items: center;
+  border: none; background: transparent;
+  border-radius: 8px;
+  color: var(--label-secondary);
+}
+.iconbtn:hover { background: var(--interactive-bg-hover); color: var(--label-primary); }
+.iconbtn .badge-num {
+  position: absolute; transform: translate(8px,-8px);
+  font-size: 10px; color: #fff; background: var(--accent);
+  border-radius: 999px; padding: 0 5px;
+}
+
+/* 中部主区 */
+.main {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-width: 0;
+  background: var(--bg-base);
+}
+
+.session-header {
+  display: flex; align-items: center; gap: 12px;
+  min-height: 64px;
+  padding: 12px 24px;
+  border-bottom: .5px solid var(--border-l2);
+}
+.session-header .title-cluster { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.crumb {
+  font-size: 14px; color: var(--label-tertiary);
+  padding: 4px 8px; border-radius: 8px;
+  background: transparent; border: none;
+  max-width: 220px;
+  white-space: nowrap; text-overflow: ellipsis; overflow: hidden;
+}
+.crumb:hover { background: var(--interactive-bg); }
+.crumb.current { color: var(--label-primary); font-weight: 500; }
+.crumb-sep { color: var(--label-tertiary); }
+.subagent-chip {
+  font-size: 12px; padding: 2px 8px; border-radius: 999px;
+  border: 1px solid var(--border-l2); color: var(--label-secondary);
+}
+.header-actions, .header-utilities, .header-corner { display: flex; align-items: center; gap: 4px; }
+.header-utilities { margin-left: 16px; }
+.header-corner { margin-left: 8px; }
+
+.conversation-body {
+  position: relative;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  min-height: 0;
+}
+
+.scroll-body {
+  position: relative;
+  overflow-y: auto;
+  padding: 24px;
+  display: grid;
+  place-items: start center;
+}
+
+/* Hero 区 */
+.hero-shell {
+  margin: auto;
+  display: grid; place-items: center; gap: 18px;
+  width: min(720px, 100%);
+  padding: 24px 0;
+}
+.hero-headline {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 16px 0 8px;
+}
+.hero-fish {
+  display: grid; place-items: center;
+  padding: 4px;
+  border-radius: 12px;
+}
+.hero-title {
+  font-size: 22px; font-weight: 600; letter-spacing: -.01em;
+  color: var(--label-primary);
+  display: flex; align-items: center; gap: 10px;
+}
+.hero-preview-badge {
+  font-size: 11px; font-weight: 500;
+  padding: 2px 8px; border-radius: 999px;
+  background: var(--accent-soft); color: var(--accent);
+}
+.hero-workspace-row {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+}
+.workspace-chip {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 14px;
+  border: 1px solid var(--border-l2);
+  border-radius: 999px;
+  background: var(--bg-base);
+  font-size: 13px; color: var(--label-primary);
+  cursor: pointer;
+}
+.workspace-chip:hover { background: var(--interactive-bg); }
+.composer-stack-hero {
+  display: grid; gap: 12px;
+  width: min(720px, 100%);
+  margin-top: 8px;
+}
+
+/* 输入条（fallback for composer.bar） */
+.composer-card {
+  border: 1px solid var(--border-l2);
+  border-radius: 14px;
+  background: var(--bg-elev);
+  box-shadow: var(--shadow-md);
+  padding: 12px;
+  display: grid; gap: 10px;
+}
+.composer-dock {
+  display: flex; align-items: center; gap: 6px;
+  flex-wrap: wrap;
+}
+.composer-input {
+  display: flex; align-items: flex-end; gap: 8px;
+  min-height: 64px;
+  padding: 8px 4px;
+  border-top: 1px solid var(--border-l1);
+}
+.composer-input textarea {
+  flex: 1; resize: none; border: none; outline: none;
+  font: inherit; background: transparent; color: var(--label-primary);
+  min-height: 48px; padding: 6px 8px;
+}
+.composer-input textarea::placeholder { color: var(--label-tertiary); }
+.composer-bottom {
+  display: flex; align-items: center; gap: 6px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border-l1);
+}
+.composer-bottom .left { display: flex; gap: 4px; flex: 1; }
+.composer-bottom .right { display: flex; gap: 4px; }
+
+.agent-preset {
+  display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;
+}
+.agent-chip {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--border-l2);
+  background: var(--bg-base);
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--label-primary);
+}
+.agent-chip:hover { background: var(--interactive-bg); cursor: pointer; }
+
+/* 右侧栏 */
+.rightbar {
+  border-left: 1px solid var(--border-l1);
+  background: var(--bg-base);
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-width: 0;
+}
+.rightbar-tabs {
+  display: flex; gap: 4px; padding: 8px 8px 0;
+  border-bottom: 1px solid var(--border-l1);
+}
+.rtab {
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 10px;
+  border: none; background: transparent;
+  border-radius: 8px 8px 0 0;
+  font-size: 13px; color: var(--label-secondary);
+}
+.rtab:hover { background: var(--interactive-bg); }
+.rtab.active { color: var(--label-primary); box-shadow: inset 0 -2px 0 var(--accent); }
+.rtab .title-text { font-size: 12px; }
+.rtab .menu-btn {
+  margin-left: 4px;
+  width: 20px; height: 20px;
+  display: grid; place-items: center;
+  border-radius: 4px;
+  color: var(--label-tertiary);
+}
+.rtab .menu-btn:hover { background: var(--interactive-bg); color: var(--label-primary); }
+.rightbar-content {
+  padding: 16px;
+  overflow-y: auto;
+  display: grid; gap: 12px;
+}
+.doc-card {
+  border: 1px solid var(--border-l1);
+  border-radius: 10px;
+  padding: 12px;
+  background: var(--bg-surface);
+  display: grid; gap: 6px;
+  font-size: 13px;
+}
+.doc-card .ico { color: var(--label-secondary); }
+.guide-step {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border-l2);
+  border-radius: 10px;
+  background: var(--bg-surface);
+}
+
+/* shell.overlay 浮层 */
+.overlay-layer {
+  position: absolute; inset: 0;
+  pointer-events: none;
+  z-index: 50;
+}
+.overlay-slot { position: absolute; inset: 0; pointer-events: none; }
+.overlay-placeholder {
+  position: absolute; left: 50%; top: 32px; transform: translateX(-50%);
+  pointer-events: auto;
+  background: #fff;
+  border: 1px dashed var(--slot-list);
+  border-radius: 12px;
+  padding: 8px 14px;
+  font-size: 12px;
+  color: var(--label-secondary);
+  box-shadow: var(--shadow-md);
+}
+
+/* ============================================================
+   设置弹窗
+   ============================================================ */
+.modal-mask {
+  position: fixed; inset: 0;
+  background: rgba(15,17,21,.32);
+  display: grid; place-items: center;
+  z-index: 200;
+  backdrop-filter: blur(2px);
+}
+.settings-modal {
+  width: 880px; height: 600px;
+  background: var(--bg-base);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  display: grid;
+  grid-template-rows: 56px 1fr;
+  overflow: hidden;
+}
+.settings-header {
+  display: flex; align-items: center; gap: 12px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--border-l1);
+}
+.settings-header h2 { margin: 0; font-size: 16px; font-weight: 600; }
+.settings-header .actions { margin-left: auto; display: flex; gap: 6px; }
+.settings-header .close {
+  width: 32px; height: 32px;
+  display: grid; place-items: center;
+  border: none; background: transparent;
+  border-radius: 8px;
+  color: var(--label-secondary);
+}
+.settings-header .close:hover { background: var(--interactive-bg-hover); color: var(--label-primary); }
+.settings-body { display: grid; grid-template-columns: 200px 1fr; min-height: 0; }
+.settings-nav { padding: 12px 8px; border-right: 1px solid var(--border-l1); display: grid; gap: 4px; align-content: start; }
+.settings-nav .item {
+  text-align: left;
+  padding: 8px 12px; border: none; background: transparent;
+  border-radius: 8px; font-size: 13px; color: var(--label-secondary);
+}
+.settings-nav .item:hover { background: var(--interactive-bg); }
+.settings-nav .item.active { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+.settings-content { padding: 20px 24px; overflow-y: auto; display: grid; gap: 16px; align-content: start; }
+.settings-content h3 { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
+.settings-item {
+  display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--border-l1); border-radius: 10px;
+}
+.settings-item .label { font-size: 13px; }
+.settings-item .desc { font-size: 12px; color: var(--label-tertiary); }
+.provider-card {
+  display: grid; grid-template-columns: 36px 1fr auto; gap: 12px; align-items: center;
+  padding: 12px 14px;
+  border: 1px solid var(--border-l1); border-radius: 12px;
+}
+.provider-card .logo {
+  width: 36px; height: 36px;
+  border-radius: 8px;
+  display: grid; place-items: center;
+  background: var(--bg-surface);
+  color: var(--label-secondary);
+  font-weight: 600;
+}
+.provider-card .meta { font-size: 12px; color: var(--label-tertiary); }
+
+/* 通用 */
+.muted { color: var(--label-tertiary); }
+.divider { height: 1px; background: var(--border-l1); margin: 6px 0; }
+
+/* 标签图例（在状态栏） */
+.legend-swatch {
+  width: 10px; height: 10px; border-radius: 3px; border: 1px solid;
+  display: inline-block;
+}
+.legend-swatch.single { background: rgba(77,107,255,.12); border-color: var(--slot-single); }
+.legend-swatch.list   { background: rgba(24,169,87,.12);  border-color: var(--slot-list); }
+.legend-swatch.keyed  { background: rgba(139,92,246,.12); border-color: var(--slot-keyed); }
+.legend-swatch.chain  { background: rgba(225,138,0,.12);  border-color: var(--slot-chain); }
+
+/* ============================================================
+   标注模式：隐藏内联角标，用侧边面板 + SVG 引线展示
+   ============================================================ */
+.workspace {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+.app-area {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.app-area .app { flex: 1; min-height: 0; }
+.app-area .overlay-layer { position: absolute; inset: 0; pointer-events: none; }
+
+/* 隐藏原本会互相遮挡的内联角标 */
+body.annotate .slot > .slot-badge { display: none; }
+
+/* 当 slot 被标注选中时，加亮 */
+body.annotate .slot.active { z-index: 4; box-shadow: 0 0 0 2px rgba(214,58,58,.25), var(--shadow-md); }
+body.annotate .slot.active.kind-single { border-color: var(--slot-single) !important; background: rgba(77,107,255,.12); }
+body.annotate .slot.active.kind-list   { border-color: var(--slot-list)   !important; background: rgba(24,169,87,.12); }
+body.annotate .slot.active.kind-keyed  { border-color: var(--slot-keyed)  !important; background: rgba(139,92,246,.12); }
+body.annotate .slot.active.kind-chain  { border-color: var(--slot-chain)  !important; background: rgba(225,138,0,.12); }
+
+/* SVG 引线层（覆盖整个 workspace） */
+.leaders {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+  z-index: 60;
+  overflow: visible;
+}
+.leader-line {
+  fill: none;
+  stroke: #d63a3a;
+  stroke-width: 1.1;
+  stroke-dasharray: 5 3;
+  opacity: 0;
+  transition: opacity .25s, stroke-width .25s;
+}
+.leader-line.visible  { opacity: .78; }
+.leader-line.pinned   { opacity: .92; stroke-dasharray: none; stroke-width: 1.5; }
+.leader-line.kind-single { stroke: #4d6bff; }
+.leader-line.kind-list   { stroke: #18a957; }
+.leader-line.kind-keyed  { stroke: #8b5cf6; }
+.leader-line.kind-chain  { stroke: #e18a00; }
+.leader-dot {
+  fill: #d63a3a;
+  opacity: 0;
+  transition: opacity .25s;
+}
+.leader-dot.visible { opacity: .85; }
+.leader-dot.kind-single { fill: #4d6bff; }
+.leader-dot.kind-list   { fill: #18a957; }
+.leader-dot.kind-keyed  { fill: #8b5cf6; }
+.leader-dot.kind-chain  { fill: #e18a00; }
+
+/* 右侧标注面板 */
+.annotations {
+  background: #fafbfc;
+  border-left: 1px solid var(--border-l2);
+  display: flex; flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.ann-head {
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid var(--border-l1);
+  background: linear-gradient(180deg, #fafbfc, #f4f5f7);
+}
+.ann-head .title {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; font-weight: 600;
+  color: var(--label-secondary);
+  text-transform: uppercase; letter-spacing: .05em;
+  margin-bottom: 8px;
+}
+.ann-head .title svg { color: var(--label-tertiary); }
+.ann-search {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px;
+  background: #fff;
+  border: 1px solid var(--border-l2);
+  border-radius: 8px;
+}
+.ann-search svg { color: var(--label-tertiary); flex-shrink: 0; }
+.ann-search input {
+  flex: 1; min-width: 0;
+  border: none; outline: none; background: transparent;
+  font: inherit; font-size: 12px;
+  color: var(--label-primary);
+}
+.ann-search input::placeholder { color: var(--label-tertiary); }
+.ann-stats {
+  display: flex; gap: 10px; padding: 8px 14px 6px;
+  font-size: 11px; color: var(--label-tertiary);
+  border-bottom: 1px solid var(--border-l1);
+  background: #fafbfc;
+}
+.ann-stats .stat { display: inline-flex; align-items: center; gap: 4px; }
+.ann-stats .swatch { width: 8px; height: 8px; border-radius: 2px; }
+.ann-stats .swatch.single { background: var(--slot-single); }
+.ann-stats .swatch.list   { background: var(--slot-list); }
+.ann-stats .swatch.keyed  { background: var(--slot-keyed); }
+.ann-stats .swatch.chain  { background: var(--slot-chain); }
+
+.ann-body {
+  flex: 1; min-height: 0;
+  overflow-y: auto;
+  padding: 4px 0 12px;
+}
+.ann-group { margin-bottom: 2px; }
+.ann-group-title {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px 6px;
+  font-size: 10.5px; font-weight: 600;
+  color: var(--label-tertiary);
+  text-transform: uppercase; letter-spacing: .06em;
+  cursor: pointer; user-select: none;
+  position: sticky; top: 0;
+  background: #fafbfc;
+  z-index: 1;
+}
+.ann-group-title:hover { color: var(--label-secondary); }
+.ann-group-title .caret {
+  display: inline-block; transition: transform .15s;
+  font-size: 10px;
+}
+.ann-group.collapsed .caret { transform: rotate(-90deg); }
+.ann-group.collapsed .ann-entries { display: none; }
+.ann-group-title .count {
+  background: var(--interactive-bg);
+  padding: 1px 7px; border-radius: 999px;
+  font-size: 10px; font-weight: 500;
+  color: var(--label-secondary);
+}
+
+.ann-entry {
+  display: grid;
+  grid-template-columns: 4px 1fr auto;
+  gap: 8px; align-items: center;
+  padding: 6px 14px 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  transition: background .12s, border-color .12s;
+}
+.ann-entry:hover { background: rgba(77,107,255,.06); }
+.ann-entry.active {
+  background: var(--accent-soft);
+  border-left-color: var(--accent);
+}
+.ann-entry .marker {
+  width: 4px; height: 18px; border-radius: 2px;
+}
+.ann-entry.kind-single .marker { background: var(--slot-single); }
+.ann-entry.kind-list   .marker { background: var(--slot-list); }
+.ann-entry.kind-keyed  .marker { background: var(--slot-keyed); }
+.ann-entry.kind-chain  .marker { background: var(--slot-chain); }
+
+.ann-entry .name-line {
+  display: flex; align-items: baseline; gap: 6px;
+  min-width: 0;
+}
+.ann-entry .name {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--label-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.ann-entry .scope {
+  font-size: 10px;
+  color: var(--label-tertiary);
+  flex-shrink: 0;
+}
+.ann-entry .kind-letter {
+  font-size: 9.5px; font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: #fff;
+  letter-spacing: .04em;
+  flex-shrink: 0;
+}
+.ann-entry.kind-single .kind-letter { background: var(--slot-single); }
+.ann-entry.kind-list   .kind-letter { background: var(--slot-list); }
+.ann-entry.kind-keyed  .kind-letter { background: var(--slot-keyed); }
+.ann-entry.kind-chain  .kind-letter { background: var(--slot-chain); }
+
+/* ============================================================
+   Hover 提示：完整 slot 名（防截断）
+   使用 position: fixed 的全局单例，避免父容器 overflow 裁剪
+   ============================================================ */
+.global-tooltip {
+  position: fixed;
+  z-index: 1000;
+  padding: 7px 11px;
+  background: #0f1115;
+  color: #fff;
+  border-radius: 7px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.22);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .12s ease;
+  display: flex; flex-direction: column; gap: 3px;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 16px;
+  transform: translateX(6px);
+}
+.global-tooltip.visible {
+  opacity: 1;
+  transform: translateX(0);
+  transition: opacity .12s ease, transform .14s ease;
+}
+.global-tooltip::after {
+  content: '';
+  position: absolute;
+  right: -5px; top: 50%;
+  margin-top: -5px;
+  border: 5px solid transparent;
+  border-left-color: #0f1115;
+}
+/* 翻面：tooltip 在 anchor 右侧时，箭头翻到左边 */
+.global-tooltip.flip::after {
+  right: auto;
+  left: -5px;
+  border-left-color: transparent;
+  border-right-color: #0f1115;
+}
+.global-tooltip .gt-name {
+  font-weight: 600;
+  letter-spacing: .01em;
+}
+.global-tooltip .gt-meta {
+  font-size: 10.5px;
+  color: rgba(255,255,255,.62);
+}
+.global-tooltip .gt-key {
+  color: #9bbcff;
+  font-weight: 500;
+}
+
+/* 标注模式开关按钮（在状态栏） */
+.annotate-toggle {
+  border: 1px solid var(--border-l2);
+  background: #fff;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--label-secondary);
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: inherit;
+}
+.annotate-toggle:hover { background: var(--interactive-bg); color: var(--label-primary); }
+.annotate-toggle.on { background: var(--label-primary); color: #fff; border-color: var(--label-primary); }
+.annotate-toggle.on:hover { background: #2a2d33; }
+.annotate-toggle svg { width: 12px; height: 12px; }
+
+/* 模式切换 */
+.mode-switch {
+  position: absolute; top: 12px; right: 12px;
+  z-index: 300;
+  display: flex; gap: 4px;
+  padding: 4px;
+  background: #fff;
+  border: 1px solid var(--border-l2);
+  border-radius: 999px;
+  box-shadow: var(--shadow-sm);
+}
+.mode-switch button {
+  border: none; background: transparent;
+  font-size: 12px; color: var(--label-secondary);
+  padding: 4px 12px;
+  border-radius: 999px;
+}
+.mode-switch button.active { background: var(--label-primary); color: #fff; }
+
+/* 通用 SVG 图标 */
+svg.i { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; display: block; }
+svg.i-lg { width: 22px; height: 22px; }
+svg.i-xl { width: 64px; height: 64px; }
+svg.i-sm { width: 14px; height: 14px; }
+
+/* 小标记角章：标注每个 slot 的位置 + 位置编号 */
+.slot-num {
+  position: absolute; top: -10px; right: 10px;
+  width: 20px; height: 20px;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  background: var(--label-primary); color: #fff;
+  font-size: 11px; font-weight: 600;
+  z-index: 3;
+  box-shadow: 0 0 0 2px #fff;
+}
+</style>
+</head>
+<body>
+
+<!-- 全局悬浮提示（hover 显示完整 slot 名） -->
+<div class="global-tooltip" id="globalTooltip" role="tooltip" aria-hidden="true"></div>
+
+<!-- ============================================================
+     顶部窗口外壳
+     ============================================================ -->
+<div class="window">
+
+  <header class="titlebar">
+    <div class="dots"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span></div>
+    <div class="title">DeepSeek Harness — Slot 原型</div>
+    <div class="url">localhost:3080</div>
+  </header>
+
+  <!-- =================== Workspace (App + Annotations) =================== -->
+  <div class="workspace">
+
+  <!-- =================== AppFrame =================== -->
+  <main class="app-area">
+  <main class="app">
+
+    <!-- ============= 左侧栏：sidebar ============= -->
+    <aside class="sidebar">
+
+      <!-- logoRow -->
+      <div>
+        <div class="slot kind-single" style="margin: 4px 6px 8px;">
+          <span class="slot-badge"><span class="name">sidebar.brand.mark</span><span class="kind">S</span><span class="scope">root</span></span>
+          <div class="logo-row">
+            <div class="slot kind-single" style="flex:1; padding: 4px 0;">
+              <span class="slot-badge" style="left: 18px;"><span class="name">sidebar.brand.name</span><span class="kind">S</span><span class="scope">root</span></span>
+              <div class="brand">
+                <span class="hero-fish">
+                  <!-- 鱼形 LOGO（简化 SVG） -->
+                  <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <ellipse cx="12" cy="12" rx="9" ry="6" fill="#FFB84D"/>
+                    <polygon points="3,12 8,8 8,16" fill="#FFB84D"/>
+                    <circle cx="15" cy="11" r="1.2" fill="#0f1115"/>
+                    <path d="M19 9 q3 1.5 0 6" fill="#FF8E1F"/>
+                  </svg>
+                </span>
+                <span style="font-size:13px;font-weight:600;letter-spacing:.04em">DEEPSEEK</span>
+                <span class="muted" style="font-size:11px">harness</span>
+              </div>
+            </div>
+            <button class="toggle" title="折叠">
+              <svg class="i" viewBox="0 0 24 24"><path d="M3 5h18M3 12h18M3 19h12"/></svg>
+            </button>
+          </div>
+        </div>
+        <button class="new-chat">
+          <svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+          <span>新建会话</span>
+        </button>
+      </div>
+
+      <!-- panellist -->
+      <div class="slot kind-list" style="padding: 6px;">
+        <span class="slot-badge"><span class="name">sidebar.panellist</span><span class="kind">L</span><span class="scope">root</span></span>
+        <nav class="panel-list">
+          <button class="panel-row active">
+            <span class="glyph"><svg class="i" viewBox="0 0 24 24"><path d="M21 12a8 8 0 1 1-3.5-6.6L21 3v6h-6"/></svg></span>
+            <span>Conversation</span>
+          </button>
+          <button class="panel-row">
+            <span class="glyph"><svg class="i" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/><path d="M8 6h8M8 18h8M6 8v8M18 8v8"/></svg></span>
+            <span>Workflow</span>
+          </button>
+          <button class="panel-row">
+            <span class="glyph"><svg class="i" viewBox="0 0 24 24"><path d="M3 7h18v10H3z"/><path d="M3 11h18"/></svg></span>
+            <span>Skills</span>
+          </button>
+          <button class="panel-row">
+            <span class="glyph"><svg class="i" viewBox="0 0 24 24"><path d="M4 4h16v16H4z"/><path d="M4 9h16"/></svg></span>
+            <span>Tasks</span>
+          </button>
+        </nav>
+      </div>
+
+      <!-- workspaces + footer -->
+      <div style="display: grid; grid-template-rows: 1fr auto; gap: 8px; min-height: 0;">
+
+        <div class="region-area slot kind-single" style="padding: 4px;">
+          <span class="slot-badge"><span class="name">sidebar.workspaces</span><span class="kind">S</span><span class="scope">root</span></span>
+          <div class="workspaces" style="margin-top: 6px;">
+            <div style="font-size: 11px; color: var(--label-tertiary); text-transform: uppercase; letter-spacing: .04em; padding: 0 4px;">工作区</div>
+            <div class="ws-row">
+              <svg class="i ico" viewBox="0 0 24 24"><path d="M3 7l9-5 9 5v10l-9 5-9-5z"/></svg>
+              <span class="label">default</span>
+            </div>
+            <div class="ws-row">
+              <svg class="i ico" viewBox="0 0 24 24"><path d="M3 7l9-5 9 5v10l-9 5-9-5z"/></svg>
+              <span class="label">backend</span>
+            </div>
+            <div class="slot kind-single" style="padding: 6px 4px; margin-top: 2px;">
+              <span class="slot-badge" style="left:18px;"><span class="name">sidebar.workspaces.directoryFlow</span><span class="kind">S</span><span class="scope">root</span></span>
+              <button class="iconbtn" style="width:100%; display:flex; gap:6px; justify-content:flex-start; padding: 4px 6px; font-size:12px; color: var(--label-secondary);">
+                <svg class="i" viewBox="0 0 24 24"><path d="M3 7l9-5 9 5v10l-9 5-9-5z"/></svg>
+                打开目录…
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="foot-area">
+          <div class="slot kind-list" style="padding: 4px;">
+            <span class="slot-badge"><span class="name">sidebar.footer.action</span><span class="kind">L</span><span class="scope">root</span></span>
+            <div class="footer-actions">
+              <button class="iconbtn" title="通知"><svg class="i" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 19a2 2 0 0 0 4 0"/></svg><span class="badge-num">3</span></button>
+              <button class="iconbtn" title="主题"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/></svg></button>
+              <button class="iconbtn" title="帮助"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 4.4 1.7c-.7.9-1.9 1.2-1.9 2.8"/><circle cx="12" cy="17" r=".6" fill="currentColor"/></svg></button>
+            </div>
+          </div>
+
+          <div class="slot kind-single" style="padding: 4px;">
+            <span class="slot-badge"><span class="name">sidebar.settings</span><span class="kind">S</span><span class="scope">root</span></span>
+            <button class="new-chat" id="openSettings" style="justify-content:flex-start">
+              <svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8L4.2 7a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h0a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5h0a1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v0a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+              <span>设置</span>
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </aside>
+
+
+    <!-- ============= 中部主区：main → main.conversation ============= -->
+    <section class="main">
+
+      <!-- main 区域顶级 keyed slot -->
+      <div class="slot kind-keyed" style="margin: 0;">
+        <span class="slot-badge"><span class="name">main</span><span class="kind">K</span><span class="scope">root</span><span class="scope">key=conversation</span></span>
+
+        <!-- main.conversation -->
+        <div class="slot kind-single">
+          <span class="slot-badge"><span class="name">main.conversation</span><span class="kind">S</span><span class="scope">root</span></span>
+
+          <!-- Session Header -->
+          <header class="slot kind-single session-header">
+            <span class="slot-badge"><span class="name">conversation.session.header</span><span class="kind">S</span><span class="scope">session</span></span>
+
+            <div class="title-cluster slot kind-single" style="padding: 4px 0;">
+              <span class="slot-badge" style="left:18px"><span class="name">conversation.session.header.lineage</span><span class="kind">S</span><span class="scope">session</span></span>
+              <button class="crumb">Workspace</button>
+              <span class="crumb-sep">/</span>
+              <button class="crumb">/src</button>
+              <span class="crumb-sep">/</span>
+              <button class="crumb current">Refactor auth…</button>
+              <span class="subagent-chip">subagent</span>
+            </div>
+
+            <div class="header-actions slot kind-list" style="padding: 4px 0;">
+              <span class="slot-badge" style="left:18px"><span class="name">.actions</span><span class="kind">L</span><span class="scope">session</span></span>
+              <button class="iconbtn" title="收藏"><svg class="i" viewBox="0 0 24 24"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg></button>
+              <button class="iconbtn" title="分享"><svg class="i" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg></button>
+              <button class="iconbtn" title="重命名"><svg class="i" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 1 1 3 3L7 19l-4 1 1-4z"/></svg></button>
+            </div>
+
+            <div class="header-utilities slot kind-list" style="padding: 4px 0;">
+              <span class="slot-badge" style="left:18px"><span class="name">.utilities</span><span class="kind">L</span><span class="scope">session</span></span>
+              <button class="iconbtn" title="导出"><svg class="i" viewBox="0 0 24 24"><path d="M12 3v12"/><path d="M7 8l5-5 5 5"/><path d="M5 21h14"/></svg></button>
+              <button class="iconbtn" title="计划"><svg class="i" viewBox="0 0 24 24"><path d="M9 11l3 3 8-8"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></button>
+              <button class="iconbtn" title="刷新"><svg class="i" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v6h-6"/></svg></button>
+            </div>
+
+            <div class="header-corner slot kind-single" style="padding: 4px 0;">
+              <span class="slot-badge" style="left:18px"><span class="name">.corner</span><span class="kind">S</span><span class="scope">session</span></span>
+              <button class="iconbtn" title="侧栏"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg></button>
+            </div>
+          </header>
+
+          <!-- 对话主体 -->
+          <div class="conversation-body">
+
+            <div class="scroll-body slot kind-single">
+              <span class="slot-badge"><span class="name">conversation.session</span><span class="kind">S</span><span class="scope">session</span></span>
+
+              <!-- 这里展示 Hero 状态（无 session 时） -->
+              <div class="slot kind-list" style="padding: 20px; width: min(720px, 100%);">
+                <span class="slot-badge"><span class="name">conversation.view</span><span class="kind">L</span><span class="scope">session</span><span class="scope">key=chat</span></span>
+
+                <!-- HeroShell -->
+                <div class="hero-shell">
+
+                  <div class="slot kind-single">
+                    <span class="slot-badge"><span class="name">conversation.hero.brand.mark</span><span class="kind">S</span><span class="scope">root</span></span>
+                    <div class="hero-headline">
+                      <div class="hero-fish" style="background: rgba(255,184,77,.12); padding: 14px; border-radius: 24px;">
+                        <svg width="56" height="56" viewBox="0 0 24 24">
+                          <ellipse cx="12" cy="12" rx="9" ry="6" fill="#FFB84D"/>
+                          <polygon points="3,12 8,8 8,16" fill="#FFB84D"/>
+                          <circle cx="15" cy="11" r="1.2" fill="#0f1115"/>
+                          <path d="M19 9 q3 1.5 0 6" fill="#FF8E1F"/>
+                        </svg>
+                      </div>
+                      <div class="hero-title">
+                        <span>用 DeepSeek Harness 做点什么</span>
+                        <span class="hero-preview-badge">Preview</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- 工作区选择行 -->
+                  <div class="hero-workspace-row" style="margin-top: 8px;">
+                    <button class="workspace-chip slot kind-single">
+                      <span class="slot-badge"><span class="name">conversation.hero.workspace</span><span class="kind">S</span><span class="scope">root</span></span>
+                      <svg class="i" viewBox="0 0 24 24"><path d="M3 7l9-5 9 5v10l-9 5-9-5z"/></svg>
+                      <span>选择工作区</span>
+                      <svg class="i-sm i" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
+                    </button>
+                    <button class="workspace-chip slot kind-single" style="border-style: dashed;">
+                      <span class="slot-badge"><span class="name">.workspace.directoryFlow</span><span class="kind">S</span><span class="scope">root</span></span>
+                      <svg class="i" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                      <span>打开目录</span>
+                    </button>
+                  </div>
+
+                  <!-- composerHero -->
+                  <div class="composer-stack-hero slot kind-chain" style="padding: 10px;">
+                    <span class="slot-badge"><span class="name">conversation.composer</span><span class="kind">C</span><span class="scope">session</span><span class="scope">chain</span></span>
+
+                    <!-- composer.dock list -->
+                    <div class="slot kind-list composer-dock" style="margin: 6px 0;">
+                      <span class="slot-badge" style="left:18px"><span class="name">conversation.composer.dock</span><span class="kind">L</span><span class="scope">session</span></span>
+                      <button class="iconbtn"><svg class="i" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg></button>
+                      <button class="iconbtn"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></button>
+                      <button class="iconbtn"><svg class="i" viewBox="0 0 24 24"><path d="M9 11l3 3 8-8"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></button>
+                    </div>
+
+                    <!-- composer.bar fallback -->
+                    <div class="composer-card slot kind-single">
+                      <span class="slot-badge"><span class="name">conversation.composer.bar</span><span class="kind">S</span><span class="scope">session</span></span>
+
+                      <!-- input.dock 在 hero 时也展示 -->
+                      <div class="slot kind-list composer-dock" style="margin: 0;">
+                        <span class="slot-badge" style="left:18px"><span class="name">conversation.input.dock</span><span class="kind">L</span><span class="scope">session</span></span>
+                      </div>
+
+                      <!-- composer.input -->
+                      <div class="composer-input">
+                        <textarea placeholder="选择一个目录，或输入消息…"></textarea>
+                      </div>
+
+                      <div class="composer-bottom">
+                        <div class="left">
+                          <div class="slot kind-list" style="display:inline-flex; padding: 4px 0;">
+                            <span class="slot-badge" style="left:18px"><span class="name">input.left</span><span class="kind">L</span><span class="scope">session</span></span>
+                            <button class="iconbtn" title="附加"><svg class="i" viewBox="0 0 24 24"><path d="M21.4 11l-9.2 9.2a5.5 5.5 0 0 1-7.8-7.8l9.2-9.2a3.7 3.7 0 1 1 5.2 5.2l-9.2 9.2a1.8 1.8 0 1 1-2.6-2.6l8.5-8.5"/></svg></button>
+                            <button class="iconbtn" title="图片"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></button>
+                          </div>
+                          <button class="iconbtn slot kind-single" title="Plan 模式">
+                            <span class="slot-badge" style="left:18px"><span class="name">input.plan</span><span class="kind">S</span><span class="scope">session</span></span>
+                            <svg class="i" viewBox="0 0 24 24"><path d="M9 11l3 3 8-8"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+                          </button>
+                          <button class="iconbtn slot kind-single" title="附件">
+                            <span class="slot-badge" style="left:18px"><span class="name">input.attachments</span><span class="kind">S</span><span class="scope">session</span></span>
+                            <svg class="i" viewBox="0 0 24 24"><path d="M21.4 11l-9.2 9.2a5.5 5.5 0 0 1-7.8-7.8l9.2-9.2a3.7 3.7 0 1 1 5.2 5.2l-9.2 9.2a1.8 1.8 0 1 1-2.6-2.6l8.5-8.5"/></svg>
+                          </button>
+                        </div>
+                        <div class="right">
+                          <button class="iconbtn slot kind-list" title="更多">
+                            <span class="slot-badge" style="left:18px"><span class="name">input.right</span><span class="kind">L</span><span class="scope">session</span></span>
+                            <svg class="i" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>
+                          </button>
+                          <button class="iconbtn slot kind-single" title="模型">
+                            <span class="slot-badge" style="left:18px"><span class="name">input.model</span><span class="kind">S</span><span class="scope">session</span></span>
+                            <svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
+                          </button>
+                          <button class="iconbtn" style="background:var(--label-primary);color:#fff"><svg class="i" viewBox="0 0 24 24"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></svg></button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- input.overlay list -->
+                    <div class="slot kind-list" style="padding: 4px; text-align:center; font-size:11px; color: var(--label-tertiary);">
+                      <span class="slot-badge" style="left:18px"><span class="name">conversation.input.overlay</span><span class="kind">L</span><span class="scope">session</span></span>
+                      <span>↑ input.overlay（命令面板 / 提示 / 输入触发，按需弹出）</span>
+                    </div>
+                  </div>
+
+                  <!-- agent preset -->
+                  <div class="agent-preset slot kind-single" style="margin-top: 6px;">
+                    <span class="slot-badge"><span class="name">conversation.hero.agentPreset</span><span class="kind">S</span><span class="scope">root</span></span>
+                    <button class="agent-chip">🤖 Default Agent</button>
+                    <button class="agent-chip">🔍 Code Review</button>
+                    <button class="agent-chip">📚 Doc Writer</button>
+                    <button class="agent-chip">+ 自定义</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 这里还可以展示 conversation.chat.node + turnTail + 消息 nodes 的位置示意 -->
+            <div style="padding: 12px 24px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+              <div class="slot kind-keyed" style="padding: 12px;">
+                <span class="slot-badge"><span class="name">conversation.chat.node</span><span class="kind">K</span><span class="scope">session</span></span>
+                <div style="font-size:12px;color:var(--label-secondary);">↑ keyed by 节点 id（如 "user:1", "assistant:2"）；每条消息/工具调用渲染一个节点。节点内部还会嵌套：</div>
+                <div style="display:grid;gap:4px;margin-top:6px;font-size:11px;">
+                  <div class="slot kind-single" style="padding:4px 8px;"><span class="slot-badge" style="left:18px"><span class="name">.message.images</span><span class="kind">S</span><span class="scope">session</span></span>消息图片画廊</div>
+                  <div class="slot kind-single" style="padding:4px 8px;"><span class="slot-badge" style="left:18px"><span class="name">.approval.detail</span><span class="kind">S</span><span class="scope">session</span></span>审批条详情</div>
+                  <div class="slot kind-keyed" style="padding:4px 8px;"><span class="slot-badge" style="left:18px"><span class="name">tool.call.toolview</span><span class="kind">K</span><span class="scope">session</span></span>toolview（keyed by 工具名）</div>
+                  <div class="slot kind-single" style="padding:4px 8px;"><span class="slot-badge" style="left:18px"><span class="name">tool.call.images</span><span class="kind">S</span><span class="scope">session</span></span>toolview 内的图片画廊</div>
+                  <div class="slot kind-list" style="padding:4px 8px;"><span class="slot-badge" style="left:18px"><span class="name">.assistant-actions</span><span class="kind">L</span><span class="scope">session</span></span>助手消息操作行</div>
+                </div>
+              </div>
+
+              <div class="slot kind-chain" style="padding: 12px;">
+                <span class="slot-badge"><span class="name">conversation.chat.turnTail</span><span class="kind">C</span><span class="scope">session</span></span>
+                <div style="font-size:12px;color:var(--label-secondary);">↑ 每个 turn 末尾的 chain 接力槽位</div>
+                <div class="slot kind-keyed" style="padding:6px 8px; margin-top:6px;">
+                  <span class="slot-badge" style="left:18px"><span class="name">conversation.chat.commandview</span><span class="kind">K</span><span class="scope">session</span></span>
+                  <div style="font-size:11px;color:var(--label-secondary)">↑ 命令视图（由 CommandView 调度）</div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </section>
+
+
+    <!-- ============= 右侧栏：rightbar ============= -->
+    <aside class="rightbar">
+
+      <div class="slot kind-single" style="height:100%; display:grid; grid-template-rows: auto 1fr;">
+        <span class="slot-badge"><span class="name">rightbar</span><span class="kind">S</span><span class="scope">root</span></span>
+
+        <div class="slot kind-single" style="height:100%; display:grid; grid-template-rows: auto 1fr;">
+          <span class="slot-badge" style="left:18px"><span class="name">rightbar.session</span><span class="kind">S</span><span class="scope">session</span></span>
+
+          <!-- tabs -->
+          <div class="rightbar-tabs slot kind-keyed">
+            <span class="slot-badge"><span class="name">sidebar.right.pane.tab</span><span class="kind">K</span><span class="scope">session</span><span class="scope">key=doc</span></span>
+            <button class="rtab active">
+              <span class="slot kind-keyed" style="padding: 4px 6px;">
+                <span class="slot-badge" style="left:18px"><span class="name">.tab.title</span><span class="kind">K</span><span class="scope">session</span><span class="scope">key=doc</span></span>
+                <svg class="i-sm" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+                <span class="title-text">文档预览</span>
+              </span>
+              <span class="menu-btn" title="菜单">
+                <svg class="i-sm" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>
+              </span>
+            </button>
+            <button class="rtab">
+              <span class="title-text">轨迹</span>
+              <span class="menu-btn"><svg class="i-sm" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg></span>
+            </button>
+            <button class="rtab">
+              <span class="title-text">终端</span>
+              <span class="menu-btn"><svg class="i-sm" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg></span>
+            </button>
+          </div>
+
+          <!-- content -->
+          <div class="rightbar-content">
+            <div class="slot kind-keyed doc-card">
+              <span class="slot-badge" style="left:18px"><span class="name">sidebar.right.tab.document</span><span class="kind">K</span><span class="scope">session</span></span>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <svg class="i ico" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+                <span style="font-weight:600">README.md</span>
+              </div>
+              <div class="muted" style="font-size:12px">文件路径：/DSHWorkspace/temp1/README.md</div>
+              <div style="background:#f6f7f9; border-radius:6px; padding:10px; font-family:var(--font-mono); font-size:12px; color:#374151;">
+                <div style="color:#9ca3af"># DeepSeek Harness</div>
+                <div>An open, extensible agent runtime.</div>
+                <div style="color:#9ca3af">## 特性</div>
+                <div>- Slot-based UI composition</div>
+                <div>- Cordis plugin runtime</div>
+                <div>- Multi-model LLM orchestration</div>
+              </div>
+            </div>
+
+            <div class="slot kind-chain" style="padding: 6px;">
+              <span class="slot-badge"><span class="name">sidebar.right.tab.guide</span><span class="kind">C</span><span class="scope">session</span></span>
+              <div style="display:grid; gap:8px; padding: 6px;">
+                <div class="guide-step">💡 <span>输入 <code>/</code> 唤起命令面板</span></div>
+                <div class="guide-step">📎 <span>拖入文件以附加到上下文</span></div>
+                <div class="guide-step">🔁 <span><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> 切换计划模式</span></div>
+              </div>
+            </div>
+
+            <div class="slot kind-list" style="padding: 6px;">
+              <span class="slot-badge"><span class="name">sidebar.right.tab.menu.item</span><span class="kind">L</span><span class="scope">session</span></span>
+              <div style="font-size:11px;color:var(--label-tertiary);text-transform:uppercase;letter-spacing:.04em">tab 菜单（点击 rtab 三点按钮）</div>
+              <div class="ws-row"><span class="label">重命名</span></div>
+              <div class="ws-row"><span class="label">复制 ID</span></div>
+              <div class="ws-row"><span class="label">关闭</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+  </main>
+
+  <!-- ============= shell.overlay 浮层 ============= -->
+  <div class="overlay-layer">
+    <div class="slot kind-list overlay-slot">
+      <span class="slot-badge"><span class="name">shell.overlay</span><span class="kind">L</span><span class="scope">root</span></span>
+      <div class="overlay-placeholder">↑ shell.overlay：整页浮层（点击穿透，可挂命令面板 / 全局搜索等）</div>
+    </div>
+  </div>
+  </main><!-- /.app-area -->
+
+  <!-- SVG 引线层（覆盖整个 workspace） -->
+  <svg class="leaders" id="leaders" preserveAspectRatio="none"></svg>
+
+  <!-- ============= 右侧标注面板 ============= -->
+  <aside class="annotations" id="annotations">
+    <div class="ann-head">
+      <div class="title">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/></svg>
+        Slot 标注
+      </div>
+      <div class="ann-search">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <input type="search" id="annSearch" placeholder="搜索 slot 名 / scope…" autocomplete="off">
+      </div>
+    </div>
+    <div class="ann-stats" id="annStats"></div>
+    <div class="ann-body" id="annBody"></div>
+  </aside>
+
+  </div><!-- /.workspace -->
+
+
+  <!-- ============= 底部状态栏 ============= -->
+  <footer class="statusbar">
+    <span>deepseek-harness · Slot 原型 v0.1.5-rc.2</span>
+    <span>61 UI Slots · 4 Kinds · 2 Scopes</span>
+    <button id="annotateToggle" class="annotate-toggle" title="切换：内联角标 ⇄ 侧边标注面板 + 引线">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h7v7H3z"/><path d="M14 3h7v7h-7z"/><path d="M14 14h7v7h-7z"/><path d="M3 14h7v7H3z"/></svg>
+      <span class="label">错开标注</span>
+    </button>
+    <div class="legend">
+      <span><i class="legend-swatch single"></i>single</span>
+      <span><i class="legend-swatch list"></i>list</span>
+      <span><i class="legend-swatch keyed"></i>keyed</span>
+      <span><i class="legend-swatch chain"></i>chain</span>
+    </div>
+  </footer>
+</div>
+
+
+<!-- ============================================================
+     设置弹窗（点击 sidebar.settings 触发）
+     ============================================================ -->
+<div class="modal-mask" id="settingsModal" style="display:none;">
+  <div class="settings-modal">
+
+    <header class="settings-header">
+      <h2>设置</h2>
+      <div class="slot kind-list actions">
+        <span class="slot-badge"><span class="name">settings.action</span><span class="kind">L</span><span class="scope">root</span></span>
+        <button class="iconbtn" title="导入"><svg class="i" viewBox="0 0 24 24"><path d="M12 3v12"/><path d="M7 8l5-5 5 5"/><path d="M5 21h14"/></svg></button>
+        <button class="iconbtn" title="导出"><svg class="i" viewBox="0 0 24 24"><path d="M12 21V9"/><path d="M7 16l5 5 5-5"/><path d="M5 3h14"/></svg></button>
+      </div>
+      <div class="slot kind-single close-wrap">
+        <span class="slot-badge"><span class="name">settings.close</span><span class="kind">S</span><span class="scope">root</span></span>
+        <button class="close" id="closeSettings" title="关闭">
+          <svg class="i" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="slot kind-single" style="display:contents">
+      <span class="slot-badge"><span class="name">settings.header</span><span class="kind">S</span><span class="scope">root</span></span>
+    </div>
+
+    <div class="settings-body">
+      <nav class="settings-nav slot kind-list" style="display:grid;">
+        <span class="slot-badge"><span class="name">settings.section</span><span class="kind">L</span><span class="scope">root</span><span class="scope">only=general</span></span>
+        <button class="item active">通用</button>
+        <button class="item">模型</button>
+        <button class="item">插件</button>
+        <button class="item">快捷键</button>
+      </nav>
+
+      <div class="settings-content">
+        <h3>通用设置</h3>
+        <div class="slot kind-list" style="display:grid; gap:8px;">
+          <span class="slot-badge"><span class="name">settings.general.item</span><span class="kind">L</span><span class="scope">root</span></span>
+
+          <div class="settings-item">
+            <div><div class="label">界面语言</div><div class="desc">简体中文 / English</div></div>
+            <select style="padding:6px 10px;border-radius:6px;border:1px solid var(--border-l2);background:#fff;font-family:inherit"><option>简体中文</option><option>English</option></select>
+          </div>
+          <div class="settings-item">
+            <div><div class="label">主题</div><div class="desc">跟随系统 / 亮 / 暗</div></div>
+            <select style="padding:6px 10px;border-radius:6px;border:1px solid var(--border-l2);background:#fff;font-family:inherit"><option>跟随系统</option><option>亮色</option><option>暗色</option></select>
+          </div>
+          <div class="settings-item">
+            <div><div class="label">字体大小</div><div class="desc">14 / 16 / 18</div></div>
+            <select style="padding:6px 10px;border-radius:6px;border:1px solid var(--border-l2);background:#fff;font-family:inherit"><option>14</option><option>16</option><option>18</option></select>
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 8px;">
+          <div class="slot kind-keyed" style="padding: 6px;">
+            <span class="slot-badge"><span class="name">settings.models.provider-card</span><span class="kind">K</span><span class="scope">root</span><span class="scope">key=deepseek</span></span>
+            <div class="provider-card">
+              <div class="logo">DS</div>
+              <div>
+                <div style="font-weight:600">DeepSeek</div>
+                <div class="meta">deepseek-chat · API 已连接</div>
+              </div>
+              <button class="iconbtn"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg></button>
+            </div>
+          </div>
+
+          <div class="slot kind-keyed" style="padding: 6px;">
+            <span class="slot-badge"><span class="name">settings.models.provider-card</span><span class="kind">K</span><span class="scope">root</span><span class="scope">key=openai</span></span>
+            <div class="provider-card">
+              <div class="logo" style="background:#10a37f;color:#fff">O</div>
+              <div>
+                <div style="font-weight:600">OpenAI</div>
+                <div class="meta">gpt-4o · 未配置</div>
+              </div>
+              <button class="iconbtn"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg></button>
+            </div>
+          </div>
+        </div>
+
+        <div class="slot kind-list" style="padding: 6px; margin-top: 8px;">
+          <span class="slot-badge"><span class="name">settings.models.footer</span><span class="kind">L</span><span class="scope">root</span></span>
+          <div class="muted" style="font-size:12px">↑ .footer（添加 provider / 测试连接 / 文档）</div>
+        </div>
+
+        <div class="slot kind-list" style="padding: 6px;">
+          <span class="slot-badge"><span class="name">settings.onboarding</span><span class="kind">L</span><span class="scope">root</span></span>
+          <div class="guide-step">🎉 <span>欢迎使用 DeepSeek Harness！点击下一步完成初始配置。</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ============================================================
+     交互：打开 / 关闭设置弹窗
+     ============================================================ -->
+<script>
+  const trigger = document.getElementById('openSettings');
+  const modal = document.getElementById('settingsModal');
+  const closer = document.getElementById('closeSettings');
+  trigger.addEventListener('click', () => { modal.style.display = 'grid'; });
+  closer.addEventListener('click', () => { modal.style.display = 'none'; });
+  modal.addEventListener('click', (e) => { if (e.target === modal) modal.style.display = 'none'; });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') modal.style.display = 'none'; });
+</script>
+
+<!-- ============================================================
+     标注模式：侧边面板 + SVG 引线
+     ============================================================ -->
+<script>
+(function () {
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const KIND_LETTER = { single: 'S', list: 'L', keyed: 'K', chain: 'C' };
+
+  // 1) 收集所有 slot：从 .slot > .slot-badge 还原完整 key/kind/scope
+  //    - 短名（".actions"）通过父链还原为 "conversation.session.header.actions"
+  //    - 同名多实例（如 keyed 的 settings.models.provider-card）通过 key= 区分
+  const slots = Array.from(document.querySelectorAll('.slot'));
+  const slotMap = new Map(); // mapKey -> slot element
+  const seen = new Map();    // baseKey -> count（用于重名自动加序号）
+
+  function resolveParentKey(slot) {
+    let p = slot.parentElement;
+    while (p && p !== document.body) {
+      if (p.classList && p.classList.contains('slot') && p.dataset.slotKey) {
+        return p.dataset.slotKey;
+      }
+      p = p.parentElement;
+    }
+    return null;
+  }
+
+  slots.forEach(slot => {
+    const badge = slot.querySelector(':scope > .slot-badge');
+    if (!badge) return;
+    const rawName = (badge.querySelector('.name')?.textContent || '').trim();
+    if (!rawName) return;
+
+    // 多 scope 标签：第一个是 root/session，第二个可能 key=xxx
+    const scopeSpans = badge.querySelectorAll(':scope > .scope');
+    const scopes = Array.from(scopeSpans).map(s => s.textContent.trim());
+    const scope = scopes[0] || '';
+    const keyValue = scopes.find(s => s.startsWith('key='))?.slice(4) || '';
+
+    // 还原完整 key
+    let baseKey = rawName;
+    if (rawName.startsWith('.')) {
+      const parentKey = resolveParentKey(slot);
+      baseKey = (parentKey ? parentKey : '') + rawName;
+    }
+
+    // kind 从 slot className 提取
+    const kind = (slot.className.match(/kind-([a-z]+)/) || [,''])[1];
+
+    // 唯一键：keyed 多实例用 "base#keyValue"；同 base 重复也加序号
+    let mapKey = baseKey;
+    if (keyValue) mapKey = `${baseKey}#${keyValue}`;
+    else if (seen.has(baseKey)) {
+      const n = seen.get(baseKey);
+      seen.set(baseKey, n + 1);
+      mapKey = `${baseKey}__${n}`;
+    } else {
+      seen.set(baseKey, 1);
+    }
+
+    slot.dataset.slotKey = baseKey;
+    slot.dataset.slotKind = kind;
+    slot.dataset.slotScope = scope;
+    if (keyValue) slot.dataset.slotKeyValue = keyValue;
+    slot.dataset.slotMapKey = mapKey;
+    slotMap.set(mapKey, slot);
+  });
+
+  // 2) 按 UI 区域分组（保持与文档一致；keyed 多实例用 "base#keyValue" 形式引用）
+  const GROUPS = [
+    { title: '顶层 / Shell', keys: ['root', 'shell.overlay', 'main', 'main.conversation', 'rightbar', 'rightbar.session'] },
+    { title: '左侧栏 Sidebar', keys: ['sidebar', 'sidebar.brand.mark', 'sidebar.brand.name', 'sidebar.panellist',
+      'sidebar.workspaces', 'sidebar.workspaces.directoryFlow', 'sidebar.footer.action', 'sidebar.settings'] },
+    { title: 'Conversation · 顶栏', keys: ['conversation.session.header', 'conversation.session.header.lineage',
+      'conversation.session.header.actions', 'conversation.session.header.utilities', 'conversation.session.header.corner'] },
+    { title: 'Conversation · 主体', keys: ['conversation.session', 'conversation.view', 'conversation.chat.node',
+      'conversation.chat.commandview', 'conversation.chat.turnTail', 'conversation.chat.assistant-actions',
+      'conversation.message.images', 'conversation.trajectory.images', 'conversation.approval.detail'] },
+    { title: 'Conversation · 输入', keys: ['conversation.composer', 'conversation.composer.bar',
+      'conversation.composer.dock', 'conversation.input.dock', 'conversation.input.left',
+      'conversation.input.attachments', 'conversation.input.model', 'conversation.input.overlay',
+      'conversation.input.plan', 'conversation.input.right'] },
+    { title: 'Hero 首屏', keys: ['conversation.hero.brand.mark', 'conversation.hero.workspace',
+      'conversation.hero.workspace.directoryFlow', 'conversation.hero.agentPreset'] },
+    { title: 'Tool Call', keys: ['tool.call.images', 'tool.call.toolview', 'tool.view.cordis'] },
+    { title: '右侧栏 Rightbar', keys: ['sidebar.right.pane.tab', 'sidebar.right.pane.tab.title',
+      'sidebar.right.tab.document', 'sidebar.right.tab.guide', 'sidebar.right.tab.menu.item'] },
+    { title: '设置 Settings', keys: ['settings.trigger', 'settings.header', 'settings.close', 'settings.action',
+      'settings.section', 'settings.general.item', 'settings.onboarding',
+      'settings.models.provider-card#deepseek', 'settings.models.provider-card#openai',
+      'settings.models.footer', 'settings.plugins.tab', 'settings.plugin.item'] },
+  ];
+
+  // 3) 渲染侧边面板
+  const annBody = document.getElementById('annBody');
+  const annStats = document.getElementById('annStats');
+  const annSearch = document.getElementById('annSearch');
+  const svg = document.getElementById('leaders');
+  const workspace = document.querySelector('.workspace');
+
+  const counts = { single: 0, list: 0, keyed: 0, chain: 0 };
+  slotMap.forEach(s => { counts[s.dataset.slotKind] = (counts[s.dataset.slotKind] || 0) + 1; });
+
+  annStats.innerHTML = `
+    <span class="stat"><i class="swatch single"></i>single · ${counts.single}</span>
+    <span class="stat"><i class="swatch list"></i>list · ${counts.list}</span>
+    <span class="stat"><i class="swatch keyed"></i>keyed · ${counts.keyed}</span>
+    <span class="stat"><i class="swatch chain"></i>chain · ${counts.chain}</span>
+    <span class="stat" style="margin-left:auto">总计 ${slotMap.size}</span>
+  `;
+
+  const entryMap = new Map(); // mapKey -> entry element
+
+  GROUPS.forEach(g => {
+    const visibleKeys = g.keys.filter(k => slotMap.has(k));
+    if (visibleKeys.length === 0) return;
+    const group = document.createElement('div');
+    group.className = 'ann-group';
+    group.dataset.groupTitle = g.title;
+    group.innerHTML = `
+      <div class="ann-group-title">
+        <span><span class="caret">▾</span> ${g.title}</span>
+        <span class="count">${visibleKeys.length}</span>
+      </div>
+      <div class="ann-entries"></div>
+    `;
+    const entriesEl = group.querySelector('.ann-entries');
+    visibleKeys.forEach(mapKey => {
+      const slot = slotMap.get(mapKey);
+      const kind = slot.dataset.slotKind;
+      const scope = slot.dataset.slotScope;
+      const baseKey = slot.dataset.slotKey;
+      const keyValue = slot.dataset.slotKeyValue;
+      const displayName = keyValue ? `${baseKey} · ${keyValue}` : baseKey;
+      const entry = document.createElement('div');
+      entry.className = `ann-entry kind-${kind}`;
+      entry.dataset.slotKey = mapKey;
+      entry.dataset.slotBase = baseKey;
+      entry.setAttribute('title', `${baseKey}${keyValue ? ' (key=' + keyValue + ')' : ''} · ${scope} · ${KIND_LETTER[kind]}`);
+      entry.innerHTML = `
+        <span class="marker"></span>
+        <span class="name-line">
+          <span class="name">${displayName}</span>
+          <span class="scope">${scope}</span>
+        </span>
+        <span class="kind-letter">${KIND_LETTER[kind] || '?'}</span>
+      `;
+      entriesEl.appendChild(entry);
+      entryMap.set(mapKey, entry);
+    });
+    group.querySelector('.ann-group-title').addEventListener('click', () => {
+      group.classList.toggle('collapsed');
+    });
+    annBody.appendChild(group);
+  });
+
+  // 4) SVG 引线绘制（每条从标注条目右边 -> 对应 slot 边界）
+  let currentTarget = null;
+  let pinnedTarget = null;
+
+  function clearLeaders() {
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+  }
+
+  function drawLeader(key, opts = {}) {
+    const entry = entryMap.get(key);
+    const slot = slotMap.get(key);
+    if (!entry || !slot) return;
+
+    const wsRect = workspace.getBoundingClientRect();
+    const eRect = entry.getBoundingClientRect();
+    const sRect = slot.getBoundingClientRect();
+
+    // 相对 workspace 的坐标
+    const x1 = eRect.left - wsRect.left;
+    const y1 = eRect.top + eRect.height / 2 - wsRect.top;
+    const x2 = sRect.right - wsRect.left;
+    // 落在 slot 内偏上的位置，便于区分多个同区域 slot
+    const y2 = sRect.top + Math.min(24, Math.max(10, sRect.height / 4)) - wsRect.top;
+
+    // 三次贝塞尔曲线：起点与终点切线均为水平 → 整体呈柔和的"∽"形
+    const dx = Math.max(36, Math.abs(x2 - x1) * 0.35);
+    const cp1x = x1 - dx;
+    const cp2x = x2 + dx;
+    const d = `M ${x1} ${y1} C ${cp1x} ${y1}, ${cp2x} ${y2}, ${x2} ${y2}`;
+
+    const path = document.createElementNS(SVG_NS, 'path');
+    path.setAttribute('class', `leader-line kind-${slot.dataset.slotKind || 'single'} ${opts.pinned ? 'pinned' : 'visible'}`);
+    path.setAttribute('d', d);
+    path.setAttribute('data-slot-key', key);
+    svg.appendChild(path);
+
+    // 在 slot 边缘画一个小圆点作为锚点
+    const dot = document.createElementNS(SVG_NS, 'circle');
+    dot.setAttribute('class', `leader-dot kind-${slot.dataset.slotKind || 'single'} visible`);
+    dot.setAttribute('cx', x2);
+    dot.setAttribute('cy', y2);
+    dot.setAttribute('r', 2.5);
+    svg.appendChild(dot);
+  }
+
+  function setActive(key, opts = {}) {
+    // 清除所有 active 高亮
+    slotMap.forEach(s => s.classList.remove('active'));
+    entryMap.forEach(e => e.classList.remove('active'));
+    clearLeaders();
+
+    if (!key) { currentTarget = null; return; }
+    currentTarget = key;
+    const entry = entryMap.get(key);
+    const slot = slotMap.get(key);
+    if (entry) {
+      entry.classList.add('active');
+      entry.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+    if (slot) slot.classList.add('active');
+    requestAnimationFrame(() => drawLeader(key, { pinned: opts.pinned }));
+  }
+
+  // 5) 全局悬浮 tooltip（显示完整 slot 名，防截断）
+  const tooltip = document.getElementById('globalTooltip');
+  let tooltipAnchor = null;
+  const KIND_META = {
+    single: 'single slot',
+    list:   'list slot',
+    keyed:  'keyed slot · 宿主用 key 寻址',
+    chain:  'chain slot · renderSlotChain 接力',
+  };
+
+  function positionTooltip(anchor) {
+    if (!anchor) return;
+    const r = anchor.getBoundingClientRect();
+    // 先显示出来再量尺寸
+    tooltip.style.left = '0px';
+    tooltip.style.top  = '0px';
+    tooltip.style.transform = 'translateX(6px)';
+    tooltip.classList.add('visible');
+    const tw = tooltip.offsetWidth;
+    const th = tooltip.offsetHeight;
+    // 默认：tooltip 右边缘对齐到 anchor 左边缘，留 10px 间距
+    let left = r.left - tw - 10;
+    let top  = r.top + r.height / 2 - th / 2;
+    // 边界保护：左侧超出视口 → 改为显示在 anchor 右侧
+    if (left < 8) {
+      left = r.right + 10;
+      tooltip.style.transform = 'translateX(-6px)';
+      // 把箭头翻转到左边
+      tooltip.classList.add('flip');
+    } else {
+      tooltip.classList.remove('flip');
+      tooltip.style.transform = 'translateX(0)';
+    }
+    // 垂直边界
+    if (top < 8) top = 8;
+    if (top + th > window.innerHeight - 8) top = window.innerHeight - th - 8;
+    tooltip.style.left = left + 'px';
+    tooltip.style.top  = top + 'px';
+  }
+
+  function showTooltip(anchor, slot) {
+    const baseKey = slot.dataset.slotKey;
+    const scope = slot.dataset.slotScope;
+    const kind  = slot.dataset.slotKind;
+    const keyValue = slot.dataset.slotKeyValue || '';
+    const nameHtml = keyValue
+      ? `${escapeHtml(baseKey)} <span class="gt-key">· ${escapeHtml(keyValue)}</span>`
+      : escapeHtml(baseKey);
+    tooltip.innerHTML = `
+      <div class="gt-name">${nameHtml}</div>
+      <div class="gt-meta">${escapeHtml(scope)} · ${KIND_LETTER[kind] || '?'} · ${KIND_META[kind] || ''}</div>
+    `;
+    tooltip.setAttribute('aria-hidden', 'false');
+    tooltipAnchor = anchor;
+    positionTooltip(anchor);
+  }
+
+  let hideTimer = null;
+  function hideTooltip(immediate) {
+    clearTimeout(hideTimer);
+    if (immediate) {
+      tooltip.classList.remove('visible');
+      tooltip.setAttribute('aria-hidden', 'true');
+      tooltipAnchor = null;
+    } else {
+      hideTimer = setTimeout(() => {
+        tooltip.classList.remove('visible');
+        tooltip.setAttribute('aria-hidden', 'true');
+        tooltipAnchor = null;
+      }, 160);
+    }
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    })[c]);
+  }
+
+  // 6) 交互：hover/click 进入 → 引线 + 高亮 + tooltip；移出 → 取消（除非 pinned）
+  entryMap.forEach((entry, key) => {
+    entry.addEventListener('mouseenter', () => {
+      clearTimeout(hideTimer);
+      const slot = slotMap.get(key);
+      setActive(key);
+      showTooltip(entry, slot);
+    });
+    entry.addEventListener('mouseleave', () => {
+      if (key !== pinnedTarget) setActive(null);
+      hideTooltip(false);
+    });
+    entry.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      pinnedTarget = (pinnedTarget === key) ? null : key;
+      setActive(pinnedTarget, { pinned: true });
+      if (pinnedTarget) showTooltip(entry, slotMap.get(key));
+      else hideTooltip(true);
+    });
+  });
+
+  slotMap.forEach((slot, key) => {
+    slot.addEventListener('mouseenter', () => {
+      clearTimeout(hideTimer);
+      const entry = entryMap.get(key);
+      setActive(key);
+      // 用 slot 自身作为锚点（tooltip 显示在 slot 附近），保证就近原则
+      showTooltip(slot, slot);
+    });
+    slot.addEventListener('mouseleave', () => {
+      if (key !== pinnedTarget) setActive(null);
+      hideTooltip(false);
+    });
+    slot.addEventListener('click', (ev) => {
+      // 避免点中交互元素时切换 pin
+      if (ev.target.closest('button, input, select, textarea, a')) return;
+      pinnedTarget = (pinnedTarget === key) ? null : key;
+      setActive(pinnedTarget, { pinned: true });
+      if (pinnedTarget) showTooltip(slotMap.get(pinnedTarget), slotMap.get(pinnedTarget));
+      else hideTooltip(true);
+    });
+  });
+
+  // 滚动时 tooltip 跟随锚点位置
+  function reflowTooltip() {
+    if (tooltipAnchor && tooltip.classList.contains('visible')) {
+      positionTooltip(tooltipAnchor);
+    }
+  }
+  window.addEventListener('scroll', reflowTooltip, true);
+  window.addEventListener('resize', reflowTooltip);
+  annBody.addEventListener('scroll', reflowTooltip, { passive: true });
+
+  // 6) 搜索过滤
+  annSearch.addEventListener('input', () => {
+    const q = annSearch.value.trim().toLowerCase();
+    document.querySelectorAll('.ann-group').forEach(group => {
+      const entries = group.querySelectorAll('.ann-entry');
+      let hitCount = 0;
+      entries.forEach(e => {
+        const k = e.dataset.slotKey.toLowerCase();
+        const s = slotMap.get(e.dataset.slotKey)?.dataset.slotScope.toLowerCase() || '';
+        const match = !q || k.includes(q) || s.includes(q);
+        e.style.display = match ? '' : 'none';
+        if (match) hitCount++;
+      });
+      group.style.display = hitCount > 0 ? '' : 'none';
+    });
+  });
+
+  // 7) 标注模式切换
+  const toggle = document.getElementById('annotateToggle');
+  const setAnnotate = (on) => {
+    document.body.classList.toggle('annotate', on);
+    toggle.classList.toggle('on', on);
+    toggle.querySelector('.label').textContent = on ? '恢复内联角标' : '错开标注';
+    if (!on) {
+      slotMap.forEach(s => s.classList.remove('active'));
+      entryMap.forEach(e => e.classList.remove('active'));
+      pinnedTarget = null; currentTarget = null;
+      clearLeaders();
+      hideTooltip(true);
+    }
+  };
+  toggle.addEventListener('click', () => setAnnotate(!document.body.classList.contains('annotate')));
+  // 默认开
+  setAnnotate(true);
+
+  // 8) 重绘：滚动 / 缩放 / 窗口大小变化时重新计算引线
+  let raf = null;
+  function scheduleRedraw() {
+    if (raf) cancelAnimationFrame(raf);
+    raf = requestAnimationFrame(() => {
+      raf = null;
+      const target = pinnedTarget || currentTarget;
+      if (!target) return;
+      // 重新激活会重绘引线
+      const savedPinned = (target === pinnedTarget);
+      setActive(target, { pinned: savedPinned });
+    });
+  }
+  window.addEventListener('scroll', scheduleRedraw, true);
+  window.addEventListener('resize', scheduleRedraw);
+  // 面板自身滚动时也要重绘
+  annBody.addEventListener('scroll', scheduleRedraw, { passive: true });
+})();
+</script>
+
+</body>
+</html>
