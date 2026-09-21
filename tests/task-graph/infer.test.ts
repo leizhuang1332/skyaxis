@@ -1,16 +1,20 @@
 /**
- * inferTaskGraph 纯函数测试。
+ * inferTaskGraph 纯函数测试（v0.3）。
  *
  * 不依赖 React / cordis / dsh-client-store —— 只断言 events → { nodes, edges }
- * 的转换规则（research/0002 §五 + ADR 0001 §五）。
+ * 的转换规则（research/0002 §五 + ADR 0001 §五 + v0.3 plan）。
+ *
+ * v0.3 输入事件集合：
+ *   - user/message (kind: 'user')   → user-prompt 节点
+ *   - todo/write                    → task 节点（DAG 边）
+ *   - turn/end (reason.kind)        → 影响该 turn 内 task 终态
+ * 其他事件类型全部不参与推断。
  */
 import { describe, expect, it } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { SessionEventLikeEntry as SessionEventLikeEntryFromController } from '@deepseek-ai/dsh-api-session-controller/client'
 import { inferTaskGraph } from '../../src/client/task-graph/infer.js'
 
-// 两个包对 SessionEventLikeEntry 的定义是结构等价的；用 controller 包的版本作为
-// 测试入参（更接近运行时真实类型），通过 unknown 中转避开 branded id 的 import 噪音。
 type Entry = SessionEventLikeEntryFromController
 
 function ev<T extends SessionEvent['type']>(
@@ -48,20 +52,77 @@ function transient(seq: number): Entry {
   } as Entry
 }
 
-function makeSession(callId: string, isError: boolean) {
-  return ev(4, 'tool/result', {
-    turn: 1,
-    step: 1,
-    message: {
-      id: 'r1' as never,
-      role: 'user',
-      content: [{ type: 'tool-result', toolCallId: callId as never, content: [], isError }],
-      source: { kind: 'tool', callId: callId as never },
-    },
-  })
+// -------- v0.3 helpers --------
+
+/**
+ * 构造一个 todo/write entry。
+ * todo/write 不在 SessionEventMap base 类型里——通过 unknown cast 注入。
+ */
+function todoWrite(
+  seq: number,
+  turn: number,
+  todos: readonly { content: string; status: 'pending' | 'in_progress' | 'completed' }[],
+): Entry {
+  return {
+    type: 'event',
+    event: {
+      type: 'todo/write',
+      seq: seq as unknown as SessionEvent['seq'],
+      time: seq * 1000,
+      data: { turn, todos },
+    } as unknown as SessionEvent,
+  } as Entry
+}
+
+/**
+ * 构造 user/message entry。
+ * data 直接是 UserMessage（不再有 .message 嵌套）。
+ */
+function userMessage(
+  seq: number,
+  turn: number,
+  text: string,
+  sourceKind: 'user' | 'plugin' = 'user',
+): Entry {
+  const source =
+    sourceKind === 'user'
+      ? { kind: 'user' }
+      : { kind: 'plugin', plugin: 'test', form: 'notice' }
+  return {
+    type: 'event',
+    event: {
+      type: 'user/message',
+      seq: seq as unknown as SessionEvent['seq'],
+      time: seq * 1000,
+      data: {
+        id: `u${seq}` as never,
+        role: 'user',
+        content: [{ type: 'text', text }],
+        source,
+      },
+    } as unknown as SessionEvent,
+  } as Entry
+}
+
+function turnEnd(
+  seq: number,
+  turn: number,
+  reason: { kind: string; [k: string]: unknown },
+): Entry {
+  return {
+    type: 'event',
+    event: {
+      type: 'turn/end',
+      seq: seq as unknown as SessionEvent['seq'],
+      time: seq * 1000,
+      data: { turn, reason: reason as never },
+    } as SessionEvent,
+  } as Entry
 }
 
 describe('inferTaskGraph', () => {
+  // -------- 保留的基础用例 --------
+
   it('returns only the root for an empty window', () => {
     const { nodes, edges } = inferTaskGraph([], 'S1')
     expect(nodes).toEqual([
@@ -81,329 +142,233 @@ describe('inferTaskGraph', () => {
     expect(nodes[0]!.id).toBe('root')
   })
 
-  it('infers a done step from step/start + step/end', () => {
-    const { nodes, edges } = inferTaskGraph(
-      [
-        ev(1, 'step/start', { turn: 1, step: 1 }),
-        ev(2, 'step/end', { turn: 1, step: 1 }),
-      ],
-      'S',
-    )
-    const stepNode = nodes.find((n) => n.id === 'step-1-1')
-    expect(stepNode?.data.status).toBe('done')
-    expect(edges.find((e) => e.source === 'root' && e.target === 'step-1-1')).toBeTruthy()
-  })
-
-  it('keeps a step as running when step/end is absent (still open)', () => {
-    const { nodes } = inferTaskGraph([ev(1, 'step/start', { turn: 2, step: 1 })], 'S')
-    const stepNode = nodes.find((n) => n.id === 'step-2-1')
-    expect(stepNode?.data.status).toBe('running')
-  })
-
-  it('labels a step from the first assistant/message paragraph', () => {
-    const { nodes } = inferTaskGraph(
-      [
-        ev(1, 'step/start', { turn: 1, step: 1 }),
-        ev(2, 'assistant/message', {
-          turn: 1,
-          step: 1,
-          message: {
-            id: 'm1' as never,
-            role: 'assistant',
-            content: [{ type: 'text', text: 'Read file X\nthen summarize' }],
-            source: {
-              kind: 'model',
-              provider: 'p',
-              model: 'm',
-            },
-          },
-          stream: [],
-          usage: undefined,
-          interrupted: undefined,
-        }),
-        ev(3, 'step/end', { turn: 1, step: 1 }),
-      ],
-      'S',
-    )
-    const stepNode = nodes.find((n) => n.id === 'step-1-1')
-    expect(stepNode?.data.label).toBe('Read file X')
-  })
-
-  it('does NOT create a node for tool-call (v0.2: trajectory is owned by DSH)', () => {
-    const { nodes, edges } = inferTaskGraph(
-      [
-        ev(1, 'step/start', { turn: 1, step: 1 }),
-        ev(2, 'tool/call', {
-          turn: 1,
-          step: 1,
-          callId: 'c1' as never,
-          name: 'Read',
-          arguments: '{}',
-        }),
-      ],
-      'S',
-    )
-    // tool-call 节点不存在；只有 root + step
-    expect(nodes).toHaveLength(2)
-    expect(nodes.find((n) => n.id === 'tool-c1')).toBeUndefined()
-    // 边只有 root → step，不存在 step → tool-c1
-    expect(edges.find((e) => e.target === 'tool-c1')).toBeUndefined()
-  })
-
-  it('tool/result errors escalate the parent step to failed (tool node is absent)', () => {
-    const errEntries: Entry[] = [
-      ev(1, 'step/start', { turn: 1, step: 1 }),
-      ev(2, 'tool/call', {
-        turn: 1,
-        step: 1,
-        callId: 'err' as never,
-        name: 'Read',
-        arguments: '{}',
-      }),
-      makeSession('err', true),
-      ev(5, 'step/end', { turn: 1, step: 1 }),
-    ]
-    const { nodes } = inferTaskGraph(errEntries, 'S')
-    // tool 节点不存在
-    expect(nodes.find((n) => n.id === 'tool-err')).toBeUndefined()
-    // 父 step 升级为 failed
-    expect(nodes.find((n) => n.id === 'step-1-1')?.data.status).toBe('failed')
-  })
-
-  it('tool/result without error keeps parent step as done', () => {
-    const entries: Entry[] = [
-      ev(1, 'step/start', { turn: 1, step: 1 }),
-      ev(2, 'tool/call', {
-        turn: 1,
-        step: 1,
-        callId: 'ok' as never,
-        name: 'Read',
-        arguments: '{}',
-      }),
-      makeSession('ok', false),
-      ev(5, 'step/end', { turn: 1, step: 1 }),
-    ]
-    const { nodes } = inferTaskGraph(entries, 'S')
-    expect(nodes.find((n) => n.id === 'tool-ok')).toBeUndefined()
-    expect(nodes.find((n) => n.id === 'step-1-1')?.data.status).toBe('done')
-  })
-
-  it('marks step as waiting when approval tool/call arrived but tool/result did not', () => {
-    const { nodes } = inferTaskGraph(
-      [
-        ev(1, 'step/start', { turn: 1, step: 1 }),
-        ev(2, 'tool/call', {
-          turn: 1,
-          step: 1,
-          callId: 'a' as never,
-          name: 'approval_run_command',
-          arguments: '{}',
-        }),
-        ev(3, 'step/end', { turn: 1, step: 1 }),
-      ],
-      'S',
-    )
-    expect(nodes.find((n) => n.id === 'step-1-1')?.data.status).toBe('waiting')
-    // approval tool 节点不存在
-    expect(nodes.find((n) => n.id === 'tool-a')).toBeUndefined()
-  })
-
-  it('transitions waiting step to done when approval tool/result arrives', () => {
-    const { nodes } = inferTaskGraph(
-      [
-        ev(1, 'step/start', { turn: 1, step: 1 }),
-        ev(2, 'tool/call', {
-          turn: 1,
-          step: 1,
-          callId: 'a' as never,
-          name: 'approval_run_command',
-          arguments: '{}',
-        }),
-        makeSession('a', false),
-        ev(4, 'step/end', { turn: 1, step: 1 }),
-      ],
-      'S',
-    )
-    expect(nodes.find((n) => n.id === 'step-1-1')?.data.status).toBe('done')
-  })
-
-  it('extracts multiple step labels from a Markdown checkbox list', () => {
-    const { nodes } = inferTaskGraph(
-      [
-        ev(1, 'step/start', { turn: 1, step: 1 }),
-        ev(2, 'assistant/message', {
-          turn: 1,
-          step: 1,
-          message: {
-            id: 'm1' as never,
-            role: 'assistant',
-            content: [
-              {
-                type: 'text',
-                text: '我会：\n- [ ] 起草提纲\n- [ ] 写正文\n- [ ] 校对\n',
-              },
-            ],
-            source: { kind: 'model', provider: 'p', model: 'm' },
-          },
-          stream: [],
-          usage: undefined,
-          interrupted: undefined,
-        }),
-        ev(3, 'step/end', { turn: 1, step: 1 }),
-      ],
-      'S',
-    )
-    // 原 step 拿第 1 个 label；其余拆为兄弟 step 节点
-    expect(nodes.find((n) => n.id === 'step-1-1')?.data.label).toBe('起草提纲')
-    expect(nodes.find((n) => n.id === 'step-1-1-L1')?.data.label).toBe('写正文')
-    expect(nodes.find((n) => n.id === 'step-1-1-L2')?.data.label).toBe('校对')
-    // 拆出的兄弟节点状态为 done（在已关闭 step 内）
-    expect(nodes.find((n) => n.id === 'step-1-1-L1')?.data.status).toBe('done')
-    expect(nodes.find((n) => n.id === 'step-1-1-L2')?.data.status).toBe('done')
-    // 兄弟节点也是 root 的子节点（边：root → sib）
-    expect(
-      nodes
-        .map((n) => n.id)
-        // 验存在性即可，边的断言由视图层负责
-        .filter((id) => id === 'step-1-1-L1' || id === 'step-1-1-L2'),
-    ).toHaveLength(2)
-  })
-
-  it('extracts multiple step labels from a numbered list', () => {
-    const { nodes } = inferTaskGraph(
-      [
-        ev(1, 'step/start', { turn: 1, step: 1 }),
-        ev(2, 'assistant/message', {
-          turn: 1,
-          step: 1,
-          message: {
-            id: 'm2' as never,
-            role: 'assistant',
-            content: [
-              { type: 'text', text: '步骤：\n1. 读文件\n2. 写文件\n3. 提交' },
-            ],
-            source: { kind: 'model', provider: 'p', model: 'm' },
-          },
-          stream: [],
-          usage: undefined,
-          interrupted: undefined,
-        }),
-        ev(3, 'step/end', { turn: 1, step: 1 }),
-      ],
-      'S',
-    )
-    expect(nodes.find((n) => n.id === 'step-1-1')?.data.label).toBe('读文件')
-    expect(nodes.find((n) => n.id === 'step-1-1-L1')?.data.label).toBe('写文件')
-    expect(nodes.find((n) => n.id === 'step-1-1-L2')?.data.label).toBe('提交')
-  })
-
-  it('falls back to first-line label when no list pattern matches', () => {
-    const { nodes } = inferTaskGraph(
-      [
-        ev(1, 'step/start', { turn: 1, step: 1 }),
-        ev(2, 'assistant/message', {
-          turn: 1,
-          step: 1,
-          message: {
-            id: 'm3' as never,
-            role: 'assistant',
-            content: [{ type: 'text', text: 'Just a plain sentence.\nMore lines below.' }],
-            source: { kind: 'model', provider: 'p', model: 'm' },
-          },
-          stream: [],
-          usage: undefined,
-          interrupted: undefined,
-        }),
-        ev(3, 'step/end', { turn: 1, step: 1 }),
-      ],
-      'S',
-    )
-    expect(nodes.find((n) => n.id === 'step-1-1')?.data.label).toBe('Just a plain sentence.')
-    // 没有拆出兄弟节点
-    expect(nodes.find((n) => n.id === 'step-1-1-L1')).toBeUndefined()
-  })
-
-  it('mixes checkbox and ordered-list patterns in document order', () => {
-    const { nodes } = inferTaskGraph(
-      [
-        ev(1, 'step/start', { turn: 1, step: 1 }),
-        ev(2, 'assistant/message', {
-          turn: 1,
-          step: 1,
-          message: {
-            id: 'm4' as never,
-            role: 'assistant',
-            content: [
-              {
-                type: 'text',
-                text: '我打算：\n1. 读 x\n- [ ] 写 y\n2. 提交',
-              },
-            ],
-            source: { kind: 'model', provider: 'p', model: 'm' },
-          },
-          stream: [],
-          usage: undefined,
-          interrupted: undefined,
-        }),
-        ev(3, 'step/end', { turn: 1, step: 1 }),
-      ],
-      'S',
-    )
-    // 按出现顺序：1. 读 x → 原 step；- [ ] 写 y → L1；2. 提交 → L2
-    expect(nodes.find((n) => n.id === 'step-1-1')?.data.label).toBe('读 x')
-    expect(nodes.find((n) => n.id === 'step-1-1-L1')?.data.label).toBe('写 y')
-    expect(nodes.find((n) => n.id === 'step-1-1-L2')?.data.label).toBe('提交')
-  })
-
-  it('does not split when the step already has a custom label', () => {
-    // 第二个 assistant/message 来时 step 已有 assistantLabel，label 守卫生效，
-    // 不应拆出兄弟节点。
-    const { nodes } = inferTaskGraph(
-      [
-        ev(1, 'step/start', { turn: 1, step: 1 }),
-        ev(2, 'assistant/message', {
-          turn: 1,
-          step: 1,
-          message: {
-            id: 'm5' as never,
-            role: 'assistant',
-            content: [{ type: 'text', text: '自定义一句' }],
-            source: { kind: 'model', provider: 'p', model: 'm' },
-          },
-          stream: [],
-          usage: undefined,
-          interrupted: undefined,
-        }),
-        ev(3, 'assistant/message', {
-          turn: 1,
-          step: 1,
-          message: {
-            id: 'm6' as never,
-            role: 'assistant',
-            content: [{ type: 'text', text: '- [ ] 再来一个\n- [ ] 又一个' }],
-            source: { kind: 'model', provider: 'p', model: 'm' },
-          },
-          stream: [],
-          usage: undefined,
-          interrupted: undefined,
-        }),
-        ev(4, 'step/end', { turn: 1, step: 1 }),
-      ],
-      'S',
-    )
-    expect(nodes.find((n) => n.id === 'step-1-1')?.data.label).toBe('自定义一句')
-    expect(nodes.find((n) => n.id === 'step-1-1-L1')).toBeUndefined()
-  })
-
   it('handles out-of-order seq defensively by sorting events', () => {
     const { nodes } = inferTaskGraph(
+      [todoWrite(5, 1, [{ content: 'B', status: 'completed' }]), todoWrite(1, 1, [{ content: 'A', status: 'completed' }])],
+      'S',
+    )
+    // seq=5 在后（更晚发生），按 seq 升序处理后是 writeSeq=2 的 todo/write，
+    // 会 whole-list 替换 writeSeq=1 的 task。最终节点 label = 'B'。
+    const tasks = nodes.filter((n) => n.type === 'task')
+    expect(tasks).toHaveLength(1)
+    expect(tasks[0]!.data.label).toBe('B')
+  })
+
+  // -------- v0.3 新增用例 --------
+
+  it('infers task nodes from a single todo/write event with multiple items', () => {
+    const { nodes, edges } = inferTaskGraph(
       [
-        ev(5, 'step/end', { turn: 1, step: 1 }),
-        ev(1, 'step/start', { turn: 1, step: 1 }),
+        todoWrite(1, 1, [
+          { content: '读文件', status: 'in_progress' },
+          { content: '写文件', status: 'pending' },
+          { content: '提交', status: 'pending' },
+        ]),
       ],
       'S',
     )
-    const stepNode = nodes.find((n) => n.id === 'step-1-1')
-    expect(stepNode?.data.status).toBe('done')
+    const tasks = nodes.filter((n) => n.type === 'task')
+    expect(tasks).toHaveLength(3)
+    expect(tasks.map((t) => t.data.label)).toEqual(['读文件', '写文件', '提交'])
+    // 同 turn 内顺序边：t0 → t1, t1 → t2
+    expect(edges.filter((e) => e.source.startsWith('todo-1-1-'))).toHaveLength(2)
+  })
+
+  it('creates linear edges between consecutive tasks in same turn', () => {
+    const { edges } = inferTaskGraph(
+      [
+        todoWrite(1, 1, [
+          { content: 'a', status: 'pending' },
+          { content: 'b', status: 'pending' },
+          { content: 'c', status: 'pending' },
+        ]),
+      ],
+      'S',
+    )
+    const id0 = 'todo-1-1-0'
+    const id1 = 'todo-1-1-1'
+    const id2 = 'todo-1-1-2'
+    expect(edges.find((e) => e.source === id0 && e.target === id1)).toBeTruthy()
+    expect(edges.find((e) => e.source === id1 && e.target === id2)).toBeTruthy()
+    expect(edges.find((e) => e.source === id0 && e.target === id2)).toBeFalsy()
+  })
+
+  it('updates task status when todo/write contains the same index with different status', () => {
+    // 同 (turn, index)，writeSeq=1 → writeSeq=2，content 不变则复用 id，status 更新
+    const { nodes } = inferTaskGraph(
+      [
+        todoWrite(1, 1, [
+          { content: 'task', status: 'pending' },
+          { content: 'other', status: 'pending' },
+        ]),
+        todoWrite(2, 1, [
+          { content: 'task', status: 'completed' },
+          { content: 'other', status: 'in_progress' },
+        ]),
+      ],
+      'S',
+    )
+    const tasks = nodes.filter((n) => n.type === 'task')
+    // writeSeq=2 替换 writeSeq=1，所以 task 节点只有 2 个（id 为 writeSeq=2 的）
+    expect(tasks).toHaveLength(2)
+    const statuses = tasks
+      .map((t) => t.data.status)
+      .sort()
+    expect(statuses).toEqual(['done', 'running'])
+  })
+
+  it('removes task nodes when todo/write shrinks the list', () => {
+    const { nodes } = inferTaskGraph(
+      [
+        todoWrite(1, 1, [
+          { content: 'a', status: 'pending' },
+          { content: 'b', status: 'pending' },
+          { content: 'c', status: 'pending' },
+        ]),
+        todoWrite(2, 1, [{ content: 'a', status: 'pending' }]),
+      ],
+      'S',
+    )
+    const tasks = nodes.filter((n) => n.type === 'task')
+    expect(tasks).toHaveLength(1)
+    expect(tasks[0]!.data.label).toBe('a')
+  })
+
+  it('adds new task nodes when todo/write grows the list', () => {
+    const { nodes, edges } = inferTaskGraph(
+      [
+        todoWrite(1, 1, [{ content: 'a', status: 'pending' }]),
+        todoWrite(2, 1, [
+          { content: 'a', status: 'pending' },
+          { content: 'b', status: 'pending' },
+        ]),
+      ],
+      'S',
+    )
+    const tasks = nodes.filter((n) => n.type === 'task')
+    // writeSeq=2 替换 writeSeq=1，节点数 = 新数组长度 = 2
+    expect(tasks).toHaveLength(2)
+    expect(tasks.map((t) => t.data.label)).toEqual(['a', 'b'])
+    // writeSeq=2 内部有 1 条顺序边（a → b）
+    const seq2Edges = edges.filter(
+      (e) => e.source.startsWith('todo-1-2-') && e.target.startsWith('todo-1-2-'),
+    )
+    expect(seq2Edges).toHaveLength(1)
+  })
+
+  it('reuses same node id when todo content stays unchanged across writes', () => {
+    const { nodes } = inferTaskGraph(
+      [
+        todoWrite(1, 1, [
+          { content: 'unchanged', status: 'pending' },
+          { content: 'unchanged', status: 'pending' },
+        ]),
+      ],
+      'S',
+    )
+    const tasks = nodes.filter((n) => n.type === 'task')
+    expect(tasks).toHaveLength(2)
+    // 同 writeSeq 内 index=0 / index=1 是两个独立节点
+    expect(tasks[0]!.id).toBe('todo-1-1-0')
+    expect(tasks[1]!.id).toBe('todo-1-1-1')
+  })
+
+  it('creates user_prompt nodes only for kind=user source (skips plugin injections)', () => {
+    const { nodes } = inferTaskGraph(
+      [
+        userMessage(1, 1, '帮我做个 todo', 'user'),
+        userMessage(2, 1, '[plugin injected context]', 'plugin'),
+      ],
+      'S',
+    )
+    const prompts = nodes.filter((n) => n.type === 'user-prompt')
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0]!.id).toBe('user-1')
+    expect(prompts[0]!.data.label).toBe('帮我做个 todo')
+  })
+
+  it('connects user_prompt turn_N to first task of turn_N', () => {
+    const { edges } = inferTaskGraph(
+      [
+        userMessage(1, 1, '做一下'),
+        todoWrite(2, 1, [
+          { content: 't1', status: 'pending' },
+          { content: 't2', status: 'pending' },
+        ]),
+      ],
+      'S',
+    )
+    const userId = 'user-1'
+    const firstTaskId = 'todo-1-1-0'
+    expect(edges.find((e) => e.source === userId && e.target === firstTaskId)).toBeTruthy()
+    // user → t2 不会有
+    expect(
+      edges.find((e) => e.source === userId && e.target === 'todo-1-1-1'),
+    ).toBeFalsy()
+  })
+
+  it('connects last task of turn_N to first task of turn_{N+1} (cross-turn chain)', () => {
+    const { edges } = inferTaskGraph(
+      [
+        todoWrite(1, 1, [
+          { content: 'a', status: 'pending' },
+          { content: 'b', status: 'pending' },
+        ]),
+        todoWrite(2, 2, [{ content: 'c', status: 'pending' }]),
+      ],
+      'S',
+    )
+    // turn 1 末 task = 'todo-1-1-1'，turn 2 首 task = 'todo-2-1-0'
+    expect(
+      edges.find(
+        (e) => e.source === 'todo-1-1-1' && e.target === 'todo-2-1-0',
+      ),
+    ).toBeTruthy()
+  })
+
+  it('marks task as failed when its turn turn/end has reason.kind=error', () => {
+    const { nodes } = inferTaskGraph(
+      [
+        todoWrite(1, 1, [
+          { content: 'a', status: 'in_progress' },
+          { content: 'b', status: 'pending' },
+        ]),
+        turnEnd(2, 1, { kind: 'error' }),
+      ],
+      'S',
+    )
+    const tasks = nodes.filter((n) => n.type === 'task')
+    expect(tasks.every((t) => t.data.status === 'failed')).toBe(true)
+  })
+
+  it('does not create edge from user_prompt to task when turn has no todo/write', () => {
+    const { edges, nodes } = inferTaskGraph(
+      [
+        userMessage(1, 1, '空 prompt'),
+      ],
+      'S',
+    )
+    // user prompt 节点存在，但没有任何 task → 也没 user→task 边
+    expect(nodes.some((n) => n.type === 'user-prompt')).toBe(true)
+    const taskEdges = edges.filter((e) => e.target.startsWith('todo-'))
+    expect(taskEdges).toHaveLength(0)
+  })
+
+  it('exposes TodoItem status directly: pending/in_progress/completed map to TaskStatus', () => {
+    const { nodes } = inferTaskGraph(
+      [
+        todoWrite(1, 1, [
+          { content: 'p', status: 'pending' },
+          { content: 'r', status: 'in_progress' },
+          { content: 'd', status: 'completed' },
+        ]),
+      ],
+      'S',
+    )
+    const tasks = nodes.filter((n) => n.type === 'task')
+    const byContent = new Map(tasks.map((t) => [t.data.label, t.data.status]))
+    expect(byContent.get('p')).toBe('pending')
+    expect(byContent.get('r')).toBe('running')
+    expect(byContent.get('d')).toBe('done')
   })
 })

@@ -12,14 +12,17 @@ import type { Node, Edge } from '@xyflow/react'
 export type TaskStatus = 'pending' | 'running' | 'done' | 'failed' | 'waiting'
 
 /**
- * Task graph 节点类型 — ADR §5.1 最小集合。
+ * Task graph 节点类型 — v0.3 修订。
  *
- *   root      session 根
- *   step      Step（assistant message 或工具调用序列推断出的任务步骤）
- *   subagent  subagent session（特殊节点，承载子树）
- *   approval  approval 节点
+ *   root         session 根（永远 1 个）
+ *   user-prompt  用户输入的 user/message（kind === 'user'），DAG 入口节点
+ *   task         来自 todo/write 事件的 TodoItem，核心业务节点
+ *   subagent     subagent session 占位（v0.3 不生成，留待后续 ADR）
+ *   approval     approval 节点占位（v0.3 不生成）
+ *
+ * v0.2 时代的 `'step'` 已删除——不再以 assistant message 为粒度建图。
  */
-export type TaskNodeType = 'root' | 'step' | 'subagent' | 'approval'
+export type TaskNodeType = 'root' | 'user-prompt' | 'task' | 'subagent' | 'approval'
 
 /**
  * Task graph 节点。MVP 阶段 `data` 仅带 label + 可选 status；
