@@ -10,7 +10,10 @@ import {
   useEdgesState,
   useReactFlow,
 } from '@xyflow/react'
-import '@xyflow/react/dist/style.css'
+// 走 `?inline` 把 CSS 烤成字符串打进 bundle，DSH web 的 plugin loader 只接
+// `*.module.css`，对裸 CSS（@tsdown/css 抽出来的 lib/style.css）不认，
+// 所以我们自己在 mount 时 appendChild 一个 <style> 标签，卸载时清掉。
+import reactFlowCss from '@xyflow/react/dist/style.css?inline'
 import { layoutTaskGraph } from './layout.js'
 import type { TaskNode, TaskEdge } from './types.js'
 
@@ -40,6 +43,22 @@ function TaskGraphBoard(): JSX.Element {
   const [nodes, , onNodesChange] = useNodesState<TaskNode>(initial.nodes)
   const [edges, , onEdgesChange] = useEdgesState<TaskEdge>(initial.edges)
   const { fitView } = useReactFlow()
+
+  // DSH web 的 plugin loader 只扫 `*.module.css`，对 `@tsdown/css` 抽出来的
+  // `lib/style.css` 不做注入。React Flow 的样式不进 `<head>` 就全是浏览器默认
+  // 渲染（节点变成黑方块）。所以这里手动挂一个 `<style data-plugin="@lz/skyaxis">`
+  // 标签，命名风格对齐 DSH 其它 style 标签，DevTools 里一眼能认出。
+  // `useEffect` 在浏览器里跑——SSR / 测试环境没 `document`，因此兜个 typeof 守卫。
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    const tag = document.createElement('style')
+    tag.dataset.plugin = '@lz/skyaxis'
+    tag.textContent = reactFlowCss
+    document.head.appendChild(tag)
+    return () => {
+      tag.remove()
+    }
+  }, [])
 
   // research §2.4：fitView 前包一层 rAF，等 React Flow 量完新坐标再 fit，
   // 否则 fitView 取到旧 bbox，首屏定位会偏。
