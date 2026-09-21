@@ -53,6 +53,9 @@
     "react": "^18.2.0"
   },
   "dependencies": {
+    "@dagrejs/dagre": "^1.1.4",
+    "@tsdown/css": "^0.23.0",
+    "@xyflow/react": "^12.10.4",
     "schemastery": "^3.18.0"
   },
   "devDependencies": {
@@ -61,7 +64,6 @@
     "@deepseek-ai/dsh-agent-presets": "^0.1.5-rc.2",
     "@deepseek-ai/dsh-api-gateway": "^0.1.5-rc.2",
     "@deepseek-ai/dsh-api-remotes": "^0.1.5-rc.2",
-    "@deepseek-ai/dsh-workspace": "^0.1.5-rc.2",
     "@deepseek-ai/dsh-api-session-controller": "^0.1.5-rc.2",
     "@deepseek-ai/dsh-api-workspace-controller": "^0.1.5-rc.2",
     "@deepseek-ai/dsh-client-connection": "^0.1.5-rc.2",
@@ -74,6 +76,7 @@
     "@deepseek-ai/dsh-host-webserver": "^0.1.5-rc.2",
     "@deepseek-ai/dsh-settings": "^0.1.5-rc.2",
     "@deepseek-ai/dsh-system-prompt": "^0.1.5-rc.2",
+    "@deepseek-ai/dsh-workspace": "^0.1.5-rc.2",
     "@types/node": "^22.20.0",
     "@types/react": "~18.3.1",
     "@types/react-dom": "^18.3.5",

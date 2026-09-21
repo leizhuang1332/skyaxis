@@ -27,5 +27,7 @@ export default clientBundle('@lz/skyaxis', ['src/index.ts', 'src/invariant.ts'],
     '@deepseek-ai/dsh-workspace',
     '@deepseek-ai/dsh-settings',
     '@deepseek-ai/dsh-system-prompt',
+    '@dagrejs/dagre',
+    '@xyflow/react',
   ],
 })

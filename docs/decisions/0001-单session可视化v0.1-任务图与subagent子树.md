@@ -255,3 +255,4 @@ v0.1 **不要求 AI 显式产出结构化任务**——全部从 trajectory 现�
 | --- | --- |
 | 2026-09-21 | 初版。`docs/decisions/` 在 `2eb85ef` 清空后的首份 ADR（编号从 0001 重新起算）；锁定 v0.1 范围 = 任务图（DAG）+ Subagent 子树，合并在 `task-graph` 视图内。 |
 | 2026-09-21 | 追加 §四"技术选型：React Flow + Dagre"。原 §3.3"不做画布"反向为"用画布"（指向 §四）；新增 §四 评估矩阵与弃选理由；新增 2 个 npm 依赖：`@xyflow/react`、`@dagrejs/dagre`。 |
+| 2026-09-21 | 引用 [research/0001-react-flow-dagre-minimal-demo.md](../research/0001-react-flow-dagre-minimal-demo.md)：把 React Flow v12 Quick Start 与官方 Dagre 布局示例汇总成可粘贴的最小 demo，作为 §八"文件改动"的代码蓝本（types / layout / view 三件套）。§四.5 依赖与 §四.4 Bundle 影响在本 research 中复核通过。 |
