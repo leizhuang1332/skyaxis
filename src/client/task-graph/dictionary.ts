@@ -19,6 +19,8 @@ interface TaskGraphDictionary {
   readonly 'view.taskGraph': string
   readonly 'view.empty': string
   readonly 'view.loading': string
+  readonly 'view.error': string
+  readonly 'node.subagent': string
 }
 
 /** 视图层可用的 t 函数形状（register 绑定后以 prop 传入 TaskGraphView）。 */
@@ -28,12 +30,16 @@ const zh: TaskGraphDictionary = {
   'view.taskGraph': '任务图',
   'view.empty': '暂无选中的 session — 请在左侧打开一个会话。',
   'view.loading': '加载中…',
+  'view.error': '任务图加载失败 — 详情见控制台',
+  'node.subagent': '子代理',
 }
 
 const en: TaskGraphDictionary = {
   'view.taskGraph': 'Task Graph',
   'view.empty': 'No session selected — open one from the sidebar.',
   'view.loading': 'Loading…',
+  'view.error': 'Failed to load the task graph — see console for details',
+  'node.subagent': 'Subagent',
 }
 
 export function registerTaskGraphDictionaries(ctx: Context): void {
