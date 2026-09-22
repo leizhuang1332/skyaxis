@@ -1,12 +1,12 @@
 /**
- * Session 事件窗口 → 任务图推断（v0.3）。
+ * Session 事件窗口 → 任务图推断（v0.3 + P0 节点身份稳定化）。
  *
  * 节点：
  *   - root        永远 1 个，session 锚点
  *   - user-prompt 来自 user/message 事件（source.kind === 'user'）；plugin 注入忽略
  *   - task        来自 todo/write 事件的 TodoItem（content + status）
  *
- * 边（DAG，线性连续）：
+ * 边（DAG，线性连续；kind = 'sequence'，表示推断的执行顺序而非声明式依赖）：
  *   - 同 turn 内 user-prompt ──→ 该 turn 内首个 task
  *   - 同 turn 内 task_i ──→ task_{i+1}
  *   - 跨 turn：上一 turn 末 task ──→ 下一 turn 首 task
@@ -17,6 +17,11 @@
  *   - done          ← TodoItem.status === 'completed'
  *   - failed        ← 所在 turn 的 turn/end.reason.kind === 'error'（错误覆盖 todo 完成态）
  *   - waiting       v0.3 不生成
+ *
+ * 节点身份（P0）：task 节点 ID = `todo-{turn}-{contentHash}`，按 content 锚定。
+ *   todo/write 是 whole-list 替换语义——每次 todo 状态更新，同 content 的任务
+ *   **复用同一个节点**（原位更新 status），只有 content 消失的任务才被删除。
+ *   这样同一逻辑节点跨 writeSeq 是同一个 React key，避免整树 remount / 拖拽丢失。
  *
  * Subagent 子树 / approval 节点 / plan/mode / tool-call 节点 全部不在 v0.3 范围。
  *
@@ -31,13 +36,27 @@ interface InferredNode extends TaskNode {
     _todoStatus?: TodoStatus
     /** 仅推断期使用：所在 turn 是否被 turn/end.reason.kind === 'error' 标记。 */
     _turnFailed?: boolean
-    /** 仅推断期使用：当前 TodoItem.content 原文，用于跨 todo/write 复用节点 id。 */
-    _todoContent?: string
   }
 }
 
 /** todo/write 事件 data.todos[i].status 的精确字符串。 */
 type TodoStatus = 'pending' | 'in_progress' | 'completed'
+
+/**
+ * content 字符串 → ID 片段的稳定哈希（FNV-1a 32 位，输出 base36）。
+ *
+ * 不引入加密库；todo 级别（单 turn 数十条）碰撞概率可忽略，碰撞的后果
+ * 只是两个任务共用一个节点（可接受的退化）。同 content 必同 hash——
+ * 这是跨 todo/write 复用节点身份的锚定依据。
+ */
+function hashContent(content: string): string {
+  let h = 0x811c9dc5 // FNV offset basis
+  for (let i = 0; i < content.length; i += 1) {
+    h ^= content.charCodeAt(i)
+    h = Math.imul(h, 0x01000193) // FNV prime
+  }
+  return (h >>> 0).toString(36) // 归一为无符号 32 位 + base36
+}
 
 export function inferTaskGraph(
   entries: readonly SessionEventLikeEntry[],
@@ -63,28 +82,19 @@ export function inferTaskGraph(
   const firstUserPromptByTurn = new Map<number, string | null>()
   /** 节点 id -> 当前 node 引用（id 已分配但节点还在 rawNodes 里需要 in-place 更新）。 */
   // 注：rawNodes 数组本身允许 O(n) find，节点数 < 50 的 session 完全够用，不另存索引。
-  /** turn -> 已确认的"首个 task 节点 id"（用于 user-prompt → task 边）。 */
+  /** turn -> 该 turn 已确认的"首个 task 节点 id"（用于 user-prompt → task 边）。 */
   const firstTaskByTurn = new Map<number, string | null>()
-  /** turn -> "末 task 节点 id"（用于跨 turn 链）。 */
-  const lastTaskByTurn = new Map<number, string | null>()
-  /** turn -> 该 turn 内所有 task id 列表（turn/end error 时批量升级 failed）。 */
+  /** turn -> 该 turn 所有 task 节点 id 列表（按当前列表顺序）。 */
   const taskIdsByTurn = new Map<number, string[]>()
 
   /**
-   * 跨 todo/write 复用节点 id 的关键表：
-   *   key = `${turn}:${writeSeq}:${index}`
-   *   value = { id, content, status }
+   * 跨 todo/write 复用节点身份的索引（P0）：
+   *   外层按 turn，内层按 contentHash 索引节点引用。
    *
-   * writeSeq 是同 turn 内 todo/write 的写入次数（从 1 起步）。
-   * 同一个 (turn, index) 在不同 writeSeq 下会换 key —— 因为 whole-list 替换后
-   * 同位置可能内容不同，视为"新的 task 条目"。同 writeSeq 内顺序由 index 决定。
+   * 同 content 的 todo 即使跨 writeSeq 也复用同一个节点引用（连同它的 id），
+   * 只原位更新 status；content 从列表消失时才删除节点。这是节点身份稳定的根。
    */
-  const todoState = new Map<
-    string,
-    { id: string; content: string; status: TodoStatus }
-  >()
-  /** turn 内 todo/write 已发生的次数。 */
-  const todoWriteSeqByTurn = new Map<number, number>()
+  const turnTasks = new Map<number, Map<string, InferredNode>>()
 
   /** turn 已经被 turn/end reason=error 关闭 → 该 turn 的 task 升级 failed。 */
   const turnFailedSet = new Set<number>()
@@ -135,115 +145,150 @@ export function inferTaskGraph(
           data: { label: text || `(user turn ${turn})`, status: 'done' },
         })
         // 边：root → user_prompt（让 user prompt 在 root 子树下，避免孤立）
-        rawEdges.push({ id: `e-root-${id}`, source: 'root', target: id })
+        rawEdges.push({
+          id: `e-root-${id}`,
+          source: 'root',
+          target: id,
+          data: { kind: 'sequence' },
+        })
         break
       }
 
       case 'todo/write' as never: {
         // todo/write 事件由 @deepseek-ai/dsh-tool-todo 通过 declare module 增强进
         // SessionEventMap；本仓库的 SessionEvent 类型看不到它，用 unknown 中转。
+        // （P0 未建正式 module augmentation 文件，见 plan "不在范围内"。）
         const todoEv = (ev as unknown as { data: unknown }).data as {
           turn?: number
           todos?: readonly { content: string; status: TodoStatus }[]
         }
         const turn = todoEv.turn ?? 0
         lastEventTurn = Math.max(lastEventTurn, turn)
-        const writeSeq = (todoWriteSeqByTurn.get(turn) ?? 0) + 1
-        todoWriteSeqByTurn.set(turn, writeSeq)
-
         const todos = todoEv.todos ?? []
 
-        // 1) 收集该 turn 的所有"已有 task 节点 id"（跨 writeSeq 共用），用于 whole-list 替换
-        const priorTurnTaskIds = new Set<string>()
-        for (const k of todoState.keys()) {
-          const tStr = k.split(':')[0]
-          if (Number(tStr) === turn) {
-            priorTurnTaskIds.add(todoState.get(k)!.id)
+        // P0：按 content 锚定复用节点，而非 whole-list 全删重建。
+        // 该 turn 内，content 没变的任务原位更新 status / label；
+        // content 消失的任务删除；新 content 才新建节点。
+        const turnIndex = turnTasks.get(turn) ?? new Map<string, InferredNode>()
+        turnTasks.set(turn, turnIndex)
+        const PREFIX = `todo-${turn}-`
+
+        // 删除本 turn 内 content 已消失的节点（含它们连的边）。
+        const keepHashes = new Set(todos.map((t) => hashContent(t.content)))
+        for (const existing of [...turnIndex.values()]) {
+          const key = existing.id.slice(PREFIX.length)
+          const baseHash = key.split('#')[0] // 去重后缀，回取 content 锚点
+          if (!keepHashes.has(baseHash)) {
+            turnIndex.delete(key)
+            removeNodeAndEdges(rawNodes, rawEdges, existing.id)
           }
         }
 
-        // 2) 删除该 turn 所有旧 task 节点（含它们连的边）—— whole-list 替换语义
-        for (const id of priorTurnTaskIds) {
-          removeNodeAndEdges(rawNodes, rawEdges, id)
-        }
-        // 清掉 todoState 里该 turn 的所有旧条目
-        for (const k of Array.from(todoState.keys())) {
-          if (Number(k.split(':')[0]) === turn) todoState.delete(k)
+        // 清掉本 turn 存活节点之间残留的旧顺序边，下方统一重建。
+        for (let i = rawEdges.length - 1; i >= 0; i--) {
+          const e = rawEdges[i]!
+          if (e.source.startsWith(PREFIX) && e.target.startsWith(PREFIX)) {
+            rawEdges.splice(i, 1)
+          }
         }
 
-        // 3) 按新数组顺序逐条创建 task 节点
-        const isFirstTodoWriteInTurn = writeSeq === 1
-        const turnTaskIds: string[] = []
+        const isFirstTodoWriteInTurn = taskIdsByTurn.get(turn) === undefined
+        const userPromptId = firstUserPromptByTurn.get(turn) ?? null
+
+        const nextIds: string[] = []
         let lastTaskId: string | null = null
 
-        // 跨 turn 链：仅当 writeSeq=1 且 turn>1 时，找上一个非空 turn 的末 task
+        // 跨 turn 链：找上一个非空 turn 的末 task。
         let crossTurnPrevLastId: string | null = null
         if (isFirstTodoWriteInTurn) {
           for (let t = turn - 1; t >= 1; t--) {
-            const last = lastTaskByTurn.get(t)
-            if (last) {
-              crossTurnPrevLastId = last
+            const ids = taskIdsByTurn.get(t)
+            if (ids && ids.length > 0) {
+              crossTurnPrevLastId = ids[ids.length - 1]!
               break
             }
           }
         }
 
-        const userPromptId = firstUserPromptByTurn.get(turn) ?? null
+        // 追踪本 write 内每个 content 已出现的次数，用于把同 content 的多个
+        // 条目集合到独立的节点上（同 write 内是两个独立 todo，跨 write 时按
+        // 第 N 次出现对齐到上一 write 留下的同序节点，实现复用）。
+        const writeCountByHash = new Map<string, number>()
 
         for (let i = 0; i < todos.length; i++) {
           const todo = todos[i]!
-          const key = `${turn}:${writeSeq}:${i}`
           const status: TodoStatus = todo.status
           const content = todo.content
-          const id = `todo-${turn}-${writeSeq}-${i}`
-          todoState.set(key, { id, content, status })
+          const hash = hashContent(content)
 
-          rawNodes.push({
-            id,
-            type: 'task',
-            position: { x: 0, y: 0 },
-            data: {
-              label: truncate(content, 80),
-              status: mapStatus(status, turnFailedSet.has(turn)),
-              _todoStatus: status,
-              _todoContent: content,
-              _turnFailed: turnFailedSet.has(turn),
-            },
-          })
+          // 本 write 内该 content 第几次出现（从 0 起）——用作后缀基数。
+          const occurrence = writeCountByHash.get(hash) ?? 0
+          writeCountByHash.set(hash, occurrence + 1)
+          // N=0 → 基础 key；N>0 → 取上一 write 留下的 `#N-1` 节点复用 / 新建。
+          const key = occurrence === 0 ? hash : `${hash}#${occurrence - 1}`
+
+          const id = `todo-${turn}-${key}`
+
+          let node = turnIndex.get(key)
+          if (node === undefined) {
+            node = {
+              id,
+              type: 'task',
+              position: { x: 0, y: 0 },
+              data: {
+                label: truncate(content, 80),
+                status: mapStatus(status, turnFailedSet.has(turn)),
+                _todoStatus: status,
+                _turnFailed: turnFailedSet.has(turn),
+              },
+            }
+            rawNodes.push(node)
+            turnIndex.set(key, node)
+          }
+          // 原位更新：status 可能随 turnFailed 状态变化。
+          node.data.status = mapStatus(status, turnFailedSet.has(turn))
+          node.data._todoStatus = status
+          node.data._turnFailed = turnFailedSet.has(turn)
 
           // 边：上一 task → 当前 task（同 turn 内串联）
-          if (lastTaskId && lastTaskId !== id) {
-            rawEdges.push({ id: `e-${lastTaskId}-${id}`, source: lastTaskId, target: id })
+          if (lastTaskId && lastTaskId !== node.id) {
+            rawEdges.push({
+              id: `e-${lastTaskId}-${node.id}`,
+              source: lastTaskId,
+              target: node.id,
+              data: { kind: 'sequence' },
+            })
           }
-          // 边：跨 turn 上一 turn 末 task → 本 turn 首 task（仅 writeSeq=1）
+          // 边：跨 turn 上一 turn 末 task → 本 turn 首 task（仅 isFirstTodoWriteInTurn）
           if (
             isFirstTodoWriteInTurn &&
             i === 0 &&
             crossTurnPrevLastId &&
-            crossTurnPrevLastId !== id
+            crossTurnPrevLastId !== node.id
           ) {
             rawEdges.push({
-              id: `e-${crossTurnPrevLastId}-${id}`,
+              id: `e-${crossTurnPrevLastId}-${node.id}`,
               source: crossTurnPrevLastId,
-              target: id,
+              target: node.id,
+              data: { kind: 'sequence' },
             })
           }
           // 边：user-prompt → 本 turn 首 task
-          if (i === 0 && userPromptId && userPromptId !== id) {
+          if (i === 0 && userPromptId && userPromptId !== node.id) {
             rawEdges.push({
-              id: `e-${userPromptId}-${id}`,
+              id: `e-${userPromptId}-${node.id}`,
               source: userPromptId,
-              target: id,
+              target: node.id,
+              data: { kind: 'sequence' },
             })
           }
 
-          lastTaskId = id
-          turnTaskIds.push(id)
+          lastTaskId = node.id
+          nextIds.push(node.id)
         }
 
-        firstTaskByTurn.set(turn, turnTaskIds[0] ?? null)
-        lastTaskByTurn.set(turn, lastTaskId)
-        taskIdsByTurn.set(turn, turnTaskIds)
+        firstTaskByTurn.set(turn, nextIds[0] ?? null)
+        taskIdsByTurn.set(turn, nextIds)
         break
       }
 
@@ -274,10 +319,9 @@ export function inferTaskGraph(
 
   // 剥离推断期私有字段
   const nodes: TaskNode[] = rawNodes.map((n) => {
-    const { _todoStatus, _turnFailed, _todoContent, ...data } = n.data
+    const { _todoStatus, _turnFailed, ...data } = n.data
     void _todoStatus
     void _turnFailed
-    void _todoContent
     return { ...n, data }
   })
   // lastEventTurn 在 DAG 推断中未直接消费，保留以备调试

@@ -33,5 +33,14 @@ export type TaskNode = Node<{
   status?: TaskStatus
 }>
 
-/** Task graph 边；透传至 React Flow 的 `Edge`。 */
-export type TaskEdge = Edge
+/** Task graph 边的语义类型。
+ *
+ *   v0.3 只有 `sequence`——推断的执行顺序，**不是**声明式依赖。
+ *   这与参考插件 task-dag-viewer 的诚实边界对齐：只有 `dependency`
+ *   类的边才表达依赖关系；顺序边刻意不承担那个语义。P2 引入
+ *   `delegation` / `dependency` / `team` 等 kind 时从这里扩展。
+ */
+export type TaskEdgeKind = 'sequence'
+
+/** Task graph 边；透传至 React Flow 的 `Edge`，语义由 `data.kind` 携带。 */
+export type TaskEdge = Edge<{ kind: TaskEdgeKind }>

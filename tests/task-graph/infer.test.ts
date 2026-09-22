@@ -1,14 +1,18 @@
 /**
- * inferTaskGraph 纯函数测试（v0.3）。
+ * inferTaskGraph 纯函数测试（v0.3 + P0 节点身份稳定化）。
  *
  * 不依赖 React / cordis / dsh-client-store —— 只断言 events → { nodes, edges }
- * 的转换规则（research/0002 §五 + ADR 0001 §五 + v0.3 plan）。
+ * 的转换规则（research/0002 §五 + ADR 0001 §五 + v0.3 plan + P0 content 锚定）。
  *
  * v0.3 输入事件集合：
  *   - user/message (kind: 'user')   → user-prompt 节点
  *   - todo/write                    → task 节点（DAG 边）
  *   - turn/end (reason.kind)        → 影响该 turn 内 task 终态
  * 其他事件类型全部不参与推断。
+ *
+ * P0 关键契约：task 节点 ID = `todo-{turn}-{contentHash}`，同 content 跨
+ * todo/write 复用同一个节点（原位更新 status）。断言优先按 label 查找节点，
+ * 另设专门用例正面证明 ID 跨 write 稳定。
  */
 import { describe, expect, it } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
@@ -16,6 +20,14 @@ import type { SessionEventLikeEntry as SessionEventLikeEntryFromController } fro
 import { inferTaskGraph } from '../../src/client/task-graph/infer.js'
 
 type Entry = SessionEventLikeEntryFromController
+
+/** 按 label 查 task 节点（P0 后 ID 含 contentHash，断言应松耦合）。 */
+function findTaskByLabel(
+  nodes: ReturnType<typeof inferTaskGraph>['nodes'],
+  label: string,
+) {
+  return nodes.find((n) => n.type === 'task' && n.data.label === label)
+}
 
 function ev<T extends SessionEvent['type']>(
   seq: number,
@@ -147,8 +159,8 @@ describe('inferTaskGraph', () => {
       [todoWrite(5, 1, [{ content: 'B', status: 'completed' }]), todoWrite(1, 1, [{ content: 'A', status: 'completed' }])],
       'S',
     )
-    // seq=5 在后（更晚发生），按 seq 升序处理后是 writeSeq=2 的 todo/write，
-    // 会 whole-list 替换 writeSeq=1 的 task。最终节点 label = 'B'。
+    // seq=5 在后（更晚发生），按 seq 升序处理：先压 A，再压 B 替换整个列表。
+    // P0 content 锚定：仅保留最后的 content='B' 节点，'A' 已不在列表 → 删除。
     const tasks = nodes.filter((n) => n.type === 'task')
     expect(tasks).toHaveLength(1)
     expect(tasks[0]!.data.label).toBe('B')
@@ -170,12 +182,20 @@ describe('inferTaskGraph', () => {
     const tasks = nodes.filter((n) => n.type === 'task')
     expect(tasks).toHaveLength(3)
     expect(tasks.map((t) => t.data.label)).toEqual(['读文件', '写文件', '提交'])
-    // 同 turn 内顺序边：t0 → t1, t1 → t2
-    expect(edges.filter((e) => e.source.startsWith('todo-1-1-'))).toHaveLength(2)
+    // 同 turn 内顺序边：读文件 → 写文件, 写文件 → 提交
+    const read = findTaskByLabel(nodes, '读文件')!
+    const write = findTaskByLabel(nodes, '写文件')!
+    const commit = findTaskByLabel(nodes, '提交')!
+    expect(
+      edges.find((e) => e.source === read!.id && e.target === write!.id),
+    ).toBeTruthy()
+    expect(
+      edges.find((e) => e.source === write!.id && e.target === commit!.id),
+    ).toBeTruthy()
   })
 
   it('creates linear edges between consecutive tasks in same turn', () => {
-    const { edges } = inferTaskGraph(
+    const { edges, nodes } = inferTaskGraph(
       [
         todoWrite(1, 1, [
           { content: 'a', status: 'pending' },
@@ -185,16 +205,16 @@ describe('inferTaskGraph', () => {
       ],
       'S',
     )
-    const id0 = 'todo-1-1-0'
-    const id1 = 'todo-1-1-1'
-    const id2 = 'todo-1-1-2'
-    expect(edges.find((e) => e.source === id0 && e.target === id1)).toBeTruthy()
-    expect(edges.find((e) => e.source === id1 && e.target === id2)).toBeTruthy()
-    expect(edges.find((e) => e.source === id0 && e.target === id2)).toBeFalsy()
+    const ta = findTaskByLabel(nodes, 'a')!
+    const tb = findTaskByLabel(nodes, 'b')!
+    const tc = findTaskByLabel(nodes, 'c')!
+    expect(edges.find((e) => e.source === ta.id && e.target === tb.id)).toBeTruthy()
+    expect(edges.find((e) => e.source === tb.id && e.target === tc.id)).toBeTruthy()
+    expect(edges.find((e) => e.source === ta.id && e.target === tc.id)).toBeFalsy()
   })
 
-  it('updates task status when todo/write contains the same index with different status', () => {
-    // 同 (turn, index)，writeSeq=1 → writeSeq=2，content 不变则复用 id，status 更新
+  it('reuses node identity and updates status across todo/write with same content (P0)', () => {
+    // 同 content 跨 write 复用同一节点（ID 稳定），status 原位更新。
     const { nodes } = inferTaskGraph(
       [
         todoWrite(1, 1, [
@@ -209,7 +229,6 @@ describe('inferTaskGraph', () => {
       'S',
     )
     const tasks = nodes.filter((n) => n.type === 'task')
-    // writeSeq=2 替换 writeSeq=1，所以 task 节点只有 2 个（id 为 writeSeq=2 的）
     expect(tasks).toHaveLength(2)
     const statuses = tasks
       .map((t) => t.data.status)
@@ -246,31 +265,39 @@ describe('inferTaskGraph', () => {
       'S',
     )
     const tasks = nodes.filter((n) => n.type === 'task')
-    // writeSeq=2 替换 writeSeq=1，节点数 = 新数组长度 = 2
+    // P0：同 content 'a' 复用节点 + 新增 'b' → 仍为 2 个节点
     expect(tasks).toHaveLength(2)
     expect(tasks.map((t) => t.data.label)).toEqual(['a', 'b'])
-    // writeSeq=2 内部有 1 条顺序边（a → b）
-    const seq2Edges = edges.filter(
-      (e) => e.source.startsWith('todo-1-2-') && e.target.startsWith('todo-1-2-'),
-    )
-    expect(seq2Edges).toHaveLength(1)
+    // 同 turn 内 a → b 一条顺序边
+    const ta = findTaskByLabel(nodes, 'a')!
+    const tb = findTaskByLabel(nodes, 'b')!
+    expect(edges.find((e) => e.source === ta.id && e.target === tb.id)).toBeTruthy()
   })
 
-  it('reuses same node id when todo content stays unchanged across writes', () => {
+  it('reuses the same node id across todo/write when content matches and persists status (P0)', () => {
+    // P0 核心契约：同 content 的节点 ID 跨 writeSeq 稳定，status 原位更新。
     const { nodes } = inferTaskGraph(
       [
         todoWrite(1, 1, [
           { content: 'unchanged', status: 'pending' },
           { content: 'unchanged', status: 'pending' },
         ]),
+        todoWrite(2, 1, [
+          { content: 'unchanged', status: 'completed' },
+          { content: 'unchanged', status: 'in_progress' },
+        ]),
       ],
       'S',
     )
     const tasks = nodes.filter((n) => n.type === 'task')
+    // 两次 write 都只对这两个 content 做状态更新，不会重建节点、不增不删。
     expect(tasks).toHaveLength(2)
-    // 同 writeSeq 内 index=0 / index=1 是两个独立节点
-    expect(tasks[0]!.id).toBe('todo-1-1-0')
-    expect(tasks[1]!.id).toBe('todo-1-1-1')
+    const done = tasks.find((t) => t.data.status === 'done')
+    const running = tasks.find((t) => t.data.status === 'running')
+    expect(done).toBeTruthy()
+    expect(running).toBeTruthy()
+    // 两个 distinct 节点（各自一条 dom 记录）
+    expect(done!.id).not.toBe(running!.id)
   })
 
   it('creates user_prompt nodes only for kind=user source (skips plugin injections)', () => {
@@ -288,7 +315,7 @@ describe('inferTaskGraph', () => {
   })
 
   it('connects user_prompt turn_N to first task of turn_N', () => {
-    const { edges } = inferTaskGraph(
+    const { edges, nodes } = inferTaskGraph(
       [
         userMessage(1, 1, '做一下'),
         todoWrite(2, 1, [
@@ -299,16 +326,17 @@ describe('inferTaskGraph', () => {
       'S',
     )
     const userId = 'user-1'
-    const firstTaskId = 'todo-1-1-0'
-    expect(edges.find((e) => e.source === userId && e.target === firstTaskId)).toBeTruthy()
+    const firstTask = findTaskByLabel(nodes, 't1')!
+    expect(edges.find((e) => e.source === userId && e.target === firstTask.id)).toBeTruthy()
     // user → t2 不会有
+    const secondTask = findTaskByLabel(nodes, 't2')!
     expect(
-      edges.find((e) => e.source === userId && e.target === 'todo-1-1-1'),
+      edges.find((e) => e.source === userId && e.target === secondTask.id),
     ).toBeFalsy()
   })
 
   it('connects last task of turn_N to first task of turn_{N+1} (cross-turn chain)', () => {
-    const { edges } = inferTaskGraph(
+    const { edges, nodes } = inferTaskGraph(
       [
         todoWrite(1, 1, [
           { content: 'a', status: 'pending' },
@@ -318,10 +346,11 @@ describe('inferTaskGraph', () => {
       ],
       'S',
     )
-    // turn 1 末 task = 'todo-1-1-1'，turn 2 首 task = 'todo-2-1-0'
+    const lastTurn1 = findTaskByLabel(nodes, 'b')!
+    const firstTurn2 = findTaskByLabel(nodes, 'c')!
     expect(
       edges.find(
-        (e) => e.source === 'todo-1-1-1' && e.target === 'todo-2-1-0',
+        (e) => e.source === lastTurn1.id && e.target === firstTurn2.id,
       ),
     ).toBeTruthy()
   })
@@ -370,5 +399,81 @@ describe('inferTaskGraph', () => {
     expect(byContent.get('p')).toBe('pending')
     expect(byContent.get('r')).toBe('running')
     expect(byContent.get('d')).toBe('done')
+  })
+
+  // -------------- P0 节点身份稳定化核心契约 --------------
+
+  it('keeps the same task node id across two todo/write with matching content (P0)', () => {
+    // P0 价值的核心证明：content 锚定的节点跨 writeSeq 保持同一 ID，
+    // 而非 whole-list 全删重建（重建会让 React Flow 整树 remount / 拖拽丢失）。
+    const { nodes } = inferTaskGraph(
+      [
+        todoWrite(1, 1, [
+          { content: 'design doc', status: 'pending' },
+          { content: 'implement', status: 'pending' },
+        ]),
+        todoWrite(2, 1, [
+          { content: 'design doc', status: 'completed' },
+          { content: 'implement', status: 'in_progress' },
+        ]),
+      ],
+      'S',
+    )
+    const tasks = nodes.filter((n) => n.type === 'task')
+    expect(tasks).toHaveLength(2)
+
+    const design = findTaskByLabel(nodes, 'design doc')!
+    const impl = findTaskByLabel(nodes, 'implement')!
+    // 节点数仍为 2、content 都匹配 → 不是重建，是复用
+    expect(design.id).toMatch(/^todo-1-[\w]+$/)
+    expect(impl.id).toMatch(/^todo-1-[\w]+$/)
+    expect(design.id).not.toBe(impl.id)
+
+    const designStatus = design.data.status
+    const implStatus = impl.data.status
+    expect(designStatus).toBe('done')
+    expect(implStatus).toBe('running')
+  })
+
+  it('assigns distinct node ids to duplicate content within the same turn (P0)', () => {
+    // 同 turn 内 content 重复（脏数据边界）→ 加序号后缀避免 ID 碰撞，两个独立节点。
+    const { nodes } = inferTaskGraph(
+      [
+        todoWrite(1, 1, [
+          { content: 'dup', status: 'pending' },
+          { content: 'dup', status: 'pending' },
+        ]),
+      ],
+      'S',
+    )
+    const tasks = nodes.filter((n) => n.type === 'task')
+    expect(tasks).toHaveLength(2)
+    expect(tasks[0]!.id).not.toBe(tasks[1]!.id)
+    // 两个节点 id 都是 todo-1-<hash>#<suffix> 形式
+    for (const t of tasks) {
+      expect(t.id).toMatch(/^todo-1-[\w]+(#\d+)?$/)
+    }
+  })
+
+  it('keeps content-anchored id stable after a state-only write (P0)', () => {
+    // status 更新发射第二份 todo/write，但 content 集合不变 → 节点数、ID 全不变，
+    // 只有 status 字段变化。这是"同 ID 取最新 revision"折叠的等价表达。
+    const { nodes: first } = inferTaskGraph(
+      [todoWrite(1, 1, [{ content: 'only-task', status: 'pending' }])],
+      'S',
+    )
+    const { nodes: second } = inferTaskGraph(
+      [
+        todoWrite(1, 1, [{ content: 'only-task', status: 'pending' }]),
+        todoWrite(2, 1, [{ content: 'only-task', status: 'in_progress' }]),
+      ],
+      'S',
+    )
+    const firstTask = first.find((n) => n.type === 'task')!
+    const secondTask = second.find((n) => n.type === 'task')!
+    // 同一个逻辑节点 → 同一个 id（content 锚定）
+    expect(secondTask.id).toBe(firstTask.id)
+    expect(firstTask.data.status).toBe('pending')
+    expect(secondTask.data.status).toBe('running')
   })
 })
