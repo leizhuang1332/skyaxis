@@ -1,0 +1,106 @@
+{
+  "name": "task-dag-viewer",
+  "version": "1.5.1",
+  "description": "Live Agent Teams task, communication, subagent, and Workflow topology for the Host platform",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./invariant": "./lib/invariant.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "src",
+    "scripts",
+    "docs",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh.md",
+    "SECURITY.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "node --check src/index.js && node --check src/client.js && node --check src/reasoning-defaults.js && node --check src/graph-model.js && node --check src/team-projection.js && node --check src/workflow-definition.js && node --test scripts/reasoning-defaults.test.mjs scripts/metrics-projection.test.mjs scripts/graph-model.test.mjs scripts/team-projection.test.mjs scripts/workflow-definition.test.mjs && node scripts/build.mjs && node --check lib/index.js && node --check lib/reasoning-defaults.js && node --check lib/client.js && node scripts/smoke.mjs",
+    "prepublishOnly": "npm run check"
+  },
+  "host": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@host/api-session-controller",
+        "@host/client-locale",
+        "@host/client-ui-chat",
+        "@host/client-ui-conversation",
+        "@host/client-ui-primitives",
+        "@host/client-ui-renderer",
+        "@host/client-ui-workflow-run"
+      ],
+      "platform": "web"
+    },
+    "compatibility": {
+      "host": ">=0.1.2-rc.1 <0.2.0",
+      "hostReleases": {
+        "0.1.2-rc.1": "compatible"
+      },
+      "profiles": [
+        "web"
+      ]
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/example/task-dag-viewer.git"
+  },
+  "homepage": "https://github.com/example/task-dag-viewer#readme",
+  "bugs": {
+    "url": "https://github.com/example/task-dag-viewer/issues"
+  },
+  "keywords": [
+    "host",
+    "host-plugin",
+    "host-platform",
+    "dag",
+    "subagent",
+    "agent-teams",
+    "agent-communication",
+    "workflow",
+    "visualization"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "peerDependencies": {
+    "@host/api-session-controller": "^0.1.2-rc.1",
+    "@host/client-locale": "^0.1.2-rc.1",
+    "@host/client-ui-chat": "^0.1.2-rc.1",
+    "@host/client-ui-conversation": "^0.1.2-rc.1",
+    "@host/client-ui-primitives": "^0.1.2-rc.1",
+    "@host/client-ui-renderer": "^0.1.2-rc.1",
+    "@host/client-ui-workflow-run": "^0.1.2-rc.1",
+    "@host/session-projection": "^0.1.2-rc.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "peerDependenciesMeta": {
+    "@host/client-locale": { "optional": true },
+    "@host/api-session-controller": { "optional": true },
+    "@host/client-ui-chat": { "optional": true },
+    "@host/client-ui-conversation": { "optional": true },
+    "@host/client-ui-primitives": { "optional": true },
+    "@host/client-ui-renderer": { "optional": true },
+    "@host/session-projection": { "optional": true },
+    "@host/client-ui-workflow-run": { "optional": true }
+  },
+  "devDependencies": {
+    "jsdom": "^29.1.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "license": "MIT"
+}

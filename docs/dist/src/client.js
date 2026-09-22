@@ -1,0 +1,1185 @@
+'use strict';
+
+const React = require('react');
+const ReactDOM = require('react-dom');
+const UI = require('@host/client-ui-primitives');
+const {
+  Fragment, createElement: h, useEffect, useLayoutEffect, useMemo, useRef, useState,
+} = React;
+const {
+  CodeBlock, IconCloseOutline16, IconFullscreenOutline16, IconRefreshOutline16,
+} = UI;
+
+const PACKAGE_ID = 'task-dag-viewer';
+const NS = 'taskDag';
+const MODES = ['overview', 'team', 'workflow'];
+const EMPTY_CHAT_NODES = Object.freeze([]);
+const MESSAGE_DETAIL_LIMIT = 100;
+const { NODE_WIDTH, NODE_HEIGHT, buildGraph, graphLayout, normalizeStatus } = GRAPH_MODEL;
+const { TEAM_SNAPSHOT_KIND, createTeamSnapshotDefinition } = TEAM_PROJECTION;
+const { attachWorkflowDefinitions } = WORKFLOW_DEFINITION;
+
+const zh = {
+  'title': '任务 DAG',
+  'trigger.aria': '打开任务 DAG，共 {count} 个拓扑节点',
+  'panel.summary': '{nodes} 个节点 · {edges} 条结构边 · {channels} 条通信链路',
+  'panel.live': '基于持久会话投影实时更新',
+  'graph.aria': '当前会话的 Agent Teams 与 Workflow 拓扑图',
+  'canvas.aria': '可拖拽平移的任务 DAG 画布',
+  'button.close': '关闭任务 DAG',
+  'button.fit': '适应视口',
+  'button.original': '原始尺寸',
+  'button.refresh': '刷新子代理目录',
+  'button.communications.show': '显示 Agent 通信层',
+  'button.communications.hide': '隐藏 Agent 通信层',
+  'button.inspector.close': '关闭通信详情',
+  'mode.overview': '总览',
+  'mode.team': 'Agent Teams',
+  'mode.workflow': 'Workflow',
+  'mode.aria': '选择任务 DAG 视图',
+  'node.current': '当前会话',
+  'node.fallback': '未命名会话',
+  'node.oneShot': '一次性子代理',
+  'node.continuable': '可续接子代理',
+  'node.subagent': '子代理',
+  'node.teammate': 'Teammate',
+  'node.workflowMember': 'Workflow Worker',
+  'node.workflow': 'Workflow Run',
+  'node.phaseGroup': '阶段分组',
+  'node.teamTask': '共享任务',
+  'node.unphased': '未分阶段',
+  'node.unassigned': '未分配',
+  'node.unknownOwner': '未知负责人',
+  'node.taskMeta': '{id} · {owner}',
+  'node.tasks': '{count} 个成员',
+  'node.phases': '{count} 个阶段',
+  'node.phaseTasks': '{count} 个成员',
+  'node.open': '打开子代理会话 {name}',
+  'node.drag': '拖动节点 {name}',
+  'node.inspectWorkflow': '预览 Workflow 定义 {name}',
+  'node.code': '可预览代码',
+  'metrics.aria': '{name} 的运行信息',
+  'metrics.title': 'Agent 运行信息',
+  'metrics.live': '随持久会话投影更新',
+  'metrics.provider': 'Provider',
+  'metrics.model': '模型',
+  'metrics.reasoning': '思考强度',
+  'metrics.effortMissing': '未记录',
+  'metrics.sourceSelected': '请求配置',
+  'metrics.sourceAdapterDefault': 'Adapter 默认',
+  'metrics.sourceUnknown': '来源未记录',
+  'metrics.publicDefaultReference': 'OpenAI API 模型页默认参考',
+  'metrics.requestNotRecorded': '非本次请求记录',
+  'metrics.referenceVerified': '核验 {date}',
+  'metrics.tokens': 'Token 使用',
+  'metrics.total': '合计',
+  'metrics.input': '输入',
+  'metrics.output': '输出',
+  'metrics.cacheRead': '缓存读取',
+  'metrics.cacheWrite': '缓存写入',
+  'metrics.turns': '{turns} 轮 · {steps} 步',
+  'metrics.unavailable': '暂未收到该 Agent 的模型或 Token 指标',
+  'workflowDefinition.title': 'Workflow 定义',
+  'workflowDefinition.summary': '{name} 的编排代码',
+  'workflowDefinition.description': '定义说明',
+  'workflowDefinition.whenToUse': '适用场景',
+  'workflowDefinition.phases': '阶段声明',
+  'workflowDefinition.code': '编排代码',
+  'workflowDefinition.lines': '{count} 行 JavaScript',
+  'workflowDefinition.phaseCount': '{count} 个声明阶段',
+  'workflowDefinition.provider': 'Provider · {name}',
+  'workflowDefinition.model': 'Model · {name}',
+  'workflowDefinition.copy': '复制代码',
+  'workflowDefinition.copied': '已复制',
+  'workflowDefinition.unavailable.title': '当前窗口没有可预览的定义',
+  'workflowDefinition.unavailable.body': '对应 workflow 工具调用可能已被会话窗口裁剪；运行拓扑仍然可用。',
+  'button.workflowDefinition.close': '关闭 Workflow 定义',
+  'status.running': '运行中',
+  'status.completed': '已完成',
+  'status.failed': '失败',
+  'status.cancelled': '已取消',
+  'status.interrupted': '已中断',
+  'status.ready': '可开始',
+  'status.blocked': '被阻塞',
+  'status.pending': '待处理',
+  'status.provisioning': '创建中',
+  'status.idle': '空闲 / 历史',
+  'legend.running': '运行中',
+  'legend.completed': '已完成',
+  'legend.failed': '失败',
+  'legend.blocked': '阻塞 / 中断',
+  'edge.dependency': '任务依赖',
+  'edge.assignment': '任务分配',
+  'edge.team': 'Team 成员',
+  'edge.workflow': 'Workflow 分组',
+  'edge.communication': 'Agent 通信',
+  'communication.aria': '{sender} 向 {target} 的通信，共 {count} 条，{pending} 条待投递',
+  'communication.title': 'Agent 通信',
+  'communication.summary': '{sender} → {target}',
+  'communication.count': '{count} 条消息',
+  'communication.pending': '{count} 条待投递',
+  'communication.delivered': '已投递',
+  'communication.queued': '待投递',
+  'communication.quiet': 'quiet',
+  'communication.wakeup': 'wakeup',
+  'communication.noText': '无文本内容',
+  'communication.nonText': '另含 {count} 个非文本块：{types}',
+  'communication.more': '仅显示最近 {shown} 条，另有 {hidden} 条未展开',
+  'empty.team.title': '当前会话没有 Team 任务或通信',
+  'empty.team.body': 'Agent Teams 的共享任务和通信记录只存放在 Team Lead Session。',
+  'empty.team.openLead': '打开上级 Session',
+  'empty.workflow.title': '当前会话没有 Workflow 运行记录',
+  'empty.workflow.body': '运行 workflow 后，阶段分组和已启动成员会从持久会话投影中出现。',
+  'hint': '拖动画布平移；拖动节点调整布局；点击 Workflow 查看定义；点击 Agent 打开 Session；点击通信边查看时间线',
+};
+
+const en = {
+  'title': 'Task DAG',
+  'trigger.aria': 'Open Task DAG with {count} topology nodes',
+  'panel.summary': '{nodes} nodes · {edges} structural edges · {channels} communication channels',
+  'panel.live': 'Live from durable Session projections',
+  'graph.aria': 'Agent Teams and Workflow topology for the current Session',
+  'canvas.aria': 'Pannable task DAG canvas',
+  'button.close': 'Close Task DAG',
+  'button.fit': 'Fit to viewport',
+  'button.original': 'Original size',
+  'button.refresh': 'Refresh subagent catalogs',
+  'button.communications.show': 'Show Agent communication layer',
+  'button.communications.hide': 'Hide Agent communication layer',
+  'button.inspector.close': 'Close communication details',
+  'mode.overview': 'Overview',
+  'mode.team': 'Agent Teams',
+  'mode.workflow': 'Workflow',
+  'mode.aria': 'Select Task DAG view',
+  'node.current': 'Current Session',
+  'node.fallback': 'Untitled Session',
+  'node.oneShot': 'One-shot subagent',
+  'node.continuable': 'Continuable subagent',
+  'node.subagent': 'Subagent',
+  'node.teammate': 'Teammate',
+  'node.workflowMember': 'Workflow worker',
+  'node.workflow': 'Workflow run',
+  'node.phaseGroup': 'Phase group',
+  'node.teamTask': 'Shared task',
+  'node.unphased': 'Unphased',
+  'node.unassigned': 'Unassigned',
+  'node.unknownOwner': 'Unknown owner',
+  'node.taskMeta': '{id} · {owner}',
+  'node.tasks': '{count} members',
+  'node.phases': '{count} phases',
+  'node.phaseTasks': '{count} members',
+  'node.open': 'Open subagent Session {name}',
+  'node.drag': 'Drag node {name}',
+  'node.inspectWorkflow': 'Preview Workflow definition {name}',
+  'node.code': 'Code available',
+  'metrics.aria': 'Runtime details for {name}',
+  'metrics.title': 'Agent runtime',
+  'metrics.live': 'Updated from durable Session projections',
+  'metrics.provider': 'Provider',
+  'metrics.model': 'Model',
+  'metrics.reasoning': 'Reasoning effort',
+  'metrics.effortMissing': 'Not recorded',
+  'metrics.sourceSelected': 'Request config',
+  'metrics.sourceAdapterDefault': 'Adapter default',
+  'metrics.sourceUnknown': 'Source not recorded',
+  'metrics.publicDefaultReference': 'OpenAI API model-page default reference',
+  'metrics.requestNotRecorded': 'not a record of this request',
+  'metrics.referenceVerified': 'verified {date}',
+  'metrics.tokens': 'Token usage',
+  'metrics.total': 'Total',
+  'metrics.input': 'Input',
+  'metrics.output': 'Output',
+  'metrics.cacheRead': 'Cache read',
+  'metrics.cacheWrite': 'Cache write',
+  'metrics.turns': '{turns} turns · {steps} steps',
+  'metrics.unavailable': 'No model or token metrics have been reported for this Agent yet',
+  'workflowDefinition.title': 'Workflow definition',
+  'workflowDefinition.summary': 'Orchestration code for {name}',
+  'workflowDefinition.description': 'Definition summary',
+  'workflowDefinition.whenToUse': 'When to use',
+  'workflowDefinition.phases': 'Declared phases',
+  'workflowDefinition.code': 'Orchestration code',
+  'workflowDefinition.lines': '{count} lines of JavaScript',
+  'workflowDefinition.phaseCount': '{count} declared phases',
+  'workflowDefinition.provider': 'Provider · {name}',
+  'workflowDefinition.model': 'Model · {name}',
+  'workflowDefinition.copy': 'Copy code',
+  'workflowDefinition.copied': 'Copied',
+  'workflowDefinition.unavailable.title': 'Definition unavailable in this window',
+  'workflowDefinition.unavailable.body': 'The matching workflow tool call may have fallen outside the Session window; the run topology remains available.',
+  'button.workflowDefinition.close': 'Close Workflow definition',
+  'status.running': 'Running',
+  'status.completed': 'Completed',
+  'status.failed': 'Failed',
+  'status.cancelled': 'Cancelled',
+  'status.interrupted': 'Interrupted',
+  'status.ready': 'Ready',
+  'status.blocked': 'Blocked',
+  'status.pending': 'Pending',
+  'status.provisioning': 'Provisioning',
+  'status.idle': 'Idle / history',
+  'legend.running': 'Running',
+  'legend.completed': 'Completed',
+  'legend.failed': 'Failed',
+  'legend.blocked': 'Blocked / interrupted',
+  'edge.dependency': 'Task dependency',
+  'edge.assignment': 'Task assignment',
+  'edge.team': 'Team member',
+  'edge.workflow': 'Workflow grouping',
+  'edge.communication': 'Agent communication',
+  'communication.aria': '{sender} to {target}, {count} messages, {pending} awaiting delivery',
+  'communication.title': 'Agent communication',
+  'communication.summary': '{sender} → {target}',
+  'communication.count': '{count} messages',
+  'communication.pending': '{count} awaiting delivery',
+  'communication.delivered': 'Delivered',
+  'communication.queued': 'Queued',
+  'communication.quiet': 'quiet',
+  'communication.wakeup': 'wakeup',
+  'communication.noText': 'No text content',
+  'communication.nonText': '{count} non-text blocks: {types}',
+  'communication.more': 'Showing the latest {shown}; {hidden} older messages are collapsed',
+  'empty.team.title': 'No Team tasks or communication in this Session',
+  'empty.team.body': 'Agent Teams stores the shared task board and communication journal in the Team Lead Session.',
+  'empty.team.openLead': 'Open parent Session',
+  'empty.workflow.title': 'No Workflow runs in this Session',
+  'empty.workflow.body': 'Run a workflow to project its phase groups and started members here.',
+  'hint': 'Drag the canvas to pan; drag nodes to arrange; select a Workflow to inspect its definition; select an Agent to open its Session; select a communication edge for its timeline',
+};
+
+function sameArray(left, right) {
+  if (left === right) return true;
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) return false;
+  }
+  return true;
+}
+
+function statusLabel(status, t) {
+  return t(`status.${normalizeStatus(status)}`);
+}
+
+function truncate(value, length) {
+  const chars = Array.from(String(value));
+  return chars.length <= length ? chars.join('') : `${chars.slice(0, length - 1).join('')}…`;
+}
+
+function tokenCount(value) {
+  return Number(value || 0).toLocaleString();
+}
+
+function isAgentNode(node) {
+  return ['one-shot', 'continuable', 'subagent', 'teammate', 'workflow-member'].includes(node.type);
+}
+
+function reasoningLabel(metrics, t) {
+  const effort = typeof metrics?.reasoningEffort === 'string' && metrics.reasoningEffort.trim() !== ''
+    ? metrics.reasoningEffort : null;
+  if (effort === null) return t('metrics.effortMissing');
+  const source = metrics.reasoningSource === 'adapter-default'
+    ? t('metrics.sourceAdapterDefault')
+    : metrics.reasoningSource === 'request-config'
+      ? t('metrics.sourceSelected')
+      : t('metrics.sourceUnknown');
+  return `${effort} · ${source}`;
+}
+
+function tooltipPosition(anchor, width, height) {
+  const margin = 12;
+  const gap = 10;
+  const maxLeft = Math.max(margin, window.innerWidth - width - margin);
+  const left = Math.max(margin, Math.min(maxLeft, anchor.left + anchor.width / 2 - width / 2));
+  const below = anchor.bottom + gap;
+  const maxTop = Math.max(margin, window.innerHeight - height - margin);
+  const top = below + height <= window.innerHeight - margin
+    ? below : Math.max(margin, Math.min(maxTop, anchor.top - height - gap));
+  return { left, top };
+}
+
+function NodeMetricsTooltip({ anchor, node, t }) {
+  const tooltipRef = useRef(null);
+  const availableWidth = Math.max(0, window.innerWidth - 24);
+  const width = Math.min(286, availableWidth);
+  const valid = Boolean(anchor && node && isAgentNode(node));
+  const [position, setTooltipPosition] = useState({ left: 12, top: 12 });
+  useLayoutEffect(() => {
+    if (!valid) return;
+    const measuredHeight = tooltipRef.current?.getBoundingClientRect().height || 252;
+    const height = Math.min(measuredHeight, Math.max(0, window.innerHeight - 24));
+    const next = tooltipPosition(anchor, width, height);
+    setTooltipPosition(current => current.left === next.left && current.top === next.top ? current : next);
+  }, [valid, node?.id, anchor?.left, anchor?.top, anchor?.right, anchor?.bottom, anchor?.width, anchor?.height, width]);
+  if (!valid) return null;
+  const metrics = node.metrics;
+  const usage = metrics?.usage;
+  const hasRoute = metrics?.provider && metrics?.model;
+  const hasStats = metrics && Number.isFinite(metrics.turns) && Number.isFinite(metrics.steps);
+  return ReactDOM.createPortal(h('aside', {
+    id: `task-dag-viewer-metrics-${node.id.replace(/[^a-zA-Z0-9_-]/gu, '-')}`,
+    ref: tooltipRef,
+    className: 'task-dag-viewer-metrics-tooltip',
+    style: { left: position.left, top: position.top, width },
+    role: 'tooltip',
+  },
+  h('header', { className: 'task-dag-viewer-metrics-header' },
+    h('div', null,
+      h('span', { className: 'task-dag-viewer-metrics-eyebrow' }, t('metrics.title')),
+      h('strong', null, node.label)),
+    h('span', { className: 'task-dag-viewer-metrics-status', 'data-status': node.status }, statusLabel(node.status, t))),
+  typeof node.description === 'string' && node.description.trim() !== ''
+    ? h('p', { className: 'task-dag-viewer-metrics-description' }, node.description)
+    : null,
+  hasRoute ? h('dl', { className: 'task-dag-viewer-route-grid' },
+    h('div', null, h('dt', null, t('metrics.provider')), h('dd', null, metrics.provider)),
+    h('div', null, h('dt', null, t('metrics.model')), h('dd', null, metrics.model)),
+    h('div', { className: 'task-dag-viewer-route-wide' },
+      h('dt', null, t('metrics.reasoning')), h('dd', null, reasoningLabel(metrics, t))),
+    metrics.reasoningReference?.kind === 'public-api-model-reference'
+      ? h('div', { className: 'task-dag-viewer-route-wide' },
+        h('dt', null, t('metrics.publicDefaultReference')),
+        h('dd', null, `${metrics.reasoningReference.effort} · ${t('metrics.requestNotRecorded')} · ${t('metrics.referenceVerified', { date: metrics.reasoningReference.verifiedOn })}`))
+      : null) : null,
+  usage ? h('section', { className: 'task-dag-viewer-token-section' },
+    h('div', { className: 'task-dag-viewer-token-heading' },
+      h('span', null, `${t('metrics.tokens')} · ${t('metrics.total')}`),
+      h('strong', null, tokenCount(usage.totalTokens))),
+    h('dl', { className: 'task-dag-viewer-token-grid' },
+      h('div', null, h('dt', null, t('metrics.input')), h('dd', null, tokenCount(usage.inputTokens))),
+      h('div', null, h('dt', null, t('metrics.output')), h('dd', null, tokenCount(usage.outputTokens))),
+      h('div', null, h('dt', null, t('metrics.cacheRead')), h('dd', null, tokenCount(usage.cacheReadTokens))),
+      h('div', null, h('dt', null, t('metrics.cacheWrite')), h('dd', null, tokenCount(usage.cacheWriteTokens))))) : null,
+  !hasRoute && !usage ? h('p', { className: 'task-dag-viewer-metrics-empty' }, t('metrics.unavailable')) : null,
+  h('footer', { className: 'task-dag-viewer-metrics-footer' },
+    h('span', null, t('metrics.live')),
+    hasStats ? h('span', null, t('metrics.turns', { turns: metrics.turns, steps: metrics.steps })) : null)), document.body);
+}
+
+function DagMark({ className }) {
+  return h('svg', { className, viewBox: '0 0 18 18', fill: 'none', 'aria-hidden': true },
+    h('path', { d: 'M9 5.2v2.1M4.2 10.2V8.3H13.8v1.9', stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round', strokeLinejoin: 'round' }),
+    h('rect', { x: 6.7, y: 1.7, width: 4.6, height: 3.5, rx: 1.1, stroke: 'currentColor', strokeWidth: 1.4 }),
+    h('rect', { x: 1.9, y: 10.2, width: 4.6, height: 3.5, rx: 1.1, stroke: 'currentColor', strokeWidth: 1.4 }),
+    h('rect', { x: 11.5, y: 10.2, width: 4.6, height: 3.5, rx: 1.1, stroke: 'currentColor', strokeWidth: 1.4 }));
+}
+
+function CommunicationMark({ className }) {
+  return h('svg', { className, viewBox: '0 0 18 18', fill: 'none', 'aria-hidden': true },
+    h('path', { d: 'M3 4.5h7.5v5H7l-2.5 2v-2H3zM8 8.5h7v5h-2v2l-2.5-2H8', stroke: 'currentColor', strokeWidth: 1.35, strokeLinejoin: 'round' }));
+}
+
+function NodeGlyph({ type, x, y }) {
+  let glyph;
+  if (type === 'root') {
+    glyph = h(Fragment, null,
+      h('rect', { x: 1.5, y: 2.5, width: 15, height: 13, rx: 2.4 }),
+      h('path', { d: 'M1.8 6h14.4M5 4.3h.1M7.2 4.3h.1' }));
+  } else if (type === 'workflow') {
+    glyph = h(Fragment, null,
+      h('path', { d: 'M9 4.5v3M4.5 11V8h9v3' }),
+      h('circle', { cx: 9, cy: 3, r: 1.7 }),
+      h('circle', { cx: 4.5, cy: 13, r: 1.7 }),
+      h('circle', { cx: 13.5, cy: 13, r: 1.7 }));
+  } else if (type === 'phase') {
+    glyph = h(Fragment, null,
+      h('path', { d: 'M3 4h12M3 9h12M3 14h8' }),
+      h('circle', { cx: 4, cy: 4, r: 1 }), h('circle', { cx: 9, cy: 9, r: 1 }));
+  } else if (type === 'task') {
+    glyph = h(Fragment, null,
+      h('rect', { x: 2, y: 2, width: 14, height: 14, rx: 2.5 }),
+      h('path', { d: 'm5 9 2.2 2.2L13 5.8' }));
+  } else if (type === 'teammate') {
+    glyph = h(Fragment, null,
+      h('circle', { cx: 7, cy: 6, r: 3 }), h('path', { d: 'M2.5 15c.4-3 2-4.5 4.5-4.5S11.2 12 11.5 15M12 5.5h4M14 3.5v4' }));
+  } else if (type === 'one-shot') {
+    glyph = h('path', { d: 'M10.3 1.8 4.7 9h4l-1 7.2 5.6-8h-4l1-6.4Z' });
+  } else if (type === 'continuable') {
+    glyph = h(Fragment, null,
+      h('path', { d: 'M14.8 7A6 6 0 0 0 4.6 4.2L3.2 5.7M3.2 5.7l.1-3M3.2 5.7l3-.2' }),
+      h('path', { d: 'M3.2 11A6 6 0 0 0 13.4 13.8l1.4-1.5M14.8 12.3l-.1 3M14.8 12.3l-3 .2' }));
+  } else {
+    glyph = h(Fragment, null,
+      h('path', { d: 'M4 3.5h3.2c1 0 1.8.8 1.8 1.8v7.2M9 8.4h3.2' }),
+      h('circle', { cx: 3, cy: 3.5, r: 1.5 }),
+      h('circle', { cx: 13.5, cy: 8.4, r: 1.5 }),
+      h('circle', { cx: 9, cy: 14, r: 1.5 }));
+  }
+  return h('g', { transform: `translate(${x + 15} ${y + 16})` },
+    h('rect', { className: 'task-dag-viewer-node-icon-bg', width: 30, height: 30, rx: 8 }),
+    h('g', { className: 'task-dag-viewer-node-icon', transform: 'translate(6 6)' }, glyph));
+}
+
+function GraphNode({
+  node, position, onDragEnd, onDragMove, onDragStart, onHideMetrics, onInspectWorkflow,
+  onOpen, onShowMetrics, metricsVisible, selectedWorkflow, t,
+}) {
+  const navigable = node.navigable && node.navigationId;
+  const inspectable = node.type === 'workflow' && node.inspectable;
+  const actionable = navigable || inspectable;
+  const metricsTarget = isAgentNode(node);
+  const focusable = actionable || metricsTarget;
+  const metricsId = `task-dag-viewer-metrics-${node.id.replace(/[^a-zA-Z0-9_-]/gu, '-')}`;
+  const hasDescription = typeof node.description === 'string' && node.description.trim() !== '';
+  const descriptionId = `task-dag-viewer-description-${node.id.replace(/[^a-zA-Z0-9_-]/gu, '-')}`;
+  const dragRef = useRef(null);
+  const activate = (event) => {
+    if (dragRef.current?.moved) {
+      event.preventDefault();
+      event.stopPropagation();
+      dragRef.current = null;
+      return;
+    }
+    if (inspectable) onInspectWorkflow(node.id);
+    else if (navigable) onOpen(node.navigationId);
+  };
+  const onKeyDown = (event) => {
+    if (!actionable || (event.key !== 'Enter' && event.key !== ' ')) return;
+    event.preventDefault();
+    if (inspectable) onInspectWorkflow(node.id);
+    else onOpen(node.navigationId);
+  };
+  const onPointerDown = (event) => {
+    if (event.isPrimary === false || (event.button !== undefined && event.button !== 0)) return;
+    event.stopPropagation();
+    onHideMetrics(node.id);
+    dragRef.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, moved: false };
+    onDragStart(node.id, event);
+    if (typeof event.currentTarget.setPointerCapture === 'function') event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const onPointerMove = (event) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (!drag.moved && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > 3) drag.moved = true;
+    if (!drag.moved) return;
+    event.preventDefault();
+    onDragMove(event);
+  };
+  const onPointerEnd = (event) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (typeof event.currentTarget.hasPointerCapture === 'function'
+      && event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    onDragEnd(event);
+    if (!drag.moved || event.type === 'pointercancel') dragRef.current = null;
+  };
+  const showMetrics = event => {
+    if (!metricsTarget) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    onShowMetrics(node.id, {
+      left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom,
+      width: rect.width, height: rect.height,
+    });
+  };
+  return h('g', {
+    className: 'task-dag-viewer-node',
+    transform: `translate(${position.x} ${position.y})`,
+    'data-node-id': node.id,
+    'data-type': node.type,
+    'data-status': node.status,
+    'data-clickable': actionable ? 'true' : undefined,
+    'data-selected': inspectable && selectedWorkflow === node.id ? 'true' : undefined,
+    'data-workflow-id': inspectable ? node.id : undefined,
+    role: actionable ? 'button' : metricsTarget || hasDescription ? 'group' : undefined,
+    tabIndex: focusable ? 0 : undefined,
+    'aria-controls': inspectable ? 'task-dag-viewer-workflow-definition' : undefined,
+    'aria-describedby': metricsTarget
+      ? metricsVisible ? metricsId : undefined
+      : hasDescription ? descriptionId : undefined,
+    'aria-expanded': inspectable ? selectedWorkflow === node.id : undefined,
+    'aria-label': inspectable
+      ? `${t('node.inspectWorkflow', { name: node.label })}. ${t('node.drag', { name: node.label })}`
+      : navigable
+        ? `${t('node.open', { name: node.label })}. ${t('node.drag', { name: node.label })}`
+        : metricsTarget ? t('metrics.aria', { name: node.label }) : undefined,
+    onClick: activate,
+    onFocus: showMetrics,
+    onBlur: () => onHideMetrics(node.id),
+    onKeyDown,
+    onPointerEnter: showMetrics,
+    onPointerLeave: event => { if (document.activeElement !== event.currentTarget) onHideMetrics(node.id); },
+    onPointerDown,
+    onPointerMove,
+    onPointerUp: onPointerEnd,
+    onPointerCancel: onPointerEnd,
+  },
+  !metricsTarget && hasDescription ? h('desc', { id: descriptionId }, node.description) : null,
+  h('rect', { className: 'task-dag-viewer-node-card', width: NODE_WIDTH, height: NODE_HEIGHT, rx: 11 }),
+  h('rect', { className: 'task-dag-viewer-node-accent', width: 4, height: NODE_HEIGHT - 20, x: 0, y: 10, rx: 2 }),
+  h(NodeGlyph, { type: node.type, x: 0, y: 0 }),
+  h('text', { className: 'task-dag-viewer-node-label', x: 56, y: 30 }, truncate(node.label, 19)),
+  h('text', { className: 'task-dag-viewer-node-meta', x: 56, y: 52 }, truncate(node.meta, 28)),
+  h('circle', { className: 'task-dag-viewer-status-dot', cx: NODE_WIDTH - 17, cy: 19, r: 3.5 }));
+}
+
+function structuralPath(from, to) {
+  const x1 = from.x + NODE_WIDTH / 2;
+  const y1 = from.y + NODE_HEIGHT;
+  const x2 = to.x + NODE_WIDTH / 2;
+  const y2 = to.y;
+  const middle = (y1 + y2) / 2;
+  return `M${x1} ${y1}C${x1} ${middle} ${x2} ${middle} ${x2} ${y2 - 5}`;
+}
+
+function communicationGeometry(from, to, curve) {
+  const x1 = from.x + NODE_WIDTH / 2;
+  const y1 = from.y + NODE_HEIGHT / 2;
+  const x2 = to.x + NODE_WIDTH / 2;
+  const y2 = to.y + NODE_HEIGHT / 2;
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const distance = Math.max(1, Math.hypot(dx, dy));
+  const offset = curve === 0 ? 34 : 54 * curve;
+  const cx = (x1 + x2) / 2 - (dy / distance) * offset;
+  const cy = (y1 + y2) / 2 + (dx / distance) * offset;
+  return {
+    d: `M${x1} ${y1}Q${cx} ${cy} ${x2} ${y2}`,
+    labelX: (x1 + 2 * cx + x2) / 4,
+    labelY: (y1 + 2 * cy + y2) / 4,
+  };
+}
+
+function GraphEdge({ edge, positions, selected, onSelectCommunication, t }) {
+  const from = positions.get(edge.from);
+  const to = positions.get(edge.to);
+  if (!from || !to) return null;
+  if (edge.kind !== 'communication') {
+    return h('path', {
+      className: 'task-dag-viewer-edge',
+      'data-kind': edge.kind,
+      d: structuralPath(from, to),
+      markerEnd: 'url(#task-dag-viewer-arrow)',
+    });
+  }
+  const geometry = communicationGeometry(from, to, edge.curve || 0);
+  const activate = (event) => {
+    event.stopPropagation();
+    onSelectCommunication(edge.id);
+  };
+  const onKeyDown = (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    activate(event);
+  };
+  return h('g', {
+    className: 'task-dag-viewer-communication',
+    'data-communication': 'true',
+    'data-edge-id': edge.id,
+    'data-selected': selected ? 'true' : undefined,
+    role: 'button',
+    tabIndex: 0,
+    'aria-label': t('communication.aria', {
+      sender: edge.senderName,
+      target: edge.targetName,
+      count: edge.count,
+      pending: edge.pending,
+    }),
+    onClick: activate,
+    onKeyDown,
+  },
+  h('path', { className: 'task-dag-viewer-communication-hit', d: geometry.d }),
+  h('path', {
+    className: 'task-dag-viewer-edge',
+    'data-kind': 'communication',
+    'data-pending': edge.pending > 0 ? 'true' : undefined,
+    d: geometry.d,
+    markerEnd: 'url(#task-dag-viewer-communication-arrow)',
+  }),
+  h('g', { className: 'task-dag-viewer-edge-count', transform: `translate(${geometry.labelX} ${geometry.labelY})` },
+    h('circle', { r: edge.pending > 0 ? 11 : 9 }),
+    h('text', { y: 3 }, edge.count)));
+}
+
+function TaskGraph({
+  graph, layout, positions, showCommunications, selectedCommunication, selectedWorkflow,
+  onSelectCommunication, onHideMetrics, onInspectWorkflow, onDragEnd, onDragMove, onDragStart,
+  onOpen, onShowMetrics, hoveredMetricsNodeId, t, fit,
+}) {
+  const edges = graph.edges.filter(edge => edge.kind !== 'communication' || showCommunications);
+  return h('svg', {
+    className: 'task-dag-viewer-svg',
+    'data-fit': fit ? 'true' : undefined,
+    width: fit ? '100%' : layout.width,
+    height: fit ? '100%' : layout.height,
+    style: fit ? { maxWidth: `${layout.width}px`, maxHeight: `${layout.height}px`, margin: '0 auto' } : undefined,
+    viewBox: `0 0 ${layout.width} ${layout.height}`,
+    preserveAspectRatio: 'xMidYMin meet',
+    role: 'group',
+    'aria-label': t('graph.aria'),
+  },
+  h('defs', null,
+    h('marker', { id: 'task-dag-viewer-arrow', markerWidth: 7, markerHeight: 7, refX: 5.5, refY: 3.5, orient: 'auto', markerUnits: 'userSpaceOnUse' },
+      h('path', { className: 'task-dag-viewer-arrow', d: 'M0 0 6 3.5 0 7Z' })),
+    h('marker', { id: 'task-dag-viewer-communication-arrow', markerWidth: 8, markerHeight: 8, refX: 6.4, refY: 4, orient: 'auto', markerUnits: 'userSpaceOnUse' },
+      h('path', { className: 'task-dag-viewer-communication-arrow', d: 'M0 0 7 4 0 8Z' }))),
+  ...edges.filter(edge => edge.kind !== 'communication').map(edge => h(GraphEdge, { key: edge.id, edge, positions, t })),
+  ...edges.filter(edge => edge.kind === 'communication').map(edge => h(GraphEdge, {
+    key: edge.id,
+    edge,
+    positions,
+    selected: selectedCommunication === edge.id,
+    onSelectCommunication,
+    t,
+  })),
+  ...graph.nodes.map(node => h(GraphNode, {
+    key: node.id,
+    node,
+    position: positions.get(node.id),
+    onDragEnd,
+    onDragMove,
+    onDragStart,
+    onHideMetrics,
+    onInspectWorkflow,
+    onOpen,
+    onShowMetrics,
+    metricsVisible: hoveredMetricsNodeId === node.id,
+    selectedWorkflow,
+    t,
+  })));
+}
+
+function ViewTabs({ graphs, mode, setMode, t }) {
+  const onKeyDown = (event) => {
+    const tabs = [...(event.currentTarget.parentElement?.querySelectorAll('[role="tab"]') || [])];
+    const current = tabs.indexOf(event.currentTarget);
+    if (current < 0) return;
+    let next;
+    if (event.key === 'ArrowLeft') next = (current + MODES.length - 1) % MODES.length;
+    else if (event.key === 'ArrowRight') next = (current + 1) % MODES.length;
+    else if (event.key === 'Home') next = 0;
+    else if (event.key === 'End') next = MODES.length - 1;
+    else return;
+    event.preventDefault();
+    setMode(MODES[next]);
+    tabs[next]?.focus();
+  };
+  return h('nav', { className: 'task-dag-viewer-tabs', role: 'tablist', 'aria-label': t('mode.aria') },
+    ...MODES.map(view => h('button', {
+      key: view,
+      id: `task-dag-viewer-tab-${view}`,
+      type: 'button',
+      role: 'tab',
+      className: 'task-dag-viewer-tab',
+      tabIndex: mode === view ? 0 : -1,
+      'aria-selected': mode === view,
+      'aria-controls': 'task-dag-viewer-tabpanel',
+      'data-active': mode === view ? 'true' : undefined,
+      onClick: () => setMode(view),
+      onKeyDown,
+    },
+    h('span', null, t(`mode.${view}`)),
+    h('span', { className: 'task-dag-viewer-tab-count', 'aria-hidden': true }, Math.max(0, graphs[view].nodes.length - 1)))));
+}
+
+function StatusLegend({ t }) {
+  return h('div', { className: 'task-dag-viewer-legend' },
+    ...['running', 'completed', 'failed', 'blocked'].map(status => h('span', {
+      className: 'task-dag-viewer-legend-item', key: status,
+    },
+    h('span', { className: 'task-dag-viewer-legend-dot', 'data-status': status }),
+    h('span', null, t(`legend.${status}`)))));
+}
+
+function EdgeLegend({ mode, showCommunications, t }) {
+  const kinds = mode === 'workflow'
+    ? ['workflow']
+    : mode === 'team'
+      ? ['team', 'assignment', 'dependency', ...(showCommunications ? ['communication'] : [])]
+      : ['dependency', 'workflow', ...(showCommunications ? ['communication'] : [])];
+  return h('div', { className: 'task-dag-viewer-edge-legend' },
+    ...kinds.map(kind => h('span', { className: 'task-dag-viewer-legend-item', key: kind },
+      h('span', { className: 'task-dag-viewer-edge-sample', 'data-kind': kind }),
+      h('span', null, t(`edge.${kind}`)))));
+}
+
+function nonTextSummary(types, t) {
+  if (types.length === 0) return null;
+  const counts = new Map();
+  for (const type of types) counts.set(type, (counts.get(type) || 0) + 1);
+  const label = [...counts].map(([type, count]) => `${type} ×${count}`).join(', ');
+  return t('communication.nonText', { count: types.length, types: label });
+}
+
+function CommunicationInspector({ edge, onClose, t }) {
+  if (!edge) return null;
+  const messages = edge.messages.slice(0, MESSAGE_DETAIL_LIMIT);
+  return h('aside', { className: 'task-dag-viewer-inspector', 'aria-labelledby': 'task-dag-viewer-communication-title' },
+    h('header', { className: 'task-dag-viewer-inspector-header' },
+      h('div', null,
+        h('h3', { id: 'task-dag-viewer-communication-title' }, t('communication.title')),
+        h('p', null, t('communication.summary', { sender: edge.senderName, target: edge.targetName }))),
+      h('button', { type: 'button', className: 'task-dag-viewer-icon-button', title: t('button.inspector.close'), 'aria-label': t('button.inspector.close'), onClick: onClose }, h(IconCloseOutline16))),
+    h('div', { className: 'task-dag-viewer-inspector-stats' },
+      h('span', null, t('communication.count', { count: edge.count })),
+      edge.pending > 0 ? h('span', { 'data-pending': 'true' }, t('communication.pending', { count: edge.pending })) : null),
+    h('ol', { className: 'task-dag-viewer-message-list' },
+      ...messages.map(message => h('li', { key: message.id, className: 'task-dag-viewer-message' },
+        h('div', { className: 'task-dag-viewer-message-meta' },
+          h('time', { dateTime: new Date(message.time).toISOString() }, new Date(message.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })),
+          h('span', { 'data-delivery': message.delivery }, t(`communication.${message.delivery}`)),
+          h('span', { 'data-status': message.delivered ? 'delivered' : 'queued' }, t(message.delivered ? 'communication.delivered' : 'communication.queued'))),
+        h('p', { className: 'task-dag-viewer-message-text' }, message.text ? truncate(message.text, 260) : t('communication.noText')),
+        message.nonText.length > 0 ? h('p', { className: 'task-dag-viewer-message-nontext' }, nonTextSummary(message.nonText, t)) : null))),
+    edge.messages.length > messages.length ? h('p', { className: 'task-dag-viewer-message-more' }, t('communication.more', {
+      shown: messages.length,
+      hidden: edge.messages.length - messages.length,
+    })) : null);
+}
+
+function WorkflowDefinitionInspector({ node, onClose, t }) {
+  if (!node) return null;
+  const definition = node.definition;
+  const titleId = 'task-dag-viewer-workflow-definition-title';
+  const phases = definition?.meta?.phases || [];
+  const lineCount = definition ? definition.script.split(/\r\n?|\n/).length : 0;
+  return h('aside', {
+    id: 'task-dag-viewer-workflow-definition',
+    className: 'task-dag-viewer-inspector task-dag-viewer-definition-inspector',
+    'aria-labelledby': titleId,
+  },
+  h('header', { className: 'task-dag-viewer-inspector-header' },
+    h('div', null,
+      h('h3', { id: titleId }, t('workflowDefinition.title')),
+      h('p', null, t('workflowDefinition.summary', { name: node.label }))),
+    h('button', {
+      type: 'button', className: 'task-dag-viewer-icon-button',
+      title: t('button.workflowDefinition.close'), 'aria-label': t('button.workflowDefinition.close'), onClick: onClose,
+    }, h(IconCloseOutline16))),
+  definition === null ? h('div', { className: 'task-dag-viewer-definition-unavailable' },
+    h(DagMark, {}),
+    h('h4', null, t('workflowDefinition.unavailable.title')),
+    h('p', null, t('workflowDefinition.unavailable.body'))) : h(Fragment, null,
+    h('div', { className: 'task-dag-viewer-inspector-stats' },
+      h('span', null, t('workflowDefinition.lines', { count: lineCount })),
+      phases.length > 0 ? h('span', null, t('workflowDefinition.phaseCount', { count: phases.length })) : null),
+    h('div', { className: 'task-dag-viewer-definition-body' },
+      definition.meta.description ? h('section', { className: 'task-dag-viewer-definition-section' },
+        h('h4', null, t('workflowDefinition.description')),
+        h('p', null, definition.meta.description)) : null,
+      definition.meta.whenToUse ? h('section', { className: 'task-dag-viewer-definition-section' },
+        h('h4', null, t('workflowDefinition.whenToUse')),
+        h('p', null, definition.meta.whenToUse)) : null,
+      phases.length > 0 ? h('section', { className: 'task-dag-viewer-definition-section' },
+        h('h4', null, t('workflowDefinition.phases')),
+        h('ol', { className: 'task-dag-viewer-phase-definition-list' },
+          ...phases.map((phase, index) => h('li', { key: `${phase.title}:${index}` },
+            h('div', { className: 'task-dag-viewer-phase-definition-heading' },
+              h('strong', null, phase.title),
+              phase.provider ? h('span', null, t('workflowDefinition.provider', { name: phase.provider })) : null,
+              phase.model ? h('span', null, t('workflowDefinition.model', { name: phase.model })) : null),
+            phase.detail ? h('p', null, phase.detail) : null)))) : null,
+      h('section', { className: 'task-dag-viewer-definition-section task-dag-viewer-code-section' },
+        h('h4', null, t('workflowDefinition.code')),
+        h(CodeBlock, {
+          code: definition.script,
+          lang: 'javascript',
+          copyLabel: t('workflowDefinition.copy'),
+          copiedLabel: t('workflowDefinition.copied'),
+        })))));
+}
+
+function EmptyState({ mode, leadSessionId, onOpen, t }) {
+  if (mode === 'overview') return null;
+  return h('div', { className: 'task-dag-viewer-empty' },
+    mode === 'team' ? h(CommunicationMark, {}) : h(DagMark, {}),
+    h('h3', null, t(`empty.${mode}.title`)),
+    h('p', null, t(`empty.${mode}.body`)),
+    mode === 'team' && leadSessionId ? h('button', { type: 'button', onClick: () => onOpen(leadSessionId) }, t('empty.team.openLead')) : null);
+}
+
+function TaskDagDialog({
+  close, fit, graphs, mode, nodePositions, onOpen, refresh, setFit, setMode, setNodePositions,
+  showCommunications, setShowCommunications, leadSessionId, t,
+}) {
+  const panelRef = useRef(null);
+  const viewportRef = useRef(null);
+  const dragRef = useRef(null);
+  const nodeDragRef = useRef(null);
+  const canvasDragRef = useRef(null);
+  const [position, setPosition] = useState(null);
+  const [canvasDragging, setCanvasDragging] = useState(false);
+  const [selectedCommunication, setSelectedCommunication] = useState(null);
+  const [selectedWorkflow, setSelectedWorkflow] = useState(null);
+  const [hoveredMetrics, setHoveredMetrics] = useState(null);
+  const graph = graphs[mode];
+  const layout = useMemo(() => graphLayout(graph), [graph]);
+  const selectedEdge = graph.edges.find(edge => edge.id === selectedCommunication && edge.kind === 'communication');
+  const selectedWorkflowNode = graph.nodes.find(node => node.id === selectedWorkflow && node.type === 'workflow');
+  const hoveredMetricsNode = graph.nodes.find(node => node.id === hoveredMetrics?.nodeId);
+  const positions = useMemo(() => {
+    const next = new Map(layout.positions);
+    for (const node of graph.nodes) if (nodePositions[node.id] !== undefined) next.set(node.id, nodePositions[node.id]);
+    return next;
+  }, [graph.nodes, layout.positions, nodePositions]);
+
+  const syncFocusedMetrics = () => {
+    const active = document.activeElement;
+    const nodeId = active?.matches?.('.task-dag-viewer-node[data-node-id]')
+      ? active.getAttribute('data-node-id') : null;
+    if (nodeId === null) {
+      setHoveredMetrics(null);
+      return;
+    }
+    const rect = active.getBoundingClientRect();
+    setHoveredMetrics({
+      nodeId,
+      anchor: {
+        left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom,
+        width: rect.width, height: rect.height,
+      },
+    });
+  };
+
+  useEffect(() => { panelRef.current?.focus({ preventScroll: true }); }, []);
+  useEffect(() => {
+    setSelectedCommunication(null);
+    setSelectedWorkflow(null);
+    setHoveredMetrics(null);
+  }, [mode]);
+  useEffect(() => {
+    const nodeIds = new Set(graph.nodes.map(node => node.id));
+    setNodePositions(current => {
+      let changed = false;
+      const next = {};
+      for (const [id, nodePosition] of Object.entries(current)) {
+        if (nodeIds.has(id)) next[id] = nodePosition;
+        else changed = true;
+      }
+      return changed ? next : current;
+    });
+  }, [layout.signature]);
+  useEffect(() => {
+    const onResize = () => syncFocusedMetrics();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [mode, layout.signature]);
+  useLayoutEffect(() => {
+    if (fit) return;
+    const viewport = viewportRef.current;
+    const root = layout.positions.get(graph.rootId);
+    if (!viewport || !root) return;
+    viewport.scrollLeft = Math.max(0, root.x + NODE_WIDTH / 2 - viewport.clientWidth / 2);
+    viewport.scrollTop = 0;
+  }, [fit, layout.signature]);
+
+  const beginDrag = (event) => {
+    const target = event.target;
+    if (target && typeof target.closest === 'function' && target.closest('button')) return;
+    const panel = panelRef.current;
+    if (!panel) return;
+    const rect = panel.getBoundingClientRect();
+    dragRef.current = {
+      pointerId: event.pointerId, startX: event.clientX, startY: event.clientY,
+      left: rect.left, top: rect.top, width: rect.width, height: rect.height, x: rect.left, y: rect.top,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const moveDrag = (event) => {
+    const drag = dragRef.current;
+    const panel = panelRef.current;
+    if (!drag || !panel || drag.pointerId !== event.pointerId) return;
+    drag.x = Math.min(Math.max(12, window.innerWidth - drag.width - 12), Math.max(12, drag.left + event.clientX - drag.startX));
+    drag.y = Math.min(Math.max(12, window.innerHeight - drag.height - 12), Math.max(12, drag.top + event.clientY - drag.startY));
+    panel.style.left = `${drag.x}px`;
+    panel.style.top = `${drag.y}px`;
+    panel.style.transform = 'none';
+  };
+  const endDrag = (event) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    dragRef.current = null;
+    setPosition({ x: drag.x, y: drag.y });
+  };
+  const graphPoint = (svg, event) => {
+    const rect = svg.getBoundingClientRect();
+    const scale = Math.min(rect.width / layout.width, rect.height / layout.height);
+    const renderedWidth = layout.width * scale;
+    return {
+      x: (event.clientX - rect.left - (rect.width - renderedWidth) / 2) / scale,
+      y: (event.clientY - rect.top) / scale,
+    };
+  };
+  const beginNodeDrag = (id, event) => {
+    const svg = event.currentTarget.ownerSVGElement;
+    const origin = positions.get(id);
+    if (!svg || !origin) return;
+    const rect = svg.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    nodeDragRef.current = { pointerId: event.pointerId, id, origin, start: graphPoint(svg, event), svg };
+  };
+  const moveNodeDrag = (event) => {
+    const drag = nodeDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const point = graphPoint(drag.svg, event);
+    const x = Math.round(Math.min(layout.width - NODE_WIDTH, Math.max(0, drag.origin.x + point.x - drag.start.x)));
+    const y = Math.round(Math.min(layout.height - NODE_HEIGHT, Math.max(0, drag.origin.y + point.y - drag.start.y)));
+    setNodePositions(current => {
+      const previous = current[drag.id];
+      return previous?.x === x && previous?.y === y ? current : { ...current, [drag.id]: { x, y } };
+    });
+  };
+  const endNodeDrag = (event) => {
+    const drag = nodeDragRef.current;
+    if (drag && drag.pointerId === event.pointerId) nodeDragRef.current = null;
+  };
+  const beginCanvasDrag = (event) => {
+    if (fit || event.isPrimary === false || (event.button !== undefined && event.button !== 0)
+      || event.target?.closest?.('.task-dag-viewer-communication')) return;
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    setHoveredMetrics(null);
+    canvasDragRef.current = {
+      pointerId: event.pointerId, startX: event.clientX, startY: event.clientY,
+      scrollLeft: viewport.scrollLeft, scrollTop: viewport.scrollTop,
+    };
+    setCanvasDragging(true);
+    if (typeof event.currentTarget.setPointerCapture === 'function') event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const moveCanvasDrag = (event) => {
+    const drag = canvasDragRef.current;
+    const viewport = viewportRef.current;
+    if (!drag || !viewport || drag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    viewport.scrollLeft = drag.scrollLeft - (event.clientX - drag.startX);
+    viewport.scrollTop = drag.scrollTop - (event.clientY - drag.startY);
+  };
+  const endCanvasDrag = (event) => {
+    const drag = canvasDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (typeof event.currentTarget.hasPointerCapture === 'function'
+      && event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    canvasDragRef.current = null;
+    setCanvasDragging(false);
+  };
+  const showMetrics = (nodeId, anchor) => setHoveredMetrics({ nodeId, anchor });
+  const hideMetrics = nodeId => setHoveredMetrics(current => current?.nodeId === nodeId ? null : current);
+  const selectCommunication = (id) => {
+    setSelectedWorkflow(null);
+    setSelectedCommunication(id);
+  };
+  const selectWorkflow = (id) => {
+    setSelectedCommunication(null);
+    setSelectedWorkflow(id);
+  };
+  const closeInspector = () => {
+    const id = selectedCommunication;
+    setSelectedCommunication(null);
+    queueMicrotask(() => {
+      const elements = viewportRef.current?.querySelectorAll('[data-communication="true"]') || [];
+      for (const element of elements) if (element.getAttribute('data-edge-id') === id) element.focus();
+    });
+  };
+  const closeWorkflowInspector = () => {
+    const id = selectedWorkflow;
+    setSelectedWorkflow(null);
+    queueMicrotask(() => {
+      const elements = viewportRef.current?.querySelectorAll('[data-workflow-id]') || [];
+      for (const element of elements) if (element.getAttribute('data-workflow-id') === id) element.focus();
+    });
+  };
+  const structuralEdges = graph.edges.filter(edge => edge.kind !== 'communication').length;
+  const panelStyle = position === null
+    ? { left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }
+    : { left: position.x, top: position.y, transform: 'none' };
+
+  return h('div', { className: 'task-dag-viewer-backdrop', onPointerDown: event => { if (event.currentTarget === event.target) close(true); } },
+    h('section', {
+      ref: panelRef,
+      className: 'task-dag-viewer-panel',
+      style: panelStyle,
+      role: 'dialog',
+      'aria-modal': true,
+      'aria-labelledby': 'task-dag-viewer-title',
+      tabIndex: -1,
+    },
+    h('header', {
+      className: 'task-dag-viewer-panel-header',
+      onPointerDown: beginDrag, onPointerMove: moveDrag, onPointerUp: endDrag, onPointerCancel: endDrag,
+    },
+    h('span', { className: 'task-dag-viewer-brand' }, h(DagMark, {})),
+    h('div', { className: 'task-dag-viewer-heading' },
+      h('h2', { className: 'task-dag-viewer-title', id: 'task-dag-viewer-title' }, t('title')),
+      h('div', { className: 'task-dag-viewer-subtitle' },
+        `${t('panel.summary', { nodes: graph.nodes.length, edges: structuralEdges, channels: graph.communicationCount })} · ${t('panel.live')}`)),
+    h('div', { className: 'task-dag-viewer-actions' },
+      graph.communicationCount > 0 ? h('button', {
+        type: 'button', className: 'task-dag-viewer-icon-button',
+        'data-active': showCommunications ? 'true' : undefined,
+        title: t(showCommunications ? 'button.communications.hide' : 'button.communications.show'),
+        'aria-label': t(showCommunications ? 'button.communications.hide' : 'button.communications.show'),
+        'aria-pressed': showCommunications,
+        onClick: () => {
+          if (showCommunications) setSelectedCommunication(null);
+          setShowCommunications(value => !value);
+        },
+      }, h(CommunicationMark, {})) : null,
+      h('button', { type: 'button', className: 'task-dag-viewer-icon-button', title: t('button.refresh'), 'aria-label': t('button.refresh'), onClick: refresh }, h(IconRefreshOutline16)),
+      h('button', {
+        type: 'button', className: 'task-dag-viewer-icon-button', 'data-active': fit ? 'true' : undefined,
+        title: t(fit ? 'button.original' : 'button.fit'), 'aria-label': t(fit ? 'button.original' : 'button.fit'),
+        onClick: () => setFit(value => !value),
+      }, h(IconFullscreenOutline16)),
+      h('button', { type: 'button', className: 'task-dag-viewer-icon-button', title: t('button.close'), 'aria-label': t('button.close'), onClick: () => close(true) }, h(IconCloseOutline16)))),
+    h(ViewTabs, { graphs, mode, setMode, t }),
+    h('div', {
+      id: 'task-dag-viewer-tabpanel',
+      className: 'task-dag-viewer-workspace',
+      role: 'tabpanel',
+      'aria-labelledby': `task-dag-viewer-tab-${mode}`,
+      'data-inspector': selectedEdge || selectedWorkflowNode ? 'true' : undefined,
+    },
+      h('div', {
+        ref: viewportRef,
+        className: 'task-dag-viewer-viewport',
+        'data-fit': fit ? 'true' : undefined,
+        'data-panning': canvasDragging ? 'true' : undefined,
+        role: 'region', 'aria-label': t('canvas.aria'), tabIndex: 0,
+        onScroll: syncFocusedMetrics,
+        onPointerDown: beginCanvasDrag, onPointerMove: moveCanvasDrag,
+        onPointerUp: endCanvasDrag, onPointerCancel: endCanvasDrag,
+      },
+      graph.nodes.length === 1 && mode !== 'overview' ? h(EmptyState, { mode, leadSessionId, onOpen, t }) : h(TaskGraph, {
+        graph, layout, positions, fit, showCommunications,
+        selectedCommunication, selectedWorkflow,
+        onSelectCommunication: selectCommunication, onInspectWorkflow: selectWorkflow,
+        onDragEnd: endNodeDrag, onDragMove: moveNodeDrag, onDragStart: beginNodeDrag,
+        onHideMetrics: hideMetrics, onShowMetrics: showMetrics,
+        hoveredMetricsNodeId: hoveredMetrics?.nodeId,
+        onOpen, t,
+      })),
+      h(CommunicationInspector, { edge: selectedEdge, onClose: closeInspector, t }),
+      h(WorkflowDefinitionInspector, { node: selectedWorkflowNode, onClose: closeWorkflowInspector, t })),
+    h(NodeMetricsTooltip, { anchor: hoveredMetrics?.anchor, node: hoveredMetricsNode, t }),
+    h('footer', { className: 'task-dag-viewer-footer' },
+      h('div', { className: 'task-dag-viewer-footer-legends' },
+        h(StatusLegend, { t }), h(EdgeLegend, { mode, showCommunications, t })),
+      h('span', { className: 'task-dag-viewer-hint' }, t('hint')))));
+}
+
+function TaskDagAction({
+  sessionId, useSession, useSessions, useConversation,
+  openSession, refreshCatalogs, setCatalogsOpen, t,
+}) {
+  const summaries = useSessions(state => state.byId);
+  const catalogs = useSessions(state => state.subagentsByParent);
+  const ordinaryIds = useSessions(state => state.ids);
+  const rootRunning = useSession(state => state.running);
+  const chatNodes = useConversation(
+    state => state.views.get('chat')?.legacy.nodes ?? EMPTY_CHAT_NODES,
+    sameArray,
+  );
+  const workflowNodes = useMemo(() => attachWorkflowDefinitions(
+    chatNodes.filter(node => node.kind === 'workflow-run'),
+    chatNodes,
+  ), [chatNodes]);
+  const teamNodes = useMemo(() => chatNodes.filter(node => node.kind === TEAM_SNAPSHOT_KIND), [chatNodes]);
+  const [open, setOpen] = useState(false);
+  const [fit, setFit] = useState(true);
+  const [mode, setMode] = useState('overview');
+  const [showCommunications, setShowCommunications] = useState(true);
+  const [positionsByMode, setPositionsByMode] = useState({ overview: {}, team: {}, workflow: {} });
+  const triggerRef = useRef(null);
+  const catalogActionsRef = useRef({ refreshCatalogs, setCatalogsOpen });
+  catalogActionsRef.current = { refreshCatalogs, setCatalogsOpen };
+  const graphs = useMemo(() => Object.fromEntries(MODES.map(view => [view, buildGraph({
+    rootId: sessionId,
+    rootRunning,
+    summaries,
+    catalogs,
+    ordinaryIds,
+    teamNodes,
+    workflowNodes,
+    mode: view,
+    t,
+  })])), [sessionId, rootRunning, summaries, catalogs, ordinaryIds, teamNodes, workflowNodes, t]);
+  const graph = graphs[mode];
+  const parentKey = graphs.overview.parentIds.join('\u001f');
+  const rootSummary = summaries[sessionId];
+  const leadSessionId = rootSummary?.origin === 'subagent' && rootSummary.parentId
+    && ordinaryIds.includes(rootSummary.parentId) ? rootSummary.parentId : null;
+
+  useEffect(() => {
+    setPositionsByMode({ overview: {}, team: {}, workflow: {} });
+    setMode('overview');
+  }, [sessionId]);
+  useEffect(() => {
+    if (!open) return undefined;
+    const parentIds = graphs.overview.parentIds;
+    catalogActionsRef.current.setCatalogsOpen(parentIds, true);
+    catalogActionsRef.current.refreshCatalogs(parentIds);
+    return () => { catalogActionsRef.current.setCatalogsOpen(parentIds, false); };
+  }, [open, parentKey]);
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      setOpen(false);
+      queueMicrotask(() => triggerRef.current?.focus());
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => { document.removeEventListener('keydown', onKeyDown); };
+  }, [open]);
+
+  const close = (restoreFocus) => {
+    setOpen(false);
+    if (restoreFocus) queueMicrotask(() => triggerRef.current?.focus());
+  };
+  const openNode = (id) => {
+    close(false);
+    openSession(id);
+  };
+  const setNodePositions = (update) => setPositionsByMode(current => ({
+    ...current,
+    [mode]: typeof update === 'function' ? update(current[mode]) : update,
+  }));
+  const count = graphs.overview.nodes.filter(
+    node => node.id !== graphs.overview.rootId && node.type !== 'workflow',
+  ).length;
+
+  return h('div', { className: 'task-dag-viewer-root' },
+    h('button', {
+      ref: triggerRef, type: 'button', className: 'task-dag-viewer-trigger',
+      'aria-expanded': open, 'aria-label': t('trigger.aria', { count }),
+      onClick: () => setOpen(value => !value),
+    },
+    h(DagMark, { className: 'task-dag-viewer-trigger-logo' }),
+    h('span', null, t('title')),
+    graph.activeCount > 0 ? h('span', { className: 'task-dag-viewer-live-dot', 'aria-hidden': true }) : null,
+    h('span', { className: 'task-dag-viewer-trigger-count', 'aria-hidden': true }, count)),
+    open ? ReactDOM.createPortal(h(TaskDagDialog, {
+      close, fit, graphs, mode, nodePositions: positionsByMode[mode], onOpen: openNode,
+      refresh: () => catalogActionsRef.current.refreshCatalogs(graphs.overview.parentIds),
+      setFit, setMode, setNodePositions, showCommunications, setShowCommunications,
+      leadSessionId, t,
+    }), document.body) : null);
+}
+
+const inject = ['sessions', 'slots', 'locale', 'uiConversation'];
+
+function apply(ctx) {
+  ctx.effect(() => ctx.uiConversation.events.register(createTeamSnapshotDefinition()), 'task-dag: Team snapshots');
+  ctx.effect(() => {
+    const tag = document.createElement('style');
+    tag.dataset.plugin = PACKAGE_ID;
+    tag.dataset.pluginCss = `${PACKAGE_ID}/main`;
+    tag.textContent = STYLE_TEXT;
+    document.head.appendChild(tag);
+    return () => { tag.remove(); };
+  }, 'task-dag: styles');
+  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'task-dag: dictionaries');
+  ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
+    name: 'conversation.session.header.actions',
+    id: 'task-dag',
+    order: 15,
+    locale: NS,
+    inject: () => ({
+      openSession(id) { ctx.sessions.open(id); },
+      refreshCatalogs(parentIds) { for (const parentId of parentIds) void ctx.sessions.refreshSubagents(parentId); },
+      setCatalogsOpen(parentIds, open) { for (const parentId of parentIds) ctx.sessions.setSubagentCatalogOpen(parentId, open); },
+    }),
+  }, TaskDagAction));
+}
+
+exports.inject = inject;
+exports.apply = apply;
