@@ -21,6 +21,7 @@ import {
   TASK_GRAPH_LOCALE_NS,
   registerTaskGraphDictionaries,
 } from './dictionary.js'
+import type { TaskGraphT } from './dictionary.js'
 import { TaskGraphView } from './view.js'
 import { createTaskGraphStore } from './store.js'
 import { startTaskGraphConnector } from './connector.js'
@@ -41,9 +42,9 @@ export function registerTaskGraphView(ctx: Context): () => void {
   const stopConnector = startTaskGraphConnector(ctx, store)
 
   // 直接传组件函数，store 通过 prop 注入。SlotComponent<P> = (props: P) => ReactNode
-  // 要求 props 类型对齐 ComposedProps；TaskGraphView 自己的 props 是 { store }，多余
-  // 字段（标准 kit 注入的 useStore / actions 等）会被丢弃——此 entry 不消费它们。
-  const Component = (): ReactNode => <TaskGraphView store={store} />
+  // 要求 props 类型对齐 ComposedProps；TaskGraphView 自己的 props 是 { store, t }，
+  // 多余字段（标准 kit 注入的 useStore / actions 等）会被丢弃——此 entry 不消费它们。
+  const Component = (): ReactNode => <TaskGraphView store={store} t={t satisfies TaskGraphT} />
 
   const dispose = ctx.slots.inject('conversation.view', () =>
     ctx.slots.register(
@@ -91,6 +92,6 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     }
   }
   interface LocaleNamespaceMap {
-    'skyaxis.taskGraph': 'view.taskGraph'
+    'skyaxis.taskGraph': 'view.taskGraph' | 'view.empty' | 'view.loading'
   }
 }

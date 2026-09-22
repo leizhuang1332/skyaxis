@@ -24,7 +24,8 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session'
-import type { ISessions, SessionEventWindow } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { ISessions, SessionEventWindow, SessionBinding } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { TaskStatus } from './types.js'
 import type { TaskGraphStore } from './store.js'
 import { inferTaskGraph } from './infer.js'
 
@@ -35,13 +36,32 @@ export function startTaskGraphConnector(ctx: Context, store: TaskGraphStore): ()
   // 经过 unknown 中转：合并类型 SessionStore & ISessions 直接 as ISessions TS 会拒。
   const sessions = ctx.sessions as unknown as ISessions
 
-  // 闭包持有：当前订阅的 session id / eventSource listener / 旧值。
+  // 闭包持有：当前订阅的 session id / eventSource listener / binding 缓存 /
+  // 最近一次应用的摘要投影（用于同 session 的 title / 状态变化重推）。
   let currentSessionId: SessionId | undefined
+  let currentBinding: SessionBinding | undefined
   let eventUnsub: (() => void) | undefined
+  let lastApplied: { label: string; running: boolean; completed: boolean } | undefined
 
   const applyWindow = (sessionId: SessionId, window: SessionEventWindow): void => {
-    const label = sessionLabel(sessionId)
-    const { nodes, edges } = inferTaskGraph(window.entries, label)
+    // P1 诚实性：root label 用 SessionSummary.displayTitle（0003 §二钉死的
+    // 路径），占位符只在 byId 行缺失时兜底；root 状态从 running/completed
+    // 如实映射（TaskStatus 闭集内）。
+    const summary = sessions.list.getSnapshot().byId[sessionId]
+    const label = summary?.displayTitle || sessionLabel(sessionId)
+    const rootStatus: TaskStatus = summary
+      ? summary.running
+        ? 'running'
+        : summary.completed
+          ? 'done'
+          : 'pending'
+      : 'running'
+    lastApplied = {
+      label,
+      running: summary?.running ?? false,
+      completed: summary?.completed ?? false,
+    }
+    const { nodes, edges } = inferTaskGraph(window.entries, label, rootStatus)
     store.set({
       sessionId,
       nodes,
@@ -55,10 +75,27 @@ export function startTaskGraphConnector(ctx: Context, store: TaskGraphStore): ()
       eventUnsub()
       eventUnsub = undefined
     }
+    currentBinding = undefined
+    lastApplied = undefined
   }
 
   const handleCurrent = (nextId: SessionId | undefined): void => {
-    if (nextId === currentSessionId) return
+    if (nextId === currentSessionId) {
+      // 同 session：title / running / completed 任一变化 → 用缓存的 binding
+      // 快照重推（root 节点如实反映 SessionSummary）。
+      if (nextId && currentBinding && lastApplied) {
+        const summary = sessions.list.getSnapshot().byId[nextId]
+        if (
+          summary &&
+          (summary.displayTitle !== lastApplied.label
+            || summary.running !== lastApplied.running
+            || (summary.completed ?? false) !== lastApplied.completed)
+        ) {
+          applyWindow(nextId, currentBinding.eventSource.getSnapshot())
+        }
+      }
+      return
+    }
     currentSessionId = nextId
     teardownBinding()
 
@@ -85,6 +122,7 @@ export function startTaskGraphConnector(ctx: Context, store: TaskGraphStore): ()
       return
     }
 
+    currentBinding = binding
     applyWindow(nextId, binding.eventSource.getSnapshot())
     eventUnsub = binding.eventSource.subscribe(() => {
       applyWindow(nextId, binding.eventSource.getSnapshot())

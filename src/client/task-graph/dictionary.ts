@@ -17,14 +17,23 @@ export const TASK_GRAPH_LOCALE_NS = 'skyaxis.taskGraph'
 
 interface TaskGraphDictionary {
   readonly 'view.taskGraph': string
+  readonly 'view.empty': string
+  readonly 'view.loading': string
 }
+
+/** 视图层可用的 t 函数形状（register 绑定后以 prop 传入 TaskGraphView）。 */
+export type TaskGraphT = (key: keyof TaskGraphDictionary) => string
 
 const zh: TaskGraphDictionary = {
   'view.taskGraph': '任务图',
+  'view.empty': '暂无选中的 session — 请在左侧打开一个会话。',
+  'view.loading': '加载中…',
 }
 
 const en: TaskGraphDictionary = {
   'view.taskGraph': 'Task Graph',
+  'view.empty': 'No session selected — open one from the sidebar.',
+  'view.loading': 'Loading…',
 }
 
 export function registerTaskGraphDictionaries(ctx: Context): void {

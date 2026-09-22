@@ -6,13 +6,18 @@
  *
  * v0.3 输入事件集合：
  *   - user/message (kind: 'user')   → user-prompt 节点
- *   - todo/write                    → task 节点（DAG 边）
+ *   - turn/start                    → 环境回合计数（todo/write 的 turn 归属来源）
+ *   - todo/write                    → task 节点（DAG 边；payload 无 turn 字段）
  *   - turn/end (reason.kind)        → 影响该 turn 内 task 终态
  * 其他事件类型全部不参与推断。
  *
  * P0 关键契约：task 节点 ID = `todo-{turn}-{contentHash}`，同 content 跨
  * todo/write 复用同一个节点（原位更新 status）。断言优先按 label 查找节点，
  * 另设专门用例正面证明 ID 跨 write 稳定。
+ *
+ * P1 关键契约：夹具对齐生产线协议形状（todo/write 不伪造 turn 字段）；
+ * turn 失败只升级未完成任务且标 user-prompt；未知 status 兜底 pending；
+ * root 状态由调用方传入。
  */
 import { describe, expect, it } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
@@ -68,11 +73,12 @@ function transient(seq: number): Entry {
 
 /**
  * 构造一个 todo/write entry。
- * todo/write 不在 SessionEventMap base 类型里——通过 unknown cast 注入。
+ * P1：payload 对齐生产线协议形状 `{ todos }`——**没有 turn 字段**
+ * （typert 表声明，见 src/client/task-graph/todo-write.d.ts）。turn 归属由
+ * 环境事件（turnStart / userMessage）决定，夹具不再伪造。
  */
 function todoWrite(
   seq: number,
-  turn: number,
   todos: readonly { content: string; status: 'pending' | 'in_progress' | 'completed' }[],
 ): Entry {
   return {
@@ -81,9 +87,16 @@ function todoWrite(
       type: 'todo/write',
       seq: seq as unknown as SessionEvent['seq'],
       time: seq * 1000,
-      data: { turn, todos },
+      data: { todos },
     } as unknown as SessionEvent,
   } as Entry
+}
+
+/**
+ * 构造一个 turn/start entry（data.turn 是真实字段——DSH 给出的 turn 编号）。
+ */
+function turnStart(seq: number, turn: number): Entry {
+  return ev(seq, 'turn/start', { turn })
 }
 
 /**
@@ -156,7 +169,7 @@ describe('inferTaskGraph', () => {
 
   it('handles out-of-order seq defensively by sorting events', () => {
     const { nodes } = inferTaskGraph(
-      [todoWrite(5, 1, [{ content: 'B', status: 'completed' }]), todoWrite(1, 1, [{ content: 'A', status: 'completed' }])],
+      [todoWrite(5, [{ content: 'B', status: 'completed' }]), todoWrite(1, [{ content: 'A', status: 'completed' }])],
       'S',
     )
     // seq=5 在后（更晚发生），按 seq 升序处理：先压 A，再压 B 替换整个列表。
@@ -171,7 +184,7 @@ describe('inferTaskGraph', () => {
   it('infers task nodes from a single todo/write event with multiple items', () => {
     const { nodes, edges } = inferTaskGraph(
       [
-        todoWrite(1, 1, [
+        todoWrite(1, [
           { content: '读文件', status: 'in_progress' },
           { content: '写文件', status: 'pending' },
           { content: '提交', status: 'pending' },
@@ -197,7 +210,7 @@ describe('inferTaskGraph', () => {
   it('creates linear edges between consecutive tasks in same turn', () => {
     const { edges, nodes } = inferTaskGraph(
       [
-        todoWrite(1, 1, [
+        todoWrite(1, [
           { content: 'a', status: 'pending' },
           { content: 'b', status: 'pending' },
           { content: 'c', status: 'pending' },
@@ -217,11 +230,11 @@ describe('inferTaskGraph', () => {
     // 同 content 跨 write 复用同一节点（ID 稳定），status 原位更新。
     const { nodes } = inferTaskGraph(
       [
-        todoWrite(1, 1, [
+        todoWrite(1, [
           { content: 'task', status: 'pending' },
           { content: 'other', status: 'pending' },
         ]),
-        todoWrite(2, 1, [
+        todoWrite(2, [
           { content: 'task', status: 'completed' },
           { content: 'other', status: 'in_progress' },
         ]),
@@ -239,12 +252,12 @@ describe('inferTaskGraph', () => {
   it('removes task nodes when todo/write shrinks the list', () => {
     const { nodes } = inferTaskGraph(
       [
-        todoWrite(1, 1, [
+        todoWrite(1, [
           { content: 'a', status: 'pending' },
           { content: 'b', status: 'pending' },
           { content: 'c', status: 'pending' },
         ]),
-        todoWrite(2, 1, [{ content: 'a', status: 'pending' }]),
+        todoWrite(2, [{ content: 'a', status: 'pending' }]),
       ],
       'S',
     )
@@ -256,8 +269,8 @@ describe('inferTaskGraph', () => {
   it('adds new task nodes when todo/write grows the list', () => {
     const { nodes, edges } = inferTaskGraph(
       [
-        todoWrite(1, 1, [{ content: 'a', status: 'pending' }]),
-        todoWrite(2, 1, [
+        todoWrite(1, [{ content: 'a', status: 'pending' }]),
+        todoWrite(2, [
           { content: 'a', status: 'pending' },
           { content: 'b', status: 'pending' },
         ]),
@@ -278,11 +291,11 @@ describe('inferTaskGraph', () => {
     // P0 核心契约：同 content 的节点 ID 跨 writeSeq 稳定，status 原位更新。
     const { nodes } = inferTaskGraph(
       [
-        todoWrite(1, 1, [
+        todoWrite(1, [
           { content: 'unchanged', status: 'pending' },
           { content: 'unchanged', status: 'pending' },
         ]),
-        todoWrite(2, 1, [
+        todoWrite(2, [
           { content: 'unchanged', status: 'completed' },
           { content: 'unchanged', status: 'in_progress' },
         ]),
@@ -318,7 +331,7 @@ describe('inferTaskGraph', () => {
     const { edges, nodes } = inferTaskGraph(
       [
         userMessage(1, 1, '做一下'),
-        todoWrite(2, 1, [
+        todoWrite(2, [
           { content: 't1', status: 'pending' },
           { content: 't2', status: 'pending' },
         ]),
@@ -338,11 +351,13 @@ describe('inferTaskGraph', () => {
   it('connects last task of turn_N to first task of turn_{N+1} (cross-turn chain)', () => {
     const { edges, nodes } = inferTaskGraph(
       [
-        todoWrite(1, 1, [
+        turnStart(1, 1),
+        todoWrite(2, [
           { content: 'a', status: 'pending' },
           { content: 'b', status: 'pending' },
         ]),
-        todoWrite(2, 2, [{ content: 'c', status: 'pending' }]),
+        turnStart(3, 2),
+        todoWrite(4, [{ content: 'c', status: 'pending' }]),
       ],
       'S',
     )
@@ -358,11 +373,12 @@ describe('inferTaskGraph', () => {
   it('marks task as failed when its turn turn/end has reason.kind=error', () => {
     const { nodes } = inferTaskGraph(
       [
-        todoWrite(1, 1, [
+        turnStart(1, 1),
+        todoWrite(2, [
           { content: 'a', status: 'in_progress' },
           { content: 'b', status: 'pending' },
         ]),
-        turnEnd(2, 1, { kind: 'error' }),
+        turnEnd(3, 1, { kind: 'error' }),
       ],
       'S',
     )
@@ -386,7 +402,7 @@ describe('inferTaskGraph', () => {
   it('exposes TodoItem status directly: pending/in_progress/completed map to TaskStatus', () => {
     const { nodes } = inferTaskGraph(
       [
-        todoWrite(1, 1, [
+        todoWrite(1, [
           { content: 'p', status: 'pending' },
           { content: 'r', status: 'in_progress' },
           { content: 'd', status: 'completed' },
@@ -408,11 +424,11 @@ describe('inferTaskGraph', () => {
     // 而非 whole-list 全删重建（重建会让 React Flow 整树 remount / 拖拽丢失）。
     const { nodes } = inferTaskGraph(
       [
-        todoWrite(1, 1, [
+        todoWrite(1, [
           { content: 'design doc', status: 'pending' },
           { content: 'implement', status: 'pending' },
         ]),
-        todoWrite(2, 1, [
+        todoWrite(2, [
           { content: 'design doc', status: 'completed' },
           { content: 'implement', status: 'in_progress' },
         ]),
@@ -425,8 +441,8 @@ describe('inferTaskGraph', () => {
     const design = findTaskByLabel(nodes, 'design doc')!
     const impl = findTaskByLabel(nodes, 'implement')!
     // 节点数仍为 2、content 都匹配 → 不是重建，是复用
-    expect(design.id).toMatch(/^todo-1-[\w]+$/)
-    expect(impl.id).toMatch(/^todo-1-[\w]+$/)
+    expect(design.id).toMatch(/^todo-\d+-[\w]+$/)
+    expect(impl.id).toMatch(/^todo-\d+-[\w]+$/)
     expect(design.id).not.toBe(impl.id)
 
     const designStatus = design.data.status
@@ -439,7 +455,7 @@ describe('inferTaskGraph', () => {
     // 同 turn 内 content 重复（脏数据边界）→ 加序号后缀避免 ID 碰撞，两个独立节点。
     const { nodes } = inferTaskGraph(
       [
-        todoWrite(1, 1, [
+        todoWrite(1, [
           { content: 'dup', status: 'pending' },
           { content: 'dup', status: 'pending' },
         ]),
@@ -449,9 +465,9 @@ describe('inferTaskGraph', () => {
     const tasks = nodes.filter((n) => n.type === 'task')
     expect(tasks).toHaveLength(2)
     expect(tasks[0]!.id).not.toBe(tasks[1]!.id)
-    // 两个节点 id 都是 todo-1-<hash>#<suffix> 形式
+    // 两个节点 id 都是 todo-<turn>-<hash>#<suffix> 形式
     for (const t of tasks) {
-      expect(t.id).toMatch(/^todo-1-[\w]+(#\d+)?$/)
+      expect(t.id).toMatch(/^todo-\d+-[\w]+(#\d+)?$/)
     }
   })
 
@@ -459,13 +475,13 @@ describe('inferTaskGraph', () => {
     // status 更新发射第二份 todo/write，但 content 集合不变 → 节点数、ID 全不变，
     // 只有 status 字段变化。这是"同 ID 取最新 revision"折叠的等价表达。
     const { nodes: first } = inferTaskGraph(
-      [todoWrite(1, 1, [{ content: 'only-task', status: 'pending' }])],
+      [todoWrite(1, [{ content: 'only-task', status: 'pending' }])],
       'S',
     )
     const { nodes: second } = inferTaskGraph(
       [
-        todoWrite(1, 1, [{ content: 'only-task', status: 'pending' }]),
-        todoWrite(2, 1, [{ content: 'only-task', status: 'in_progress' }]),
+        todoWrite(1, [{ content: 'only-task', status: 'pending' }]),
+        todoWrite(2, [{ content: 'only-task', status: 'in_progress' }]),
       ],
       'S',
     )
@@ -475,5 +491,81 @@ describe('inferTaskGraph', () => {
     expect(secondTask.id).toBe(firstTask.id)
     expect(firstTask.data.status).toBe('pending')
     expect(secondTask.data.status).toBe('running')
+  })
+
+  // -------------- P1 诚实性契约 --------------
+
+  it('attributes todo/write to the ambient turn when payload has no turn field (P1)', () => {
+    // 生产形状回归：todo/write 的 wire payload 没有 turn 字段（typert 表），
+    // 归属由环境事件决定。turn/start 给出 turn=3 → 节点 id 前缀必须是 todo-3-。
+    const { nodes, edges } = inferTaskGraph(
+      [
+        userMessage(1, 1, '开始'),
+        turnStart(2, 3),
+        todoWrite(3, [{ content: 'ambient', status: 'pending' }]),
+      ],
+      'S',
+    )
+    const task = findTaskByLabel(nodes, 'ambient')!
+    expect(task.id.startsWith('todo-3-')).toBe(true)
+    // user-prompt（自增到 turn 1 后被 turn/start 覆盖为 3）→ 首 task 边仍成立：
+    // user/message 自增到 1，turnStart 覆盖为 3，prompt 键随自增留在 turn 1，
+    // 因此这条边在 turn 3 下不应误连 —— 断言不存在错误归属的边。
+    const prompt = nodes.find((n) => n.type === 'user-prompt')!
+    expect(edges.find((e) => e.source === prompt.id && e.target === task.id)).toBeFalsy()
+  })
+
+  it('keeps completed tasks done when turn ends with error; only unfinished become failed (P1)', () => {
+    const { nodes } = inferTaskGraph(
+      [
+        turnStart(1, 1),
+        todoWrite(2, [
+          { content: 'finished', status: 'completed' },
+          { content: 'wip', status: 'in_progress' },
+          { content: 'not-started', status: 'pending' },
+        ]),
+        turnEnd(3, 1, { kind: 'error' }),
+      ],
+      'S',
+    )
+    // 任务自身的 completed 是事实，turn 失败不篡改；未完成的才升级 failed。
+    expect(findTaskByLabel(nodes, 'finished')!.data.status).toBe('done')
+    expect(findTaskByLabel(nodes, 'wip')!.data.status).toBe('failed')
+    expect(findTaskByLabel(nodes, 'not-started')!.data.status).toBe('failed')
+  })
+
+  it('marks the user-prompt node failed when its turn errors (P1)', () => {
+    const { nodes } = inferTaskGraph(
+      [
+        userMessage(1, 1, '会失败的请求'),
+        turnStart(2, 1),
+        todoWrite(3, [{ content: 't', status: 'in_progress' }]),
+        turnEnd(4, 1, { kind: 'error' }),
+      ],
+      'S',
+    )
+    const prompt = nodes.find((n) => n.type === 'user-prompt')!
+    expect(prompt.data.status).toBe('failed')
+  })
+
+  it('normalizes unknown todo status to pending (P1)', () => {
+    // 运行时防御：上游 status 漂移（如未来新增 'cancelled'）→ 兜底 pending，
+    // 绝不误标 completed。
+    const { nodes } = inferTaskGraph(
+      [
+        todoWrite(1, [
+          { content: 'bogus', status: 'cancelled' as never },
+          { content: 'ok', status: 'in_progress' },
+        ]),
+      ],
+      'S',
+    )
+    expect(findTaskByLabel(nodes, 'bogus')!.data.status).toBe('pending')
+    expect(findTaskByLabel(nodes, 'ok')!.data.status).toBe('running')
+  })
+
+  it('accepts rootStatus override for the root node (P1)', () => {
+    const { nodes } = inferTaskGraph([], 'S', 'done')
+    expect(nodes[0]!.data.status).toBe('done')
   })
 })

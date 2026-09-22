@@ -17,21 +17,24 @@ import reactFlowCss from '@xyflow/react/dist/style.css?inline'
 import { layoutTaskGraph } from './layout.js'
 import type { TaskNode, TaskEdge } from './types.js'
 import type { TaskGraphStore } from './store.js'
+import type { TaskGraphT } from './dictionary.js'
 
 /**
  * Slot entry: `conversation.view` 在 DSH 会话视图内渲染此组件。
  * 外层仅做 Provider 包装，把 hooks 留给内部画布组件使用。
  * `store` 由 register.ts 在 apply 阶段创建并通过 props 注入（plan 决策 1：
- * 不走 store seat，实例跟随 register 的 disposer）。
+ * 不走 store seat，实例跟随 register 的 disposer）；`t` 为绑定到
+ * skyaxis.taskGraph 命名空间的 i18n 函数（P1：占位文案不再硬编码中文）。
  */
 interface TaskGraphViewProps {
   store: TaskGraphStore
+  t: TaskGraphT
 }
 
-export function TaskGraphView({ store }: TaskGraphViewProps): JSX.Element {
+export function TaskGraphView({ store, t }: TaskGraphViewProps): JSX.Element {
   return (
     <ReactFlowProvider>
-      <TaskGraphBoard store={store} />
+      <TaskGraphBoard store={store} t={t} />
     </ReactFlowProvider>
   )
 }
@@ -42,7 +45,7 @@ export function TaskGraphView({ store }: TaskGraphViewProps): JSX.Element {
  * 数据流：`store`（connector 写入）→ `useSyncExternalStore` → `layoutTaskGraph`
  * → React Flow 受控 nodes/edges。
  */
-function TaskGraphBoard({ store }: TaskGraphViewProps): JSX.Element {
+function TaskGraphBoard({ store, t }: TaskGraphViewProps): JSX.Element {
   const { sessionId, nodes: inferredNodes, edges: inferredEdges, loading } =
     useSyncExternalStore(
       (l) => store.subscribe(l),
@@ -100,7 +103,7 @@ function TaskGraphBoard({ store }: TaskGraphViewProps): JSX.Element {
     return (
       <div
         role="region"
-        aria-label="任务图"
+        aria-label={t('view.taskGraph')}
         style={{
           width: '100%',
           height: '100%',
@@ -111,7 +114,7 @@ function TaskGraphBoard({ store }: TaskGraphViewProps): JSX.Element {
           fontSize: 14,
         }}
       >
-        暂无选中的 session — 请在左侧打开一个会话。
+        {t('view.empty')}
       </div>
     )
   }
@@ -121,7 +124,7 @@ function TaskGraphBoard({ store }: TaskGraphViewProps): JSX.Element {
     return (
       <div
         role="region"
-        aria-label="任务图"
+        aria-label={t('view.taskGraph')}
         style={{
           width: '100%',
           height: '100%',
@@ -132,7 +135,7 @@ function TaskGraphBoard({ store }: TaskGraphViewProps): JSX.Element {
           fontSize: 14,
         }}
       >
-        加载中…
+        {t('view.loading')}
       </div>
     )
   }
@@ -140,7 +143,7 @@ function TaskGraphBoard({ store }: TaskGraphViewProps): JSX.Element {
   return (
     <div
       role="region"
-      aria-label="任务图"
+      aria-label={t('view.taskGraph')}
       style={{ width: '100%', height: '100%' }}
     >
       <ReactFlow

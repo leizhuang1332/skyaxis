@@ -11,11 +11,17 @@
  *   - 同 turn 内 task_i ──→ task_{i+1}
  *   - 跨 turn：上一 turn 末 task ──→ 下一 turn 首 task
  *
+ * turn 归属（P1）：todo/write 的 wire payload 没有 turn 字段（见
+ * todo-write.d.ts），归属由环境回合计数决定（turn/start 设置 / user/message
+ * 自增），事件按 seq 排序后顺扫即得。
+ *
  * 状态：
- *   - pending       ← TodoItem.status === 'pending'
+ *   - pending       ← TodoItem.status === 'pending'（未知 status 也兜底到此）
  *   - running       ← TodoItem.status === 'in_progress'
  *   - done          ← TodoItem.status === 'completed'
- *   - failed        ← 所在 turn 的 turn/end.reason.kind === 'error'（错误覆盖 todo 完成态）
+ *   - failed        ← 所在 turn 的 turn/end.reason.kind === 'error' 且任务
+ *                     自身未 completed（任务完成是事实，turn 失败不篡改）；
+ *                     同时该 turn 的 user-prompt 节点标 failed
  *   - waiting       v0.3 不生成
  *
  * 节点身份（P0）：task 节点 ID = `todo-{turn}-{contentHash}`，按 content 锚定。
@@ -61,6 +67,7 @@ function hashContent(content: string): string {
 export function inferTaskGraph(
   entries: readonly SessionEventLikeEntry[],
   sessionLabel: string,
+  rootStatus: TaskStatus = 'running',
 ): { nodes: TaskNode[]; edges: TaskEdge[] } {
   const events = entries
     .filter((e): e is Extract<SessionEventLikeEntry, { type: 'event' }> => e.type === 'event')
@@ -70,12 +77,14 @@ export function inferTaskGraph(
   const rawNodes: InferredNode[] = []
   const rawEdges: TaskEdge[] = []
 
-  // root 节点（永远 1 个）
+  // root 节点（永远 1 个）。状态由调用方传入（connector 从 SessionSummary
+  // 映射：running → running / completed → done / 其余 → pending）；默认
+  // 'running' 仅为保持无参调用的旧契约。
   rawNodes.push({
     id: 'root',
     type: 'root',
     position: { x: 0, y: 0 },
-    data: { label: sessionLabel, status: 'running' },
+    data: { label: sessionLabel, status: rootStatus },
   })
 
   /** turn -> 已记录的 user-prompt node id；同 turn 多次 user/message 只取首条（kind === 'user'）。 */
@@ -154,17 +163,14 @@ export function inferTaskGraph(
         break
       }
 
-      case 'todo/write' as never: {
-        // todo/write 事件由 @deepseek-ai/dsh-tool-todo 通过 declare module 增强进
-        // SessionEventMap；本仓库的 SessionEvent 类型看不到它，用 unknown 中转。
-        // （P0 未建正式 module augmentation 文件，见 plan "不在范围内"。）
-        const todoEv = (ev as unknown as { data: unknown }).data as {
-          turn?: number
-          todos?: readonly { content: string; status: TodoStatus }[]
-        }
-        const turn = todoEv.turn ?? 0
+      case 'todo/write': {
+        // 事件形状来自本目录 todo-write.d.ts 的 module augmentation（对齐
+        // typert 线协议表：{ todos } —— payload 没有 turn 字段）。
+        // turn 归属用环境回合计数：事件已按 seq 排序，turn/start 显式设置、
+        // user/message 自增；生产时序保证 turn/start 先于其内的 todo/write。
+        const turn = currentTurn
         lastEventTurn = Math.max(lastEventTurn, turn)
-        const todos = todoEv.todos ?? []
+        const todos = ev.data.todos ?? []
 
         // P0：按 content 锚定复用节点，而非 whole-list 全删重建。
         // 该 turn 内，content 没变的任务原位更新 status / label；
@@ -217,7 +223,7 @@ export function inferTaskGraph(
 
         for (let i = 0; i < todos.length; i++) {
           const todo = todos[i]!
-          const status: TodoStatus = todo.status
+          const status: TodoStatus = normalizeTodoStatus(todo.status)
           const content = todo.content
           const hash = hashContent(content)
 
@@ -298,13 +304,19 @@ export function inferTaskGraph(
         const reason = ev.data.reason
         if (reason.kind === 'error') {
           turnFailedSet.add(turn)
-          // 该 turn 所有 task 升级 failed
+          // 诚实语义：todo 自身的 completed 是事实，turn 失败不篡改它；
+          // 只有未完成的任务才因 turn 中止而升级 failed。
           const ids = taskIdsByTurn.get(turn) ?? []
           for (const id of ids) {
-            updateNode(rawNodes, id, { status: 'failed' })
             const n = rawNodes.find((nn) => nn.id === id)
-            if (n) n.data._turnFailed = true
+            if (n && n.data._todoStatus !== 'completed') {
+              n.data.status = 'failed'
+              n.data._turnFailed = true
+            }
           }
+          // turn 级失败标在触发改 turn 的 user-prompt 节点（turn/end 事实投影）。
+          const userPromptId = firstUserPromptByTurn.get(turn)
+          if (userPromptId) updateNode(rawNodes, userPromptId, { status: 'failed' })
         }
         break
       }
@@ -331,8 +343,17 @@ export function inferTaskGraph(
 
 // ---------- helpers ----------
 
+/**
+ * 运行时防御：todo status 经 wire 传输，字段漂移（上游新增枚举值等）时
+ * 兜底为 'pending' —— 绝不误标 completed（诚实 > 漂亮）。
+ */
+function normalizeTodoStatus(raw: string): TodoStatus {
+  return raw === 'in_progress' || raw === 'completed' ? raw : 'pending'
+}
+
 function mapStatus(todoStatus: TodoStatus, turnFailed: boolean): TaskStatus {
-  if (turnFailed) return 'failed'
+  // turn 失败只升级未完成任务；completed 是任务自身的事实，不被篡改。
+  if (turnFailed && todoStatus !== 'completed') return 'failed'
   switch (todoStatus) {
     case 'pending':
       return 'pending'
