@@ -69,11 +69,15 @@ export function foldWorkflowRuns(
   events: readonly SessionEvent[],
 ): Map<string, WorkflowRunFold> {
   const runs = new Map<string, WorkflowRunFold>()
-  for (const event of events) {
+  // 按 seq 排序后折叠（对齐 dist foldTeam 的 anchorSeq 排序与 infer 的 seq
+  // 排序）：折叠结果不依赖事件到达顺序（置换不变性，P4 性质测试守护）。
+  const sorted = [...events].sort((a, b) => a.seq - b.seq)
+  for (const event of sorted) {
     switch (event.type) {
       case 'tool-workflow/run-start': {
         const data = event.data
-        if (!runs.has(data.runId)) {
+        const existing = runs.get(data.runId)
+        if (existing === undefined) {
           runs.set(data.runId, {
             runId: data.runId,
             name: data.name,
@@ -81,6 +85,10 @@ export function foldWorkflowRuns(
             outcomes: new Map(),
             startSeq: event.seq,
           })
+        } else if (existing.name === '' && data.name !== '') {
+          // P4 修正：孤儿 agent-start 先建的空名壳，在真 run-start 到达时
+          // 回填 name——否则折叠结果依赖事件到达顺序（置换不变性不成立）。
+          existing.name = data.name
         }
         break
       }

@@ -130,23 +130,10 @@ function statusLabel(status: TaskNode['data']['status'], t: TaskGraphT): string 
   }
 }
 
-/**
- * title 提示文案：label + 最近一次请求的路由事实（P2b）。effort 的来源
- * 用原始枚举值（request-config / adapter-default / not-recorded）——数据
- * 事实不加解释；本地化版本在 hover tooltip 面板里（statusLabel + metrics 行）。
- */
-function nodeTitle(data: TaskNode['data']): string {
-  if (data.metrics === undefined) return data.label
-  const m = data.metrics
-  const effort =
-    m.reasoningEffort === undefined
-      ? 'not-recorded'
-      : `${m.reasoningEffort} (${m.reasoningSource})`
-  return `${data.label}\n${m.provider} · ${m.model} · ${effort}`
-}
-
 // P3 修闪烁：memo 化——store tick 引起的画布重渲染不再 churn 节点 DOM
 // （hover 面板闪烁的机制之一）。
+// P4 后：不再挂原生 title 提示——指标面板已覆盖其信息，两者同现会互相
+// 遮挡（用户裁定 2026-09-23）；无鼠标场景的可访问性由 aria/面板承担。
 const TaskGraphNode = memo(function TaskGraphNode({ id, data }: NodeProps<TaskNode>): JSX.Element {
   return (
     <div
@@ -154,7 +141,6 @@ const TaskGraphNode = memo(function TaskGraphNode({ id, data }: NodeProps<TaskNo
       data-node-id={id}
       data-status={data.status}
       data-navigable={data.navigable ? 'true' : undefined}
-      title={nodeTitle(data)}
     >
       {/* 边的锚点：React Flow 的边必须挂在 <Handle> 上，没有 Handle 边整条不渲染。
           layout.ts 的 sourcePosition/targetPosition（Bottom/Top）与此对应。 */}
@@ -321,6 +307,15 @@ const taskGraphNodeCss = `
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 11px;
   white-space: pre;
+}
+/* 宿主会话壳的宽度拖拽柄在任务图 tab 下是孤儿元素（所属面板已隐藏但
+   handle 仍可交互，悬在画布中间——用户报告 2026-09-23）。用稳定的
+   data-width-handle 属性定位：class 前缀（wSkVaW_ 之流）是 CSS module
+   hash，跨宿主构建会变，不可依赖。本规则随 <style data-plugin="@lz/skyaxis">
+   标签的生命周期生效——仅任务图视图挂载期间禁用拖拽，切回 chat 等 tab
+   标签卸载即恢复（宿主修复此 bug 后本规则自然空转）。 */
+[data-width-handle] {
+  pointer-events: none !important;
 }
 `
 
