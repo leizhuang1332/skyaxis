@@ -21,6 +21,8 @@ interface TaskGraphDictionary {
   readonly 'view.loading': string
   readonly 'view.error': string
   readonly 'node.subagent': string
+  readonly 'node.workflow': string
+  readonly 'node.workflowMember': string
 }
 
 /** 视图层可用的 t 函数形状（register 绑定后以 prop 传入 TaskGraphView）。 */
@@ -32,6 +34,8 @@ const zh: TaskGraphDictionary = {
   'view.loading': '加载中…',
   'view.error': '任务图加载失败 — 详情见控制台',
   'node.subagent': '子代理',
+  'node.workflow': '工作流',
+  'node.workflowMember': '工作流成员',
 }
 
 const en: TaskGraphDictionary = {
@@ -40,6 +44,8 @@ const en: TaskGraphDictionary = {
   'view.loading': 'Loading…',
   'view.error': 'Failed to load the task graph — see console for details',
   'node.subagent': 'Subagent',
+  'node.workflow': 'Workflow',
+  'node.workflowMember': 'Workflow member',
 }
 
 export function registerTaskGraphDictionaries(ctx: Context): void {

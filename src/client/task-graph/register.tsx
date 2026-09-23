@@ -47,6 +47,8 @@ export function registerTaskGraphView(ctx: Context): () => void {
   const startConnector = (): (() => void) =>
     startTaskGraphConnector(ctx, store, {
       subagentFallbackLabel: () => t('node.subagent'),
+      workflowRunFallbackLabel: () => t('node.workflow'),
+      workflowMemberFallbackLabel: () => t('node.workflowMember'),
     })
 
   // P2a 导航（诚实规则）：优先走 catalog 直系地址 openSubagent；没有地址时
@@ -132,5 +134,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       | 'view.loading'
       | 'view.error'
       | 'node.subagent'
+      | 'node.workflow'
+      | 'node.workflowMember'
   }
 }

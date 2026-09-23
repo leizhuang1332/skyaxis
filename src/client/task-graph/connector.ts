@@ -28,12 +28,17 @@
  * 再装新的，避免引用旧 binding。
  */
 import type { Context } from '@deepseek-ai/cordis'
-import type { SessionId } from '@deepseek-ai/dsh-session'
-import type { ISessions, SessionEventWindow } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
+import type {
+  ISessions,
+  SessionEventLikeEntry,
+  SessionEventWindow,
+} from '@deepseek-ai/dsh-api-session-controller/client'
 import type { TaskStatus } from './types.js'
 import type { TaskGraphStore } from './store.js'
 import { inferTaskGraph } from './infer.js'
 import { buildSubagentGraph, subagentSignature, summaryStatus } from './subagents.js'
+import { buildWorkflowGraph, foldWorkflowRuns, workflowSignature } from './workflows.js'
 
 /**
  * dsh-session 和 dsh-api-session-controller 都声明了 Context.sessions（前者是
@@ -49,6 +54,10 @@ export function sessionsFace(ctx: Context): ISessions {
 export interface TaskGraphConnectorOptions {
   /** subagent 节点 label 三级回退的最终兜底（i18n 文案，取值时机在每次 apply）。 */
   subagentFallbackLabel?: () => string
+  /** workflow run 节点 name 缺失时的兜底（i18n）。 */
+  workflowRunFallbackLabel?: () => string
+  /** workflow member 节点 label 缺失时的兜底（i18n）。 */
+  workflowMemberFallbackLabel?: () => string
 }
 
 export function startTaskGraphConnector(
@@ -65,13 +74,22 @@ export function startTaskGraphConnector(
   let eventUnsub: (() => void) | undefined
   let lastAppliedSignature: string | undefined
 
-  /** root 摘要 + 子树签名（同 current 时判断是否需要重推）。 */
-  const signatureFor = (sessionId: SessionId): string => {
+  /** 事件窗口里的持久事件（transient 排除）——infer 与 workflow 折叠共用。 */
+  const durableEvents = (window: SessionEventWindow): readonly SessionEvent[] =>
+    window.entries
+      .filter((e): e is Extract<SessionEventLikeEntry, { type: 'event' }> => e.type === 'event')
+      .map((e) => e.event)
+
+  /** root 摘要 + 子树签名 + workflow 签名（同 current 时判断是否需要重推）。 */
+  const signatureFor = (sessionId: SessionId, window: SessionEventWindow): string => {
     const snapshot = sessions.list.getSnapshot()
     const summary = snapshot.byId[sessionId]
     const label = summary?.displayTitle || sessionLabel(sessionId)
     const rootStatus: TaskStatus = summary ? summaryStatus(summary) : 'running'
-    return `${label}|${rootStatus}|${subagentSignature(sessionId, snapshot.byId)}`
+    return (
+      `${label}|${rootStatus}|${subagentSignature(sessionId, snapshot.byId)}`
+      + `|${workflowSignature(foldWorkflowRuns(durableEvents(window)))}`
+    )
   }
 
   const applyWindow = (sessionId: SessionId, window: SessionEventWindow): void => {
@@ -88,20 +106,41 @@ export function startTaskGraphConnector(
       const rootStatus: TaskStatus = summary ? summaryStatus(summary) : 'running'
       // P2b：root 的"最近一次请求"路由事实（null → undefined，不挂字段）。
       const rootMetrics = summary?.projectionValues?.skyaxisAgentMetrics ?? undefined
-      lastAppliedSignature = `${label}|${rootStatus}|${subagentSignature(sessionId, snapshot.byId)}`
+      lastAppliedSignature = signatureFor(sessionId, window)
 
       const taskGraph = inferTaskGraph(window.entries, label, rootStatus, rootMetrics)
+      // P2d：workflow 图（第三命名空间，零新增订阅——同一事件窗口折叠）。
+      const workflowRuns = foldWorkflowRuns(durableEvents(window))
+      const workflowGraph = buildWorkflowGraph({
+        rootId: sessionId,
+        runs: workflowRuns,
+        byId: snapshot.byId,
+        ids: snapshot.ids,
+        fallbackLabels: {
+          run: options.workflowRunFallbackLabel?.() ?? 'Workflow',
+          member: options.workflowMemberFallbackLabel?.() ?? 'Workflow member',
+        },
+      })
+      // P2d 修正（dist/03 §6 grouped 规则）：workflow 成员的 childId → member
+      // 节点 id；subagent 图据此跳过已占用会话、后代再父化到 member 节点。
+      const grouped = new Map<SessionId, string>()
+      for (const run of workflowRuns.values()) {
+        for (const member of run.members.values()) {
+          grouped.set(member.childId, `workflow-member:${run.runId}:${member.seq}`)
+        }
+      }
       const subagentGraph = buildSubagentGraph({
         rootId: sessionId,
         byId: snapshot.byId,
         subagentsByParent: snapshot.subagentsByParent,
         ids: snapshot.ids,
         fallbackLabel: options.subagentFallbackLabel?.() ?? 'Subagent',
+        grouped,
       })
       store.set({
         sessionId,
-        nodes: [...taskGraph.nodes, ...subagentGraph.nodes],
-        edges: [...taskGraph.edges, ...subagentGraph.edges],
+        nodes: [...taskGraph.nodes, ...subagentGraph.nodes, ...workflowGraph.nodes],
+        edges: [...taskGraph.edges, ...subagentGraph.edges, ...workflowGraph.edges],
         loading: false,
       })
     } catch (error) {
@@ -126,8 +165,9 @@ export function startTaskGraphConnector(
       // 通知（applyWindow 内部已有自己的 catch）。
       if (nextId && currentBinding && lastAppliedSignature !== undefined) {
         try {
-          if (signatureFor(nextId) !== lastAppliedSignature) {
-            applyWindow(nextId, currentBinding.eventSource.getSnapshot())
+          const window = currentBinding.eventSource.getSnapshot()
+          if (signatureFor(nextId, window) !== lastAppliedSignature) {
+            applyWindow(nextId, window)
           }
         } catch (error) {
           console.error('[skyaxis task-graph] signature check failed:', error)

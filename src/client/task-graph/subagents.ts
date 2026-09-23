@@ -107,6 +107,13 @@ export interface SubagentGraphInput {
   ids: readonly SessionId[]
   /** label 三级回退的最终兜底（i18n 文案）。 */
   fallbackLabel: string
+  /**
+   * P2d 修正（dist/03 §6 grouped 规则）：已被 workflow 视图占用的 session
+   * （childId → 其 workflow-member 节点 id）。这些 session 不再重复建
+   * subagent 节点（否则同一子会话渲染两次）；它们的后代改挂到 member
+   * 节点下（groupedSessionNodes 再父化模式）。
+   */
+  grouped?: ReadonlyMap<SessionId, string>
 }
 
 /**
@@ -121,6 +128,7 @@ export function buildSubagentGraph(input: SubagentGraphInput): {
   edges: TaskEdge[]
 } {
   const { rootId, byId, subagentsByParent, ids, fallbackLabel } = input
+  const grouped = input.grouped ?? new Map<SessionId, string>()
   const depths = lineageDepths(rootId, byId)
   const idSet = new Set<SessionId>(ids)
 
@@ -144,12 +152,22 @@ export function buildSubagentGraph(input: SubagentGraphInput): {
   const nodes: TaskNode[] = []
   const edges: TaskEdge[] = []
   for (const [id] of descendants) {
+    // grouped 会话已被 workflow 视图占用——不重复建 subagent 节点
+    // （dist/03 §6：一个 session 在图里只出现一次）。
+    if (grouped.has(id)) continue
     const summary = byId[id]
     if (summary === undefined) continue // depths 键来自 byId，防御性兜底
     const nodeId = `subagent:${String(id)}`
     // depth ≥ 1 ⇒ parentId 必有值（lineageDepths 的进入条件）
     const parentId = summary.parentId!
-    const from = parentId === rootId ? 'root' : `subagent:${String(parentId)}`
+    // 再父化：父会话若被 grouped 占用，后代挂到其 member 节点下。
+    const groupedParent = grouped.get(parentId)
+    const from =
+      groupedParent !== undefined
+        ? groupedParent
+        : parentId === rootId
+          ? 'root'
+          : `subagent:${String(parentId)}`
     // P2b 指标：projectionValues.skyaxisAgentMetrics（null = 尚无请求事实，不挂）。
     const metrics = summary.projectionValues?.skyaxisAgentMetrics ?? undefined
     nodes.push({

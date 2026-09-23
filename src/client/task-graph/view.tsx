@@ -147,6 +147,9 @@ const nodeTypes = {
   'user-prompt': TaskGraphNode,
   task: TaskGraphNode,
   subagent: TaskGraphNode,
+  workflow: TaskGraphNode,
+  'workflow-phase': TaskGraphNode,
+  'workflow-member': TaskGraphNode,
   approval: TaskGraphNode,
 }
 
@@ -182,6 +185,9 @@ const taskGraphNodeCss = `
 }
 .skyaxis-tg-node[data-status='failed'] .skyaxis-tg-node-dot {
   background: var(--skyaxis-status-failed, #d64545);
+}
+.skyaxis-tg-node[data-status='cancelled'] .skyaxis-tg-node-dot {
+  background: var(--skyaxis-status-cancelled, #8b7bb5);
 }
 .skyaxis-tg-node[data-status='waiting'] .skyaxis-tg-node-dot {
   background: var(--skyaxis-status-waiting, #b8860b);

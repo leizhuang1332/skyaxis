@@ -261,3 +261,34 @@ describe('subagentSignature', () => {
     expect(subagentSignature(sid('root'), flipped)).not.toBe(before)
   })
 })
+
+describe('buildSubagentGraph grouped exclusion (P2d fix)', () => {
+  it('skips grouped sessions and re-parents their descendants to the member node', () => {
+    // dist/03 §6 grouped 规则：被 workflow 占用的 child 不重复建 subagent
+    // 节点；child 的后代挂到 member 节点下。
+    const byId = byIdOf(
+      summary('root'),
+      summary('wfchild', { parentId: sid('root'), origin: 'subagent' }),
+      summary('wfgrandchild', { parentId: sid('wfchild'), origin: 'subagent' }),
+      summary('plain', { parentId: sid('root'), origin: 'subagent' }),
+    )
+    const { nodes, edges } = buildSubagentGraph({
+      rootId: sid('root'),
+      byId,
+      subagentsByParent: {},
+      ids: [],
+      fallbackLabel: 'Subagent',
+      grouped: new Map([[sid('wfchild'), 'workflow-member:r:1']]),
+    })
+    const ids = nodes.map((n) => n.id)
+    // wfchild 被占用 → 无 subagent:wfchild；wfgrandchild 与 plain 仍在
+    expect(ids).not.toContain('subagent:wfchild')
+    expect(ids).toContain('subagent:wfgrandchild')
+    expect(ids).toContain('subagent:plain')
+    // wfgrandchild 的父边指向 member 节点，而非不存在的 subagent:wfchild
+    const pairs = edges.map((e) => [e.source, e.target])
+    expect(pairs).toContainEqual(['workflow-member:r:1', 'subagent:wfgrandchild'])
+    expect(pairs).not.toContainEqual(['subagent:wfchild', 'subagent:wfgrandchild'])
+    expect(pairs).toContainEqual(['root', 'subagent:plain'])
+  })
+})
