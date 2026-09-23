@@ -150,6 +150,8 @@ export function buildSubagentGraph(input: SubagentGraphInput): {
     // depth ≥ 1 ⇒ parentId 必有值（lineageDepths 的进入条件）
     const parentId = summary.parentId!
     const from = parentId === rootId ? 'root' : `subagent:${String(parentId)}`
+    // P2b 指标：projectionValues.skyaxisAgentMetrics（null = 尚无请求事实，不挂）。
+    const metrics = summary.projectionValues?.skyaxisAgentMetrics ?? undefined
     nodes.push({
       id: nodeId,
       type: 'subagent',
@@ -159,6 +161,7 @@ export function buildSubagentGraph(input: SubagentGraphInput): {
         status: summaryStatus(summary),
         navigable: idSet.has(id),
         navigationId: String(id),
+        ...(metrics === null ? {} : { metrics }),
       },
     })
     edges.push({

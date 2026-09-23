@@ -34,6 +34,7 @@
  * 这是纯函数，相同入参必返回相同出参；connector 把它包成 store 写入。
  */
 import type { SessionEventLikeEntry } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SkyaxisAgentMetrics } from '../../agent-metrics.js'
 import type { TaskNode, TaskEdge, TaskStatus } from './types.js'
 
 interface InferredNode extends TaskNode {
@@ -68,6 +69,7 @@ export function inferTaskGraph(
   entries: readonly SessionEventLikeEntry[],
   sessionLabel: string,
   rootStatus: TaskStatus = 'running',
+  rootMetrics?: SkyaxisAgentMetrics,
 ): { nodes: TaskNode[]; edges: TaskEdge[] } {
   const events = entries
     .filter((e): e is Extract<SessionEventLikeEntry, { type: 'event' }> => e.type === 'event')
@@ -79,12 +81,17 @@ export function inferTaskGraph(
 
   // root 节点（永远 1 个）。状态由调用方传入（connector 从 SessionSummary
   // 映射：running → running / completed → done / 其余 → pending）；默认
-  // 'running' 仅为保持无参调用的旧契约。
+  // 'running' 仅为保持无参调用的旧契约。metrics 为 P2b 的"最近一次请求"
+  // 路由事实（skyaxisAgentMetrics 投影），undefined = 尚无请求。
   rawNodes.push({
     id: 'root',
     type: 'root',
     position: { x: 0, y: 0 },
-    data: { label: sessionLabel, status: rootStatus },
+    data: {
+      label: sessionLabel,
+      status: rootStatus,
+      ...(rootMetrics === undefined ? {} : { metrics: rootMetrics }),
+    },
   })
 
   /** turn -> 已记录的 user-prompt node id；同 turn 多次 user/message 只取首条（kind === 'user'）。 */

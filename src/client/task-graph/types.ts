@@ -1,4 +1,5 @@
 import type { Node, Edge } from '@xyflow/react'
+import type { SkyaxisAgentMetrics } from '../../agent-metrics.js'
 
 /**
  * Task node status — ADR §5.2 最小集合。
@@ -35,6 +36,12 @@ export type TaskNode = Node<{
   navigable?: boolean
   /** 点击导航的目标 session id（仅 navigable 节点设置）。 */
   navigationId?: string
+  /**
+   * "最近一次请求"的模型路由事实（P2b）：来自 skyaxisAgentMetrics 投影
+   * （request/header 折叠），经 projectionValues 推送，零客户端订阅。
+   * undefined = 尚无请求事实。
+   */
+  metrics?: SkyaxisAgentMetrics
 }>
 
 /**

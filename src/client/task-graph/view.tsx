@@ -108,13 +108,28 @@ class TaskGraphErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundary
  * 同时补齐 ADR 0001 §七.1 "每个节点带状态颜色" 的验收项——此前默认节点
  * 不渲染 status。颜色用 CSS 变量优先、hex 兜底，主题接入时只需提供变量。
  */
+/**
+ * title 提示文案：label + 最近一次请求的路由事实（P2b）。effort 的来源
+ * 用原始枚举值（request-config / adapter-default / not-recorded）——数据
+ * 事实不加解释；本地化 tooltip 面板留 P3 自定义节点。
+ */
+function nodeTitle(data: TaskNode['data']): string {
+  if (data.metrics === undefined) return data.label
+  const m = data.metrics
+  const effort =
+    m.reasoningEffort === undefined
+      ? 'not-recorded'
+      : `${m.reasoningEffort} (${m.reasoningSource})`
+  return `${data.label}\n${m.provider} · ${m.model} · ${effort}`
+}
+
 function TaskGraphNode({ data }: NodeProps<TaskNode>): JSX.Element {
   return (
     <div
       className="skyaxis-tg-node"
       data-status={data.status}
       data-navigable={data.navigable ? 'true' : undefined}
-      title={data.label}
+      title={nodeTitle(data)}
     >
       {/* 边的锚点：React Flow 的边必须挂在 <Handle> 上，没有 Handle 边整条不渲染。
           layout.ts 的 sourcePosition/targetPosition（Bottom/Top）与此对应。 */}

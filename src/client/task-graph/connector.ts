@@ -86,9 +86,11 @@ export function startTaskGraphConnector(
       const summary = snapshot.byId[sessionId]
       const label = summary?.displayTitle || sessionLabel(sessionId)
       const rootStatus: TaskStatus = summary ? summaryStatus(summary) : 'running'
+      // P2b：root 的"最近一次请求"路由事实（null → undefined，不挂字段）。
+      const rootMetrics = summary?.projectionValues?.skyaxisAgentMetrics ?? undefined
       lastAppliedSignature = `${label}|${rootStatus}|${subagentSignature(sessionId, snapshot.byId)}`
 
-      const taskGraph = inferTaskGraph(window.entries, label, rootStatus)
+      const taskGraph = inferTaskGraph(window.entries, label, rootStatus, rootMetrics)
       const subagentGraph = buildSubagentGraph({
         rootId: sessionId,
         byId: snapshot.byId,
