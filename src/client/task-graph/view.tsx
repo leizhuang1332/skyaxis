@@ -1,4 +1,4 @@
-import { Component, useEffect, useMemo, useSyncExternalStore } from 'react'
+import { Component, memo, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { ErrorInfo, JSX, ReactNode } from 'react'
 import {
   ReactFlow,
@@ -17,7 +17,9 @@ import type { NodeProps } from '@xyflow/react'
 // `*.module.css`，对裸 CSS（@tsdown/css 抽出来的 lib/style.css）不认，
 // 所以我们自己在 mount 时 appendChild 一个 <style> 标签，卸载时清掉。
 import reactFlowCss from '@xyflow/react/dist/style.css?inline'
-import { layoutTaskGraph } from './layout.js'
+import { applyManualPositions, layoutSignature, layoutTaskGraph } from './layout.js'
+import { filterFailedAttempts } from './workflows.js'
+import type { WorkflowDefinition } from './workflows.js'
 import type { TaskNode, TaskEdge } from './types.js'
 import type { TaskGraphStore } from './store.js'
 import type { TaskGraphT } from './dictionary.js'
@@ -108,10 +110,30 @@ class TaskGraphErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundary
  * 同时补齐 ADR 0001 §七.1 "每个节点带状态颜色" 的验收项——此前默认节点
  * 不渲染 status。颜色用 CSS 变量优先、hex 兜底，主题接入时只需提供变量。
  */
+/** 状态 → 本地化文案（显式映射，不用模板字符串 cast）。 */
+function statusLabel(status: TaskNode['data']['status'], t: TaskGraphT): string {
+  switch (status) {
+    case 'pending':
+      return t('status.pending')
+    case 'running':
+      return t('status.running')
+    case 'done':
+      return t('status.done')
+    case 'failed':
+      return t('status.failed')
+    case 'cancelled':
+      return t('status.cancelled')
+    case 'waiting':
+      return t('status.waiting')
+    case undefined:
+      return ''
+  }
+}
+
 /**
  * title 提示文案：label + 最近一次请求的路由事实（P2b）。effort 的来源
  * 用原始枚举值（request-config / adapter-default / not-recorded）——数据
- * 事实不加解释；本地化 tooltip 面板留 P3 自定义节点。
+ * 事实不加解释；本地化版本在 hover tooltip 面板里（statusLabel + metrics 行）。
  */
 function nodeTitle(data: TaskNode['data']): string {
   if (data.metrics === undefined) return data.label
@@ -123,10 +145,13 @@ function nodeTitle(data: TaskNode['data']): string {
   return `${data.label}\n${m.provider} · ${m.model} · ${effort}`
 }
 
-function TaskGraphNode({ data }: NodeProps<TaskNode>): JSX.Element {
+// P3 修闪烁：memo 化——store tick 引起的画布重渲染不再 churn 节点 DOM
+// （hover 面板闪烁的机制之一）。
+const TaskGraphNode = memo(function TaskGraphNode({ id, data }: NodeProps<TaskNode>): JSX.Element {
   return (
     <div
       className="skyaxis-tg-node"
+      data-node-id={id}
       data-status={data.status}
       data-navigable={data.navigable ? 'true' : undefined}
       title={nodeTitle(data)}
@@ -139,7 +164,7 @@ function TaskGraphNode({ data }: NodeProps<TaskNode>): JSX.Element {
       <Handle type="source" position={Position.Bottom} isConnectable={false} />
     </div>
   )
-}
+})
 
 /** nodeTypes 必须是稳定引用（模块级），否则 React Flow 每帧重挂节点。 */
 const nodeTypes = {
@@ -207,6 +232,96 @@ const taskGraphNodeCss = `
   border-radius: 50%;
   background: var(--skyaxis-border, #b7bdc9);
 }
+/* P3 工具条 */
+.skyaxis-tg-toolbar {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--skyaxis-border, #d0d4dc);
+  border-radius: 6px;
+  background: var(--skyaxis-surface, #fff);
+  font-size: 12px;
+  cursor: pointer;
+}
+/* P3 tooltip 指标面板 */
+.skyaxis-tg-tooltip {
+  position: absolute;
+  z-index: 6;
+  min-width: 180px;
+  max-width: 300px;
+  padding: 8px 10px;
+  border: 1px solid var(--skyaxis-border, #d0d4dc);
+  border-radius: 8px;
+  background: var(--skyaxis-surface, #fff);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 12%);
+  font-size: 12px;
+  pointer-events: none;
+}
+.skyaxis-tg-tooltip-title {
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+.skyaxis-tg-tooltip-row {
+  color: var(--skyaxis-muted, #5b6472);
+}
+/* P3 workflow 定义面板 */
+.skyaxis-tg-defpanel {
+  position: absolute;
+  top: 40px;
+  right: 12px;
+  z-index: 7;
+  display: flex;
+  flex-direction: column;
+  width: min(480px, 60%);
+  max-height: 70%;
+  padding: 12px;
+  border: 1px solid var(--skyaxis-border, #d0d4dc);
+  border-radius: 10px;
+  background: var(--skyaxis-surface, #fff);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 16%);
+  font-size: 12px;
+}
+.skyaxis-tg-defpanel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.skyaxis-tg-defpanel-head button {
+  padding: 2px 8px;
+  border: 1px solid var(--skyaxis-border, #d0d4dc);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+.skyaxis-tg-defpanel-desc {
+  margin: 6px 0 0;
+  color: var(--skyaxis-muted, #5b6472);
+}
+.skyaxis-tg-defpanel-phases {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+.skyaxis-tg-defpanel h4 {
+  margin: 10px 0 4px;
+}
+.skyaxis-tg-defpanel-script {
+  overflow: auto;
+  max-height: 40vh;
+  margin: 0;
+  padding: 8px;
+  border: 1px solid var(--skyaxis-border, #d0d4dc);
+  border-radius: 6px;
+  background: var(--skyaxis-code-bg, #f6f7f9);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  white-space: pre;
+}
 `
 
 /**
@@ -229,6 +344,23 @@ function TaskGraphBoard({ store, t, navigate }: TaskGraphBoardProps): JSX.Elemen
       () => store.getSnapshot(),
     )
 
+  // P3 opt-in（P2d 用户裁定，默认关）：隐藏同 run 内同名失败尝试。
+  const [hideFailed, setHideFailed] = useState(false)
+  // P3 拖拽保留：手工位置覆盖（signature 不变时不被重排冲掉）。
+  const [manualPositions, setManualPositions] = useState<
+    ReadonlyMap<string, { x: number; y: number }>
+  >(() => new Map())
+  // P3 tooltip 指标面板 / 定义面板的视图状态。
+  const [hoveredId, setHoveredId] = useState<string | null>(null)
+  const [definition, setDefinition] = useState<WorkflowDefinition | null>(null)
+
+  // 切 session 重置手工布局（对齐 dist 的 per-session 手工布局语义）。
+  useEffect(() => {
+    setManualPositions(new Map())
+    setHoveredId(null)
+    setDefinition(null)
+  }, [sessionId])
+
   // DSH web 的 plugin loader 只扫 `*.module.css`，对 `@tsdown/css` 抽出来的
   // `lib/style.css` 不做注入。React Flow 的样式不进 `<head>` 就全是浏览器默认
   // 渲染（节点变成黑方块）。所以这里手动挂一个 `<style data-plugin="@lz/skyaxis">`
@@ -245,35 +377,88 @@ function TaskGraphBoard({ store, t, navigate }: TaskGraphBoardProps): JSX.Elemen
     }
   }, [])
 
+  // opt-in 过滤在 layout 之前：signature 基于过滤后集合 → 切换时重排一次。
+  const filtered = useMemo(
+    () =>
+      hideFailed
+        ? filterFailedAttempts(inferredNodes, inferredEdges)
+        : { nodes: inferredNodes, edges: inferredEdges },
+    [hideFailed, inferredNodes, inferredEdges],
+  )
+
+  // P3 signature 门控：节点/边集合不变（status/label/metrics 变化不算）→
+  // 不重跑 dagre，手工位置得以保留。
+  const signature = useMemo(
+    () => layoutSignature(filtered.nodes, filtered.edges),
+    [filtered],
+  )
+  const layoutCache = useRef<{ signature: string; nodes: TaskNode[] } | null>(null)
   const laidOut = useMemo(() => {
-    if (inferredNodes.length === 0) return null
-    return layoutTaskGraph(inferredNodes, inferredEdges, 'TB')
-  }, [inferredNodes, inferredEdges])
+    if (filtered.nodes.length === 0) {
+      layoutCache.current = null
+      return [] as TaskNode[]
+    }
+    if (layoutCache.current?.signature === signature) return layoutCache.current.nodes
+    const out = layoutTaskGraph(filtered.nodes, filtered.edges, 'TB')
+    layoutCache.current = { signature, nodes: out.nodes }
+    return out.nodes
+  }, [signature, filtered])
+
+  // 手工位置叠加（拖拽保留的第二半）。
+  const displayed = useMemo(
+    () => applyManualPositions(laidOut, manualPositions),
+    [laidOut, manualPositions],
+  )
 
   const [nodes, setNodes, onNodesChange] = useNodesState<TaskNode>([])
   const [edges, setEdges, onEdgesChange] = useEdgesState<TaskEdge>([])
 
-  // 推断结果变化时同步到 React Flow 的内部 state（用户拖动后会被新数据覆盖——
-  // 数据源是真相，拖动只是视图层临时位移；新事件到来意味着布局整体更新）。
+  // P3 修闪烁：edges 引用也按 signature 门控——store tick 内容不变时保持
+  // 同一引用，React Flow 不因新数组引用整画布重渲染。
+  const edgesCache = useRef<{ signature: string; edges: TaskEdge[] } | null>(null)
+  const stableEdges = useMemo(() => {
+    if (edgesCache.current?.signature === signature) return edgesCache.current.edges
+    edgesCache.current = { signature, edges: filtered.edges }
+    return filtered.edges
+  }, [signature, filtered.edges])
+
   useEffect(() => {
-    if (laidOut) {
-      setNodes(laidOut.nodes)
-      setEdges(laidOut.edges)
-    } else {
-      setNodes([])
-      setEdges([])
-    }
-  }, [laidOut, setNodes, setEdges])
+    setNodes(displayed)
+    setEdges(stableEdges)
+  }, [displayed, stableEdges, setNodes, setEdges])
 
   const { fitView } = useReactFlow()
 
   // research §2.4：fitView 前包一层 rAF，等 React Flow 量完新坐标再 fit，
-  // 否则 fitView 取到旧 bbox，首屏定位会偏。依赖 laidOut 让"新 session 进
-  // 数据"也触发一次 fitView。
+  // 否则 fitView 取到旧 bbox，首屏定位会偏。依赖 signature 让"结构变化"
+  // 触发一次 fitView；status-only 变化不触发（门控语义）。
   useEffect(() => {
     const id = window.requestAnimationFrame(() => fitView())
     return () => window.cancelAnimationFrame(id)
-  }, [fitView, laidOut])
+  }, [fitView, signature])
+
+  const hoveredNode = hoveredId === null ? undefined : displayed.find((n) => n.id === hoveredId)
+
+  // P3 修定位：直接量节点 DOM（getBoundingClientRect）相对容器定位——不做
+  // flow→screen 换算（此前 +230 偏移叠加 zoom 假设导致面板远离节点）。
+  // useLayoutEffect 在 paint 前量测，避免闪烁。
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null)
+  useLayoutEffect(() => {
+    if (hoveredId === null) {
+      setTooltipPos(null)
+      return
+    }
+    const container = containerRef.current
+    const el = container?.querySelector<HTMLElement>(`[data-node-id="${hoveredId}"]`)
+    if (container === null || el === null || el === undefined) {
+      setTooltipPos(null)
+      return
+    }
+    const c = container.getBoundingClientRect()
+    const r = el.getBoundingClientRect()
+    setTooltipPos({ x: r.right - c.left + 10, y: r.top - c.top })
+  }, [hoveredId, displayed])
 
   // 无 selection：empty placeholder（fallback 路径）。
   if (!sessionId) {
@@ -287,26 +472,116 @@ function TaskGraphBoard({ store, t, navigate }: TaskGraphBoardProps): JSX.Elemen
 
   return (
     <div
+      ref={containerRef}
       role="region"
       aria-label={t('view.taskGraph')}
-      style={{ width: '100%', height: '100%' }}
+      style={{ width: '100%', height: '100%', position: 'relative' }}
     >
+      {/* P3 工具条：opt-in 过滤开关（默认关，P2d 裁定）。 */}
+      <label className="skyaxis-tg-toolbar">
+        <input
+          type="checkbox"
+          checked={hideFailed}
+          onChange={(e) => setHideFailed(e.target.checked)}
+        />
+        <span>{t('view.hideFailedAttempts')}</span>
+      </label>
+
       <ReactFlow
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
+        onNodeDragStop={(_, node) => {
+          setManualPositions((prev) => {
+            const next = new Map(prev)
+            next.set(node.id, { x: node.position.x, y: node.position.y })
+            return next
+          })
+        }}
         onNodeClick={(_, node) => {
-          // navigable 节点（subagent）点击导航；task/user-prompt 无 navigationId。
+          if (node.type === 'workflow' && node.data.definition !== undefined) {
+            setDefinition(node.data.definition)
+            return
+          }
           if (node.data.navigationId) navigate(node.data.navigationId)
         }}
+        onNodeMouseEnter={(_, node) => setHoveredId(node.id)}
+        onNodeMouseLeave={() => setHoveredId(null)}
         fitView
       >
         <Background />
         <Controls />
         <MiniMap />
       </ReactFlow>
+
+      {/* P3 tooltip 指标面板（hover 定位到节点右侧）。 */}
+      {hoveredNode !== undefined && tooltipPos !== null ? (
+        <div
+          className="skyaxis-tg-tooltip"
+          style={{ left: tooltipPos.x, top: tooltipPos.y }}
+          role="tooltip"
+        >
+          <div className="skyaxis-tg-tooltip-title">{hoveredNode.data.label}</div>
+          {hoveredNode.data.status !== undefined ? (
+            <div className="skyaxis-tg-tooltip-row">
+              {statusLabel(hoveredNode.data.status, t)}
+            </div>
+          ) : null}
+          {hoveredNode.data.metrics === undefined ? (
+            <div className="skyaxis-tg-tooltip-row">{t('view.noMetrics')}</div>
+          ) : (
+            <>
+              <div className="skyaxis-tg-tooltip-row">
+                {t('metrics.provider')}: {hoveredNode.data.metrics.provider}
+              </div>
+              <div className="skyaxis-tg-tooltip-row">
+                {t('metrics.model')}: {hoveredNode.data.metrics.model}
+              </div>
+              <div className="skyaxis-tg-tooltip-row">
+                {t('metrics.reasoning')}:{' '}
+                {hoveredNode.data.metrics.reasoningEffort === undefined
+                  ? t('metrics.sourceMissing')
+                  : `${hoveredNode.data.metrics.reasoningEffort} · ${
+                      hoveredNode.data.metrics.reasoningSource === 'adapter-default'
+                        ? t('metrics.sourceAdapter')
+                        : hoveredNode.data.metrics.reasoningSource === 'request-config'
+                          ? t('metrics.sourceRequest')
+                          : t('metrics.sourceMissing')
+                    }`}
+              </div>
+            </>
+          )}
+        </div>
+      ) : null}
+
+      {/* P3 workflow 定义面板（run 节点点击，画布内绝对定位）。 */}
+      {definition !== null ? (
+        <div className="skyaxis-tg-defpanel" role="dialog" aria-label={t('view.definition')}>
+          <header className="skyaxis-tg-defpanel-head">
+            <strong>{definition.meta.name}</strong>
+            <button type="button" onClick={() => setDefinition(null)}>
+              {t('view.close')}
+            </button>
+          </header>
+          {definition.meta.description !== undefined ? (
+            <p className="skyaxis-tg-defpanel-desc">{definition.meta.description}</p>
+          ) : null}
+          {definition.meta.phases !== undefined && definition.meta.phases.length > 0 ? (
+            <ul className="skyaxis-tg-defpanel-phases">
+              {definition.meta.phases.map((p) => (
+                <li key={p.title}>
+                  {p.title}
+                  {p.detail !== undefined ? ` — ${p.detail}` : ''}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <h4>{t('view.definitionScript')}</h4>
+          <pre className="skyaxis-tg-defpanel-script">{definition.script}</pre>
+        </div>
+      ) : null}
     </div>
   )
 }

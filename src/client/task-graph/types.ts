@@ -1,5 +1,6 @@
 import type { Node, Edge } from '@xyflow/react'
 import type { SkyaxisAgentMetrics } from '../../agent-metrics.js'
+import type { WorkflowDefinition } from './workflows.js'
 
 /**
  * Task node status — ADR §5.2 最小集合，P2d 起扩 cancelled。
@@ -54,6 +55,11 @@ export type TaskNode = Node<{
    * undefined = 尚无请求事实。
    */
   metrics?: SkyaxisAgentMetrics
+  /**
+   * workflow run 的调用定义（P3 定义预览）：tool/call arguments 折叠，
+   * attachWorkflowDefinitions 匹配注入；无匹配则缺省（点击不响应）。
+   */
+  definition?: WorkflowDefinition
 }>
 
 /**

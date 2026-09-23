@@ -45,3 +45,37 @@ export function layoutTaskGraph(
     edges,
   }
 }
+
+/**
+ * 布局指纹（P3 signature 门控）：节点 id 集 + 全部边（source>target）的
+ * 确定性拼接。status / label / metrics 变化**不改**指纹（P0 稳定 ID 的
+ * 前提）→ 视图可跳过重排、保留手工位置。增删节点或边 → 指纹变化 → 重排。
+ */
+export function layoutSignature(nodes: readonly TaskNode[], edges: readonly TaskEdge[]): string {
+  const nodePart = nodes
+    .map((n) => n.id)
+    .slice()
+    .sort()
+    .join('|')
+  const edgePart = edges
+    .map((e) => `${e.source}>${e.target}`)
+    .slice()
+    .sort()
+    .join('|')
+  return `${nodePart}||${edgePart}`
+}
+
+/**
+ * 把手工位置叠到布局结果上（P3 拖拽保留）：manual 里存在的 id 覆盖
+ * position，其余用布局值。返回新数组，不改入参。
+ */
+export function applyManualPositions(
+  nodes: readonly TaskNode[],
+  manual: ReadonlyMap<string, { x: number; y: number }>,
+): TaskNode[] {
+  if (manual.size === 0) return [...nodes]
+  return nodes.map((n) => {
+    const pos = manual.get(n.id)
+    return pos === undefined ? n : { ...n, position: { x: pos.x, y: pos.y } }
+  })
+}

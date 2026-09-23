@@ -39,6 +39,26 @@ export interface WorkflowRunFold {
   members: Map<number, WorkflowMemberFold>
   /** settle 表：可与 members 分离到达（乱序防御），build 时合并。 */
   outcomes: Map<number, 'completed' | 'failed' | 'cancelled'>
+  /** run-start 事件的 seq（定义匹配的时序上界）。 */
+  startSeq: number
+  /** attachWorkflowDefinitions 注入（dist/02 §7 移植）；无匹配则缺省。 */
+  definition?: WorkflowDefinition
+}
+
+/**
+ * workflow 工具的调用定义（P3 定义预览）。args 形状提取自 registry tarball
+ * dsh-tool-workflow@0.1.5-rc.2：`{ script, meta: { name, description,
+ * whenToUse?, phases? } }`；DSH tool/call 的 `arguments` 是其 JSON 字符串。
+ */
+export interface WorkflowDefinition {
+  script: string
+  meta: {
+    name: string
+    description?: string
+    phases?: { title: string; detail?: string }[]
+  }
+  /** tool/call 事件的 seq（匹配时序用）。 */
+  callSeq: number
 }
 
 /**
@@ -59,6 +79,7 @@ export function foldWorkflowRuns(
             name: data.name,
             members: new Map(),
             outcomes: new Map(),
+            startSeq: event.seq,
           })
         }
         break
@@ -71,6 +92,7 @@ export function foldWorkflowRuns(
           name: '',
           members: new Map<number, WorkflowMemberFold>(),
           outcomes: new Map<number, 'completed' | 'failed' | 'cancelled'>(),
+          startSeq: event.seq,
         }
         runs.set(data.runId, run)
         run.members.set(data.seq, {
@@ -156,6 +178,7 @@ export function buildWorkflowGraph(input: WorkflowGraphInput): {
         status: runStatus(run),
         // run 节点不可导航（定义详情未做前点击无意义，ADR 范围裁定）
         navigable: false,
+        ...(run.definition === undefined ? {} : { definition: run.definition }),
       },
     })
     edges.push({
@@ -248,4 +271,124 @@ export function workflowSignature(runs: ReadonlyMap<string, WorkflowRunFold>): s
     parts.push(`${run.runId}@${run.stopReason ?? 'live'}[${settles}]`)
   }
   return parts.join('|')
+}
+
+/**
+ * 从 tool/call 事件提取 workflow 定义（P3）。诚实规则：JSON 解析失败、
+ * 缺 script 字符串、缺非空 meta.name → 跳过（不臆造）。DSH 的 tool/call
+ * payload：`{ turn, step, callId, name, arguments: string(JSON) }`。
+ */
+export function extractWorkflowDefinitions(events: readonly SessionEvent[]): WorkflowDefinition[] {
+  const definitions: WorkflowDefinition[] = []
+  for (const event of events) {
+    if (event.type !== 'tool/call') continue
+    if (event.data.name !== 'workflow') continue
+    const raw = event.data.arguments
+    if (typeof raw !== 'string') continue
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(raw)
+    } catch {
+      continue // 坏 JSON → 跳过，不臆造
+    }
+    if (parsed === null || typeof parsed !== 'object') continue
+    const args = parsed as { script?: unknown; meta?: unknown }
+    if (typeof args.script !== 'string') continue
+    if (args.meta === null || typeof args.meta !== 'object') continue
+    const meta = args.meta as {
+      name?: unknown
+      description?: unknown
+      phases?: unknown
+    }
+    if (typeof meta.name !== 'string' || meta.name.trim() === '') continue
+    const phases = Array.isArray(meta.phases)
+      ? meta.phases
+          .filter(
+            (p): p is { title?: unknown; detail?: unknown } =>
+              p !== null && typeof p === 'object',
+          )
+          .filter((p) => typeof p.title === 'string' && p.title !== '')
+          .map((p) => ({
+            title: p.title as string,
+            ...(typeof p.detail === 'string' ? { detail: p.detail } : {}),
+          }))
+      : undefined
+    definitions.push({
+      script: args.script,
+      meta: {
+        name: meta.name,
+        ...(typeof meta.description === 'string' ? { description: meta.description } : {}),
+        ...(phases === undefined ? {} : { phases }),
+      },
+      callSeq: event.seq,
+    })
+  }
+  return definitions
+}
+
+/**
+ * 定义 ↔ run 匹配（dist/02 §7 算法的 DSH 移植）：按 callSeq 升序，每个 run
+ * 取 callSeq ≤ run.startSeq、meta.name === run.name、未被占用的最早定义。
+ * 返回新 Map（runs 不可变语义），definition 注入副本。
+ */
+export function attachWorkflowDefinitions(
+  runs: ReadonlyMap<string, WorkflowRunFold>,
+  definitions: readonly WorkflowDefinition[],
+): Map<string, WorkflowRunFold> {
+  const sorted = [...definitions].sort((a, b) => a.callSeq - b.callSeq)
+  const taken = new Set<WorkflowDefinition>()
+  const attached = new Map<string, WorkflowRunFold>()
+  for (const [runId, run] of [...runs.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    const match = sorted.find(
+      (d) => !taken.has(d) && d.callSeq <= run.startSeq && d.meta.name === run.name,
+    )
+    if (match !== undefined) taken.add(match)
+    attached.set(runId, match === undefined ? run : { ...run, definition: match })
+  }
+  return attached
+}
+
+/**
+ * 视图层 opt-in 过滤（P2d 用户裁定）：同 run 内与某个**非 failed** member
+ * 同 (label, phase)、且自身 outcome=failed 的 member 节点及其连边移除。
+ * 并行同名不受影响（它们都不是 failed）。返回新数组，不改入参。
+ * 诚实标注由视图 label 文案承担（"同名"启发式，默认关）。
+ */
+export function filterFailedAttempts(
+  nodes: readonly TaskNode[],
+  edges: readonly TaskEdge[],
+): { nodes: TaskNode[]; edges: TaskEdge[] } {
+  // member 节点 id 形如 workflow-member:{runId}:{seq}
+  const memberInfo = new Map<string, { runId: string; label: string; failed: boolean }>()
+  for (const n of nodes) {
+    if (n.type !== 'workflow-member') continue
+    const prefix = 'workflow-member:'
+    const rest = n.id.slice(prefix.length)
+    const cut = rest.lastIndexOf(':')
+    if (cut < 0) continue
+    memberInfo.set(n.id, {
+      runId: rest.slice(0, cut),
+      label: n.data.label,
+      failed: n.data.status === 'failed',
+    })
+  }
+  // 每个 run 内非 failed 的 label 集合
+  const survivingLabels = new Map<string, Set<string>>()
+  for (const info of memberInfo.values()) {
+    if (!info.failed) {
+      const set = survivingLabels.get(info.runId) ?? new Set<string>()
+      set.add(info.label)
+      survivingLabels.set(info.runId, set)
+    }
+  }
+  const removed = new Set<string>()
+  for (const [id, info] of memberInfo) {
+    if (info.failed && survivingLabels.get(info.runId)?.has(info.label)) {
+      removed.add(id)
+    }
+  }
+  return {
+    nodes: nodes.filter((n) => !removed.has(n.id)),
+    edges: edges.filter((e) => !removed.has(e.source) && !removed.has(e.target)),
+  }
 }

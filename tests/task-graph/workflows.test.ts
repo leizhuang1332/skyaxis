@@ -12,6 +12,9 @@ import {
   foldWorkflowRuns,
   buildWorkflowGraph,
   workflowSignature,
+  extractWorkflowDefinitions,
+  attachWorkflowDefinitions,
+  filterFailedAttempts,
 } from '../../src/client/task-graph/workflows.js'
 
 function sid(id: string): SessionId {
@@ -224,5 +227,111 @@ describe('workflowSignature', () => {
     // run 结算 → 变化
     const ended = foldWorkflowRuns([runStart(1, 'r', 'n'), runEnd(2, 'r', 'completed')])
     expect(workflowSignature(ended)).not.toBe(workflowSignature(foldWorkflowRuns([runStart(1, 'r', 'n')])))
+  })
+})
+
+function toolCall(seq: number, args: unknown): SessionEvent {
+  return {
+    type: 'tool/call',
+    seq: seq as never,
+    time: seq * 1000,
+    data: { turn: 1, step: 1, callId: `c${seq}`, name: 'workflow', arguments: JSON.stringify(args) },
+  } as unknown as SessionEvent
+}
+
+describe('extractWorkflowDefinitions (P3)', () => {
+  it('extracts valid definitions and skips broken ones', () => {
+    const good = toolCall(1, { script: 'return 1', meta: { name: 'wf-a', description: 'd' } })
+    const badJson = {
+      type: 'tool/call',
+      seq: 2 as never,
+      time: 2000,
+      data: { turn: 1, step: 1, callId: 'c2', name: 'workflow', arguments: '{not json' },
+    } as unknown as SessionEvent
+    const noName = toolCall(3, { script: 'return 1', meta: { description: 'x' } })
+    const noScript = toolCall(4, { meta: { name: 'wf-b' } })
+    const otherTool = {
+      type: 'tool/call',
+      seq: 5 as never,
+      time: 5000,
+      data: { turn: 1, step: 1, callId: 'c5', name: 'bash', arguments: '{"script":"x","meta":{"name":"y"}}' },
+    } as unknown as SessionEvent
+    const defs = extractWorkflowDefinitions([good, badJson, noName, noScript, otherTool])
+    expect(defs).toHaveLength(1)
+    expect(defs[0]!.meta.name).toBe('wf-a')
+    expect(defs[0]!.script).toBe('return 1')
+    expect(defs[0]!.callSeq).toBe(1)
+  })
+
+  it('keeps phases with valid titles only', () => {
+    const defs = extractWorkflowDefinitions([
+      toolCall(1, {
+        script: 's',
+        meta: { name: 'n', phases: [{ title: 'a', detail: 'x' }, { title: '' }, { nope: 1 }, 'str'] },
+      }),
+    ])
+    expect(defs[0]!.meta.phases).toEqual([{ title: 'a', detail: 'x' }])
+  })
+})
+
+describe('attachWorkflowDefinitions (P3)', () => {
+  it('matches earliest definition with callSeq <= run start and equal name', () => {
+    const runs = foldWorkflowRuns([runStart(10, 'r1', 'wf-a'), runStart(20, 'r2', 'wf-b')])
+    const defs = extractWorkflowDefinitions([
+      toolCall(5, { script: 's1', meta: { name: 'wf-a' } }), // 早于 r1 → 匹配 r1
+      toolCall(15, { script: 's2', meta: { name: 'wf-a' } }), // 晚于 r1、早于 r2 但 name 不符 → 不匹配 r2
+      toolCall(25, { script: 's3', meta: { name: 'wf-b' } }), // 晚于 r2 start → 不匹配
+    ])
+    const attached = attachWorkflowDefinitions(runs, defs)
+    expect(attached.get('r1')!.definition?.script).toBe('s1')
+    expect(attached.get('r2')!.definition).toBeUndefined()
+  })
+
+  it('one definition serves at most one run (taken uniqueness)', () => {
+    const runs = foldWorkflowRuns([runStart(10, 'r1', 'wf-a'), runStart(20, 'r2', 'wf-a')])
+    const defs = extractWorkflowDefinitions([toolCall(5, { script: 's1', meta: { name: 'wf-a' } })])
+    const attached = attachWorkflowDefinitions(runs, defs)
+    expect(attached.get('r1')!.definition?.script).toBe('s1')
+    expect(attached.get('r2')!.definition).toBeUndefined()
+  })
+})
+
+describe('filterFailedAttempts (P3 opt-in)', () => {
+  const memberNode = (runId: string, seq: number, label: string, status: 'done' | 'failed') => ({
+    id: `workflow-member:${runId}:${seq}`,
+    type: 'workflow-member' as const,
+    position: { x: 0, y: 0 },
+    data: { label, status },
+  })
+
+  it('removes same-label failed members and their edges, keeps parallel same-name survivors', () => {
+    const nodes = [
+      memberNode('r', 1, 'gen-doc', 'failed'), // 有同名非 failed → 移除
+      memberNode('r', 2, 'gen-doc', 'done'),
+      memberNode('r', 3, 'solo-fail', 'failed'), // 无同名非 failed → 保留
+      memberNode('r', 4, 'par-a', 'done'), // 并行同名非 failed → 保留
+      memberNode('r', 5, 'par-a', 'done'),
+    ]
+    const edges = [
+      { id: 'e1', source: 'workflow:r', target: 'workflow-member:r:1', data: { kind: 'workflow' as const } },
+      { id: 'e2', source: 'workflow:r', target: 'workflow-member:r:2', data: { kind: 'workflow' as const } },
+      { id: 'e3', source: 'workflow-member:r:1', target: 'x', data: { kind: 'workflow' as const } },
+    ]
+    const out = filterFailedAttempts(nodes, edges)
+    expect(out.nodes.map((n) => n.id)).toEqual([
+      'workflow-member:r:2',
+      'workflow-member:r:3',
+      'workflow-member:r:4',
+      'workflow-member:r:5',
+    ])
+    expect(out.edges.map((e) => e.id)).toEqual(['e2'])
+  })
+
+  it('keeps everything when no same-label failed member exists', () => {
+    const nodes = [memberNode('r', 1, 'a', 'failed'), memberNode('r', 2, 'b', 'done')]
+    const edges = [{ id: 'e1', source: 'workflow:r', target: 'workflow-member:r:1', data: { kind: 'workflow' as const } }]
+    const out = filterFailedAttempts(nodes, edges)
+    expect(out.nodes).toHaveLength(2)
+    expect(out.edges).toHaveLength(1)
   })
 })

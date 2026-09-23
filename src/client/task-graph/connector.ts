@@ -38,7 +38,7 @@ import type { TaskStatus } from './types.js'
 import type { TaskGraphStore } from './store.js'
 import { inferTaskGraph } from './infer.js'
 import { buildSubagentGraph, subagentSignature, summaryStatus } from './subagents.js'
-import { buildWorkflowGraph, foldWorkflowRuns, workflowSignature } from './workflows.js'
+import { buildWorkflowGraph, foldWorkflowRuns, workflowSignature, attachWorkflowDefinitions, extractWorkflowDefinitions } from './workflows.js'
 
 /**
  * dsh-session 和 dsh-api-session-controller 都声明了 Context.sessions（前者是
@@ -110,7 +110,11 @@ export function startTaskGraphConnector(
 
       const taskGraph = inferTaskGraph(window.entries, label, rootStatus, rootMetrics)
       // P2d：workflow 图（第三命名空间，零新增订阅——同一事件窗口折叠）。
-      const workflowRuns = foldWorkflowRuns(durableEvents(window))
+      // P3：先 attach 定义（tool/call 提取 + 时序/name 匹配）再 build。
+      const workflowRuns = attachWorkflowDefinitions(
+        foldWorkflowRuns(durableEvents(window)),
+        extractWorkflowDefinitions(durableEvents(window)),
+      )
       const workflowGraph = buildWorkflowGraph({
         rootId: sessionId,
         runs: workflowRuns,
