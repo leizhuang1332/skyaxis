@@ -5,7 +5,7 @@
  * controller actions), no ctx in the view layer.
  */
 import { useEffect, useSyncExternalStore, type ReactNode } from 'react'
-import { Button, IconDatabaseOutline16, IconPlusOutline16, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconDatabaseOutline16, IconPlusOutline16, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ReposPoolController } from './controller.js'
 import type { ReposPoolT } from './dictionary.js'
@@ -58,15 +58,18 @@ export function ReposPoolPage(props: {
     <section className={styles.page}>
       <header className={styles.header}>
         <h1 className={styles.title}>{t('panel.title')}</h1>
-        <Button
-          className={styles.addButton}
-          variant="toolbar"
-          icon={<IconPlusOutline16 size={16} />}
+        {/* Quiet icon button — the host "New session" idiom (icon-only,
+            aria-label + native tooltip), not a toolbar Button. */}
+        <button
+          type="button"
+          className={styles.iconButton}
+          aria-label={t('view.addRepo')}
+          title={t('view.addRepo')}
           disabled={state.busy}
           onClick={() => controller.openCreate()}
         >
-          {t('view.addRepo')}
-        </Button>
+          <IconPlusOutline16 />
+        </button>
       </header>
       <div className={styles.body}>
         {state.banner ? (

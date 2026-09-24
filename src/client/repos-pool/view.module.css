@@ -143,6 +143,33 @@
   flex-shrink: 0;
 }
 
+/* Quiet icon button, the host workspace-row "New session" idiom
+   (ui-workspace Rows.module.css .iconButton): 16×16, transparent, tertiary
+   glyph, primary on hover. Used for the header add action and row menus. */
+.iconButton {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 4px;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.iconButton:hover {
+  color: var(--dsw-alias-label-primary);
+}
+
+.iconButton:disabled {
+  cursor: default;
+  color: var(--dsw-alias-label-caption);
+}
+
 /* ---- form ---- */
 
 .formBody {

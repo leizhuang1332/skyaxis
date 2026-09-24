@@ -4,7 +4,7 @@
  * ride the alias tokens via view.module.css.
  */
 import { useState, type ReactNode } from 'react'
-import { Button, IconEllipsisOutline16, Menu, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconEllipsisOutline16, Menu, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { RepoRecord, RepoStatus } from '../../repos-pool-shared/protocol.js'
 import type { ReposPoolT } from './dictionary.js'
@@ -60,15 +60,16 @@ function RepoRow(props: {
           portal
           closeOnPointerLeave
           anchor={(
-            <Button
-              variant="toolbar"
-              size="sm"
+            <button
+              type="button"
+              className={styles.iconButton}
               disabled={disabled}
               aria-label={t('menu.edit')}
+              title={repo.name}
               onClick={() => setMenuOpen(true)}
             >
-              <IconEllipsisOutline16 size={16} />
-            </Button>
+              <IconEllipsisOutline16 />
+            </button>
           )}
         />
       </div>

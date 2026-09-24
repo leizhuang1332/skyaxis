@@ -30,6 +30,7 @@ const DICT = {
   'error.urlRequired': '请输入仓库地址',
   'error.invalidUrl': '仓库地址不合法',
   'error.urlSchemeForbidden': '协议不在允许范围',
+  'error.urlLocalPath': '不能使用本地路径',
   'error.network': '网络错误，请稍后重试',
   'risk.titleAuth': '暂无该仓库的访问权限',
   'risk.titleNetwork': '仓库当前不可达',
@@ -144,6 +145,26 @@ describe('RepoForm validation flow', () => {
     await waitFor(() => expect(utils.save).toHaveBeenCalledTimes(1))
     expect(utils.validate).not.toHaveBeenCalled()
     expect((utils.save.mock.calls[0] as unknown[])[0]).toMatchObject({ validation: { kind: 'unchanged' } })
+  })
+
+  it('unblocks the submit button once the URL is edited after a rejection (P2 acceptance regression)', async () => {
+    // First attempt: local-path rejection → submit disabled while the stale verdict holds.
+    const utils = setup({ validate: { syntax: { acceptable: false, reason: 'no-scheme-local-path' } } })
+    fillAndSubmit(utils, './relative/path')
+    await waitFor(() => expect(screen.getByText('不能使用本地路径')).toBeTruthy())
+    expect((screen.getByRole('button', { name: '保存' }) as HTMLButtonElement).disabled).toBe(true)
+
+    // Edit the URL: the stale verdict resets, the button unblocks, and the
+    // next submit runs validation again (now passing).
+    fireEvent.change(screen.getByPlaceholderText('form.urlPlaceholder'), { target: { value: 'https://example.com/fixed.git' } })
+    await waitFor(() => expect((screen.getByRole('button', { name: '保存' }) as HTMLButtonElement).disabled).toBe(false))
+    ;(utils.validate as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      kind: 'ok',
+      outcome: { syntax: { acceptable: true, kind: 'https' }, reachability: { classification: 'reachable' } },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    await waitFor(() => expect(utils.save).toHaveBeenCalledTimes(1))
+    expect((utils.save.mock.calls[0] as unknown[])[0]).toMatchObject({ validation: { kind: 'verified' } })
   })
 
   it('validates locally before anything else (empty name)', () => {

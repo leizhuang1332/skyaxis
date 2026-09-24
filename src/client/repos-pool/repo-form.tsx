@@ -68,6 +68,19 @@ export function RepoForm(props: {
     validation,
   })
 
+  /** Any URL edit invalidates the previous verdict (and the unchanged-URL skip): the submit button must unblock and validation re-runs on submit. */
+  const handleUrlChange = (value: string): void => {
+    setUrl(value)
+    if (phase.kind === 'outcome' || phase.kind === 'skipped-unchanged') setPhase({ kind: 'idle' })
+    setAcknowledged(false)
+    setFieldError(null)
+  }
+
+  const handleNameChange = (value: string): void => {
+    setName(value)
+    setFieldError(null)
+  }
+
   const doSave = async (validation: SaveRequestBody['validation']): Promise<void> => {
     setPhase({ kind: 'submitting' })
     await controller.save(buildBody(validation))
@@ -196,7 +209,7 @@ export function RepoForm(props: {
             value={name}
             placeholder={t('form.namePlaceholder')}
             maxLength={64}
-            onChange={(event) => setName(event.target.value)}
+            onChange={(event) => handleNameChange(event.target.value)}
           />
         </label>
         <label className={styles.fieldLabel}>
@@ -206,7 +219,7 @@ export function RepoForm(props: {
             placeholder={t('form.urlPlaceholder')}
             maxLength={2048}
             spellCheck={false}
-            onChange={(event) => setUrl(event.target.value)}
+            onChange={(event) => handleUrlChange(event.target.value)}
           />
         </label>
         <div className={styles.fieldVerdict}>{verdict}</div>
