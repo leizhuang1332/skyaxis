@@ -9,7 +9,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { basename, dirname, relative, resolve as resolvePath, sep } from 'node:path'
+import { dirname, relative, resolve as resolvePath, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { transform } from 'lightningcss'
 import type { UserConfig } from 'tsdown'
@@ -149,7 +149,12 @@ function styleInjectionModule(
 ): string {
   const source = [
     `const css = ${JSON.stringify(css)};`,
-    `const tagId = ${JSON.stringify(`${id}/${basename(fileId)}`)};`,
+    // tagId must identify the stylesheet uniquely. basename() collides the
+    // moment one plugin carries two same-named module.css files (skyaxis:
+    // repos-pool and requirements both ship view.module.css) — the second
+    // injector's idempotence query then hits the first tag and its CSS never
+    // reaches the DOM. The repository-relative path is unique per file.
+    `const tagId = ${JSON.stringify(`${id}/${relative(REPOSITORY_ROOT, fileId)}`)};`,
     'if (typeof document !== \'undefined\' && document.querySelector(\'style[data-plugin-css=\' + JSON.stringify(tagId) + \']\') === null) {',
     '  const tag = document.createElement(\'style\');',
     `  tag.dataset.plugin = ${JSON.stringify(id)};`,

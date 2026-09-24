@@ -16,21 +16,23 @@
   color: var(--dsw-alias-label-primary);
 }
 
-/* Header doubles as the P2 toolbar seat (list actions move in later). */
+/* Header doubles as the toolbar seat; geometry mirrors the shipped
+   ConversationRoot panel (min-height 76px, 10/28/0/20, border-l3). */
 .header {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 16px;
-  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+  min-height: 76px;
+  padding: 10px 28px 0 20px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l3);
   background: var(--dsw-alias-bg-base);
 }
 
+/* Panel title: crumb-current baseline (14px/20px/500); DSH carries no
+   600-weight page titles. */
 .title {
   margin: 0;
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 600;
+  font: 500 14px/20px var(--dsw-font-family);
   color: var(--dsw-alias-label-primary);
 }
 
@@ -42,16 +44,17 @@
   padding: 16px;
 }
 
-/* Filtered-out notice; sits right under the grid, hence the top gap. */
+/* Filtered-out notice; sits right under the grid, hence the top gap.
+   Hint-copy ladder (13px/18px tertiary) on an info card (r12). */
 .empty {
   margin-top: 8px;
   padding: 24px 16px;
   border: 0.5px solid var(--dsw-alias-border-l2);
-  border-radius: 8px;
+  border-radius: 12px;
   background: var(--dsw-alias-bg-layer-1);
-  color: var(--dsw-alias-label-secondary);
-  font-size: 14px;
-  line-height: 22px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+  line-height: 18px;
   text-align: center;
 }
 
@@ -276,7 +279,12 @@
   border-radius: 6px;
   background: var(--dsw-alias-bg-layer-1);
   color: var(--dsw-alias-label-primary);
-  font: var(--dsw-font-s-14);
+  /* Input-body baseline (14px/22px) written out: the --dsw-font-s-14 token
+     never appears in any published DSH package, so the shorthand could fall
+     back to the browser default wholesale. */
+  font-size: 14px;
+  line-height: 22px;
+  font-family: var(--dsw-font-family);
 }
 
 .textarea:focus-visible {

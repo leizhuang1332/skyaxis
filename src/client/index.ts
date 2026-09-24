@@ -33,6 +33,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { registerTaskGraphView } from './task-graph/register.jsx'
 import { registerReposPoolView } from './repos-pool/register.jsx'
+import { registerRequirementsView } from './requirements/register.jsx'
 
 /**
  * Inject list — cordis reflect 层会在 apply 阶段校验 ctx 属性读取是否在 inject 列表里。
@@ -47,7 +48,9 @@ export const inject: readonly string[] = ['locale', 'slots', 'sessions']
 export function apply(ctx: Context): () => void {
   const disposeTaskGraph = registerTaskGraphView(ctx)
   const disposeReposPool = registerReposPoolView(ctx)
+  const disposeRequirements = registerRequirementsView(ctx)
   return () => {
+    disposeRequirements()
     disposeReposPool()
     disposeTaskGraph()
   }

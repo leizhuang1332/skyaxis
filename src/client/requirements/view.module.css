@@ -1,0 +1,58 @@
+/*
+ * Requirements page skeleton — DSH host styling contract.
+ *
+ * Geometry mirrors the shipped ConversationRoot panel (the co-occupant of
+ * the 'main' slot): header min-height 76px with the 10/28/0/20 padding and
+ * the border-l3 hairline, body scroll padding 16px. Typography follows the
+ * DSH ladder — panel title 14px/500 (crumb-current baseline, DSH carries no
+ * 600-weight page titles), hint copy 13px/18px tertiary. Spacing and radii
+ * are literal px by DSH convention (no --dsw-space/radius tokens exist);
+ * colors go through --dsw-alias-* only, never literals or dark selectors.
+ */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+}
+
+/* ConversationRoot-shaped header; doubles as the P2 toolbar seat. */
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 76px;
+  padding: 10px 28px 0 20px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l3);
+  background: var(--dsw-alias-bg-base);
+}
+
+/* Panel title: crumb-current baseline (14px/20px/500), sidebar-active twin. */
+.title {
+  margin: 0;
+  font: 500 14px/20px var(--dsw-font-family);
+  color: var(--dsw-alias-label-primary);
+}
+
+/* Scroll region: conversation-body padding; P2 list container seat. */
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+}
+
+/* Empty state: hint-copy ladder (13px/18px tertiary) on an info card (r12). */
+.empty {
+  padding: 24px 16px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+  line-height: 18px;
+  text-align: center;
+}

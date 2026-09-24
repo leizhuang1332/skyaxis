@@ -1,0 +1,143 @@
+// @vitest-environment jsdom
+/**
+ * Requirements registration contract, against the real SlotCore from the
+ * published ui-slots package (the P0 boundary finding stands: the browser
+ * SlotRegistry / host sidebar shell are loader-factory bundles, unreachable
+ * outside the DSH monorepo — shell behavior is verified on the live host).
+ *
+ * Covers: dictionary registration (zh/en), paired main-key / panellist-id
+ * projections, label thunk bilingual resolution, keyed-cell coexistence with
+ * the shipped 'conversation' key, and dispose semantics.
+ */
+import { describe, expect, it } from 'vitest'
+import type { ReactNode } from 'react'
+import { SlotCore, resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
+import type { PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import {
+  REQUIREMENTS_PANEL_ID,
+  REQUIREMENTS_PANEL_ORDER,
+  requirementsMainOptions,
+  requirementsPanelOptions,
+} from '../../src/client/requirements/register.jsx'
+import {
+  REQUIREMENTS_LOCALE_NS,
+  registerRequirementsDictionaries,
+  type RequirementsT,
+} from '../../src/client/requirements/dictionary.js'
+import { RequirementsIcon, RequirementsPage } from '../../src/client/requirements/view.js'
+
+/** Real LocaleRuntime register/bind contract, minimal implementation. */
+function createLocaleHarness() {
+  const dicts = new Map<string, { zh: Record<string, string>; en: Record<string, string> }>()
+  const disposers: Array<() => void> = []
+  const state = { current: 'en' as 'en' | 'zh' }
+  const ctx = {
+    effect(fn: () => () => void) {
+      disposers.push(fn())
+      return () => {}
+    },
+    locale: {
+      register(ns: string, d: { zh: Record<string, string>; en: Record<string, string> }) {
+        dicts.set(ns, d)
+        return () => dicts.delete(ns)
+      },
+      bind(ns: string): RequirementsT {
+        return (key) => dicts.get(ns)?.[state.current][key] ?? key
+      },
+    },
+  }
+  return {
+    ctx,
+    state,
+    dicts,
+    dispose: () => disposers.forEach((d) => d()),
+  }
+}
+
+describe('requirements: dictionaries', () => {
+  it('registers the skyaxis.requirements namespace with matching zh/en key sets', () => {
+    const { ctx, dicts } = createLocaleHarness()
+    registerRequirementsDictionaries(ctx as never)
+    expect(dicts.get(REQUIREMENTS_LOCALE_NS)).toBeTruthy()
+    const { zh, en } = dicts.get(REQUIREMENTS_LOCALE_NS)!
+    expect(Object.keys(zh).sort()).toEqual(['page.empty', 'panel.title'])
+    expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort())
+    expect(zh['panel.title']).toBe('需求管理')
+    expect(en['panel.title']).toBe('Requirements')
+  })
+
+  it('bind resolves per current locale without re-registration', () => {
+    const { ctx, state } = createLocaleHarness()
+    registerRequirementsDictionaries(ctx as never)
+    const t = ctx.locale.bind(REQUIREMENTS_LOCALE_NS)
+    expect(t('panel.title')).toBe('Requirements')
+    state.current = 'zh'
+    expect(t('panel.title')).toBe('需求管理')
+  })
+})
+
+describe('requirements: SlotCore registration contract', () => {
+  function mountFixture(core: SlotCore, t: RequirementsT) {
+    // Host-shaped base: root frame declares the two slots (RendersCheck: the
+    // declaring component must consume renderSlot in its type).
+    const frame = (_props: PropsRuntime<'root'> & PropsRenderSlots<'main' | 'sidebar.panellist'>): ReactNode => null
+    core.register({ name: 'root', children: {
+      'main': { kind: 'keyed', scope: 'root' },
+      'sidebar.panellist': { kind: 'list', scope: 'root', owner: { size: 'number', active: 'boolean' } },
+    } }, frame)
+    const disposeConversation = core.register(
+      { name: 'main', key: 'conversation' },
+      () => <p>Conversation content</p> as ReactNode,
+    )
+    const disposeMain = core.register(
+      requirementsMainOptions(),
+      () => <RequirementsPage t={t} /> as ReactNode,
+    )
+    const disposePanel = core.register(
+      requirementsPanelOptions(t),
+      (props: PropsRuntime<'sidebar.panellist'>) => RequirementsIcon(props) as ReactNode,
+    )
+    return { disposeConversation, disposeMain, disposePanel }
+  }
+
+  it('projects {id, order} and resolves the label thunk bilingually', () => {
+    const { ctx, state } = createLocaleHarness()
+    registerRequirementsDictionaries(ctx as never)
+    const t = ctx.locale.bind(REQUIREMENTS_LOCALE_NS)
+    const core = new SlotCore()
+    const { disposeMain, disposePanel } = mountFixture(core, t)
+
+    const entries = core.entriesOfSlot('sidebar.panellist')
+    expect(entries).toHaveLength(1)
+    expect(entries[0].options.id).toBe(REQUIREMENTS_PANEL_ID)
+    expect(entries[0].options.order).toBe(REQUIREMENTS_PANEL_ORDER)
+    expect(resolveSlotLabel(entries[0].options.label)).toBe('Requirements')
+    state.current = 'zh'
+    expect(resolveSlotLabel(entries[0].options.label)).toBe('需求管理')
+
+    // Keyed coexistence: conversation + requirements, one cell each.
+    const mainKeys = core.entriesOfSlot('main').map((e) => e.options.key)
+    expect(mainKeys).toContain('conversation')
+    expect(mainKeys).toContain(REQUIREMENTS_PANEL_ID)
+    expect(mainKeys).toHaveLength(2)
+
+    disposeMain()
+    expect(core.entriesOfSlot('main').map((e) => e.options.key)).toEqual(['conversation'])
+    disposePanel()
+    expect(core.entriesOfSlot('sidebar.panellist')).toHaveLength(0)
+  })
+
+  it('keeps id === key: the panellist id doubles as the main panel key', () => {
+    const main = requirementsMainOptions()
+    const { ctx } = createLocaleHarness()
+    const t = ctx.locale.bind(REQUIREMENTS_LOCALE_NS)
+    const panel = requirementsPanelOptions(t)
+    expect(panel.id).toBe(main.key)
+  })
+
+  it('fails loud when registering into an undeclared slot', () => {
+    const core = new SlotCore()
+    expect(() => core.register(requirementsPanelOptions(((key) => key) as RequirementsT), RequirementsIcon))
+      .toThrow(/not declared/)
+  })
+})
