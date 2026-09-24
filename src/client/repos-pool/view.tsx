@@ -1,11 +1,12 @@
 /**
- * Repos-pool page: header (title + add button), filter bar, failure banners
- * (dismissible), skeleton/list, the add/edit form, and the delete confirm
- * dialog. Presentation only: data flows in through props (store snapshot via
- * useSyncExternalStore, controller actions), no ctx in the view layer.
+ * Repos-pool page: header (title), filter bar, failure banners (dismissible),
+ * skeleton/list (the add card always leads the grid), the add/edit form, and
+ * the delete confirm dialog. Presentation only: data flows in through props
+ * (store snapshot via useSyncExternalStore, controller actions), no ctx in
+ * the view layer.
  */
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { Button, IconCloseOutline16, IconDatabaseOutline16, IconPlusOutline16, IconSearchOutline16, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconCloseOutline16, IconDatabaseOutline16, IconSearchOutline16, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { RepoRecord } from '../../repos-pool-shared/protocol.js'
 import type { ReposPoolController } from './controller.js'
@@ -70,18 +71,6 @@ export function ReposPoolPage(props: {
     <section className={styles.page}>
       <header className={styles.header}>
         <h1 className={styles.title}>{t('panel.title')}</h1>
-        {/* Quiet icon button — the host "New session" idiom (icon-only,
-            aria-label + native tooltip), not a toolbar Button. */}
-        <button
-          type="button"
-          className={styles.iconButton}
-          aria-label={t('view.addRepo')}
-          title={t('view.addRepo')}
-          disabled={state.busy}
-          onClick={() => controller.openCreate()}
-        >
-          <IconPlusOutline16 />
-        </button>
       </header>
       <div className={styles.body}>
         <div className={styles.filterBar}>
@@ -132,20 +121,24 @@ export function ReposPoolPage(props: {
         {state.phase === 'load-error' ? (
           <div className={styles.banner} role="alert">{t('error.network')}</div>
         ) : null}
-        {state.repos.length === 0 && state.phase !== 'loading' && state.phase !== 'load-error' ? (
-          <div className={styles.empty}>{t('page.empty')}</div>
-        ) : null}
-        {state.repos.length > 0 && visibleRepos.length === 0 ? (
-          <div className={styles.empty}>{t('view.filterEmpty')}</div>
-        ) : null}
-        {visibleRepos.length > 0 ? (
-          <ReposList
-            t={t}
-            repos={visibleRepos}
-            disabled={state.busy}
-            onEdit={(repo) => controller.openEdit(repo)}
-            onRemove={(repo) => setPendingRemove(repo)}
-          />
+        {/* The list always renders outside loading/load-error — its first
+            cell is the dashed add card, so the empty state IS that card and
+            filtered-out views keep the add affordance in place. */}
+        {state.phase !== 'loading' && state.phase !== 'load-error' ? (
+          <>
+            <ReposList
+              t={t}
+              repos={visibleRepos}
+              addLabel={t('view.addRepo')}
+              disabled={state.busy}
+              onAdd={() => controller.openCreate()}
+              onEdit={(repo) => controller.openEdit(repo)}
+              onRemove={(repo) => setPendingRemove(repo)}
+            />
+            {state.repos.length > 0 && visibleRepos.length === 0 ? (
+              <div className={styles.empty}>{t('view.filterEmpty')}</div>
+            ) : null}
+          </>
         ) : null}
       </div>
       {state.editing.kind !== 'closed' ? (

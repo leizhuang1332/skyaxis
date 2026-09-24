@@ -15,7 +15,6 @@ interface ReposPoolDictionary {
   /** Sidebar panel label and page heading. */
   readonly 'panel.title': string
   // page.*
-  readonly 'page.empty': string
   readonly 'page.loading': string
   readonly 'page.degraded': string
   readonly 'page.degradedBackupHint': string
@@ -89,7 +88,6 @@ export type ReposPoolT = (key: keyof ReposPoolDictionary) => string
 
 const zh: ReposPoolDictionary = {
   'panel.title': '仓库池',
-  'page.empty': '尚未添加任何仓库。点击右上角「添加仓库」开始。',
   'page.loading': '正在加载仓库清单…',
   'page.degraded': '仓库清单文件无法读取，已显示为空清单。',
   'page.degradedBackupHint': '检测到备份文件：repos.yaml.bak。请人工检查 $DSH_HOME/skyaxis/ 下的 repos.yaml 后恢复；文件修复前写入已被拒绝。',
@@ -153,7 +151,6 @@ const zh: ReposPoolDictionary = {
 
 const en: ReposPoolDictionary = {
   'panel.title': 'Repos Pool',
-  'page.empty': 'No repositories yet. Use “Add repository” in the top-right corner to start.',
   'page.loading': 'Loading repositories…',
   'page.degraded': 'The repository list file could not be read; an empty list is shown.',
   'page.degradedBackupHint': 'A backup file was found: repos.yaml.bak. Inspect $DSH_HOME/skyaxis/repos.yaml manually and restore it; writes stay rejected until the file is fixed.',

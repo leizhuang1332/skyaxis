@@ -18,7 +18,6 @@ import type { ReposFetcher } from '../../src/client/repos-pool/fetcher.js'
 const DICT = {
   zh: {
     'panel.title': '仓库池',
-    'page.empty': '尚未添加任何仓库。点击右上角「添加仓库」开始。',
     'page.loading': '正在加载仓库清单…',
     'page.degraded': '仓库清单文件无法读取，已显示为空清单。',
     'page.degradedBackupHint': '检测到备份文件：repos.yaml.bak。',
@@ -65,22 +64,26 @@ function page(fetcherOverrides: Partial<ReposFetcher> = {}) {
 }
 
 describe('ReposPoolPage (P2)', () => {
-  it('renders the header, add button, and repo rows with status tags', async () => {
+  it('renders the header, the leading add card, and repo rows with status tags', async () => {
     const { unmount } = page()
     expect(screen.getByRole('heading', { name: '仓库池' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: '添加仓库' })).toBeTruthy()
     await waitFor(() => {
+      // The add card leads the grid: its button sits before the first row.
+      const add = screen.getByRole('button', { name: '添加仓库' })
+      const firstRow = screen.getByText('仓库-a').closest('li')
+      expect(add.closest('li')?.nextElementSibling).toBe(firstRow)
       expect(screen.getByText('https://example.com/a.git')).toBeTruthy()
       expect(screen.getByText('仓库-b')).toBeTruthy()
     })
     unmount()
   })
 
-  it('shows the empty state when the list is empty', async () => {
+  it('shows only the add card when the list is empty', async () => {
     const { unmount } = page({ list: vi.fn(async () => ({ kind: 'ok' as const, revision: 0, repos: [] })) })
     await waitFor(() => {
-      expect(screen.getByText(DICT.zh['page.empty'])).toBeTruthy()
+      expect(screen.getByRole('button', { name: '添加仓库' })).toBeTruthy()
     })
+    expect(screen.queryByText('https://example.com/a.git')).toBeNull()
     unmount()
   })
 
@@ -107,6 +110,8 @@ describe('ReposPoolPage (P2)', () => {
     await waitFor(() => expect(screen.getByText('仓库-b')).toBeTruthy())
     fireEvent.change(filter, { target: { value: 'zzz-no-match' } })
     await waitFor(() => expect(screen.getByText('没有匹配的仓库。')).toBeTruthy())
+    // The add card stays in place under an empty filter.
+    expect(screen.getByRole('button', { name: '添加仓库' })).toBeTruthy()
     unmount()
   })
 })

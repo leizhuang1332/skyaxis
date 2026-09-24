@@ -42,7 +42,9 @@
   padding: 16px;
 }
 
+/* Filtered-out notice; sits right under the grid, hence the top gap. */
 .empty {
+  margin-top: 8px;
   padding: 24px 16px;
   border: 0.5px solid var(--dsw-alias-border-l2);
   border-radius: 8px;
@@ -109,6 +111,41 @@
   border: 0.5px solid var(--dsw-alias-border-l2);
   border-radius: 8px;
   background: var(--dsw-alias-bg-layer-1);
+}
+
+/* ---- add card (first grid cell) ---- */
+
+/* Dashed border marks the cell as an action slot, not a record; the whole
+   card is the button. Hover feedback stays quiet: layer bg + primary text,
+   border tone unchanged (no brighter border alias exists). */
+.addRow {
+  display: flex;
+}
+
+.addButton {
+  flex: 1;
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0.5px dashed var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.addButton:hover:not(:disabled) {
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+}
+
+.addButton:disabled {
+  cursor: default;
+  color: var(--dsw-alias-label-caption);
 }
 
 /* ---- skeleton (loading placeholders, static — no ad-hoc motion) ---- */
@@ -189,7 +226,7 @@
 
 /* Quiet icon button, the host workspace-row "New session" idiom
    (ui-workspace Rows.module.css .iconButton): 16×16, transparent, tertiary
-   glyph, primary on hover. Used for the header add action and row menus. */
+   glyph, primary on hover. Used for banner dismissal and row menus. */
 .iconButton {
   flex: none;
   display: inline-flex;

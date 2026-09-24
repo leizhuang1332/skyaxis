@@ -1,10 +1,11 @@
 /**
- * Repos-pool list: one row per record — name, url, description, a status
- * Tag, and a row menu (edit / remove-danger). Host primitives only; colors
- * ride the alias tokens via view.module.css.
+ * Repos-pool list: a dashed add card leading the grid, then one row per
+ * record — name, url, description, a status Tag, and a row menu
+ * (edit / remove-danger). Host primitives only; colors ride the alias
+ * tokens via view.module.css.
  */
 import { useState, type ReactNode } from 'react'
-import { IconEllipsisOutline16, Menu, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconEllipsisOutline16, IconPlusOutline16, Menu, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { RepoRecord, RepoStatus } from '../../repos-pool-shared/protocol.js'
 import type { ReposPoolT } from './dictionary.js'
@@ -77,15 +78,43 @@ function RepoRow(props: {
   )
 }
 
+/**
+ * Add-repo card: always the first grid cell. The whole card is one button
+ * with a visible label — the affordance reads without hover, and the empty
+ * list is simply this card alone.
+ */
+function AddRepoCard(props: {
+  label: string
+  disabled: boolean
+  onAdd: () => void
+}): ReactNode {
+  return (
+    <li className={styles.addRow}>
+      <button
+        type="button"
+        className={styles.addButton}
+        disabled={props.disabled}
+        onClick={props.onAdd}
+      >
+        <IconPlusOutline16 />
+        <span>{props.label}</span>
+      </button>
+    </li>
+  )
+}
+
 export function ReposList(props: {
   t: ReposPoolT
   repos: readonly RepoRecord[]
+  addLabel: string
   disabled: boolean
+  onAdd: () => void
   onEdit: (repo: RepoRecord) => void
   onRemove: (repo: RepoRecord) => void
 }): ReactNode {
   return (
     <ul className={styles.list}>
+      <AddRepoCard label={props.addLabel} disabled={props.disabled} onAdd={props.onAdd} />
       {props.repos.map((repo) => (
         <RepoRow
           key={repo.id}

@@ -80,7 +80,6 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
     'skyaxis.reposPool':
       | 'panel.title'
-      | 'page.empty'
       | 'page.loading'
       | 'page.degraded'
       | 'page.degradedBackupHint'
