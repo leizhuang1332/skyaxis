@@ -7,9 +7,11 @@
  * in-file below; the loader answers each entry via its injected require.
  */
 import { existsSync, readFileSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { dirname, relative, resolve as resolvePath, sep } from 'node:path'
+import { basename, dirname, relative, resolve as resolvePath, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { transform } from 'lightningcss'
 import type { UserConfig } from 'tsdown'
 
 /**
@@ -122,6 +124,56 @@ const CLIENT_EXTERNALS: readonly string[] = PLATFORM_MODULES.filter(
 )
 
 const REPOSITORY_ROOT = fileURLToPath(new URL('..', import.meta.url))
+
+/**
+ * CSS Modules pipeline, ported verbatim from the DSH web-app build preset
+ * (packages/client/tsdown.client.ts dsh-css-modules-inline): `*.module.css`
+ * compiles through lightningcss into a hashed class map plus a self-injecting
+ * <style data-plugin data-plugin-css> module the web loader's claimStyles
+ * ledger recognizes — the same lifecycle semantics as every shipped plugin
+ * (inject at factory evaluation, idempotent per stylesheet, resident for the
+ * plugin's life). The `?inline` string and manual <style> paths used by the
+ * task-graph view stay untouched; both coexist in the same bundle.
+ */
+
+/** Virtual-module markers: the suffix must not end in `.css`, or tsdown's own CSS guard claims the id. */
+const CSS_VIRTUAL_PREFIX = '\0dsh-css:'
+const CSS_VIRTUAL_SUFFIX = '.mjs'
+
+/** Emit one plugin-owned style injector and an optional CSS Modules export. */
+function styleInjectionModule(
+  id: string,
+  fileId: string,
+  css: string,
+  classMap?: Readonly<Record<string, string>>,
+): string {
+  const source = [
+    `const css = ${JSON.stringify(css)};`,
+    `const tagId = ${JSON.stringify(`${id}/${basename(fileId)}`)};`,
+    'if (typeof document !== \'undefined\' && document.querySelector(\'style[data-plugin-css=\' + JSON.stringify(tagId) + \']\') === null) {',
+    '  const tag = document.createElement(\'style\');',
+    `  tag.dataset.plugin = ${JSON.stringify(id)};`,
+    '  tag.dataset.pluginCss = tagId;',
+    '  tag.textContent = css;',
+    '  document.head.appendChild(tag);',
+    '}',
+  ]
+  source.push(classMap === undefined ? 'export {};' : `export default ${JSON.stringify(classMap)};`)
+  return source.join('\n')
+}
+
+/** Path segment separating a package's tsc output from the sources it was emitted from. */
+const TYPES_MARKER = `${sep}lib${sep}types${sep}`
+
+/** Resolve an emitted JS asset import against its source-tree counterpart. */
+function sourceAssetPath(source: string, importer: string): string {
+  const emitted = resolvePath(dirname(importer), source)
+  if (existsSync(emitted)) return emitted
+  const boundary = emitted.indexOf(TYPES_MARKER)
+  if (boundary < 0) return emitted
+  return resolvePath(emitted.slice(0, boundary), 'src', emitted.slice(boundary + TYPES_MARKER.length))
+}
+
 
 /**
  * The building package's own package.json version, baked into the client
@@ -328,6 +380,33 @@ function clientConfig(id: string, entry: string, extraPlugins: readonly NonNulla
       load(id: string) {
         if (id !== STORE_ENGINE_SHIM_ID) return null
         return STORE_ENGINE_SHIM
+      },
+    }, {
+      // CSS Modules pipeline (ported verbatim from the DSH preset; see the
+      // styleInjectionModule block above for the lifecycle contract).
+      name: 'dsh-css-modules-inline',
+      resolveId(source: string, importer: string | undefined) {
+        if (!source.endsWith('.module.css')) return null
+        const abs = importer !== undefined ? sourceAssetPath(source, importer) : source
+        return CSS_VIRTUAL_PREFIX + abs + CSS_VIRTUAL_SUFFIX
+      },
+      async load(virtualId: string) {
+        if (!virtualId.startsWith(CSS_VIRTUAL_PREFIX)) return null
+        const fileId = virtualId.slice(CSS_VIRTUAL_PREFIX.length, -CSS_VIRTUAL_SUFFIX.length)
+        // The virtual id otherwise hides the physical stylesheet from Rolldown's watch graph.
+        this.addWatchFile(fileId)
+        const source = await readFile(fileId)
+        const { code, exports: cssExports } = transform({
+          filename: fileId,
+          code: source,
+          cssModules: { pattern: '[hash]_[local]' },
+          minify: true,
+        })
+        const classMap: Record<string, string> = {}
+        const exportEntries = Object.entries(cssExports ?? {})
+          .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+        for (const [local, exp] of exportEntries) classMap[local] = exp.name
+        return styleInjectionModule(id, fileId, code.toString(), classMap)
       },
     }],
     outputOptions: {
