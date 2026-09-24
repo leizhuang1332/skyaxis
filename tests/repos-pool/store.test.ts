@@ -116,6 +116,28 @@ describe('repos-pool controller/store', () => {
     expect(snap().repos).toHaveLength(0)
   })
 
+  it('drops a stale refresh response when a newer one lands first (P3 race guard)', async () => {
+    let resolveStale!: (value: { kind: 'ok'; revision: number; repos: RepoRecord[] }) => void
+    const stalePromise = new Promise<{ kind: 'ok'; revision: number; repos: RepoRecord[] }>((resolve) => {
+      resolveStale = resolve
+    })
+    const list = vi.fn()
+      .mockReturnValueOnce(stalePromise)
+      .mockResolvedValueOnce({ kind: 'ok' as const, revision: 9, repos: [record('fresh')] })
+    const { controller, snap } = setup({ list })
+
+    const stale = controller.refresh() // fires first…
+    const fresh = controller.refresh() // …but a newer one resolves first
+    await fresh
+    expect(snap().revision).toBe(9)
+    expect(snap().repos.map((r) => r.id)).toEqual(['fresh'])
+
+    resolveStale({ kind: 'ok', revision: 1, repos: [record('stale')] })
+    await stale
+    expect(snap().revision).toBe(9) // the late older response did not overwrite
+    expect(snap().repos.map((r) => r.id)).toEqual(['fresh'])
+  })
+
   it('dispose freezes the store against late results', async () => {
     const { controller, snap } = setup({
       save: vi.fn(async () => ({ kind: 'ok' as const, revision: 2, repo: record('late') })),
