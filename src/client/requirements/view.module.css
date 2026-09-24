@@ -56,3 +56,167 @@
   line-height: 18px;
   text-align: center;
 }
+
+/* ---- banners / phases ---- */
+
+/* Compact alert strip (r8 — component scale, not card scale). */
+.banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border: 0.5px solid var(--dsw-alias-state-warn-primary);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.bannerHint {
+  margin-top: 4px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+  word-break: break-all;
+}
+
+.phaseRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 4px;
+}
+
+/* ---- list ---- */
+
+/* Two cards per row (the repos-pool acceptance ask); rows keep card scale (r12). */
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.rowMain {
+  flex: 1;
+  min-width: 0;
+}
+
+.rowTitleLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Row title: sidebar-active baseline (14px/500) — DSH carries no 600 UI weight. */
+.rowName {
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+
+.rowDesc {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowActions {
+  flex-shrink: 0;
+}
+
+/* Quiet icon button, the host workspace-row "New session" idiom
+   (ui-workspace Rows.module.css .iconButton): 16×16, transparent, tertiary
+   glyph, primary on hover. Used for the header add button and row menus. */
+.iconButton {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 4px;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.iconButton:hover:not(:disabled) {
+  color: var(--dsw-alias-label-primary);
+}
+
+.iconButton:disabled {
+  cursor: default;
+  color: var(--dsw-alias-label-caption);
+}
+
+/* ---- form ---- */
+
+.formBody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.fieldLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* Input-body baseline (14px/22px) written out — the shorthand token family
+   has no verified 14/400 entry in any published DSH package. */
+.textarea {
+  resize: vertical;
+  min-height: 64px;
+  padding: 6px 10px;
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+  line-height: 22px;
+  font-family: var(--dsw-font-family);
+}
+
+.textarea:focus-visible {
+  outline: none;
+  border-color: var(--dsw-alias-border-l2);
+}
+
+.fieldHint {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.fieldError {
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 12px;
+  line-height: 18px;
+  word-break: break-all;
+}

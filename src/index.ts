@@ -18,6 +18,8 @@ import { agentMetricsProjection } from './agent-metrics.js'
 import { registerReposPoolEndpoints } from './repos-pool-host/endpoint.js'
 import { ReposFileStore } from './repos-pool-host/repos-file.js'
 import { ReposValidator } from './repos-pool-host/validator.js'
+import { registerRequirementsEndpoints } from './requirements-host/endpoint.js'
+import { RequirementsFileStore } from './requirements-host/requirements-file.js'
 
 export const inject: readonly string[] = []
 
@@ -34,10 +36,16 @@ export function apply(ctx: Context): void {
     return () => reposValidator.setSubprocess(undefined)
   })
 
+  const requirementsFile = new RequirementsFileStore(dshHomePath('skyaxis', 'requirements.yaml'))
+
   ctx.inject(['connection'], (scope) => {
     registerReposPoolEndpoints(scope.connection, {
       file: reposFile,
       validator: reposValidator,
+      log: (error) => ctx.logger.error(error),
+    })
+    registerRequirementsEndpoints(scope.connection, {
+      file: requirementsFile,
       log: (error) => ctx.logger.error(error),
     })
   })

@@ -25,6 +25,8 @@ import {
   type RequirementsT,
 } from '../../src/client/requirements/dictionary.js'
 import { RequirementsIcon, RequirementsPage } from '../../src/client/requirements/view.js'
+import { createRequirementsController } from '../../src/client/requirements/controller.js'
+import { createRequirementsStore } from '../../src/client/requirements/store.js'
 
 /** Real LocaleRuntime register/bind contract, minimal implementation. */
 function createLocaleHarness() {
@@ -60,7 +62,32 @@ describe('requirements: dictionaries', () => {
     registerRequirementsDictionaries(ctx as never)
     expect(dicts.get(REQUIREMENTS_LOCALE_NS)).toBeTruthy()
     const { zh, en } = dicts.get(REQUIREMENTS_LOCALE_NS)!
-    expect(Object.keys(zh).sort()).toEqual(['page.empty', 'panel.title'])
+    expect(Object.keys(zh).sort()).toEqual([
+      'error.conflict',
+      'error.internal',
+      'error.network',
+      'error.notFound',
+      'error.titleRequired',
+      'error.unreadableFile',
+      'form.cancel',
+      'form.closeLabel',
+      'form.description',
+      'form.descriptionPlaceholder',
+      'form.submit',
+      'form.submitting',
+      'form.title',
+      'form.titleCreate',
+      'form.titleEdit',
+      'form.titlePlaceholder',
+      'menu.edit',
+      'menu.remove',
+      'page.degraded',
+      'page.degradedBackupHint',
+      'page.empty',
+      'page.loading',
+      'panel.title',
+      'view.addRequirement',
+    ])
     expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort())
     expect(zh['panel.title']).toBe('需求管理')
     expect(en['panel.title']).toBe('Requirements')
@@ -91,7 +118,11 @@ describe('requirements: SlotCore registration contract', () => {
     )
     const disposeMain = core.register(
       requirementsMainOptions(),
-      () => <RequirementsPage t={t} /> as ReactNode,
+      () => {
+        const store = createRequirementsStore()
+        const controller = createRequirementsController(store, { list: async () => ({ kind: 'network' }) } as never)
+        return <RequirementsPage t={t} store={store} controller={controller} /> as ReactNode
+      },
     )
     const disposePanel = core.register(
       requirementsPanelOptions(t),
