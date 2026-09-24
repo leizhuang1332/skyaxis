@@ -24,7 +24,7 @@ git clone https://github.com/lz/skyaxis.git
 cd skyaxis
 pnpm install
 pnpm build
-dsh plugin --profile web add link:$(pwd)/packages/skyaxis
+dsh plugin --profile web add link:$(pwd)/skyaxis
 ```
 
 ## 构建与测试
