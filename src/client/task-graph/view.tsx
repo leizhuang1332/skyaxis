@@ -164,7 +164,11 @@ const nodeTypes = {
   approval: TaskGraphNode,
 }
 
-/** 自定义节点的样式（与 reactFlowCss 同一个 <style> 标签注入）。 */
+/**
+ * 自定义节点的样式（与 reactFlowCss 同一个 <style> 标签注入）。
+ * 全部走 --dsw-alias-* / --dsw-elevation-* 语义 token（docs/web-styling.md
+ * 规范）：亮暗两套与第三方主题插件换装随宿主级联，不再携带任何字面色。
+ */
 const taskGraphNodeCss = `
 .skyaxis-tg-node {
   display: flex;
@@ -172,9 +176,9 @@ const taskGraphNodeCss = `
   gap: 6px;
   max-width: 220px;
   padding: 6px 10px;
-  border: 1px solid var(--skyaxis-border, #d0d4dc);
+  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 8px;
-  background: var(--skyaxis-surface, #fff);
+  background: var(--dsw-alias-bg-layer-1);
   font-size: 12px;
 }
 .skyaxis-tg-node[data-navigable='true'] {
@@ -186,22 +190,22 @@ const taskGraphNodeCss = `
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--skyaxis-status-pending, #9aa2af);
+  background: var(--dsw-alias-label-tertiary);
 }
 .skyaxis-tg-node[data-status='running'] .skyaxis-tg-node-dot {
-  background: var(--skyaxis-status-running, #2f6fed);
+  background: var(--dsw-alias-state-business-primary);
 }
 .skyaxis-tg-node[data-status='done'] .skyaxis-tg-node-dot {
-  background: var(--skyaxis-status-done, #2ea84f);
+  background: var(--dsw-alias-state-success-primary);
 }
 .skyaxis-tg-node[data-status='failed'] .skyaxis-tg-node-dot {
-  background: var(--skyaxis-status-failed, #d64545);
+  background: var(--dsw-alias-state-error-primary);
 }
 .skyaxis-tg-node[data-status='cancelled'] .skyaxis-tg-node-dot {
-  background: var(--skyaxis-status-cancelled, #8b7bb5);
+  background: var(--dsw-alias-label-dimmed);
 }
 .skyaxis-tg-node[data-status='waiting'] .skyaxis-tg-node-dot {
-  background: var(--skyaxis-status-waiting, #b8860b);
+  background: var(--dsw-alias-state-warn-primary);
 }
 .skyaxis-tg-node-label {
   overflow: hidden;
@@ -216,7 +220,7 @@ const taskGraphNodeCss = `
   min-height: 5px;
   border: none;
   border-radius: 50%;
-  background: var(--skyaxis-border, #b7bdc9);
+  background: var(--dsw-alias-border-l3);
 }
 /* P3 工具条 */
 .skyaxis-tg-toolbar {
@@ -228,9 +232,9 @@ const taskGraphNodeCss = `
   align-items: center;
   gap: 6px;
   padding: 4px 8px;
-  border: 1px solid var(--skyaxis-border, #d0d4dc);
+  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 6px;
-  background: var(--skyaxis-surface, #fff);
+  background: var(--dsw-alias-bg-layer-1);
   font-size: 12px;
   cursor: pointer;
 }
@@ -241,10 +245,10 @@ const taskGraphNodeCss = `
   min-width: 180px;
   max-width: 300px;
   padding: 8px 10px;
-  border: 1px solid var(--skyaxis-border, #d0d4dc);
+  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 8px;
-  background: var(--skyaxis-surface, #fff);
-  box-shadow: 0 2px 8px rgb(0 0 0 / 12%);
+  background: var(--dsw-alias-bg-layer-1);
+  box-shadow: var(--dsw-elevation-panel);
   font-size: 12px;
   pointer-events: none;
 }
@@ -253,7 +257,7 @@ const taskGraphNodeCss = `
   font-weight: 600;
 }
 .skyaxis-tg-tooltip-row {
-  color: var(--skyaxis-muted, #5b6472);
+  color: var(--dsw-alias-label-secondary);
 }
 /* P3 workflow 定义面板 */
 .skyaxis-tg-defpanel {
@@ -266,10 +270,10 @@ const taskGraphNodeCss = `
   width: min(480px, 60%);
   max-height: 70%;
   padding: 12px;
-  border: 1px solid var(--skyaxis-border, #d0d4dc);
+  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 10px;
-  background: var(--skyaxis-surface, #fff);
-  box-shadow: 0 4px 16px rgb(0 0 0 / 16%);
+  background: var(--dsw-alias-bg-layer-1);
+  box-shadow: var(--dsw-elevation-prominent);
   font-size: 12px;
 }
 .skyaxis-tg-defpanel-head {
@@ -280,14 +284,14 @@ const taskGraphNodeCss = `
 }
 .skyaxis-tg-defpanel-head button {
   padding: 2px 8px;
-  border: 1px solid var(--skyaxis-border, #d0d4dc);
+  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 4px;
   background: transparent;
   cursor: pointer;
 }
 .skyaxis-tg-defpanel-desc {
   margin: 6px 0 0;
-  color: var(--skyaxis-muted, #5b6472);
+  color: var(--dsw-alias-label-secondary);
 }
 .skyaxis-tg-defpanel-phases {
   margin: 6px 0 0;
@@ -301,9 +305,9 @@ const taskGraphNodeCss = `
   max-height: 40vh;
   margin: 0;
   padding: 8px;
-  border: 1px solid var(--skyaxis-border, #d0d4dc);
+  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 6px;
-  background: var(--skyaxis-code-bg, #f6f7f9);
+  background: var(--dsw-alias-bg-layer-2);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 11px;
   white-space: pre;
