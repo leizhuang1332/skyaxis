@@ -29,6 +29,12 @@ const PLATFORM_MODULES: readonly string[] = [
   '@deepseek-ai/dsh-client-ui-renderer',
   '@deepseek-ai/dsh-client-ui-settings',
   '@deepseek-ai/dsh-client-ui-slots',
+  // Host-shared React primitives (Button/Modal/Menu/RiskConfirmation/icons) —
+  // a web shell seed-table member (getStaticModules in the published
+  // dsh-client-web), so the loader answers a require of this specifier and
+  // the plugin reuses the host's single instance (theme token styles ride
+  // along). Added for the repos-pool feature (see docs/research/0004).
+  '@deepseek-ai/dsh-client-ui-primitives',
   '@deepseek-ai/dsh-host-webserver',
   '@deepseek-ai/dsh-workspace',
   '@deepseek-ai/dsh-settings',
