@@ -14,6 +14,7 @@ import type { SaveRequestBody, UrlRejection, ValidateOutcome } from '../../repos
 import type { ReposPoolController } from './controller.js'
 import type { ReposPoolT } from './dictionary.js'
 import type { ReposFetcher } from './fetcher.js'
+import { repoNameFromUrl } from './url-name.js'
 import styles from './view.module.css'
 
 type Editing = { kind: 'create' } | { kind: 'edit'; repo: import('../../repos-pool-shared/protocol.js').RepoRecord }
@@ -49,6 +50,8 @@ export function RepoForm(props: {
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
   const [fieldError, setFieldError] = useState<string | null>(null)
   const [acknowledged, setAcknowledged] = useState(false)
+  /** Name auto-fill (create mode only): derive from the URL until the user types a name. */
+  const [nameAuto, setNameAuto] = useState(editing.kind === 'create')
 
   const urlUnchanged = editing.kind === 'edit' && editing.repo.url === url.trim()
   const outcome = phase.kind === 'outcome' ? phase.outcome : undefined
@@ -74,10 +77,12 @@ export function RepoForm(props: {
     if (phase.kind === 'outcome' || phase.kind === 'skipped-unchanged') setPhase({ kind: 'idle' })
     setAcknowledged(false)
     setFieldError(null)
+    if (nameAuto) setName(repoNameFromUrl(value))
   }
 
   const handleNameChange = (value: string): void => {
     setName(value)
+    setNameAuto(false)
     setFieldError(null)
   }
 

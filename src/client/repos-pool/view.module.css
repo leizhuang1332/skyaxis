@@ -83,12 +83,13 @@
 
 /* ---- list ---- */
 
+/* Two cards per row (acceptance ask); cards keep their internal flex. */
 .list {
   margin: 0;
   padding: 0;
   list-style: none;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -100,6 +101,16 @@
   border: 0.5px solid var(--dsw-alias-border-l2);
   border-radius: 8px;
   background: var(--dsw-alias-bg-layer-1);
+}
+
+/* ---- filter bar ---- */
+
+.filterBar {
+  margin-bottom: 12px;
+}
+
+.filterInput {
+  max-width: 360px;
 }
 
 .rowMain {

@@ -21,6 +21,8 @@ interface ReposPoolDictionary {
   readonly 'page.degradedBackupHint': string
   // view.*
   readonly 'view.addRepo': string
+  readonly 'view.filterPlaceholder': string
+  readonly 'view.filterEmpty': string
   // form.*
   readonly 'form.titleCreate': string
   readonly 'form.titleEdit': string
@@ -84,6 +86,8 @@ const zh: ReposPoolDictionary = {
   'page.degraded': '仓库清单文件无法读取，已显示为空清单。',
   'page.degradedBackupHint': '检测到备份文件：repos.yaml.bak。请人工检查 $DSH_HOME/skyaxis/ 下的 repos.yaml 后恢复；文件修复前写入已被拒绝。',
   'view.addRepo': '添加仓库',
+  'view.filterPlaceholder': '按名称 / 地址 / 简介筛选',
+  'view.filterEmpty': '没有匹配的仓库。',
   'form.titleCreate': '添加仓库',
   'form.titleEdit': '编辑仓库',
   'form.name': '名称',
@@ -139,6 +143,8 @@ const en: ReposPoolDictionary = {
   'page.degraded': 'The repository list file could not be read; an empty list is shown.',
   'page.degradedBackupHint': 'A backup file was found: repos.yaml.bak. Inspect $DSH_HOME/skyaxis/repos.yaml manually and restore it; writes stay rejected until the file is fixed.',
   'view.addRepo': 'Add repository',
+  'view.filterPlaceholder': 'Filter by name / URL / description',
+  'view.filterEmpty': 'No matching repositories.',
   'form.titleCreate': 'Add repository',
   'form.titleEdit': 'Edit repository',
   'form.name': 'Name',

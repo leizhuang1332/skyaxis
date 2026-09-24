@@ -85,6 +85,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       | 'page.degraded'
       | 'page.degradedBackupHint'
       | 'view.addRepo'
+      | 'view.filterPlaceholder'
+      | 'view.filterEmpty'
       | 'form.titleCreate'
       | 'form.titleEdit'
       | 'form.name'

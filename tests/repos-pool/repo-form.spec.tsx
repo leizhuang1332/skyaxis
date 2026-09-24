@@ -167,6 +167,21 @@ describe('RepoForm validation flow', () => {
     expect((utils.save.mock.calls[0] as unknown[])[0]).toMatchObject({ validation: { kind: 'verified' } })
   })
 
+  it('auto-fills the name from the URL while untouched, and stops once edited manually', () => {
+    const utils = setup()
+    const url = screen.getByPlaceholderText('form.urlPlaceholder')
+    const name = screen.getByPlaceholderText('form.namePlaceholder')
+    fireEvent.change(url, { target: { value: 'ssh://git@code.jms.com:2222/ylspm/yl-web-pcp-analysis.git' } })
+    expect((name as HTMLInputElement).value).toBe('yl-web-pcp-analysis')
+    fireEvent.change(url, { target: { value: 'https://github.com/u/another-repo.git' } })
+    expect((name as HTMLInputElement).value).toBe('another-repo')
+    // Manual edit wins and is not clobbered by further URL changes.
+    fireEvent.change(name, { target: { value: 'my-own-name' } })
+    fireEvent.change(url, { target: { value: 'https://github.com/u/third-repo.git' } })
+    expect((name as HTMLInputElement).value).toBe('my-own-name')
+    expect(utils.validate).not.toHaveBeenCalled()
+  })
+
   it('validates locally before anything else (empty name)', () => {
     const utils = setup()
     fireEvent.click(screen.getByRole('button', { name: '保存' }))

@@ -6,7 +6,7 @@
  * banners, degraded and empty states, and the icon glyph sizes.
  */
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { RepoRecord } from '../../src/repos-pool-shared/protocol.js'
 import type { ReposPoolT } from '../../src/client/repos-pool/dictionary.js'
 import { createReposPoolController } from '../../src/client/repos-pool/controller.js'
@@ -23,6 +23,8 @@ const DICT = {
     'page.degraded': '仓库清单文件无法读取，已显示为空清单。',
     'page.degradedBackupHint': '检测到备份文件：repos.yaml.bak。',
     'view.addRepo': '添加仓库',
+    'view.filterPlaceholder': '按名称 / 地址 / 简介筛选',
+    'view.filterEmpty': '没有匹配的仓库。',
     'error.network': '网络错误，请稍后重试',
   },
 } as const
@@ -82,6 +84,22 @@ describe('ReposPoolPage (P2)', () => {
       expect(screen.getByText(DICT.zh['page.degraded'])).toBeTruthy()
       expect(screen.getByText(DICT.zh['page.degradedBackupHint'])).toBeTruthy()
     })
+    unmount()
+  })
+
+  it('filters rows by name/url/description and reports empty matches', async () => {
+    const { unmount } = page()
+    await waitFor(() => expect(screen.getByText('仓库-b')).toBeTruthy())
+    const filter = screen.getByPlaceholderText('按名称 / 地址 / 简介筛选')
+    fireEvent.change(filter, { target: { value: '仓库-a' } })
+    await waitFor(() => {
+      expect(screen.getByText('仓库-a')).toBeTruthy()
+      expect(screen.queryByText('仓库-b')).toBeNull()
+    })
+    fireEvent.change(filter, { target: { value: 'example.com/b' } })
+    await waitFor(() => expect(screen.getByText('仓库-b')).toBeTruthy())
+    fireEvent.change(filter, { target: { value: 'zzz-no-match' } })
+    await waitFor(() => expect(screen.getByText('没有匹配的仓库。')).toBeTruthy())
     unmount()
   })
 })

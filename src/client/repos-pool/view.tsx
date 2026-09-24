@@ -4,8 +4,8 @@
  * data flows in through props (store snapshot via useSyncExternalStore,
  * controller actions), no ctx in the view layer.
  */
-import { useEffect, useSyncExternalStore, type ReactNode } from 'react'
-import { IconDatabaseOutline16, IconPlusOutline16, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { IconDatabaseOutline16, IconPlusOutline16, IconSearchOutline16, Input, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ReposPoolController } from './controller.js'
 import type { ReposPoolT } from './dictionary.js'
@@ -44,6 +44,14 @@ export function ReposPoolPage(props: {
 }): ReactNode {
   const { t, store, controller, fetcher } = props
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot)
+  const [filter, setFilter] = useState('')
+  const needle = filter.trim().toLowerCase()
+  const visibleRepos = needle.length === 0
+    ? state.repos
+    : state.repos.filter((repo) =>
+        repo.name.toLowerCase().includes(needle)
+        || repo.url.toLowerCase().includes(needle)
+        || repo.description.toLowerCase().includes(needle))
 
   // Mount: pull the list once (abort on unmount). The controller itself
   // lives with the registration disposer — the task-graph lazy pattern,
@@ -72,6 +80,17 @@ export function ReposPoolPage(props: {
         </button>
       </header>
       <div className={styles.body}>
+        <div className={styles.filterBar}>
+          <Input
+            className={styles.filterInput}
+            value={filter}
+            placeholder={t('view.filterPlaceholder')}
+            icon={<IconSearchOutline16 size={16} />}
+            spellCheck={false}
+            aria-label={t('view.filterPlaceholder')}
+            onChange={(event) => setFilter(event.target.value)}
+          />
+        </div>
         {state.banner ? (
           <div className={styles.banner} role="alert">
             {t(BANNER_KEY[state.banner.code])}
@@ -95,10 +114,13 @@ export function ReposPoolPage(props: {
         {state.repos.length === 0 && state.phase !== 'loading' && state.phase !== 'load-error' ? (
           <div className={styles.empty}>{t('page.empty')}</div>
         ) : null}
-        {state.repos.length > 0 ? (
+        {state.repos.length > 0 && visibleRepos.length === 0 ? (
+          <div className={styles.empty}>{t('view.filterEmpty')}</div>
+        ) : null}
+        {visibleRepos.length > 0 ? (
           <ReposList
             t={t}
-            repos={state.repos}
+            repos={visibleRepos}
             disabled={state.busy}
             onEdit={(repo) => controller.openEdit(repo)}
             onRemove={(repo) => void controller.remove(repo.id)}
