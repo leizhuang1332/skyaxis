@@ -1,20 +1,44 @@
 /**
- * Host loader entry for the task-board plugin.
+ * Host-half entry (runs in the DSH host process; the browser half is
+ * exports "./client").
  *
- * P2b：可选注册 `skyaxisAgentMetrics` session 投影（"最近一次请求"的
- * provider / model / 思考深度 / 来源，定义见 agent-metrics.ts）。顶层
- * `inject` 保持为空——服务缺席时注册静默跳过，客户端读作 capability
- * absence（projectionValues 缺 key），绝不让插件加载失败波及宿主。
+ * Optional-dependency wiring throughout (`export const inject = []` plus
+ * `ctx.inject([...])`): a missing service degrades that capability silently
+ * instead of failing plugin load —
+ *   - `sessionProjections` — the task-graph agent-metrics projection,
+ *   - `subprocess`         — repos-pool URL reachability probing (git
+ *     ls-remote); absent ⇒ validate answers `unverified/no-service`,
+ *   - `connection`         — the repos-pool /api endpoint family; absent in
+ *     compositions without a web carrier (e.g. desktop file:// IPC).
+ * Registrations ride the calling fiber and are withdrawn on plugin unload.
  */
+import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import type { Context } from '@deepseek-ai/cordis'
 import { agentMetricsProjection } from './agent-metrics.js'
+import { registerReposPoolEndpoints } from './repos-pool-host/endpoint.js'
+import { ReposFileStore } from './repos-pool-host/repos-file.js'
+import { ReposValidator } from './repos-pool-host/validator.js'
 
 export const inject: readonly string[] = []
 
 export function apply(ctx: Context): void {
-  // ctx.inject 是可选依赖解析（服务缺席时插件静默等待，不崩）；register 的
-  // disposer 骑在调用 fiber 上，随插件卸载自动摘 key（无需再包 ctx.effect）。
   ctx.inject(['sessionProjections'], (scope) => {
     scope.sessionProjections.register(agentMetricsProjection)
+  })
+
+  const reposFile = new ReposFileStore(dshHomePath('skyaxis', 'repos.yaml'))
+  const reposValidator = new ReposValidator()
+
+  ctx.inject(['subprocess'], (scope) => {
+    reposValidator.setSubprocess(scope.subprocess)
+    return () => reposValidator.setSubprocess(undefined)
+  })
+
+  ctx.inject(['connection'], (scope) => {
+    registerReposPoolEndpoints(scope.connection, {
+      file: reposFile,
+      validator: reposValidator,
+      log: (error) => ctx.logger.error(error),
+    })
   })
 }

@@ -24,7 +24,7 @@ import {
   registerReposPoolDictionaries,
   type ReposPoolT,
 } from '../../src/client/repos-pool/dictionary.js'
-import { ReposPoolIcon, ReposPoolPage } from '../../src/client/repos-pool/view.js'
+import { ReposPoolIcon } from '../../src/client/repos-pool/view.js'
 
 /** Real LocaleRuntime register/bind contract, minimal implementation. */
 function createLocaleHarness() {
@@ -60,10 +60,14 @@ describe('repos-pool: dictionaries', () => {
     registerReposPoolDictionaries(ctx as never)
     expect(dicts.get(REPOS_POOL_LOCALE_NS)).toBeTruthy()
     const { zh, en } = dicts.get(REPOS_POOL_LOCALE_NS)!
-    expect(Object.keys(zh).sort()).toEqual(['page.empty', 'panel.title'])
     expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort())
+    expect(Object.keys(zh).length).toBeGreaterThanOrEqual(50) // four-prefix full set
     expect(zh['panel.title']).toBe('仓库池')
     expect(en['panel.title']).toBe('Repos Pool')
+    for (const key of ['form.submit', 'error.conflict', 'status.verified', 'risk.acknowledge', 'menu.remove'] as const) {
+      expect(zh[key].length).toBeGreaterThan(0)
+      expect(en[key].length).toBeGreaterThan(0)
+    }
   })
 
   it('bind resolves per current locale without re-registration', () => {
@@ -91,7 +95,7 @@ describe('repos-pool: SlotCore registration contract', () => {
     )
     const disposeMain = core.register(
       reposPoolMainOptions(),
-      () => <ReposPoolPage t={t} /> as ReactNode,
+      () => null as ReactNode,
     )
     const disposePanel = core.register(
       reposPoolPanelOptions(t),

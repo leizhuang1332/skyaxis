@@ -29,6 +29,9 @@ export default defineConfig({
       { find: /^react$/, replacement: resolveFromRoot('react') },
       { find: /^react\/jsx-runtime$/, replacement: resolveFromRoot('react/jsx-runtime') },
       { find: /^react-dom$/, replacement: resolveFromRoot('react-dom') },
+      // dsh-client-store (like ui-primitives) ships undeclared bare imports;
+      // immer resolves from our copy (zustand is properly declared there).
+      { find: /^immer$/, replacement: resolveFromRoot('immer') },
       ...HEAVY_PRIMITIVES_DEP_FAMILIES.map((find) => ({ find, replacement: stubUrl })),
       { find: /^katex\/dist\/katex\.min\.css$/, replacement: stubCssUrl },
     ],
