@@ -86,6 +86,16 @@ describe('repos endpoints: list & save', () => {
     await h.dispose()
   })
 
+  it('persists a forced-unknown save as unverified (D4 amended)', async () => {
+    const h = await harness()
+    const res = await h.post(REPOS_SAVE_PATH, SAVE_BODY('git@github.com:u/repo.git', 'r', { kind: 'forced', from: 'unknown' }))
+    expect(res.status).toBe(200)
+    const body = await res.json() as { repo: { status: string; validatedAt: string | null } }
+    expect(body.repo.status).toBe('unverified')
+    expect(body.repo.validatedAt).toBeNull()
+    await h.dispose()
+  })
+
   it('rejects illegitimate URLs with 422 + reason (syntax enforced server-side)', async () => {
     const h = await harness()
     for (const [url, reason] of [

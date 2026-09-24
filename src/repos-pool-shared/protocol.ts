@@ -84,7 +84,8 @@ export interface ValidateOutcome {
 export type SaveValidation =
   | { readonly kind: 'verified' }
   | { readonly kind: 'unverified' }
-  | { readonly kind: 'forced'; readonly from: 'network' | 'auth' }
+  /** Decision D4 as amended 2026-09-24: every non-reachable class is user-decidable, unknown included. */
+  | { readonly kind: 'forced'; readonly from: 'network' | 'auth' | 'unknown' }
   /** Edit with an unchanged URL: the host keeps the record's existing status fields. */
   | { readonly kind: 'unchanged' }
 

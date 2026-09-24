@@ -75,6 +75,11 @@ describe('classifyLsRemote: PoC-1 sample pinning', () => {
     expect(outcome(128, 'fatal: Authentication failed for https://example.com/x')).toBe('auth')
     expect(outcome(128, 'error: Permission denied (publickey)')).toBe('auth')
     expect(outcome(128, 'fatal: unable to access: HTTP 401')).toBe('auth')
+    // Non-interactive ssh first-connect / changed-key trust failures: the URL
+    // is legitimate GitHub scp-syntax ssh — confirmable, never hard-rejected.
+    expect(outcome(128, 'git@github.com: Permission denied (publickey).\r\nfatal: Could not read from remote repository.')).toBe('auth')
+    expect(outcome(255, 'Host key verification failed.\r\nfatal: Could not read from remote repository.')).toBe('auth')
+    expect(outcome(255, 'WARNING: The host key for github.com has changed and you have requested strict checking.\nHost key verification failed.')).toBe('auth')
   })
 
   it('network samples', () => {

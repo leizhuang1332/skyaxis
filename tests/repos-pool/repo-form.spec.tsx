@@ -34,8 +34,10 @@ const DICT = {
   'error.network': '网络错误，请稍后重试',
   'risk.titleAuth': '暂无该仓库的访问权限',
   'risk.titleNetwork': '仓库当前不可达',
+  'risk.titleUnknown': '无法确认仓库可达性',
   'risk.descriptionAuth': '可达性校验报告需要认证/权限。',
   'risk.descriptionNetwork': '可达性校验报告网络不可达。',
+  'risk.descriptionUnknown': '可达性校验返回了无法归类的原因。',
   'risk.acknowledge': '我了解该仓库当前无法访问',
   'risk.confirm': '仍要保存',
   'risk.cancel': '返回修改',
@@ -122,12 +124,18 @@ describe('RepoForm validation flow', () => {
     expect((utils.save.mock.calls[0] as unknown[])[0]).toMatchObject({ validation: { kind: 'forced', from: 'auth' } })
   })
 
-  it('hard-rejects unknown outcomes: no save path, submit disabled (decision D4)', async () => {
-    const utils = setup({ validate: { syntax: { acceptable: true, kind: 'https' }, reachability: { classification: 'unknown', detail: 'fatal: exotic' } } })
+  it('gates unknown outcomes behind RiskConfirmation too (D4 amended: user-decidable, persists as forced/unknown)', async () => {
+    const utils = setup({ validate: { syntax: { acceptable: true, kind: 'ssh' }, reachability: { classification: 'unknown', detail: 'Host key verification failed.' } } })
     fillAndSubmit(utils)
-    await waitFor(() => expect(screen.getByText(/fatal: exotic/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('无法确认仓库可达性')).toBeTruthy())
     expect(utils.save).not.toHaveBeenCalled()
-    expect((screen.getByRole('button', { name: '保存' }) as HTMLButtonElement).disabled).toBe(true)
+    // Confirm stays disabled until acknowledged; then the forced-unknown save goes through.
+    expect((screen.getByRole('button', { name: '仍要保存' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(screen.getByRole('checkbox'))
+    await waitFor(() => expect((screen.getByRole('button', { name: '仍要保存' }) as HTMLButtonElement).disabled).toBe(false))
+    fireEvent.click(screen.getByRole('button', { name: '仍要保存' }))
+    await waitFor(() => expect(utils.save).toHaveBeenCalledTimes(1))
+    expect((utils.save.mock.calls[0] as unknown[])[0]).toMatchObject({ validation: { kind: 'forced', from: 'unknown' } })
   })
 
   it('shows the rejection reason for illegitimate URLs and never saves', async () => {

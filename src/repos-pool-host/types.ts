@@ -42,7 +42,7 @@ const SaveRepoInputSchema = z.object({
 const SaveValidationSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('verified') }),
   z.object({ kind: z.literal('unverified') }),
-  z.object({ kind: z.literal('forced'), from: z.enum(['network', 'auth']) }),
+  z.object({ kind: z.literal('forced'), from: z.enum(['network', 'auth', 'unknown']) }),
   z.object({ kind: z.literal('unchanged') }),
 ])
 

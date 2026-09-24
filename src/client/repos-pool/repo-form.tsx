@@ -56,8 +56,12 @@ export function RepoForm(props: {
   const urlUnchanged = editing.kind === 'edit' && editing.repo.url === url.trim()
   const outcome = phase.kind === 'outcome' ? phase.outcome : undefined
   const reachability = outcome?.reachability
-  const gated = reachability?.classification === 'auth' || reachability?.classification === 'network'
-  const blocked = (outcome !== undefined && !outcome.syntax.acceptable) || reachability?.classification === 'unknown'
+  // Every non-reachable class gates behind RiskConfirmation (D4 as amended:
+  // unknown is user-decidable too); only a syntax rejection blocks outright.
+  const gated = reachability?.classification === 'auth'
+    || reachability?.classification === 'network'
+    || reachability?.classification === 'unknown'
+  const blocked = outcome !== undefined && !outcome.syntax.acceptable
   const busy = phase.kind === 'validating' || phase.kind === 'submitting'
 
   const buildBody = (validation: SaveRequestBody['validation']): SaveRequestBody => ({
@@ -134,9 +138,8 @@ export function RepoForm(props: {
         return
       case 'auth':
       case 'network':
-        return // the RiskConfirmation gate below takes over
       case 'unknown':
-        return // hard reject: no save path (decision D4)
+        return // the RiskConfirmation gate below takes over (D4 amended)
     }
   }
 
@@ -144,8 +147,8 @@ export function RepoForm(props: {
     ? (
       <RiskConfirmation
         open
-        title={reachability?.classification === 'auth' ? t('risk.titleAuth') : t('risk.titleNetwork')}
-        description={reachability?.classification === 'auth' ? t('risk.descriptionAuth') : t('risk.descriptionNetwork')}
+        title={reachability?.classification === 'auth' ? t('risk.titleAuth') : reachability?.classification === 'unknown' ? t('risk.titleUnknown') : t('risk.titleNetwork')}
+        description={reachability?.classification === 'auth' ? t('risk.descriptionAuth') : reachability?.classification === 'unknown' ? t('risk.descriptionUnknown') : t('risk.descriptionNetwork')}
         acknowledgeLabel={t('risk.acknowledge')}
         cancelLabel={t('risk.cancel')}
         closeLabel={t('risk.closeLabel')}
@@ -157,7 +160,10 @@ export function RepoForm(props: {
           setAcknowledged(false)
         }}
         onConfirm={() => {
-          void doSave({ kind: 'forced', from: reachability?.classification === 'auth' ? 'auth' : 'network' })
+          const from = reachability?.classification === 'auth' || reachability?.classification === 'network' || reachability?.classification === 'unknown'
+            ? reachability.classification
+            : 'unknown'
+          void doSave({ kind: 'forced', from })
         }}
       />
     )
@@ -178,7 +184,7 @@ export function RepoForm(props: {
       case 'unknown':
         return (
           <span className={styles.fieldError}>
-            {t('error.invalidUrl')}
+            {t('error.unknownReachability')}
             {reachability?.detail ? ` — ${reachability.detail}` : ''}
           </span>
         )

@@ -44,6 +44,7 @@ interface ReposPoolDictionary {
   readonly 'error.nameRequired': string
   readonly 'error.urlRequired': string
   readonly 'error.invalidUrl': string
+  readonly 'error.unknownReachability': string
   readonly 'error.duplicateUrl': string
   readonly 'error.conflict': string
   readonly 'error.network': string
@@ -66,8 +67,10 @@ interface ReposPoolDictionary {
   // risk.* — RiskConfirmation copy (label props are all required)
   readonly 'risk.titleNetwork': string
   readonly 'risk.titleAuth': string
+  readonly 'risk.titleUnknown': string
   readonly 'risk.descriptionNetwork': string
   readonly 'risk.descriptionAuth': string
+  readonly 'risk.descriptionUnknown': string
   readonly 'risk.acknowledge': string
   readonly 'risk.confirm': string
   readonly 'risk.cancel': string
@@ -107,6 +110,7 @@ const zh: ReposPoolDictionary = {
   'error.nameRequired': '请输入仓库名称',
   'error.urlRequired': '请输入仓库地址',
   'error.invalidUrl': '仓库地址不合法',
+  'error.unknownReachability': '无法确认仓库可达性（原因不明），已拒绝保存',
   'error.duplicateUrl': '该仓库地址已存在于清单中',
   'error.conflict': '清单已在别处被修改，已自动刷新，请重试',
   'error.network': '网络错误，请稍后重试',
@@ -126,8 +130,10 @@ const zh: ReposPoolDictionary = {
   'status.forcedAuth': '已保存（无权限）',
   'risk.titleNetwork': '仓库当前不可达',
   'risk.titleAuth': '暂无该仓库的访问权限',
+  'risk.titleUnknown': '无法确认仓库可达性',
   'risk.descriptionNetwork': '可达性校验报告网络不可达。如果你确认该地址正确（例如目标在内网、需要代理或稍后才可达），可以仍然保存。',
   'risk.descriptionAuth': '可达性校验报告需要认证/权限。如果你稍后会配置凭据，可以仍然保存。',
+  'risk.descriptionUnknown': '可达性校验返回了无法归类的原因（例如 ssh 主机密钥校验失败等环境因素）。如果你确认该地址正确，可以仍然保存。',
   'risk.acknowledge': '我了解该仓库当前无法访问',
   'risk.confirm': '仍要保存',
   'risk.cancel': '返回修改',
@@ -164,6 +170,7 @@ const en: ReposPoolDictionary = {
   'error.nameRequired': 'A repository name is required',
   'error.urlRequired': 'A repository URL is required',
   'error.invalidUrl': 'The repository URL is not acceptable',
+  'error.unknownReachability': 'Reachability could not be determined (unknown cause); saving was rejected',
   'error.duplicateUrl': 'This URL is already in the list',
   'error.conflict': 'The list was modified elsewhere; it has been refreshed — please retry',
   'error.network': 'Network error, please retry later',
@@ -183,8 +190,10 @@ const en: ReposPoolDictionary = {
   'status.forcedAuth': 'Saved (no access)',
   'risk.titleNetwork': 'Repository is currently unreachable',
   'risk.titleAuth': 'No access to this repository',
+  'risk.titleUnknown': 'Reachability could not be determined',
   'risk.descriptionNetwork': 'The reachability check reports a network failure. If you are sure the URL is correct (intranet target, proxy needed, reachable later), you can still save it.',
   'risk.descriptionAuth': 'The reachability check reports that authentication is required. If you will configure credentials later, you can still save it.',
+  'risk.descriptionUnknown': 'The reachability check returned an unclassified cause (e.g. an ssh host-key verification failure in the probing environment). If you are sure the URL is correct, you can still save it.',
   'risk.acknowledge': 'I understand this repository is not currently accessible',
   'risk.confirm': 'Save anyway',
   'risk.cancel': 'Back to the form',

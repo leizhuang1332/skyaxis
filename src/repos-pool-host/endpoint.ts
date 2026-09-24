@@ -16,7 +16,7 @@ import {
   REPOS_SAVE_PATH,
   REPOS_VALIDATE_PATH,
 } from '../repos-pool-shared/protocol.js'
-import type { ErrorResponse, ListResponse, RepoRecord } from '../repos-pool-shared/protocol.js'
+import type { ErrorResponse, ListResponse, RepoRecord, SaveValidation } from '../repos-pool-shared/protocol.js'
 import type { ReposFileStore } from './repos-file.js'
 import { RemoveRequestSchema, SaveRequestSchema, ValidateRequestSchema } from './types.js'
 import { checkUrlSyntax as validatorSyntax } from './validator.js'
@@ -50,7 +50,7 @@ async function readJsonBody(request: Request): Promise<unknown> {
 
 /** Maps a SaveValidation kind onto the persisted status fields. */
 function statusFields(
-  validation: { kind: 'verified' } | { kind: 'unverified' } | { kind: 'forced'; from: 'network' | 'auth' } | { kind: 'unchanged' },
+  validation: SaveValidation,
   previous: RepoRecord | undefined,
 ): Pick<RepoRecord, 'status' | 'validatedAt' | 'lastError'> {
   const now = new Date().toISOString()
@@ -60,6 +60,9 @@ function statusFields(
     case 'unverified':
       return { status: 'unverified', validatedAt: null, lastError: null }
     case 'forced':
+      // 'unknown' persists as 'unverified' (honest: no successful verification)
+      // rather than growing the status enum with a fifth value.
+      if (validation.from === 'unknown') return { status: 'unverified', validatedAt: null, lastError: null }
       return { status: validation.from === 'network' ? 'forced-network' : 'forced-auth', validatedAt: now, lastError: null }
     case 'unchanged':
       return previous

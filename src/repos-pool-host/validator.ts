@@ -127,6 +127,11 @@ const AUTH_PATTERNS: readonly RegExp[] = [
   /access denied/i,
   // GitHub deliberately conflates 401/404 for private repos.
   /repository .*not found/i,
+  // ssh trust gate: the server IS reachable; the non-interactive probe cannot
+  // verify/accept its host key (first connect, or changed key). Closest
+  // confirmable bucket is auth — the URL itself is fine.
+  /host key verification failed/i,
+  /host key .*has changed/i,
 ]
 
 const NETWORK_PATTERNS: readonly RegExp[] = [
