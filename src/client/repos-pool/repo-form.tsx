@@ -11,7 +11,8 @@
 import { useState, type ReactNode } from 'react'
 import { Button, IconPlusOutline16, Input, Modal, RiskConfirmation, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SaveRequestBody, UrlRejection, ValidateOutcome } from '../../repos-pool-shared/protocol.js'
-import type { ReposPoolController } from './controller.js'
+import type { RepoRecord } from '../../repos-pool-shared/protocol.js'
+import type { ReposPoolController, SaveOutcome } from './controller.js'
 import type { ReposPoolT } from './dictionary.js'
 import type { ReposFetcher } from './fetcher.js'
 import { repoNameFromUrl } from './url-name.js'
@@ -29,6 +30,16 @@ const REJECTION_KEY: Record<UrlRejection, Parameters<ReposPoolT>[0]> = {
   'malformed-url': 'error.urlMalformed',
 }
 
+/** Environmental save failures → in-dialog general error copy (field-fixable ones use the field slot above). */
+const GENERAL_ERROR_KEY = {
+  'network': 'error.network',
+  'conflict': 'error.conflict',
+  'not-found': 'error.notFound',
+  'unreadable-file': 'error.unreadableFile',
+  'bad-request': 'error.internal',
+  'internal': 'error.internal',
+} as const
+
 type Phase =
   | { kind: 'idle' }
   | { kind: 'validating' }
@@ -40,15 +51,18 @@ export function RepoForm(props: {
   t: ReposPoolT
   editing: Editing
   revision: number
+  repos: readonly RepoRecord[]
   fetcher: ReposFetcher
   controller: ReposPoolController
 }): ReactNode {
-  const { t, editing, revision, fetcher, controller } = props
+  const { t, editing, revision, repos, fetcher, controller } = props
   const [name, setName] = useState(editing.kind === 'edit' ? editing.repo.name : '')
   const [url, setUrl] = useState(editing.kind === 'edit' ? editing.repo.url : '')
   const [description, setDescription] = useState(editing.kind === 'edit' ? editing.repo.description : '')
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
   const [fieldError, setFieldError] = useState<string | null>(null)
+  /** Environmental save failures (network/conflict/…) — in-dialog, per the host dialog pattern. */
+  const [generalError, setGeneralError] = useState<string | null>(null)
   const [acknowledged, setAcknowledged] = useState(false)
   /** Name auto-fill (create mode only): derive from the URL until the user types a name. */
   const [nameAuto, setNameAuto] = useState(editing.kind === 'create')
@@ -81,6 +95,7 @@ export function RepoForm(props: {
     if (phase.kind === 'outcome' || phase.kind === 'skipped-unchanged') setPhase({ kind: 'idle' })
     setAcknowledged(false)
     setFieldError(null)
+    setGeneralError(null)
     if (nameAuto) setName(repoNameFromUrl(value))
   }
 
@@ -88,15 +103,25 @@ export function RepoForm(props: {
     setName(value)
     setNameAuto(false)
     setFieldError(null)
+    setGeneralError(null)
   }
 
   const doSave = async (validation: SaveRequestBody['validation']): Promise<void> => {
     setPhase({ kind: 'submitting' })
-    await controller.save(buildBody(validation))
-    // Controller closes the form on success; failures surface through the
-    // page banner and leave the form mounted — return to idle so the user
-    // can retry.
+    const outcome: SaveOutcome = await controller.save(buildBody(validation))
     setPhase({ kind: 'idle' })
+    if (outcome.kind === 'ok') return // controller closed the form
+    // Field-fixable failures land at the URL field; environmental ones land
+    // as an in-dialog general error the user can retry from.
+    if (outcome.code === 'invalid-url') {
+      setFieldError(t(REJECTION_KEY[outcome.reason ?? 'malformed-url']))
+      return
+    }
+    if (outcome.code === 'duplicate-url') {
+      setFieldError(t('error.duplicateUrl'))
+      return
+    }
+    setGeneralError(t(GENERAL_ERROR_KEY[outcome.code]))
   }
 
   const handleSubmit = async (): Promise<void> => {
@@ -107,6 +132,15 @@ export function RepoForm(props: {
     }
     if (url.trim().length === 0) {
       setFieldError(t('error.urlRequired'))
+      return
+    }
+    // Local duplicate precheck (instant; excludes the record being edited).
+    // The server re-checks regardless — this is UX, not the trust boundary.
+    const duplicate = repos.some(
+      (repo) => repo.url === url.trim() && (editing.kind !== 'edit' || repo.id !== editing.repo.id),
+    )
+    if (duplicate) {
+      setFieldError(t('error.duplicateUrl'))
       return
     }
     setFieldError(null)
@@ -246,6 +280,7 @@ export function RepoForm(props: {
           />
         </label>
         {fieldError ? <div className={styles.fieldError}>{fieldError}</div> : null}
+        {generalError ? <div className={styles.fieldError} role="alert">{generalError}</div> : null}
         {gate}
       </div>
     </Modal>

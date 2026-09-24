@@ -56,6 +56,9 @@
 /* ---- banners / phases ---- */
 
 .banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
   margin-bottom: 12px;
   padding: 8px 12px;
   border: 0.5px solid var(--dsw-alias-state-warn-primary);
@@ -64,6 +67,11 @@
   color: var(--dsw-alias-label-primary);
   font-size: 13px;
   line-height: 20px;
+}
+
+.bannerBody {
+  flex: 1;
+  min-width: 0;
 }
 
 .bannerHint {
@@ -101,6 +109,31 @@
   border: 0.5px solid var(--dsw-alias-border-l2);
   border-radius: 8px;
   background: var(--dsw-alias-bg-layer-1);
+}
+
+/* ---- skeleton (loading placeholders, static — no ad-hoc motion) ---- */
+
+.skeletonCard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.skeletonLine {
+  height: 12px;
+  border-radius: 4px;
+  background: var(--dsw-alias-bg-skeleton);
+}
+
+/* ---- delete confirm ---- */
+
+/* Danger semantics via the error-state token; Button has no danger variant. */
+.dangerButton {
+  color: var(--dsw-alias-state-error-primary);
 }
 
 /* ---- filter bar ---- */

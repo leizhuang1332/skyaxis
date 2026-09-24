@@ -63,7 +63,7 @@ describe('repos-pool controller/store', () => {
       repo: { name: 'repo-b', url: 'https://example.com/b.git', description: '' },
       validation: { kind: 'verified' },
     })
-    expect(saved).toBe(true)
+    expect(saved).toEqual({ kind: 'ok' })
     expect(snap().repos.map((r) => r.id)).toEqual(['a', 'b'])
     expect(snap().editing.kind).toBe('closed')
     expect(snap().revision).toBe(2)
@@ -82,7 +82,7 @@ describe('repos-pool controller/store', () => {
     expect(snap().repos.map((r) => r.name)).toEqual(['renamed', 'repo-z'])
   })
 
-  it('conflict sets the banner and self-heals via refresh', async () => {
+  it('save conflict returns failed (no banner) and self-heals via refresh', async () => {
     const list = vi.fn()
       .mockResolvedValueOnce({ kind: 'ok' as const, revision: 1, repos: [record('a')] })
       .mockResolvedValueOnce({ kind: 'ok' as const, revision: 5, repos: [record('a'), record('later')] })
@@ -96,9 +96,9 @@ describe('repos-pool controller/store', () => {
       repo: { name: 'x', url: 'https://example.com/x.git', description: '' },
       validation: { kind: 'verified' },
     })
-    expect(saved).toBe(false)
-    expect(snap().banner).toEqual({ code: 'conflict', revision: 5 })
-    expect(snap().revision).toBe(5) // refreshed
+    expect(saved).toEqual({ kind: 'failed', code: 'conflict', revision: 5 })
+    expect(snap().banner).toBeUndefined() // the form owns save-failure presentation
+    expect(snap().revision).toBe(5) // refreshed — retry will carry the fresh revision
     expect(list).toHaveBeenCalledTimes(2)
   })
 

@@ -25,6 +25,13 @@ const DICT = {
     'view.addRepo': '添加仓库',
     'view.filterPlaceholder': '按名称 / 地址 / 简介筛选',
     'view.filterEmpty': '没有匹配的仓库。',
+    'form.closeLabel': '关闭',
+    'menu.edit': '编辑',
+    'menu.remove': '删除',
+    'delete.title': '删除仓库',
+    'delete.description': '确定要删除该仓库吗？此操作仅移除清单记录，不影响远端仓库。',
+    'delete.confirm': '删除',
+    'delete.cancel': '取消',
     'error.network': '网络错误，请稍后重试',
   },
 } as const
@@ -100,6 +107,60 @@ describe('ReposPoolPage (P2)', () => {
     await waitFor(() => expect(screen.getByText('仓库-b')).toBeTruthy())
     fireEvent.change(filter, { target: { value: 'zzz-no-match' } })
     await waitFor(() => expect(screen.getByText('没有匹配的仓库。')).toBeTruthy())
+    unmount()
+  })
+})
+
+describe('ReposPoolPage (P3: delete confirm, focus refresh, skeleton, banner dismiss)', () => {
+  it('delete goes through the confirm dialog: cancel does nothing, confirm removes', async () => {
+    const { unmount, fetcher } = page()
+    await waitFor(() => expect(screen.getByText('仓库-a')).toBeTruthy())
+
+    // Open the row menu and pick 删除 → the confirm dialog appears.
+    fireEvent.click(screen.getAllByRole('button', { name: '编辑' })[0])
+    await waitFor(() => screen.getByRole('menuitem', { name: '删除' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '删除' }))
+    await waitFor(() => expect(screen.getByText('确定要删除该仓库吗？此操作仅移除清单记录，不影响远端仓库。')).toBeTruthy())
+    expect(fetcher.remove).not.toHaveBeenCalled()
+
+    // Cancel: dialog closes, nothing removed.
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    await waitFor(() => expect(screen.queryByText(/确定要删除该仓库/)).toBeNull())
+    expect(fetcher.remove).not.toHaveBeenCalled()
+
+    // Confirm: removal dispatched with the row id.
+    fireEvent.click(screen.getAllByRole('button', { name: '编辑' })[0])
+    await waitFor(() => screen.getByRole('menuitem', { name: '删除' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '删除' }))
+    await waitFor(() => screen.getByRole('button', { name: '删除' }))
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+    await waitFor(() => expect(fetcher.remove).toHaveBeenCalledTimes(1))
+    expect((fetcher.remove as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0]).toMatchObject({ id: 'a' })
+    unmount()
+  })
+
+  it('refreshes the list when the window regains focus', async () => {
+    const { unmount, fetcher } = page()
+    await waitFor(() => expect(fetcher.list).toHaveBeenCalledTimes(1))
+    fireEvent(window, new Event('focus'))
+    await waitFor(() => expect(fetcher.list).toHaveBeenCalledTimes(2))
+    unmount()
+  })
+
+  it('shows two skeleton cards while loading', async () => {
+    const pendingList = vi.fn(() => new Promise(() => {})) as unknown as ReposFetcher['list']
+    const { container, unmount } = page({ list: pendingList })
+    expect(container.querySelectorAll('[aria-hidden] > div')).toHaveLength(2)
+    unmount()
+  })
+
+  it('banner is dismissible', async () => {
+    const { unmount, store } = page()
+    await waitFor(() => expect(screen.getByText('仓库-a')).toBeTruthy())
+    store.set({ ...store.getSnapshot(), banner: { code: 'network' } })
+    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
     unmount()
   })
 })

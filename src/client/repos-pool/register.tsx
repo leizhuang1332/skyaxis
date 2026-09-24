@@ -136,5 +136,9 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       | 'risk.closeLabel'
       | 'menu.edit'
       | 'menu.remove'
+      | 'delete.title'
+      | 'delete.description'
+      | 'delete.confirm'
+      | 'delete.cancel'
   }
 }

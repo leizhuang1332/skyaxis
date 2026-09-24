@@ -78,6 +78,11 @@ interface ReposPoolDictionary {
   // menu.*
   readonly 'menu.edit': string
   readonly 'menu.remove': string
+  // delete.* — lightweight confirm dialog copy
+  readonly 'delete.title': string
+  readonly 'delete.description': string
+  readonly 'delete.confirm': string
+  readonly 'delete.cancel': string
 }
 
 export type ReposPoolT = (key: keyof ReposPoolDictionary) => string
@@ -140,6 +145,10 @@ const zh: ReposPoolDictionary = {
   'risk.closeLabel': '关闭',
   'menu.edit': '编辑',
   'menu.remove': '删除',
+  'delete.title': '删除仓库',
+  'delete.description': '确定要删除该仓库吗？此操作仅移除清单记录，不影响远端仓库。',
+  'delete.confirm': '删除',
+  'delete.cancel': '取消',
 }
 
 const en: ReposPoolDictionary = {
@@ -200,6 +209,10 @@ const en: ReposPoolDictionary = {
   'risk.closeLabel': 'Close',
   'menu.edit': 'Edit',
   'menu.remove': 'Remove',
+  'delete.title': 'Remove repository',
+  'delete.description': 'Remove this repository from the list? Only the list entry is deleted; the remote repository is untouched.',
+  'delete.confirm': 'Remove',
+  'delete.cancel': 'Cancel',
 }
 
 export function registerReposPoolDictionaries(ctx: Context): void {

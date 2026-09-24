@@ -28,8 +28,9 @@ import {
   isSaveResponseOk,
   isValidateResponse,
 } from '../../repos-pool-shared/protocol.js'
+import type { UrlRejection } from '../../repos-pool-shared/protocol.js'
 
-export type Failure = { readonly kind: 'network' } | { readonly kind: 'http-error'; readonly status: number; readonly code?: string; readonly currentRevision?: number }
+export type Failure = { readonly kind: 'network' } | { readonly kind: 'http-error'; readonly status: number; readonly code?: string; readonly reason?: UrlRejection; readonly currentRevision?: number }
 
 export type ListResult =
   | { readonly kind: 'ok'; readonly revision: number; readonly repos: readonly RepoRecord[] }
@@ -50,17 +51,19 @@ async function request(path: string, init: RequestInit | undefined, signal: Abor
 
 async function parseErrorBody(response: Response): Promise<Failure> {
   let code: string | undefined
+  let reason: UrlRejection | undefined
   let currentRevision: number | undefined
   try {
     const body: unknown = await response.json()
     if (isErrorResponse(body)) {
       code = body.code
+      reason = body.reason
       currentRevision = body.currentRevision
     }
   } catch {
     // Non-JSON error bodies keep the status only.
   }
-  return { kind: 'http-error', status: response.status, code, currentRevision }
+  return { kind: 'http-error', status: response.status, code, reason, currentRevision }
 }
 
 export function createReposFetcher() {

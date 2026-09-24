@@ -29,6 +29,7 @@ const DICT = {
   'error.nameRequired': '请输入仓库名称',
   'error.urlRequired': '请输入仓库地址',
   'error.invalidUrl': '仓库地址不合法',
+  'error.duplicateUrl': '该仓库地址已存在于清单中',
   'error.urlSchemeForbidden': '协议不在允许范围',
   'error.urlLocalPath': '不能使用本地路径',
   'error.network': '网络错误，请稍后重试',
@@ -60,8 +61,8 @@ const REPO: RepoRecord = {
   lastError: null,
 }
 
-function setup(options?: { validate?: ValidateOutcome; editing?: { kind: 'create' } | { kind: 'edit'; repo: RepoRecord } }) {
-  const save = vi.fn(async () => true)
+function setup(options?: { validate?: ValidateOutcome; editing?: { kind: 'create' } | { kind: 'edit'; repo: RepoRecord }; saveOutcome?: unknown }) {
+  const save = vi.fn(async () => (options?.saveOutcome ?? { kind: 'ok' as const }))
   const closeForm = vi.fn()
   const validate = vi.fn(async () => ({
     kind: 'ok' as const,
@@ -74,6 +75,7 @@ function setup(options?: { validate?: ValidateOutcome; editing?: { kind: 'create
       t={t}
       editing={options?.editing ?? { kind: 'create' }}
       revision={3}
+      repos={[REPO]}
       fetcher={fetcher}
       controller={controller}
     />,
@@ -188,6 +190,32 @@ describe('RepoForm validation flow', () => {
     fireEvent.change(url, { target: { value: 'https://github.com/u/third-repo.git' } })
     expect((name as HTMLInputElement).value).toBe('my-own-name')
     expect(utils.validate).not.toHaveBeenCalled()
+  })
+
+  it('rejects a duplicate URL locally, before any network roundtrip', () => {
+    const utils = setup()
+    fillAndSubmit(utils, 'https://example.com/existing.git') // already in props.repos
+    expect(screen.getByText('该仓库地址已存在于清单中')).toBeTruthy()
+    expect(utils.validate).not.toHaveBeenCalled()
+    expect(utils.save).not.toHaveBeenCalled()
+  })
+
+  it('maps a server-side duplicate verdict onto the URL field (form stays open)', async () => {
+    const utils = setup({ saveOutcome: { kind: 'failed', code: 'duplicate-url' } })
+    fillAndSubmit(utils, 'https://example.com/somehow-new.git')
+    await waitFor(() => expect(utils.save).toHaveBeenCalledTimes(1))
+    expect(screen.getByText('该仓库地址已存在于清单中')).toBeTruthy()
+    // Form still open (title present) — fix the URL and retry in place.
+    expect(screen.getByText('添加仓库')).toBeTruthy()
+  })
+
+  it('shows environmental save failures inside the dialog instead of a hidden banner', async () => {
+    const utils = setup({ saveOutcome: { kind: 'failed', code: 'network' } })
+    fillAndSubmit(utils)
+    await waitFor(() => expect(utils.save).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy())
+    expect(screen.getByRole('alert').textContent).toContain('网络错误')
+    expect(screen.getByText('添加仓库')).toBeTruthy() // form stays mounted for retry
   })
 
   it('validates locally before anything else (empty name)', () => {
