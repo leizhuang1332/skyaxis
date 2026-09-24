@@ -15,12 +15,13 @@ interface RequirementsDictionary {
   /** Sidebar panel label and page heading. */
   readonly 'panel.title': string
   // page.*
-  readonly 'page.empty': string
   readonly 'page.loading': string
   readonly 'page.degraded': string
   readonly 'page.degradedBackupHint': string
   // view.*
   readonly 'view.addRequirement': string
+  readonly 'view.filterPlaceholder': string
+  readonly 'view.filterEmpty': string
   // form.*
   readonly 'form.titleCreate': string
   readonly 'form.titleEdit': string
@@ -42,17 +43,23 @@ interface RequirementsDictionary {
   // menu.*
   readonly 'menu.edit': string
   readonly 'menu.remove': string
+  // delete.* — lightweight confirm dialog copy
+  readonly 'delete.title': string
+  readonly 'delete.description': string
+  readonly 'delete.confirm': string
+  readonly 'delete.cancel': string
 }
 
 export type RequirementsT = (key: keyof RequirementsDictionary) => string
 
 const zh: RequirementsDictionary = {
   'panel.title': '需求管理',
-  'page.empty': '尚未添加任何需求。点击右上角「新增需求」开始。',
   'page.loading': '正在加载需求清单…',
   'page.degraded': '需求清单文件无法读取，已显示为空清单。',
   'page.degradedBackupHint': '检测到备份文件：requirements.yaml.bak。请人工检查 $DSH_HOME/skyaxis/ 下的 requirements.yaml 后恢复；文件修复前写入已被拒绝。',
   'view.addRequirement': '新增需求',
+  'view.filterPlaceholder': '按标题 / 描述筛选',
+  'view.filterEmpty': '没有匹配的需求。',
   'form.titleCreate': '新增需求',
   'form.titleEdit': '编辑需求',
   'form.title': '标题',
@@ -71,15 +78,20 @@ const zh: RequirementsDictionary = {
   'error.internal': '服务内部错误',
   'menu.edit': '编辑',
   'menu.remove': '删除',
+  'delete.title': '删除需求',
+  'delete.description': '确定要删除该需求吗？此操作仅移除清单记录。',
+  'delete.confirm': '删除',
+  'delete.cancel': '取消',
 }
 
 const en: RequirementsDictionary = {
   'panel.title': 'Requirements',
-  'page.empty': 'No requirements yet. Click "New requirement" in the top-right corner to start.',
   'page.loading': 'Loading requirements…',
   'page.degraded': 'The requirement list file could not be read; an empty list is shown.',
   'page.degradedBackupHint': 'A backup file was found: requirements.yaml.bak. Inspect $DSH_HOME/skyaxis/requirements.yaml manually and restore it; writes stay rejected until the file is fixed.',
   'view.addRequirement': 'New requirement',
+  'view.filterPlaceholder': 'Filter by title / description',
+  'view.filterEmpty': 'No matching requirements.',
   'form.titleCreate': 'New requirement',
   'form.titleEdit': 'Edit requirement',
   'form.title': 'Title',
@@ -98,6 +110,10 @@ const en: RequirementsDictionary = {
   'error.internal': 'Internal service error',
   'menu.edit': 'Edit',
   'menu.remove': 'Remove',
+  'delete.title': 'Remove requirement',
+  'delete.description': 'Remove this requirement from the list? Only the list entry is deleted.',
+  'delete.confirm': 'Remove',
+  'delete.cancel': 'Cancel',
 }
 
 export function registerRequirementsDictionaries(ctx: Context): void {

@@ -10,6 +10,7 @@ import type { RequirementsFetcher } from './fetcher.js'
 
 export function createRequirementsController(store: RequirementsStore, fetcher: RequirementsFetcher) {
   let disposed = false
+  let refreshSeq = 0
   const alive = <T>(value: T | undefined): value is T => value !== undefined && !disposed
 
   const patch = (partial: Partial<Parameters<RequirementsStore['set']>[0]>): void => {
@@ -18,8 +19,11 @@ export function createRequirementsController(store: RequirementsStore, fetcher: 
   }
 
   async function refresh(signal?: AbortSignal): Promise<void> {
+    // Focus-triggered refreshes can race an in-flight one; a late older
+    // response must not overwrite a newer snapshot.
+    const seq = ++refreshSeq
     const result = await fetcher.list(signal)
-    if (!alive(result)) return
+    if (!alive(result) || seq !== refreshSeq) return
     // Banners deliberately survive a refresh: the self-heal path (conflict /
     // not-found → refresh) sets the banner first, and the user must still see
     // it after the list realigns. Successful saves/removes and explicit

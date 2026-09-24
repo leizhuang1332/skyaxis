@@ -80,11 +80,12 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
     'skyaxis.requirements':
       | 'panel.title'
-      | 'page.empty'
       | 'page.loading'
       | 'page.degraded'
       | 'page.degradedBackupHint'
       | 'view.addRequirement'
+      | 'view.filterPlaceholder'
+      | 'view.filterEmpty'
       | 'form.titleCreate'
       | 'form.titleEdit'
       | 'form.title'
@@ -103,5 +104,9 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       | 'error.internal'
       | 'menu.edit'
       | 'menu.remove'
+      | 'delete.title'
+      | 'delete.description'
+      | 'delete.confirm'
+      | 'delete.cancel'
   }
 }

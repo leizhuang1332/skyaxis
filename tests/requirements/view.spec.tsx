@@ -2,11 +2,11 @@
 /**
  * Requirements page view rendering: the real components against jsdom with
  * the real ui-primitives atoms and a fake data layer (fetcher/controller/
- * store wired exactly as register.tsx does). Covers list rows, banners,
- * degraded and empty states, and the icon glyph sizes.
+ * store wired exactly as register.tsx does). Covers list rows, the add
+ * card, banners, degraded state, filtering, and the icon glyph sizes.
  */
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { RequirementRecord } from '../../src/requirements-shared/protocol.js'
 import type { RequirementsT } from '../../src/client/requirements/dictionary.js'
 import { createRequirementsController } from '../../src/client/requirements/controller.js'
@@ -17,11 +17,19 @@ import type { RequirementsFetcher } from '../../src/client/requirements/fetcher.
 const DICT = {
   zh: {
     'panel.title': '需求管理',
-    'page.empty': '尚未添加任何需求。点击右上角「新增需求」开始。',
     'page.loading': '正在加载需求清单…',
     'page.degraded': '需求清单文件无法读取，已显示为空清单。',
     'page.degradedBackupHint': '检测到备份文件：requirements.yaml.bak。',
     'view.addRequirement': '新增需求',
+    'view.filterPlaceholder': '按标题 / 描述筛选',
+    'view.filterEmpty': '没有匹配的需求。',
+    'form.closeLabel': '关闭',
+    'menu.edit': '编辑',
+    'menu.remove': '删除',
+    'delete.title': '删除需求',
+    'delete.description': '确定要删除该需求吗？此操作仅移除清单记录。',
+    'delete.confirm': '删除',
+    'delete.cancel': '取消',
     'error.network': '网络错误，请稍后重试',
   },
 } as const
@@ -52,21 +60,22 @@ function page(fetcherOverrides: Partial<RequirementsFetcher> = {}) {
 }
 
 describe('RequirementsPage (P2)', () => {
-  it('renders the header, add button, and requirement rows', async () => {
+  it('renders the header, requirement rows, and the leading add card', async () => {
     const { unmount } = page()
     expect(screen.getByRole('heading', { name: '需求管理' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: '新增需求' })).toBeTruthy()
+    // The list (and its leading add card) renders once refresh lands.
     await waitFor(() => {
+      expect(screen.getByRole('button', { name: '新增需求' })).toBeTruthy()
       expect(screen.getByText('需求-a')).toBeTruthy()
       expect(screen.getByText('说明 b')).toBeTruthy()
     })
     unmount()
   })
 
-  it('shows the empty state when the list is empty', async () => {
+  it('renders an empty list as the add card alone', async () => {
     const { unmount } = page({ list: vi.fn(async () => ({ kind: 'ok' as const, revision: 0, requirements: [] })) })
     await waitFor(() => {
-      expect(screen.getByText(DICT.zh['page.empty'])).toBeTruthy()
+      expect(screen.getByRole('button', { name: '新增需求' })).toBeTruthy()
     })
     unmount()
   })
@@ -78,6 +87,78 @@ describe('RequirementsPage (P2)', () => {
       expect(screen.getByText(DICT.zh['page.degraded'])).toBeTruthy()
       expect(screen.getByText(DICT.zh['page.degradedBackupHint'])).toBeTruthy()
     })
+    unmount()
+  })
+
+  it('filters rows by title/description and reports empty matches', async () => {
+    const { unmount } = page()
+    await waitFor(() => expect(screen.getByText('需求-b')).toBeTruthy())
+    const filter = screen.getByPlaceholderText('按标题 / 描述筛选')
+    fireEvent.change(filter, { target: { value: '需求-a' } })
+    await waitFor(() => {
+      expect(screen.getByText('需求-a')).toBeTruthy()
+      expect(screen.queryByText('需求-b')).toBeNull()
+    })
+    fireEvent.change(filter, { target: { value: '说明 b' } })
+    await waitFor(() => expect(screen.getByText('需求-b')).toBeTruthy())
+    fireEvent.change(filter, { target: { value: 'zzz-no-match' } })
+    await waitFor(() => expect(screen.getByText('没有匹配的需求。')).toBeTruthy())
+    // The add card stays in place under an empty filter.
+    expect(screen.getByRole('button', { name: '新增需求' })).toBeTruthy()
+    unmount()
+  })
+})
+
+describe('RequirementsPage (P3: delete confirm, focus refresh, skeleton, banner dismiss)', () => {
+  it('delete goes through the confirm dialog: cancel does nothing, confirm removes', async () => {
+    const { unmount, fetcher } = page()
+    await waitFor(() => expect(screen.getByText('需求-a')).toBeTruthy())
+
+    // Open the row menu and pick 删除 → the confirm dialog appears.
+    fireEvent.click(screen.getAllByRole('button', { name: '编辑' })[0])
+    await waitFor(() => screen.getByRole('menuitem', { name: '删除' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '删除' }))
+    await waitFor(() => expect(screen.getByText('确定要删除该需求吗？此操作仅移除清单记录。')).toBeTruthy())
+    expect(fetcher.remove).not.toHaveBeenCalled()
+
+    // Cancel: dialog closes, nothing removed.
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    await waitFor(() => expect(screen.queryByText(/确定要删除该需求/)).toBeNull())
+    expect(fetcher.remove).not.toHaveBeenCalled()
+
+    // Confirm: removal dispatched with the row id.
+    fireEvent.click(screen.getAllByRole('button', { name: '编辑' })[0])
+    await waitFor(() => screen.getByRole('menuitem', { name: '删除' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '删除' }))
+    await waitFor(() => screen.getByRole('button', { name: '删除' }))
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+    await waitFor(() => expect(fetcher.remove).toHaveBeenCalledTimes(1))
+    expect((fetcher.remove as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0]).toMatchObject({ id: 'a' })
+    unmount()
+  })
+
+  it('refreshes the list when the window regains focus', async () => {
+    const { unmount, fetcher } = page()
+    await waitFor(() => expect(fetcher.list).toHaveBeenCalledTimes(1))
+    fireEvent(window, new Event('focus'))
+    await waitFor(() => expect(fetcher.list).toHaveBeenCalledTimes(2))
+    unmount()
+  })
+
+  it('shows two skeleton cards while loading', async () => {
+    const pendingList = vi.fn(() => new Promise(() => {})) as unknown as RequirementsFetcher['list']
+    const { container, unmount } = page({ list: pendingList })
+    expect(container.querySelectorAll('[aria-hidden] > div')).toHaveLength(2)
+    unmount()
+  })
+
+  it('banner is dismissible', async () => {
+    const { unmount, store } = page()
+    await waitFor(() => expect(screen.getByText('需求-a')).toBeTruthy())
+    store.set({ ...store.getSnapshot(), banner: { code: 'network' } })
+    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
     unmount()
   })
 })

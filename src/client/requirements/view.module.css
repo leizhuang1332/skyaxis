@@ -45,8 +45,10 @@
   padding: 16px;
 }
 
-/* Empty state: hint-copy ladder (13px/18px tertiary) on an info card (r12). */
+/* Filtered-out notice; sits right under the grid, hence the top gap.
+   Hint-copy ladder (13px/18px tertiary) on an info card (r12). */
 .empty {
+  margin-top: 8px;
   padding: 24px 16px;
   border: 0.5px solid var(--dsw-alias-border-l2);
   border-radius: 12px;
@@ -57,7 +59,7 @@
   text-align: center;
 }
 
-/* ---- banners / phases ---- */
+/* ---- banners ---- */
 
 /* Compact alert strip (r8 — component scale, not card scale). */
 .banner {
@@ -74,19 +76,17 @@
   line-height: 20px;
 }
 
+.bannerBody {
+  flex: 1;
+  min-width: 0;
+}
+
 .bannerHint {
   margin-top: 4px;
   color: var(--dsw-alias-label-secondary);
   font-size: 12px;
   line-height: 18px;
   word-break: break-all;
-}
-
-.phaseRow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 4px;
 }
 
 /* ---- list ---- */
@@ -142,6 +142,76 @@
 
 .rowActions {
   flex-shrink: 0;
+}
+
+/* ---- add card (first grid cell) ---- */
+
+/* Dashed border marks the cell as an action slot, not a record; the whole
+   card is the button. Hover feedback stays quiet: layer bg + primary text,
+   border tone unchanged (no brighter border alias exists). */
+.addRow {
+  display: flex;
+}
+
+.addButton {
+  flex: 1;
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0.5px dashed var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.addButton:hover:not(:disabled) {
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+}
+
+.addButton:disabled {
+  cursor: default;
+  color: var(--dsw-alias-label-caption);
+}
+
+/* ---- skeleton (loading placeholders, static — no ad-hoc motion) ---- */
+
+.skeletonCard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.skeletonLine {
+  height: 12px;
+  border-radius: 4px;
+  background: var(--dsw-alias-bg-skeleton);
+}
+
+/* ---- delete confirm ---- */
+
+/* Danger semantics via the error-state token; Button has no danger variant. */
+.dangerButton {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+/* ---- filter bar ---- */
+
+.filterBar {
+  margin-bottom: 12px;
+}
+
+.filterInput {
+  max-width: 360px;
 }
 
 /* Quiet icon button, the host workspace-row "New session" idiom
@@ -206,12 +276,6 @@
 .textarea:focus-visible {
   outline: none;
   border-color: var(--dsw-alias-border-l2);
-}
-
-.fieldHint {
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 12px;
-  line-height: 18px;
 }
 
 .fieldError {

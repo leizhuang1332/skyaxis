@@ -63,6 +63,10 @@ describe('requirements: dictionaries', () => {
     expect(dicts.get(REQUIREMENTS_LOCALE_NS)).toBeTruthy()
     const { zh, en } = dicts.get(REQUIREMENTS_LOCALE_NS)!
     expect(Object.keys(zh).sort()).toEqual([
+      'delete.cancel',
+      'delete.confirm',
+      'delete.description',
+      'delete.title',
       'error.conflict',
       'error.internal',
       'error.network',
@@ -83,10 +87,11 @@ describe('requirements: dictionaries', () => {
       'menu.remove',
       'page.degraded',
       'page.degradedBackupHint',
-      'page.empty',
       'page.loading',
       'panel.title',
       'view.addRequirement',
+      'view.filterEmpty',
+      'view.filterPlaceholder',
     ])
     expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort())
     expect(zh['panel.title']).toBe('需求管理')

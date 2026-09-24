@@ -1,10 +1,11 @@
 /**
- * Requirements list: one row per record — title, description (when set),
- * and a row menu (edit / remove-danger). Host primitives only; colors ride
- * the alias tokens via view.module.css.
+ * Requirements list: a dashed add card leading the grid, then one row per
+ * record — title, description (when set), and a row menu
+ * (edit / remove-danger). Host primitives only; colors ride the alias
+ * tokens via view.module.css.
  */
 import { useState, type ReactNode } from 'react'
-import { IconEllipsisOutline16, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconEllipsisOutline16, IconPlusOutline16, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { RequirementRecord } from '../../requirements-shared/protocol.js'
 import type { RequirementsT } from './dictionary.js'
@@ -61,15 +62,43 @@ function RequirementRow(props: {
   )
 }
 
+/**
+ * Add-requirement card: always the first grid cell. The whole card is one
+ * button with a visible label — the affordance reads without hover, and the
+ * empty list is simply this card alone.
+ */
+function AddRequirementCard(props: {
+  label: string
+  disabled: boolean
+  onAdd: () => void
+}): ReactNode {
+  return (
+    <li className={styles.addRow}>
+      <button
+        type="button"
+        className={styles.addButton}
+        disabled={props.disabled}
+        onClick={props.onAdd}
+      >
+        <IconPlusOutline16 />
+        <span>{props.label}</span>
+      </button>
+    </li>
+  )
+}
+
 export function RequirementsList(props: {
   t: RequirementsT
   requirements: readonly RequirementRecord[]
+  addLabel: string
   disabled: boolean
+  onAdd: () => void
   onEdit: (requirement: RequirementRecord) => void
   onRemove: (requirement: RequirementRecord) => void
 }): ReactNode {
   return (
     <ul className={styles.list}>
+      <AddRequirementCard label={props.addLabel} disabled={props.disabled} onAdd={props.onAdd} />
       {props.requirements.map((requirement) => (
         <RequirementRow
           key={requirement.id}
