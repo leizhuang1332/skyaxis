@@ -38,21 +38,15 @@
 }
 
 /* Detail-state header cluster: the record title with its description riding
-   directly under it (user ask). The header grows with the description;
-   min-height 76px keeps short records on the ConversationRoot baseline. */
+   directly under it. The back button sits as a header-level sibling (the
+   header's align-items: center keeps it mid-cluster — user-preferred
+   position); the header grows with the description, min-height 76px keeps
+   short records on the ConversationRoot baseline. */
 .titleCluster {
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 4px;
-}
-
-/* Back button and title share one center-aligned row, so the glyph lines up
-   with the title whatever the header height. */
-.titleRow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
 /* Header-level back affordance with a grown hit area (28×28 vs the 16×16
@@ -80,12 +74,10 @@
 }
 
 /* Description as the title's subtitle line: the row-description ladder
-   (12px/18px tertiary), pre-wrap so stored newlines survive. Indented to
-   the title text edge (28px button + 8px row gap); the bottom margin
-   clears the header's hairline (header padding-bottom is 0). */
+   (12px/18px tertiary), pre-wrap so stored newlines survive. The bottom
+   margin clears the header's hairline (header padding-bottom is 0). */
 .headerDesc {
   margin: 0 0 10px;
-  padding-left: 36px;
   font-size: 12px;
   line-height: 18px;
   color: var(--dsw-alias-label-tertiary);

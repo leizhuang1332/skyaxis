@@ -90,23 +90,23 @@ export function RequirementsPage(props: {
             A missing record falls back to the panel title — the body shows
             the missing notice. */}
         {selected !== null ? (
-          <div className={styles.titleCluster}>
-            <div className={styles.titleRow}>
-              <button
-                type="button"
-                className={styles.detailBack}
-                aria-label={t('detail.back')}
-                title={t('detail.back')}
-                onClick={() => controller.closeDetail()}
-              >
-                <IconChevronLeftOutline14 />
-              </button>
+          <>
+            <button
+              type="button"
+              className={styles.detailBack}
+              aria-label={t('detail.back')}
+              title={t('detail.back')}
+              onClick={() => controller.closeDetail()}
+            >
+              <IconChevronLeftOutline14 />
+            </button>
+            <div className={styles.titleCluster}>
               <h1 className={styles.title}>{selected !== undefined ? selected.title : t('panel.title')}</h1>
+              {selected !== undefined && selected.description ? (
+                <p className={styles.headerDesc}>{selected.description}</p>
+              ) : null}
             </div>
-            {selected !== undefined && selected.description ? (
-              <p className={styles.headerDesc}>{selected.description}</p>
-            ) : null}
-          </div>
+          </>
         ) : (
           <h1 className={styles.title}>{t('panel.title')}</h1>
         )}
