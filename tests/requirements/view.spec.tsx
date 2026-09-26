@@ -11,6 +11,7 @@ import type { RequirementRecord } from '../../src/requirements-shared/protocol.j
 import type { RequirementsT } from '../../src/client/requirements/dictionary.js'
 import { createRequirementsController } from '../../src/client/requirements/controller.js'
 import { createRequirementsStore } from '../../src/client/requirements/store.js'
+import { createDetailTabsStore } from '../../src/client/requirements/register.jsx'
 import { RequirementsIcon, RequirementsPage } from '../../src/client/requirements/view.js'
 import type { RequirementsFetcher } from '../../src/client/requirements/fetcher.js'
 
@@ -57,7 +58,18 @@ function page(fetcherOverrides: Partial<RequirementsFetcher> = {}) {
   } as RequirementsFetcher
   const store = createRequirementsStore()
   const controller = createRequirementsController(store, fetcher)
-  const utils = render(<RequirementsPage t={bindZh()} store={store} controller={controller} />)
+  // Tab ledger + renderSlot fakes: the real slot contract lives in
+  // register.spec (SlotCore); here the page wiring is what matters.
+  const detailTabs = createDetailTabsStore([
+    { id: 'overview', order: 10, label: '概览' },
+    { id: 'placeholder', order: 20, label: '占位' },
+  ])
+  const renderSlot = ((_key: string, owner: { requirement: { title: string } }, opts?: { only?: string }) => (
+    <div data-tab-panel={opts?.only}>{owner.requirement.title}</div>
+  )) as never
+  const utils = render(
+    <RequirementsPage t={bindZh()} store={store} controller={controller} detailTabs={detailTabs} renderSlot={renderSlot} />,
+  )
   return { ...utils, store, controller, fetcher }
 }
 
@@ -221,6 +233,60 @@ describe('RequirementsPage (0003 P1: in-panel detail navigation)', () => {
     expect(screen.getByRole('heading', { name: '需求管理' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '返回' }))
     await waitFor(() => expect(screen.getByPlaceholderText('按标题 / 描述筛选')).toBeTruthy())
+    unmount()
+  })
+})
+
+describe("RequirementsPage (0003 P2: detail tab skeleton)", () => {
+  it('detail header carries the tab strip; the body renders the active tab panel', async () => {
+    const { unmount, container } = page()
+    await waitFor(() => expect(screen.getByText('需求-a')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: /需求-a/ }))
+    await waitFor(() => expect(screen.getByRole('heading', { name: '需求-a' })).toBeTruthy())
+
+    // Strip over the ledger (fake two tabs); first tab active.
+    expect(screen.getAllByRole('tab').map((el) => el.textContent)).toEqual(['概览', '占位'])
+    expect(screen.getByRole('tab', { name: '概览' }).getAttribute('aria-selected')).toBe('true')
+    // Panel outlet renders the active tab with the live record as owner —
+    // queried by attribute: the record title also lives in the heading.
+    const panel = () => container.querySelector('[data-tab-panel]')
+    expect(panel()?.getAttribute('data-tab-panel')).toBe('overview')
+    expect(panel()?.textContent).toBe('需求-a')
+
+    // Clicking the second tab swaps the outlet (only-switch) and the aria.
+    fireEvent.click(screen.getByRole('tab', { name: '占位' }))
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: '占位' }).getAttribute('aria-selected')).toBe('true')
+      expect(panel()?.getAttribute('data-tab-panel')).toBe('placeholder')
+    })
+    unmount()
+  })
+
+  it('entering another requirement resets the tab selection', async () => {
+    const { unmount } = page()
+    await waitFor(() => expect(screen.getByText('需求-b')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: /需求-a/ }))
+    await waitFor(() => expect(screen.getByRole('heading', { name: '需求-a' })).toBeTruthy())
+    fireEvent.click(screen.getByRole('tab', { name: '占位' }))
+    await waitFor(() => expect(screen.getByRole('tab', { name: '占位' }).getAttribute('aria-selected')).toBe('true'))
+
+    // Back to the list, enter the other record — first tab again.
+    fireEvent.click(screen.getByRole('button', { name: '返回' }))
+    await waitFor(() => expect(screen.getByRole('heading', { name: '需求管理' })).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: /需求-b/ }))
+    await waitFor(() => expect(screen.getByRole('heading', { name: '需求-b' })).toBeTruthy())
+    expect(screen.getByRole('tab', { name: '概览' }).getAttribute('aria-selected')).toBe('true')
+    unmount()
+  })
+
+  it('a missing record shows the notice and no tab strip', async () => {
+    const { unmount, store } = page()
+    await waitFor(() => expect(screen.getByText('需求-a')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: /需求-a/ }))
+    await waitFor(() => expect(screen.getByRole('heading', { name: '需求-a' })).toBeTruthy())
+    store.set({ ...store.getSnapshot(), requirements: store.getSnapshot().requirements.filter((r) => r.id !== 'a') })
+    await waitFor(() => expect(screen.getByText('该需求已不存在。')).toBeTruthy())
+    expect(screen.queryByRole('tablist')).toBeNull()
     unmount()
   })
 })

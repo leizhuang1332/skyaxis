@@ -51,6 +51,9 @@ interface RequirementsDictionary {
   // detail.* — in-panel detail view (0003 route B)
   readonly 'detail.back': string
   readonly 'detail.missing': string
+  readonly 'detail.tab.overview': string
+  readonly 'detail.tab.placeholder': string
+  readonly 'detail.tab.seat': string
 }
 
 export type RequirementsT = (key: keyof RequirementsDictionary) => string
@@ -87,6 +90,9 @@ const zh: RequirementsDictionary = {
   'delete.cancel': '取消',
   'detail.back': '返回',
   'detail.missing': '该需求已不存在。',
+  'detail.tab.overview': '概览',
+  'detail.tab.placeholder': '占位',
+  'detail.tab.seat': '功能规划中，此页预留。',
 }
 
 const en: RequirementsDictionary = {
@@ -121,6 +127,9 @@ const en: RequirementsDictionary = {
   'delete.cancel': 'Cancel',
   'detail.back': 'Back',
   'detail.missing': 'This requirement no longer exists.',
+  'detail.tab.overview': 'Overview',
+  'detail.tab.placeholder': 'Placeholder',
+  'detail.tab.seat': 'A planned feature will land here.',
 }
 
 export function registerRequirementsDictionaries(ctx: Context): void {

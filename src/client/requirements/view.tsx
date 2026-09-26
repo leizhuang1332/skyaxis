@@ -1,22 +1,25 @@
 /**
  * Requirements page: header (title), then ONE of two in-panel views (0003
  * route B): the list view (filter bar, failure banners, skeleton/list with
- * the add card leading the grid) or the detail view (RequirementDetail).
- * Only the body's content swaps — the filter state, the form/delete
- * dialogs, and the scroll container live at this page level and survive
- * view switches. Presentation only: data flows in through props (store
- * snapshot via useSyncExternalStore, controller actions), no ctx in the
- * view layer.
+ * the add card leading the grid) or the detail view (tab strip in the
+ * header + active tab panel in the body). Only the body's content swaps —
+ * the filter state, the form/delete dialogs, and the scroll container live
+ * at this page level and survive view switches. The active-tab state also
+ * lives here (the strip and the panel sit in two regions) and resets on
+ * entering another requirement. Presentation only: data flows in through
+ * props (store snapshot via useSyncExternalStore, controller actions), no
+ * ctx in the view layer.
  */
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Button, IconChevronLeftOutline14, IconCloseOutline16, IconListPenOutline16, IconSearchOutline16, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { RequirementRecord } from '../../requirements-shared/protocol.js'
 import type { RequirementsController } from './controller.js'
 import type { RequirementsT } from './dictionary.js'
-import { RequirementDetail } from './detail.js'
+import { RequirementDetailPanel, RequirementDetailTabs } from './detail.js'
 import { RequirementsList } from './list.js'
 import { RequirementForm } from './requirement-form.js'
+import type { RequirementDetailTab, RequirementsDetailTabsStore } from './register.js'
 import type { RequirementsStore } from './store.js'
 import styles from './view.module.css'
 
@@ -43,16 +46,24 @@ export function RequirementsPage(props: {
   t: RequirementsT
   store: RequirementsStore
   controller: RequirementsController
+  detailTabs: RequirementsDetailTabsStore
+  renderSlot: PropsRenderSlots<'requirements.detail.view'>['renderSlot']
 }): ReactNode {
   const { t, store, controller } = props
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot)
+  const detailTabs = useSyncExternalStore(props.detailTabs.subscribe, props.detailTabs.getSnapshot)
   const [filter, setFilter] = useState('')
   const [pendingRemove, setPendingRemove] = useState<RequirementRecord | null>(null)
   // null = list view; a record = detail view; undefined = the id outlived
-  // its record (missing branch, rendered by RequirementDetail).
+  // its record (missing branch).
   const selected = state.selectedId === null
     ? null
     : state.requirements.find((requirement) => requirement.id === state.selectedId)
+  // Active detail tab: the selection resets per requirement (host parity —
+  // never auto-select on a fresh view), null falls back to the first tab.
+  const [tabId, setTabId] = useState<string | null>(null)
+  useEffect(() => { setTabId(null) }, [state.selectedId])
+  const activeTab: RequirementDetailTab | undefined = detailTabs.find((tab) => tab.id === tabId) ?? detailTabs[0]
   const needle = filter.trim().toLowerCase()
   const visibleRequirements = needle.length === 0
     ? state.requirements
@@ -90,29 +101,38 @@ export function RequirementsPage(props: {
             A missing record falls back to the panel title — the body shows
             the missing notice. */}
         {selected !== null ? (
-          <>
-            <button
-              type="button"
-              className={styles.detailBack}
-              onClick={() => controller.closeDetail()}
-            >
-              <IconChevronLeftOutline14 />
-              <span>{t('detail.back')}</span>
-            </button>
-            <div className={styles.titleCluster}>
-              <h1 className={styles.title}>{selected !== undefined ? selected.title : t('panel.title')}</h1>
-              {selected !== undefined && selected.description ? (
-                <p className={styles.headerDesc}>{selected.description}</p>
-              ) : null}
+          <div className={styles.detailHeader}>
+            <div className={styles.detailHeaderRow}>
+              <button
+                type="button"
+                className={styles.detailBack}
+                onClick={() => controller.closeDetail()}
+              >
+                <IconChevronLeftOutline14 />
+                <span>{t('detail.back')}</span>
+              </button>
+              <div className={styles.titleCluster}>
+                <h1 className={styles.title}>{selected !== undefined ? selected.title : t('panel.title')}</h1>
+                {selected !== undefined && selected.description ? (
+                  <p className={styles.headerDesc}>{selected.description}</p>
+                ) : null}
+              </div>
             </div>
-          </>
+            {selected !== undefined ? (
+              <RequirementDetailTabs tabs={detailTabs} activeId={activeTab?.id} onSelect={setTabId} />
+            ) : null}
+          </div>
         ) : (
           <h1 className={styles.title}>{t('panel.title')}</h1>
         )}
       </header>
       <div className={styles.body}>
         {selected !== null ? (
-          <RequirementDetail t={t} requirement={selected} />
+          selected === undefined ? (
+            <div className={styles.detailNotice}>{t('detail.missing')}</div>
+          ) : (
+            <RequirementDetailPanel renderSlot={props.renderSlot} activeId={activeTab?.id} requirement={selected} />
+          )
         ) : (
         <>
         <div className={styles.filterBar}>

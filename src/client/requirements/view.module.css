@@ -224,10 +224,69 @@
 
 /* ---- detail (in-panel subview, 0003 route B) ---- */
 
-/* Missing branch: the empty-card shape (r12, hint-copy ladder). The found
-   branch renders nothing here — title + description sit in the page
-   header's title cluster; the body awaits the P2 metadata fields. */
-.detailMissing {
+/* Detail-state header block: the header keeps its single-row flex for the
+   list state, so the detail stacks its own two rows — the back+title row,
+   then the tab strip — inside this column, centered as a whole. */
+.detailHeader {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.detailHeaderRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Tab strip: the conversation view-tab baseline ported verbatim
+   (ConversationRoot.module.css .tabs) — 13/16 wt500 text over a 2px bottom
+   bar that rides the header's hairline, gap 36, quiet tertiary ink. */
+.detailTabs {
+  display: flex;
+  gap: 36px;
+  margin-top: 10px;
+  padding-left: 8px;
+}
+
+.detailTab {
+  position: relative;
+  padding: 0 0 9px;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  line-height: 16px;
+  font-weight: 500;
+  font-family: var(--dsw-font-family);
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.detailTab::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: transparent;
+}
+
+/* Selected tab is blue, not ink — business-primary stays blue in both
+   themes (the host's own note on this token choice). */
+.detailTabActive {
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.detailTabActive::after {
+  background: var(--dsw-alias-state-business-primary);
+}
+
+/* Notice card: the empty-card shape (r12, hint-copy ladder) — one shape for
+   the missing branch and the placeholder tab seats. */
+.detailNotice {
   margin-top: 8px;
   padding: 24px 16px;
   border: 0.5px solid var(--dsw-alias-border-l2);

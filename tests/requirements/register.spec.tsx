@@ -16,9 +16,11 @@ import type { PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-
 import {
   REQUIREMENTS_PANEL_ID,
   REQUIREMENTS_PANEL_ORDER,
+  createDetailTabsStore,
   requirementsMainOptions,
   requirementsPanelOptions,
 } from '../../src/client/requirements/register.jsx'
+import { createRequirementTabSeats } from '../../src/client/requirements/detail-tabs.js'
 import {
   REQUIREMENTS_LOCALE_NS,
   registerRequirementsDictionaries,
@@ -69,6 +71,9 @@ describe('requirements: dictionaries', () => {
       'delete.title',
       'detail.back',
       'detail.missing',
+      'detail.tab.overview',
+      'detail.tab.placeholder',
+      'detail.tab.seat',
       'error.conflict',
       'error.internal',
       'error.network',
@@ -123,19 +128,40 @@ describe('requirements: SlotCore registration contract', () => {
       { name: 'main', key: 'conversation' },
       () => <p>Conversation content</p> as ReactNode,
     )
+    // The requirements main entry declares the detail tab ledger as its
+    // child (RendersCheck: the component must consume renderSlot).
     const disposeMain = core.register(
       requirementsMainOptions(),
-      () => {
+      (props: PropsRuntime<'main'> & PropsRenderSlots<'requirements.detail.view'>) => {
         const store = createRequirementsStore()
         const controller = createRequirementsController(store, { list: async () => ({ kind: 'network' }) } as never)
-        return <RequirementsPage t={t} store={store} controller={controller} /> as ReactNode
+        return (
+          <RequirementsPage
+            t={t}
+            store={store}
+            controller={controller}
+            detailTabs={createDetailTabsStore([])}
+            renderSlot={props.renderSlot}
+          />
+        ) as ReactNode
       },
+    )
+    // The two placeholder seats, registered AFTER the declaring entry
+    // (SlotCore throws on an undeclared slot; order is fixture-controlled).
+    const seats = createRequirementTabSeats(t)
+    const disposeOverview = core.register(
+      { name: 'requirements.detail.view', id: 'overview', order: 10, label: () => t('detail.tab.overview') },
+      seats.RequirementOverviewTab,
+    )
+    const disposePlaceholder = core.register(
+      { name: 'requirements.detail.view', id: 'placeholder', order: 20, label: () => t('detail.tab.placeholder') },
+      seats.RequirementPlaceholderTab,
     )
     const disposePanel = core.register(
       requirementsPanelOptions(t),
       (props: PropsRuntime<'sidebar.panellist'>) => RequirementsIcon(props) as ReactNode,
     )
-    return { disposeConversation, disposeMain, disposePanel }
+    return { disposeConversation, disposeMain, disposeOverview, disposePlaceholder, disposePanel }
   }
 
   it('projects {id, order} and resolves the label thunk bilingually', () => {
@@ -171,6 +197,26 @@ describe('requirements: SlotCore registration contract', () => {
     const t = ctx.locale.bind(REQUIREMENTS_LOCALE_NS)
     const panel = requirementsPanelOptions(t)
     expect(panel.id).toBe(main.key)
+  })
+
+  it('the main entry declares the tab ledger; seats project bilingually and collapse on dispose', () => {
+    const { ctx, state } = createLocaleHarness()
+    registerRequirementsDictionaries(ctx as never)
+    const t = ctx.locale.bind(REQUIREMENTS_LOCALE_NS)
+    const core = new SlotCore()
+    const { disposeMain } = mountFixture(core, t)
+
+    const entries = core.entriesOfSlot('requirements.detail.view')
+    expect(entries.map((e) => [e.options.id, e.options.order])).toEqual([['overview', 10], ['placeholder', 20]])
+    expect(resolveSlotLabel(entries[0].options.label)).toBe('Overview')
+    state.current = 'zh'
+    expect(resolveSlotLabel(entries[0].options.label)).toBe('概览')
+    expect(resolveSlotLabel(entries[1].options.label)).toBe('占位')
+
+    // Disposing the declaring main entry collapses the child slot (the
+    // releaseEntry cascade); the seat disposers stay harmless afterwards.
+    disposeMain()
+    expect(core.entriesOfSlot('requirements.detail.view')).toHaveLength(0)
   })
 
   it('fails loud when registering into an undeclared slot', () => {
