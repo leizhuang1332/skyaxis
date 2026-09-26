@@ -47,11 +47,45 @@
   gap: 4px;
 }
 
+/* Back button and title share one center-aligned row, so the glyph lines up
+   with the title whatever the header height. */
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Header-level back affordance with a grown hit area (28×28 vs the 16×16
+   inline iconButton — user ask); hover lifts to a layer bg like the add
+   card. The 14px chevron is the only leftward glyph in the whole
+   primitives icon set (59 exports, no ArrowBack/Undo family). */
+.detailBack {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.detailBack:hover {
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+}
+
 /* Description as the title's subtitle line: the row-description ladder
-   (12px/18px tertiary), pre-wrap so stored newlines survive. The bottom
-   margin clears the header's hairline (header padding-bottom is 0). */
+   (12px/18px tertiary), pre-wrap so stored newlines survive. Indented to
+   the title text edge (28px button + 8px row gap); the bottom margin
+   clears the header's hairline (header padding-bottom is 0). */
 .headerDesc {
   margin: 0 0 10px;
+  padding-left: 36px;
   font-size: 12px;
   line-height: 18px;
   color: var(--dsw-alias-label-tertiary);
