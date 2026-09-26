@@ -113,6 +113,14 @@ export function createRequirementsController(store: RequirementsStore, fetcher: 
     openCreate: () => patch({ editing: { kind: 'create' }, banner: undefined }),
     openEdit: (requirement: RequirementRecord) => patch({ editing: { kind: 'edit', requirement }, banner: undefined }),
     closeForm: () => patch({ editing: { kind: 'closed' } }),
+    // Detail view (0003 P1). openDetail rides a refresh so the pulled-only
+    // model keeps the record fresh on entry; refresh never clears selectedId
+    // — a vanished record is the detail view's missing branch, not a pop.
+    openDetail: (id: string) => {
+      patch({ selectedId: id })
+      void refresh()
+    },
+    closeDetail: () => patch({ selectedId: null }),
     dismissBanner: () => patch({ banner: undefined }),
     dispose: () => {
       disposed = true

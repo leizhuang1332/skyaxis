@@ -108,5 +108,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       | 'delete.description'
       | 'delete.confirm'
       | 'delete.cancel'
+      | 'detail.back'
+      | 'detail.missing'
   }
 }

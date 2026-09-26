@@ -1,6 +1,6 @@
 /**
  * Requirements dictionaries (zh/en), prefix layers per the repos-pool
- * convention: panel./page./view./form./error./menu.
+ * convention: panel./page./view./form./error./menu./delete./detail.
  *
  * Key set is mirrored verbatim into the LocaleNamespaceMap merge in
  * register.tsx — a key present here but missing there (or vice versa) is a
@@ -48,6 +48,9 @@ interface RequirementsDictionary {
   readonly 'delete.description': string
   readonly 'delete.confirm': string
   readonly 'delete.cancel': string
+  // detail.* — in-panel detail view (0003 route B)
+  readonly 'detail.back': string
+  readonly 'detail.missing': string
 }
 
 export type RequirementsT = (key: keyof RequirementsDictionary) => string
@@ -82,6 +85,8 @@ const zh: RequirementsDictionary = {
   'delete.description': '确定要删除该需求吗？此操作仅移除清单记录。',
   'delete.confirm': '删除',
   'delete.cancel': '取消',
+  'detail.back': '返回',
+  'detail.missing': '该需求已不存在。',
 }
 
 const en: RequirementsDictionary = {
@@ -114,6 +119,8 @@ const en: RequirementsDictionary = {
   'delete.description': 'Remove this requirement from the list? Only the list entry is deleted.',
   'delete.confirm': 'Remove',
   'delete.cancel': 'Cancel',
+  'detail.back': 'Back',
+  'detail.missing': 'This requirement no longer exists.',
 }
 
 export function registerRequirementsDictionaries(ctx: Context): void {

@@ -30,6 +30,8 @@ const DICT = {
     'delete.description': '确定要删除该需求吗？此操作仅移除清单记录。',
     'delete.confirm': '删除',
     'delete.cancel': '取消',
+    'detail.back': '返回',
+    'detail.missing': '该需求已不存在。',
     'error.network': '网络错误，请稍后重试',
   },
 } as const
@@ -159,6 +161,56 @@ describe('RequirementsPage (P3: delete confirm, focus refresh, skeleton, banner 
     await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: '关闭' }))
     await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+    unmount()
+  })
+})
+
+describe('RequirementsPage (0003 P1: in-panel detail navigation)', () => {
+  it('clicking a row body opens the detail view; back returns to the list', async () => {
+    const { unmount } = page()
+    await waitFor(() => expect(screen.getByText('需求-a')).toBeTruthy())
+    // The row main body is the open affordance; its accessible name is the
+    // record text (title + description).
+    fireEvent.click(screen.getByRole('button', { name: /需求-a/ }))
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: '需求-a' })).toBeTruthy()
+      expect(screen.getByText('说明 a')).toBeTruthy()
+    })
+    // List-only chrome (the filter bar) is gone while the detail shows.
+    expect(screen.queryByPlaceholderText('按标题 / 描述筛选')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '返回' }))
+    await waitFor(() => expect(screen.getByPlaceholderText('按标题 / 描述筛选')).toBeTruthy())
+    unmount()
+  })
+
+  it('the filter input keeps its value across a detail round-trip', async () => {
+    const { unmount } = page()
+    await waitFor(() => expect(screen.getByText('需求-b')).toBeTruthy())
+    fireEvent.change(screen.getByPlaceholderText('按标题 / 描述筛选'), { target: { value: '需求-b' } })
+    await waitFor(() => expect(screen.queryByText('需求-a')).toBeNull())
+    fireEvent.click(screen.getByRole('button', { name: /需求-b/ }))
+    await waitFor(() => expect(screen.getByRole('heading', { name: '需求-b' })).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: '返回' }))
+    await waitFor(() => {
+      const filter = screen.getByPlaceholderText('按标题 / 描述筛选') as HTMLInputElement
+      expect(filter.value).toBe('需求-b')
+      expect(screen.getByText('需求-b')).toBeTruthy()
+      expect(screen.queryByText('需求-a')).toBeNull()
+    })
+    unmount()
+  })
+
+  it('a selected id with no record renders the missing branch, and back still works', async () => {
+    const { unmount, store } = page()
+    await waitFor(() => expect(screen.getByText('需求-a')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: /需求-a/ }))
+    await waitFor(() => expect(screen.getByRole('heading', { name: '需求-a' })).toBeTruthy())
+    // The record vanishes under the selection (external removal path) —
+    // selectedId survives, the view falls to the missing branch.
+    store.set({ ...store.getSnapshot(), requirements: store.getSnapshot().requirements.filter((r) => r.id !== 'a') })
+    await waitFor(() => expect(screen.getByText('该需求已不存在。')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: '返回' }))
+    await waitFor(() => expect(screen.getByPlaceholderText('按标题 / 描述筛选')).toBeTruthy())
     unmount()
   })
 })

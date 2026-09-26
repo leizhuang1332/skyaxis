@@ -111,9 +111,28 @@
   background: var(--dsw-alias-bg-layer-1);
 }
 
+/* Row main doubles as the open-detail button (0003 P1), so it carries a
+   button reset. Hover feedback stays at card level and quiet: border lifts
+   l2→l3 (the verified hairline alias), no bg swap — the row bg is already
+   layer-1 like the add card's hover target. */
 .rowMain {
   flex: 1;
   min-width: 0;
+  border: none;
+  padding: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.rowMain:disabled {
+  cursor: default;
+}
+
+.row:hover {
+  border-color: var(--dsw-alias-border-l3);
 }
 
 .rowTitleLine {
@@ -142,6 +161,66 @@
 
 .rowActions {
   flex-shrink: 0;
+}
+
+/* ---- detail (in-panel subview, 0003 route B) ---- */
+
+/* Quiet text+glyph back button, the iconButton idiom widened for a label:
+   transparent, tertiary, primary on hover. */
+.detailBack {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+  line-height: 18px;
+  font-family: var(--dsw-font-family);
+}
+
+.detailBack:hover {
+  color: var(--dsw-alias-label-primary);
+}
+
+.detailHeader {
+  margin-bottom: 12px;
+}
+
+/* Detail title: same crumb-current baseline as the panel title (14px/500). */
+.detailTitle {
+  margin: 0;
+  font: 500 14px/20px var(--dsw-font-family);
+  color: var(--dsw-alias-label-primary);
+}
+
+/* Body copy: the textarea input baseline (14px/22px), pre-wrap so stored
+   newlines survive; break-word keeps long unbroken strings from widening
+   the scroll area. */
+.detailDesc {
+  margin: 8px 0 0;
+  font-size: 14px;
+  line-height: 22px;
+  font-family: var(--dsw-font-family);
+  color: var(--dsw-alias-label-primary);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+/* Missing branch: the empty-card shape (r12, hint-copy ladder). */
+.detailMissing {
+  margin-top: 8px;
+  padding: 24px 16px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+  line-height: 18px;
+  text-align: center;
 }
 
 /* ---- add card (first grid cell) ---- */

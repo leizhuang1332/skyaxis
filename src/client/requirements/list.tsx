@@ -1,8 +1,10 @@
 /**
  * Requirements list: a dashed add card leading the grid, then one row per
- * record — title, description (when set), and a row menu
- * (edit / remove-danger). Host primitives only; colors ride the alias
- * tokens via view.module.css.
+ * record — a clickable main body (opens the detail view) carrying title,
+ * description (when set), and a sibling row menu (edit / remove-danger).
+ * The body is a button SIBLING of the menu anchor, never its parent:
+ * buttons cannot nest. Host primitives only; colors ride the alias tokens
+ * via view.module.css.
  */
 import { useState, type ReactNode } from 'react'
 import { IconEllipsisOutline16, IconPlusOutline16, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -15,6 +17,7 @@ function RequirementRow(props: {
   t: RequirementsT
   requirement: RequirementRecord
   disabled: boolean
+  onOpen: () => void
   onEdit: () => void
   onRemove: () => void
 }): ReactNode {
@@ -26,12 +29,14 @@ function RequirementRow(props: {
   ]
   return (
     <li className={styles.row}>
-      <div className={styles.rowMain}>
+      {/* Row main is the open affordance; its accessible name comes from the
+          record text, so no extra aria — keyboard reachability is native. */}
+      <button type="button" className={styles.rowMain} disabled={disabled} onClick={props.onOpen}>
         <div className={styles.rowTitleLine}>
           <span className={styles.rowName}>{requirement.title}</span>
         </div>
         {requirement.description ? <div className={styles.rowDesc}>{requirement.description}</div> : null}
-      </div>
+      </button>
       <div className={styles.rowActions}>
         <Menu
           open={menuOpen}
@@ -93,6 +98,7 @@ export function RequirementsList(props: {
   addLabel: string
   disabled: boolean
   onAdd: () => void
+  onOpen: (requirement: RequirementRecord) => void
   onEdit: (requirement: RequirementRecord) => void
   onRemove: (requirement: RequirementRecord) => void
 }): ReactNode {
@@ -105,6 +111,7 @@ export function RequirementsList(props: {
           t={props.t}
           requirement={requirement}
           disabled={props.disabled}
+          onOpen={() => props.onOpen(requirement)}
           onEdit={() => props.onEdit(requirement)}
           onRemove={() => props.onRemove(requirement)}
         />

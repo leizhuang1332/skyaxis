@@ -67,6 +67,8 @@ describe('requirements: dictionaries', () => {
       'delete.confirm',
       'delete.description',
       'delete.title',
+      'detail.back',
+      'detail.missing',
       'error.conflict',
       'error.internal',
       'error.network',

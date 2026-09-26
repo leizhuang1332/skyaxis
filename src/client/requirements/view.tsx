@@ -1,9 +1,12 @@
 /**
- * Requirements page: header (title), filter bar, failure banners
- * (dismissible), skeleton/list (the add card always leads the grid), the
- * add/edit form, and the delete confirm dialog. Presentation only: data
- * flows in through props (store snapshot via useSyncExternalStore,
- * controller actions), no ctx in the view layer.
+ * Requirements page: header (title), then ONE of two in-panel views (0003
+ * route B): the list view (filter bar, failure banners, skeleton/list with
+ * the add card leading the grid) or the detail view (RequirementDetail).
+ * Only the body's content swaps — the filter state, the form/delete
+ * dialogs, and the scroll container live at this page level and survive
+ * view switches. Presentation only: data flows in through props (store
+ * snapshot via useSyncExternalStore, controller actions), no ctx in the
+ * view layer.
  */
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Button, IconCloseOutline16, IconListPenOutline16, IconSearchOutline16, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -11,6 +14,7 @@ import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { RequirementRecord } from '../../requirements-shared/protocol.js'
 import type { RequirementsController } from './controller.js'
 import type { RequirementsT } from './dictionary.js'
+import { RequirementDetail } from './detail.js'
 import { RequirementsList } from './list.js'
 import { RequirementForm } from './requirement-form.js'
 import type { RequirementsStore } from './store.js'
@@ -44,6 +48,11 @@ export function RequirementsPage(props: {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot)
   const [filter, setFilter] = useState('')
   const [pendingRemove, setPendingRemove] = useState<RequirementRecord | null>(null)
+  // null = list view; a record = detail view; undefined = the id outlived
+  // its record (missing branch, rendered by RequirementDetail).
+  const selected = state.selectedId === null
+    ? null
+    : state.requirements.find((requirement) => requirement.id === state.selectedId)
   const needle = filter.trim().toLowerCase()
   const visibleRequirements = needle.length === 0
     ? state.requirements
@@ -79,6 +88,10 @@ export function RequirementsPage(props: {
         <h1 className={styles.title}>{t('panel.title')}</h1>
       </header>
       <div className={styles.body}>
+        {selected !== null ? (
+          <RequirementDetail t={t} requirement={selected} onBack={() => controller.closeDetail()} />
+        ) : (
+        <>
         <div className={styles.filterBar}>
           <Input
             className={styles.filterInput}
@@ -138,6 +151,7 @@ export function RequirementsPage(props: {
               addLabel={t('view.addRequirement')}
               disabled={state.busy}
               onAdd={() => controller.openCreate()}
+              onOpen={(requirement) => controller.openDetail(requirement.id)}
               onEdit={(requirement) => controller.openEdit(requirement)}
               onRemove={(requirement) => setPendingRemove(requirement)}
             />
@@ -146,6 +160,8 @@ export function RequirementsPage(props: {
             ) : null}
           </>
         ) : null}
+        </>
+        )}
       </div>
       {state.editing.kind !== 'closed' ? (
         <RequirementForm

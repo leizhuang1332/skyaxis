@@ -45,6 +45,8 @@ function fakeController(): RequirementsController {
     openCreate: vi.fn(),
     openEdit: vi.fn(),
     closeForm: vi.fn(),
+    openDetail: vi.fn(),
+    closeDetail: vi.fn(),
     dismissBanner: vi.fn(),
     dispose: vi.fn(),
   } as unknown as RequirementsController

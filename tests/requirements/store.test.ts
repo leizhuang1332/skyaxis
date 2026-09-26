@@ -141,4 +141,32 @@ describe('requirements controller/store', () => {
     await controller.refresh()
     expect(snap().phase).toBe('loading') // untouched
   })
+
+  it('openDetail selects the id and rides a refresh', async () => {
+    const { controller, fetcher, snap } = setup()
+    await controller.refresh()
+    controller.openDetail('a')
+    expect(snap().selectedId).toBe('a')
+    expect(fetcher.list).toHaveBeenCalledTimes(2)
+  })
+
+  it('closeDetail clears the selection', async () => {
+    const { controller, snap } = setup()
+    await controller.refresh()
+    controller.openDetail('a')
+    controller.closeDetail()
+    expect(snap().selectedId).toBeNull()
+  })
+
+  it('a refresh that drops the selected record keeps selectedId — the missing branch is the view\'s', async () => {
+    const list = vi.fn()
+      .mockResolvedValueOnce({ kind: 'ok' as const, revision: 1, requirements: [record('a')] })
+      .mockResolvedValueOnce({ kind: 'ok' as const, revision: 2, requirements: [record('b')] })
+    const { controller, snap } = setup({ list })
+    await controller.refresh() // call 1 → [a]
+    controller.openDetail('a') // rides call 2 → [b], record gone
+    await new Promise((resolve) => setTimeout(resolve, 0)) // let the ridden refresh land
+    expect(snap().selectedId).toBe('a') // the id reference outlived the record on purpose
+    expect(snap().requirements.map((r) => r.id)).toEqual(['b'])
+  })
 })
