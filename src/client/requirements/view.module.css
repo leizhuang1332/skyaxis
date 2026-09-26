@@ -19,8 +19,14 @@
   color: var(--dsw-alias-label-primary);
 }
 
-/* ConversationRoot-shaped header; doubles as the P2 toolbar seat. */
+/* ConversationRoot-shaped header; doubles as the P2 toolbar seat.
+   box-sizing: border-box matters: without it min-height sizes the content
+   box and the header lands 10px taller than the conversation header (the
+   76px figure includes the 10px top inset). flex: none keeps it from
+   shrinking in the column. */
 .header {
+  flex: none;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   gap: 8px;
