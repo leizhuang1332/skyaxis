@@ -176,10 +176,16 @@ describe('RequirementsPage (0003 P1: in-panel detail navigation)', () => {
       expect(screen.getByRole('heading', { name: '需求-a' })).toBeTruthy()
       expect(screen.getByText('说明 a')).toBeTruthy()
     })
+    // The detail owns the header: the panel title is replaced by the record
+    // title, the back button rides the header.
+    expect(screen.queryByRole('heading', { name: '需求管理' })).toBeNull()
     // List-only chrome (the filter bar) is gone while the detail shows.
     expect(screen.queryByPlaceholderText('按标题 / 描述筛选')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '返回' }))
-    await waitFor(() => expect(screen.getByPlaceholderText('按标题 / 描述筛选')).toBeTruthy())
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('按标题 / 描述筛选')).toBeTruthy()
+      expect(screen.getByRole('heading', { name: '需求管理' })).toBeTruthy()
+    })
     unmount()
   })
 
@@ -206,9 +212,11 @@ describe('RequirementsPage (0003 P1: in-panel detail navigation)', () => {
     fireEvent.click(screen.getByRole('button', { name: /需求-a/ }))
     await waitFor(() => expect(screen.getByRole('heading', { name: '需求-a' })).toBeTruthy())
     // The record vanishes under the selection (external removal path) —
-    // selectedId survives, the view falls to the missing branch.
+    // selectedId survives, the view falls to the missing branch, and the
+    // header heading falls back to the panel title.
     store.set({ ...store.getSnapshot(), requirements: store.getSnapshot().requirements.filter((r) => r.id !== 'a') })
     await waitFor(() => expect(screen.getByText('该需求已不存在。')).toBeTruthy())
+    expect(screen.getByRole('heading', { name: '需求管理' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '返回' }))
     await waitFor(() => expect(screen.getByPlaceholderText('按标题 / 描述筛选')).toBeTruthy())
     unmount()

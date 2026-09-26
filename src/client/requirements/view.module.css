@@ -165,43 +165,12 @@
 
 /* ---- detail (in-panel subview, 0003 route B) ---- */
 
-/* Quiet text+glyph back button, the iconButton idiom widened for a label:
-   transparent, tertiary, primary on hover. */
-.detailBack {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 6px;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  cursor: pointer;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 13px;
-  line-height: 18px;
-  font-family: var(--dsw-font-family);
-}
-
-.detailBack:hover {
-  color: var(--dsw-alias-label-primary);
-}
-
-.detailHeader {
-  margin-bottom: 12px;
-}
-
-/* Detail title: same crumb-current baseline as the panel title (14px/500). */
-.detailTitle {
-  margin: 0;
-  font: 500 14px/20px var(--dsw-font-family);
-  color: var(--dsw-alias-label-primary);
-}
-
 /* Body copy: the textarea input baseline (14px/22px), pre-wrap so stored
    newlines survive; break-word keeps long unbroken strings from widening
-   the scroll area. */
+   the scroll area. The heading itself lives in the page header (record
+   title + back button), so the detail owns the full panel visually. */
 .detailDesc {
-  margin: 8px 0 0;
+  margin: 0;
   font-size: 14px;
   line-height: 22px;
   font-family: var(--dsw-font-family);

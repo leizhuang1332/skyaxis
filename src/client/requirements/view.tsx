@@ -9,7 +9,7 @@
  * view layer.
  */
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { Button, IconCloseOutline16, IconListPenOutline16, IconSearchOutline16, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconChevronLeftOutline14, IconCloseOutline16, IconListPenOutline16, IconSearchOutline16, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { RequirementRecord } from '../../requirements-shared/protocol.js'
 import type { RequirementsController } from './controller.js'
@@ -85,11 +85,30 @@ export function RequirementsPage(props: {
   return (
     <section className={styles.page}>
       <header className={styles.header}>
-        <h1 className={styles.title}>{t('panel.title')}</h1>
+        {/* Detail state owns the header: a back affordance plus the record
+            title as the heading (the panel title returns with the list).
+            A missing record falls back to the panel title — the body shows
+            the missing notice. */}
+        {selected !== null ? (
+          <>
+            <button
+              type="button"
+              className={styles.iconButton}
+              aria-label={t('detail.back')}
+              title={t('detail.back')}
+              onClick={() => controller.closeDetail()}
+            >
+              <IconChevronLeftOutline14 />
+            </button>
+            <h1 className={styles.title}>{selected !== undefined ? selected.title : t('panel.title')}</h1>
+          </>
+        ) : (
+          <h1 className={styles.title}>{t('panel.title')}</h1>
+        )}
       </header>
       <div className={styles.body}>
         {selected !== null ? (
-          <RequirementDetail t={t} requirement={selected} onBack={() => controller.closeDetail()} />
+          <RequirementDetail t={t} requirement={selected} />
         ) : (
         <>
         <div className={styles.filterBar}>
