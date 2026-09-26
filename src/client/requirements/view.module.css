@@ -37,6 +37,28 @@
   color: var(--dsw-alias-label-primary);
 }
 
+/* Detail-state header cluster: the record title with its description riding
+   directly under it (user ask). The header grows with the description;
+   min-height 76px keeps short records on the ConversationRoot baseline. */
+.titleCluster {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Description as the title's subtitle line: the row-description ladder
+   (12px/18px tertiary), pre-wrap so stored newlines survive. The bottom
+   margin clears the header's hairline (header padding-bottom is 0). */
+.headerDesc {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
 /* Scroll region: conversation-body padding; P2 list container seat. */
 .body {
   flex: 1;
@@ -165,21 +187,9 @@
 
 /* ---- detail (in-panel subview, 0003 route B) ---- */
 
-/* Body copy: the textarea input baseline (14px/22px), pre-wrap so stored
-   newlines survive; break-word keeps long unbroken strings from widening
-   the scroll area. The heading itself lives in the page header (record
-   title + back button), so the detail owns the full panel visually. */
-.detailDesc {
-  margin: 0;
-  font-size: 14px;
-  line-height: 22px;
-  font-family: var(--dsw-font-family);
-  color: var(--dsw-alias-label-primary);
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
-}
-
-/* Missing branch: the empty-card shape (r12, hint-copy ladder). */
+/* Missing branch: the empty-card shape (r12, hint-copy ladder). The found
+   branch renders nothing here — title + description sit in the page
+   header's title cluster; the body awaits the P2 metadata fields. */
 .detailMissing {
   margin-top: 8px;
   padding: 24px 16px;

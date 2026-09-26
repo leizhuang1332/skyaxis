@@ -167,17 +167,19 @@ describe('RequirementsPage (P3: delete confirm, focus refresh, skeleton, banner 
 
 describe('RequirementsPage (0003 P1: in-panel detail navigation)', () => {
   it('clicking a row body opens the detail view; back returns to the list', async () => {
-    const { unmount } = page()
+    const { unmount, container } = page()
     await waitFor(() => expect(screen.getByText('需求-a')).toBeTruthy())
     // The row main body is the open affordance; its accessible name is the
     // record text (title + description).
     fireEvent.click(screen.getByRole('button', { name: /需求-a/ }))
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: '需求-a' })).toBeTruthy()
-      expect(screen.getByText('说明 a')).toBeTruthy()
     })
     // The detail owns the header: the panel title is replaced by the record
-    // title, the back button rides the header.
+    // title with the description riding directly under it, and the back
+    // button rides the header.
+    const header = container.querySelector('header')
+    expect(header?.textContent).toContain('说明 a')
     expect(screen.queryByRole('heading', { name: '需求管理' })).toBeNull()
     // List-only chrome (the filter bar) is gone while the detail shows.
     expect(screen.queryByPlaceholderText('按标题 / 描述筛选')).toBeNull()

@@ -100,7 +100,12 @@ export function RequirementsPage(props: {
             >
               <IconChevronLeftOutline14 />
             </button>
-            <h1 className={styles.title}>{selected !== undefined ? selected.title : t('panel.title')}</h1>
+            <div className={styles.titleCluster}>
+              <h1 className={styles.title}>{selected !== undefined ? selected.title : t('panel.title')}</h1>
+              {selected !== undefined && selected.description ? (
+                <p className={styles.headerDesc}>{selected.description}</p>
+              ) : null}
+            </div>
           </>
         ) : (
           <h1 className={styles.title}>{t('panel.title')}</h1>
