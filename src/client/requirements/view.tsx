@@ -94,11 +94,10 @@ export function RequirementsPage(props: {
             <button
               type="button"
               className={styles.detailBack}
-              aria-label={t('detail.back')}
-              title={t('detail.back')}
               onClick={() => controller.closeDetail()}
             >
               <IconChevronLeftOutline14 />
+              <span>{t('detail.back')}</span>
             </button>
             <div className={styles.titleCluster}>
               <h1 className={styles.title}>{selected !== undefined ? selected.title : t('panel.title')}</h1>

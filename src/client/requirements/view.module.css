@@ -49,23 +49,28 @@
   gap: 4px;
 }
 
-/* Header-level back affordance with a grown hit area (28×28 vs the 16×16
-   inline iconButton — user ask); hover lifts to a layer bg like the add
-   card. The 14px chevron is the only leftward glyph in the whole
-   primitives icon set (59 exports, no ArrowBack/Undo family). */
+/* Header-level back affordance: glyph + visible label (detail.back —
+   clearer semantics than the bare chevron, user ask), with a comfortable
+   hit area (min-height 28, the grown target from the earlier ask); hover
+   lifts to a layer bg like the add card. The label text is the button's
+   accessible name, so no aria-label. The 14px chevron is the only leftward
+   glyph in the whole primitives icon set (59 exports, no ArrowBack/Undo
+   family). */
 .detailBack {
   flex: none;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
+  gap: 4px;
+  min-height: 28px;
+  padding: 4px 10px;
   border: none;
   border-radius: 6px;
-  padding: 0;
   background: transparent;
   cursor: pointer;
   color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+  line-height: 18px;
+  font-family: var(--dsw-font-family);
 }
 
 .detailBack:hover {
