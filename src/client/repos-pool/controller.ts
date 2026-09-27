@@ -4,7 +4,7 @@
  * pulls `refresh()` on mount; conflict/not-found outcomes self-heal by
  * refreshing so the revision realigns.
  */
-import type { RepoRecord, SaveRequestBody } from '../../repos-pool-shared/protocol.js'
+import type { AddressSlot, RepoRecord, SaveRequestBody } from '../../repos-pool-shared/protocol.js'
 import type { ReposPoolStore } from './store.js'
 import type { ReposFetcher } from './fetcher.js'
 
@@ -12,6 +12,8 @@ import type { ReposFetcher } from './fetcher.js'
 export type SaveFailure = {
   readonly code: 'network' | 'conflict' | 'not-found' | 'unreadable-file' | 'bad-request' | 'invalid-url' | 'duplicate-url' | 'internal'
   readonly reason?: import('../../repos-pool-shared/protocol.js').UrlRejection
+  /** Which address slot the 422 refers to (decision 0004 / D4); the P1 one-box form does not consume it yet. */
+  readonly field?: AddressSlot
   readonly revision?: number
 }
 
@@ -83,7 +85,7 @@ export function createReposPoolController(store: ReposPoolStore, fetcher: ReposF
         await refresh(signal)
         return { kind: 'failed', code: 'not-found', revision: result.currentRevision }
       }
-      if (result.code === 'invalid-url') return { kind: 'failed', code: 'invalid-url', reason: result.reason }
+      if (result.code === 'invalid-url') return { kind: 'failed', code: 'invalid-url', reason: result.reason, field: result.field }
       if (result.code !== undefined) return { kind: 'failed', code: result.code as SaveFailure['code'] }
       return { kind: 'failed', code: 'internal' }
     }

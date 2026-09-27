@@ -53,11 +53,11 @@ const bindZh = (): RequirementsT => (key) => (DICT.zh as Record<string, string>)
 const poolRepo = (id: string, name: string): RepoRecord => ({
   id,
   name,
-  url: `https://example.com/org/${name}.git`,
+  urlHttp: `https://example.com/org/${name}.git`,
   description: '',
-  status: 'verified',
-  validatedAt: '2026-09-25T09:30:00.000Z',
-  lastError: null,
+  statusHttp: 'verified',
+  validatedAtHttp: '2026-09-25T09:30:00.000Z',
+  lastErrorHttp: null,
 })
 
 const record = (linkedRepos: ReadonlyArray<{ repoId: string; branch: string }> = []): RequirementRecord => ({

@@ -9,11 +9,11 @@ import { createReposFetcher } from '../../src/client/repos-pool/fetcher.js'
 const record = (id: string) => ({
   id,
   name: `repo-${id}`,
-  url: `https://example.com/${id}.git`,
+  urlHttp: `https://example.com/${id}.git`,
   description: '',
-  status: 'verified' as const,
-  validatedAt: '2026-09-24T09:30:00.000Z',
-  lastError: null,
+  statusHttp: 'verified' as const,
+  validatedAtHttp: '2026-09-24T09:30:00.000Z',
+  lastErrorHttp: null,
 })
 
 const jsonResponse = (body: unknown, status = 200) =>
@@ -40,8 +40,8 @@ describe('createReposFetcher', () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ ok: false, code: 'conflict', currentRevision: 7 }, 409)))
     const result = await createReposFetcher().save({
       expectedRevision: 3,
-      repo: { name: 'x', url: 'https://example.com/x.git', description: '' },
-      validation: { kind: 'verified' },
+      repo: { name: 'x', urlHttp: 'https://example.com/x.git', description: '' },
+      validation: { http: { kind: 'verified' } },
     })
     expect(result).toEqual({ kind: 'http-error', status: 409, code: 'conflict', currentRevision: 7 })
   })
@@ -76,8 +76,8 @@ describe('createReposFetcher', () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ ok: true, revision: 4, repo: record('new') })))
     const result = await createReposFetcher().save({
       expectedRevision: 3,
-      repo: { name: 'repo-new', url: 'https://example.com/new.git', description: '' },
-      validation: { kind: 'verified' },
+      repo: { name: 'repo-new', urlHttp: 'https://example.com/new.git', description: '' },
+      validation: { http: { kind: 'verified' } },
     })
     expect(result).toEqual({ kind: 'ok', revision: 4, repo: record('new') })
   })

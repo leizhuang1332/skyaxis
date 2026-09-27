@@ -47,6 +47,11 @@ per-address 模型让上述问题全部消失（无需跨槽合成），代价�
 - 移除唯一剩余地址 → "至少其一" refine 拦截（422）。移除已 verified 地址 → 该槽状态随地址一起消失，剩余地址按自身结论。
 - `'unchanged'` per-address 语义：哪个地址没变就继承哪个地址的状态四件套，host 不重探（0003 P2 "编辑 URL 未变跳过可达性"原则按地址粒度保留）。
 
+> **2026-09-27 实施补充（P1 落地时钉死的三条边界）**：
+> ① **槽级 unchanged 兜底**——`'unchanged'` 但 previous 无该槽（create 或编辑新增槽，罕见客户端信号）**不 422**，落 unverified 四件套（槽内默认），保住陈旧缓存客户端的保存流。
+> ② **YAML null 视同缺键**——手改 repos.yaml 写 `urlSsh:`（冒号后留空，yaml 库解析为 null）语义是"不配该地址"而非坏文件：v2 存储记录的可选字段将 null 归一为缺键，refine 以 `!== undefined` 判存在；`validatedAt*/lastError*` 的 null 是合法语义值（槽存在+未验证）不受影响。
+> ③ **归位撞槽 400**——请求字段族与值族不一致（如 `urlSsh` 装 http 值）或两值归位同槽：**400 bad-request（客户端 bug），绝不静默去重/改槽**。D4 的"按值归位"保证的是**落库槽位由值决定**（存储中 urlSsh 槽必为 ssh 族），并非宽容错位请求——客户端（表单/导入装配）负责把值放进正确字段。
+
 ## D3 repos.yaml v1→v2 迁移：读侧兼容，格式转换不做内容审查
 
 **选择**：`version` 升 `literal(2)`；读侧先按 `version` 字段判别再 parse（不用 z.union——union 错误合并会让 degraded detail 变成"Expected 2, received 1"这类无诊断价值的报错）；v1 分支 transform 迁移后 `.pipe(v2 记录 schema)` 复验，迁移产物不直通落盘。写侧恒写 v2（`repos-file.ts` 两处硬编码 `version: 1` 同改），读路径纯读不回写——用户下次任意 save 自然升级。
@@ -121,4 +126,4 @@ per-address 模型让上述问题全部消失（无需跨槽合成），代价�
 
 - **修订 [决策 0003](./0003-仓库池P0决策-路线B专属repos-yaml与校验策略.md)**：D4 的 forced/unchanged/status 均为单 url 语境，经本决策扩展为 per-address；"一套端点族（list/save/remove/validate）"扩为五端点（+import）。修订以追加块落于 0003 原文。
 - 实施立项见 [里程碑 0005](../milestones/0005-仓库池双地址与配置导入实施计划.md)。
-- 集成策略：P1 改 `RepoRecord` 即断编译（types.ts 断言强制原子同改），P1–P3 必须同一分支连贯完成、一次发版（wire 变更两半同包）；浏览器缓存旧 client.js 调新 host 的 422 需可辨识文案。
+- 集成策略：P1 改 `RepoRecord` 即断编译（types.ts 断言强制原子同改），P1–P3 必须同一分支连贯完成、一次发版（wire 变更两半同包）。**旧 client 断裂点更正（P1 实施核验）**：缓存的旧 client.js 会在 **list 响应解析**处失败（旧 `isRepoRecord` 要求 `url` 字段，新响应没有）而非等到 save 422——因此 P1–P3 期间 main 不发版、不做快照构建，缓存窗口仅存在于最终发版瞬间且两半同包覆盖，无需额外兼容文案。

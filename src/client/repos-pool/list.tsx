@@ -1,12 +1,17 @@
 /**
  * Repos-pool list: a dashed add card leading the grid, then one row per
- * record — name, url, description, a status Tag, and a row menu
+ * record — name, address, description, a status Tag, and a row menu
  * (edit / remove-danger). Host primitives only; colors ride the alias
  * tokens via view.module.css.
+ *
+ * P1 dual-address adaptation: the row shows the RECOMMENDED address and its
+ * slot's status (pickAddress, decision 0004 / D7); per-address rows and
+ * Tags arrive with the P3 two-box form.
  */
 import { useState, type ReactNode } from 'react'
 import { IconEllipsisOutline16, IconPlusOutline16, Menu, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
+import { pickAddress } from '../../repos-pool-shared/address.js'
 import type { RepoRecord, RepoStatus } from '../../repos-pool-shared/protocol.js'
 import type { ReposPoolT } from './dictionary.js'
 import styles from './view.module.css'
@@ -34,6 +39,7 @@ function RepoRow(props: {
 }): ReactNode {
   const [menuOpen, setMenuOpen] = useState(false)
   const { t, repo, disabled } = props
+  const picked = pickAddress(repo)
   const entries: readonly MenuEntry[] = [
     { id: 'edit', label: t('menu.edit') },
     { id: 'remove', label: t('menu.remove'), danger: true },
@@ -43,9 +49,9 @@ function RepoRow(props: {
       <div className={styles.rowMain}>
         <div className={styles.rowTitleLine}>
           <span className={styles.rowName}>{repo.name}</span>
-          <Tag tone={STATUS_TAG_TONE[repo.status]}>{t(STATUS_KEY[repo.status])}</Tag>
+          {picked !== undefined ? <Tag tone={STATUS_TAG_TONE[picked.status]}>{t(STATUS_KEY[picked.status])}</Tag> : null}
         </div>
-        <div className={styles.rowUrl} title={repo.url}>{repo.url}</div>
+        {picked !== undefined ? <div className={styles.rowUrl} title={picked.url}>{picked.url}</div> : null}
         {repo.description ? <div className={styles.rowDesc}>{repo.description}</div> : null}
       </div>
       <div className={styles.rowActions}>

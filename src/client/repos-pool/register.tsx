@@ -119,6 +119,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       | 'error.urlScpAmbiguous'
       | 'error.urlCredentials'
       | 'error.urlMalformed'
+      | 'error.protocolSwitchBlocked'
+      | 'error.otherAddressInvalid'
       | 'status.verified'
       | 'status.unverified'
       | 'status.forcedNetwork'

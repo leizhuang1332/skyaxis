@@ -5,13 +5,24 @@
  * illegitimate and unknown outcomes have no save path; unverified saves
  * without a gate; network/auth save only behind the acknowledge checkbox).
  *
+ * P1 dual-address adaptation (decision 0004): still ONE url input. The box
+ * edits the record's recommended address (pickAddress); a second address on
+ * the record is carried through verbatim (original value + 'unchanged'), so
+ * a dual-address record survives P1 edits without losing either slot.
+ * Crossing families on a dual-address record (ssh value ↔ http value) is
+ * INTENT-UNDECIDABLE through one box and is blocked with a field error —
+ * the two-box form (P3) lifts this. A single-slot record keeps today's
+ * behavior: changing the address (any family) just changes the address.
+ *
  * Form-internal state lives here on purpose — short-lived, no outside
  * readers (see store.ts).
  */
 import { useState, type ReactNode } from 'react'
 import { Button, IconPlusOutline16, Input, Modal, RiskConfirmation, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { SaveRequestBody, UrlRejection, ValidateOutcome } from '../../repos-pool-shared/protocol.js'
+import { pickAddress, slotOfKind } from '../../repos-pool-shared/address.js'
+import type { AddressSlot, SaveRequestBody, SaveVerdict, UrlRejection, ValidateOutcome } from '../../repos-pool-shared/protocol.js'
 import type { RepoRecord } from '../../repos-pool-shared/protocol.js'
+import { checkUrlSyntax } from '../../repos-pool-shared/url-syntax.js'
 import type { ReposPoolController, SaveOutcome } from './controller.js'
 import type { ReposPoolT } from './dictionary.js'
 import type { ReposFetcher } from './fetcher.js'
@@ -56,8 +67,14 @@ export function RepoForm(props: {
   controller: ReposPoolController
 }): ReactNode {
   const { t, editing, revision, repos, fetcher, controller } = props
+  /** The record's recommended address (dual-address aware), shown in the single box. */
+  const displayed = editing.kind === 'edit' ? pickAddress(editing.repo) : undefined
+  /** The OTHER slot's url — non-undefined marks a dual-address record. */
+  const otherAddress = editing.kind === 'edit' && displayed !== undefined
+    ? (displayed.slot === 'ssh' ? editing.repo.urlHttp : editing.repo.urlSsh)
+    : undefined
   const [name, setName] = useState(editing.kind === 'edit' ? editing.repo.name : '')
-  const [url, setUrl] = useState(editing.kind === 'edit' ? editing.repo.url : '')
+  const [url, setUrl] = useState(displayed?.url ?? '')
   const [description, setDescription] = useState(editing.kind === 'edit' ? editing.repo.description : '')
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
   const [fieldError, setFieldError] = useState<string | null>(null)
@@ -67,7 +84,7 @@ export function RepoForm(props: {
   /** Name auto-fill (create mode only): derive from the URL until the user types a name. */
   const [nameAuto, setNameAuto] = useState(editing.kind === 'create')
 
-  const urlUnchanged = editing.kind === 'edit' && editing.repo.url === url.trim()
+  const urlUnchanged = editing.kind === 'edit' && displayed !== undefined && displayed.url === url.trim()
   const outcome = phase.kind === 'outcome' ? phase.outcome : undefined
   const reachability = outcome?.reachability
   // Every non-reachable class gates behind RiskConfirmation (D4 as amended:
@@ -78,16 +95,55 @@ export function RepoForm(props: {
   const blocked = outcome !== undefined && !outcome.syntax.acceptable
   const busy = phase.kind === 'validating' || phase.kind === 'submitting'
 
-  const buildBody = (validation: SaveRequestBody['validation']): SaveRequestBody => ({
-    expectedRevision: revision,
-    repo: {
-      ...(editing.kind === 'edit' ? { id: editing.repo.id } : {}),
-      name: name.trim(),
-      url: url.trim(),
-      description: description.trim(),
-    },
-    validation,
-  })
+  /** Slot-by-value placement of the box value (mirrors the host save rule). */
+  const placedUrl = (): { slot: AddressSlot; value: string } => {
+    const trimmed = url.trim()
+    const syntax = checkUrlSyntax(trimmed)
+    // An unacceptable value is sent as-is in the http slot; the host's 422
+    // maps it onto the field error (same display path as before dual-url).
+    return { slot: syntax.acceptable ? slotOfKind(syntax.kind) : 'http', value: trimmed }
+  }
+
+  /** Dual-address record: the other slot rides along unchanged. */
+  const passthroughSlot = (): AddressSlot | undefined =>
+    otherAddress !== undefined && displayed !== undefined
+      ? (displayed.slot === 'ssh' ? 'http' : 'ssh')
+      : undefined
+
+  const buildBody = (validation: SaveRequestBody['validation']): SaveRequestBody => {
+    const { slot, value } = placedUrl()
+    const passSlot = passthroughSlot()
+    return {
+      expectedRevision: revision,
+      repo: {
+        ...(editing.kind === 'edit' ? { id: editing.repo.id } : {}),
+        name: name.trim(),
+        description: description.trim(),
+        ...(slot === 'ssh' || passSlot === 'ssh' ? { urlSsh: slot === 'ssh' ? value : otherAddress } : {}),
+        ...(slot === 'http' || passSlot === 'http' ? { urlHttp: slot === 'http' ? value : otherAddress } : {}),
+      },
+      validation,
+    }
+  }
+
+  /** The box's conclusion for its slot, plus an 'unchanged' ride-along for the other slot on dual-address records. */
+  const slotValidation = (verdict: SaveVerdict): SaveRequestBody['validation'] => {
+    const { slot } = placedUrl()
+    const passSlot = passthroughSlot()
+    return {
+      ...{ [slot]: verdict },
+      ...(passSlot !== undefined ? { [passSlot]: { kind: 'unchanged' } as const } : {}),
+    }
+  }
+
+  /** Edit with an unchanged address: both slots (if two) ride along unchanged. */
+  const unchangedValidation = (): SaveRequestBody['validation'] => {
+    const passSlot = passthroughSlot()
+    return {
+      ...(displayed !== undefined ? { [displayed.slot]: { kind: 'unchanged' } as const } : {}),
+      ...(passSlot !== undefined ? { [passSlot]: { kind: 'unchanged' } as const } : {}),
+    }
+  }
 
   /** Any URL edit invalidates the previous verdict (and the unchanged-URL skip): the submit button must unblock and validation re-runs on submit. */
   const handleUrlChange = (value: string): void => {
@@ -130,14 +186,33 @@ export function RepoForm(props: {
       setFieldError(t('error.nameRequired'))
       return
     }
-    if (url.trim().length === 0) {
+    const trimmed = url.trim()
+    if (trimmed.length === 0) {
       setFieldError(t('error.urlRequired'))
       return
     }
-    // Local duplicate precheck (instant; excludes the record being edited).
-    // The server re-checks regardless — this is UX, not the trust boundary.
+    // Decidable-subset guard (decision 0004 P1): on a dual-address record,
+    // crossing families through one box is intent-undecidable — block it
+    // instead of silently dropping/overwriting a slot. P3 lifts this.
+    const syntax = checkUrlSyntax(trimmed)
+    if (otherAddress !== undefined && syntax.acceptable && displayed !== undefined) {
+      if (slotOfKind(syntax.kind) !== displayed.slot) {
+        setFieldError(t('error.protocolSwitchBlocked'))
+        return
+      }
+    }
+    // Passthrough precheck: an illegitimate OTHER (unshown) address would
+    // 422 server-side with no way to explain itself through one box.
+    if (otherAddress !== undefined && !checkUrlSyntax(otherAddress).acceptable) {
+      setFieldError(t('error.otherAddressInvalid'))
+      return
+    }
+    // Local duplicate precheck (instant; excludes the record being edited;
+    // compares against BOTH slots of every record). The server re-checks
+    // regardless — this is UX, not the trust boundary.
     const duplicate = repos.some(
-      (repo) => repo.url === url.trim() && (editing.kind !== 'edit' || repo.id !== editing.repo.id),
+      (repo) => (repo.urlSsh === trimmed || repo.urlHttp === trimmed)
+        && (editing.kind !== 'edit' || repo.id !== editing.repo.id),
     )
     if (duplicate) {
       setFieldError(t('error.duplicateUrl'))
@@ -145,15 +220,15 @@ export function RepoForm(props: {
     }
     setFieldError(null)
 
-    // Edit with an unchanged URL: skip reachability, keep the stored status.
+    // Edit with an unchanged address: skip reachability, keep the stored states.
     if (urlUnchanged) {
       setPhase({ kind: 'skipped-unchanged' })
-      await doSave({ kind: 'unchanged' })
+      await doSave(unchangedValidation())
       return
     }
 
     setPhase({ kind: 'validating' })
-    const result = await fetcher.validate(url.trim())
+    const result = await fetcher.validate(trimmed)
     if (result.kind !== 'ok') {
       setPhase({ kind: 'idle' })
       setFieldError(t('error.network'))
@@ -165,10 +240,10 @@ export function RepoForm(props: {
       case undefined: // syntax-only rejection already returned above
         return
       case 'reachable':
-        await doSave({ kind: 'verified' })
+        await doSave(slotValidation({ kind: 'verified' }))
         return
       case 'unverified':
-        await doSave({ kind: 'unverified' })
+        await doSave(slotValidation({ kind: 'unverified' }))
         return
       case 'auth':
       case 'network':
@@ -197,7 +272,7 @@ export function RepoForm(props: {
           const from = reachability?.classification === 'auth' || reachability?.classification === 'network' || reachability?.classification === 'unknown'
             ? reachability.classification
             : 'unknown'
-          void doSave({ kind: 'forced', from })
+          void doSave(slotValidation({ kind: 'forced', from }))
         }}
       />
     )

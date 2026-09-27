@@ -58,6 +58,9 @@ interface ReposPoolDictionary {
   readonly 'error.urlScpAmbiguous': string
   readonly 'error.urlCredentials': string
   readonly 'error.urlMalformed': string
+  // P1 dual-address guards (decision 0004): one-box form edge cases
+  readonly 'error.protocolSwitchBlocked': string
+  readonly 'error.otherAddressInvalid': string
   // status.* — persisted RepoStatus labels
   readonly 'status.verified': string
   readonly 'status.unverified': string
@@ -127,6 +130,8 @@ const zh: ReposPoolDictionary = {
   'error.urlScpAmbiguous': '无法区分主机名与本地路径，请使用完整 ssh:// 或 https:// 地址',
   'error.urlCredentials': '地址内嵌了账号凭据，请改用凭据管理而非 URL 保存密码',
   'error.urlMalformed': '地址格式无法解析',
+  'error.protocolSwitchBlocked': '该记录已配置 SSH 与 HTTP 两个地址，单输入框暂不支持切换地址类型；请先改为同类型地址，或稍后使用双地址表单',
+  'error.otherAddressInvalid': '该记录另一地址（当前未展示）语法不合法，无法保存；请先修正仓库清单中的该地址',
   'status.verified': '已验证',
   'status.unverified': '未验证',
   'status.forcedNetwork': '已保存（网络不可达）',
@@ -190,6 +195,8 @@ const en: ReposPoolDictionary = {
   'error.urlScpAmbiguous': 'Cannot tell a hostname from a local path; use a full ssh:// or https:// URL',
   'error.urlCredentials': 'Credentials embedded in the URL; use a credential store instead of a password in the URL',
   'error.urlMalformed': 'The URL cannot be parsed',
+  'error.protocolSwitchBlocked': 'This record carries both SSH and HTTP addresses; one input cannot switch between families yet — use a same-family address for now',
+  'error.otherAddressInvalid': 'The record\'s other address (not shown here) is syntactically invalid; fix it in the repos list first',
   'status.verified': 'Verified',
   'status.unverified': 'Unverified',
   'status.forcedNetwork': 'Saved (unreachable)',

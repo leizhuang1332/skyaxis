@@ -25,6 +25,7 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import { createReposFetcher } from '../repos-pool/fetcher.js'
+import { pickAddress } from '../../repos-pool-shared/address.js'
 import type { RepoRecord } from '../../repos-pool-shared/protocol.js'
 import type { CloneTaskSnapshot, RequirementRecord } from '../../requirements-shared/protocol.js'
 import { repoDirName } from '../../requirements-shared/repo-dir.js'
@@ -151,7 +152,7 @@ export function ReposSection(props: {
     const repo = pool.repos.find((candidate) => candidate.id === selectedRepoId)
     if (repo === undefined) return
     setSubmitting(true)
-    const outcome = await controller.linkRepo(requirement.id, { repoId: repo.id, repoUrl: repo.url, repoName: repo.name }, branch.trim())
+    const outcome = await controller.linkRepo(requirement.id, { repoId: repo.id, repoUrl: pickAddress(repo)?.url ?? '', repoName: repo.name }, branch.trim())
     setSubmitting(false)
     if (outcome.kind === 'ok') {
       // Seed the fresh rows (cloning state visible immediately); the gate
@@ -173,7 +174,7 @@ export function ReposSection(props: {
   }
 
   const reclone = async (repo: RepoRecord): Promise<void> => {
-    const outcome = await controller.recloneRepo(requirement.id, { repoId: repo.id, repoUrl: repo.url, repoName: repo.name })
+    const outcome = await controller.recloneRepo(requirement.id, { repoId: repo.id, repoUrl: pickAddress(repo)?.url ?? '', repoName: repo.name })
     if (outcome.kind === 'ok') seedTasks(outcome.tasks)
   }
 
@@ -245,7 +246,7 @@ export function ReposSection(props: {
           <div key={linked.repoId} className={styles.repoRow}>
             <div className={styles.repoMain}>
               <span className={styles.repoName}>{name}</span>
-              {repo !== undefined ? <span className={styles.repoUrl}>{repo.url}</span> : null}
+              {repo !== undefined ? <span className={styles.repoUrl}>{pickAddress(repo)?.url}</span> : null}
               <span className={styles.repoBranch}>{linked.branch}</span>
             </div>
             <div className={styles.repoStatus}>
@@ -395,7 +396,7 @@ function AddRepoModal(props: {
   const visible = candidates.filter((repo) =>
     props.filter.trim().length === 0
     || repo.name.toLowerCase().includes(props.filter.trim().toLowerCase())
-    || repo.url.toLowerCase().includes(props.filter.trim().toLowerCase()))
+    || (pickAddress(repo)?.url.toLowerCase().includes(props.filter.trim().toLowerCase()) ?? false))
   return (
     <Modal
       open
@@ -435,7 +436,7 @@ function AddRepoModal(props: {
               onClick={() => props.onSelect(repo.id === props.selectedRepoId ? null : repo.id)}
             >
               <span className={styles.poolName}>{repo.name}</span>
-              <span className={styles.repoUrl}>{repo.url}</span>
+              <span className={styles.repoUrl}>{pickAddress(repo)?.url}</span>
             </button>
           ))}
         </div>

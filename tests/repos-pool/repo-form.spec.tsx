@@ -54,11 +54,11 @@ afterEach(cleanup)
 const REPO: RepoRecord = {
   id: '11111111-1111-4111-8111-111111111111',
   name: 'existing',
-  url: 'https://example.com/existing.git',
+  urlHttp: 'https://example.com/existing.git',
   description: 'old',
-  status: 'verified',
-  validatedAt: null,
-  lastError: null,
+  statusHttp: 'verified',
+  validatedAtHttp: null,
+  lastErrorHttp: null,
 }
 
 function setup(options?: { validate?: ValidateOutcome; editing?: { kind: 'create' } | { kind: 'edit'; repo: RepoRecord }; saveOutcome?: unknown }) {
@@ -97,17 +97,17 @@ describe('RepoForm validation flow', () => {
     const utils = setup()
     fillAndSubmit(utils)
     await waitFor(() => expect(utils.save).toHaveBeenCalledTimes(1))
-    const [body] = utils.save.mock.calls[0] as unknown as [{ expectedRevision: number; repo: { name: string; url: string }; validation: { kind: string } }]
+    const [body] = utils.save.mock.calls[0] as unknown as [{ expectedRevision: number; repo: { name: string; urlHttp: string }; validation: Record<string, { kind: string }> }]
     expect(body.expectedRevision).toBe(3)
-    expect(body.repo).toMatchObject({ name: 'demo', url: 'https://example.com/new.git' })
-    expect(body.validation).toEqual({ kind: 'verified' })
+    expect(body.repo).toMatchObject({ name: 'demo', urlHttp: 'https://example.com/new.git' })
+    expect(body.validation).toEqual({ http: { kind: 'verified' } })
   })
 
   it('saves unverified outcomes without a confirmation gate (decision D3)', async () => {
     const utils = setup({ validate: { syntax: { acceptable: true, kind: 'https' }, reachability: { classification: 'unverified', reason: 'git-missing' } } })
     fillAndSubmit(utils)
     await waitFor(() => expect(utils.save).toHaveBeenCalledTimes(1))
-    expect((utils.save.mock.calls[0] as unknown[])[0]).toMatchObject({ validation: { kind: 'unverified' } })
+    expect((utils.save.mock.calls[0] as unknown[])[0]).toMatchObject({ validation: { http: { kind: 'unverified' } } })
     expect(screen.queryByRole('checkbox')).toBeNull()
   })
 
@@ -123,7 +123,7 @@ describe('RepoForm validation flow', () => {
     await waitFor(() => expect((screen.getByRole('button', { name: '仍要保存' }) as HTMLButtonElement).disabled).toBe(false))
     fireEvent.click(screen.getByRole('button', { name: '仍要保存' }))
     await waitFor(() => expect(utils.save).toHaveBeenCalledTimes(1))
-    expect((utils.save.mock.calls[0] as unknown[])[0]).toMatchObject({ validation: { kind: 'forced', from: 'auth' } })
+    expect((utils.save.mock.calls[0] as unknown[])[0]).toMatchObject({ validation: { http: { kind: 'forced', from: 'auth' } } })
   })
 
   it('gates unknown outcomes behind RiskConfirmation too (D4 amended: user-decidable, persists as forced/unknown)', async () => {
@@ -137,7 +137,7 @@ describe('RepoForm validation flow', () => {
     await waitFor(() => expect((screen.getByRole('button', { name: '仍要保存' }) as HTMLButtonElement).disabled).toBe(false))
     fireEvent.click(screen.getByRole('button', { name: '仍要保存' }))
     await waitFor(() => expect(utils.save).toHaveBeenCalledTimes(1))
-    expect((utils.save.mock.calls[0] as unknown[])[0]).toMatchObject({ validation: { kind: 'forced', from: 'unknown' } })
+    expect((utils.save.mock.calls[0] as unknown[])[0]).toMatchObject({ validation: { http: { kind: 'forced', from: 'unknown' } } })
   })
 
   it('shows the rejection reason for illegitimate URLs and never saves', async () => {
@@ -154,7 +154,7 @@ describe('RepoForm validation flow', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
     await waitFor(() => expect(utils.save).toHaveBeenCalledTimes(1))
     expect(utils.validate).not.toHaveBeenCalled()
-    expect((utils.save.mock.calls[0] as unknown[])[0]).toMatchObject({ validation: { kind: 'unchanged' } })
+    expect((utils.save.mock.calls[0] as unknown[])[0]).toMatchObject({ validation: { http: { kind: 'unchanged' } } })
   })
 
   it('unblocks the submit button once the URL is edited after a rejection (P2 acceptance regression)', async () => {
@@ -174,7 +174,7 @@ describe('RepoForm validation flow', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
     await waitFor(() => expect(utils.save).toHaveBeenCalledTimes(1))
-    expect((utils.save.mock.calls[0] as unknown[])[0]).toMatchObject({ validation: { kind: 'verified' } })
+    expect((utils.save.mock.calls[0] as unknown[])[0]).toMatchObject({ validation: { http: { kind: 'verified' } } })
   })
 
   it('auto-fills the name from the URL while untouched, and stops once edited manually', () => {
@@ -223,5 +223,60 @@ describe('RepoForm validation flow', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
     expect(screen.getByText('请输入仓库名称')).toBeTruthy()
     expect(utils.validate).not.toHaveBeenCalled()
+  })
+})
+
+describe('RepoForm dual-address adaptation (decision 0004, P1 one-box form)', () => {
+  const REPO_DUAL: RepoRecord = {
+    id: '22222222-2222-4222-8222-222222222222',
+    name: 'dual',
+    description: '',
+    urlSsh: 'git@github.com:org/dual.git',
+    statusSsh: 'verified',
+    validatedAtSsh: '2026-09-24T09:30:00.000Z',
+    lastErrorSsh: null,
+    urlHttp: 'https://github.com/org/dual.git',
+    statusHttp: 'unverified',
+    validatedAtHttp: null,
+    lastErrorHttp: null,
+  }
+
+  it('rename-only edit of a dual-address record sends BOTH slots, both unchanged (passthrough completeness)', async () => {
+    const utils = setup({ editing: { kind: 'edit', repo: REPO_DUAL } })
+    fireEvent.change(screen.getByPlaceholderText('form.namePlaceholder'), { target: { value: 'renamed' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    await waitFor(() => expect(utils.save).toHaveBeenCalledTimes(1))
+    expect(utils.validate).not.toHaveBeenCalled()
+    const body = (utils.save.mock.calls[0] as unknown[])[0] as {
+      repo: { urlSsh?: string; urlHttp?: string }
+      validation: Record<string, { kind: string }>
+    }
+    expect(body.repo.urlSsh).toBe('git@github.com:org/dual.git')
+    expect(body.repo.urlHttp).toBe('https://github.com/org/dual.git')
+    expect(body.validation).toEqual({ ssh: { kind: 'unchanged' }, http: { kind: 'unchanged' } })
+  })
+
+  it('blocks a family switch on a dual-address record (intent undecidable through one box)', () => {
+    const utils = setup({ editing: { kind: 'edit', repo: REPO_DUAL } })
+    fillAndSubmit(utils, 'https://example.com/switched.git') // http value over an ssh-recommended box
+    // Fake t() falls back to the raw key for keys outside DICT.
+    expect(screen.getByText('error.protocolSwitchBlocked')).toBeTruthy()
+    expect(utils.save).not.toHaveBeenCalled()
+    expect(utils.validate).not.toHaveBeenCalled()
+  })
+
+  it('single-slot edit crossing families just moves the address (same behavior as before dual-url)', async () => {
+    // REPO carries only urlHttp; pickAddress recommends it. Changing the box
+    // value to an ssh url re-slots the record to ssh-only — no passthrough.
+    const utils = setup({ editing: { kind: 'edit', repo: REPO } })
+    fillAndSubmit(utils, 'git@github.com:org/moved.git')
+    await waitFor(() => expect(utils.save).toHaveBeenCalledTimes(1))
+    const body = (utils.save.mock.calls[0] as unknown[])[0] as {
+      repo: { urlSsh?: string; urlHttp?: string }
+      validation: Record<string, { kind: string }>
+    }
+    expect(body.repo.urlSsh).toBe('git@github.com:org/moved.git')
+    expect(body.repo.urlHttp).toBeUndefined()
+    expect(body.validation).toEqual({ ssh: { kind: 'verified' } })
   })
 })

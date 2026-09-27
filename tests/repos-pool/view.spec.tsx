@@ -42,11 +42,11 @@ function bindZh(): ReposPoolT {
 const record = (id: string): RepoRecord => ({
   id,
   name: `仓库-${id}`,
-  url: `https://example.com/${id}.git`,
+  urlHttp: `https://example.com/${id}.git`,
   description: `说明 ${id}`,
-  status: id === 'a' ? 'verified' : 'forced-network',
-  validatedAt: null,
-  lastError: null,
+  statusHttp: id === 'a' ? ('verified' as const) : ('forced-network' as const),
+  validatedAtHttp: null,
+  lastErrorHttp: null,
 })
 
 function page(fetcherOverrides: Partial<ReposFetcher> = {}) {

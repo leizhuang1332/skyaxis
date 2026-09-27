@@ -13,11 +13,11 @@ import type { ReposFetcher } from '../../src/client/repos-pool/fetcher.js'
 const record = (id: string): RepoRecord => ({
   id,
   name: `repo-${id}`,
-  url: `https://example.com/${id}.git`,
+  urlHttp: `https://example.com/${id}.git`,
   description: '',
-  status: 'verified',
-  validatedAt: null,
-  lastError: null,
+  statusHttp: 'verified',
+  validatedAtHttp: null,
+  lastErrorHttp: null,
 })
 
 /** rAF-flushed snapshot read (the store batches notifications per frame). */
@@ -60,8 +60,8 @@ describe('repos-pool controller/store', () => {
     controller.openCreate()
     const saved = await controller.save({
       expectedRevision: 1,
-      repo: { name: 'repo-b', url: 'https://example.com/b.git', description: '' },
-      validation: { kind: 'verified' },
+      repo: { name: 'repo-b', urlHttp: 'https://example.com/b.git', description: '' },
+      validation: { http: { kind: 'verified' } },
     })
     expect(saved).toEqual({ kind: 'ok' })
     expect(snap().repos.map((r) => r.id)).toEqual(['a', 'b'])
@@ -78,7 +78,7 @@ describe('repos-pool controller/store', () => {
     })
     await controller.refresh()
     controller.openEdit(snap().repos[0])
-    await controller.save({ expectedRevision: 1, repo: { id: 'a', name: 'renamed', url: snap().repos[0].url, description: '' }, validation: { kind: 'unchanged' } })
+    await controller.save({ expectedRevision: 1, repo: { id: 'a', name: 'renamed', urlHttp: snap().repos[0].urlHttp, description: '' }, validation: { http: { kind: 'unchanged' } } })
     expect(snap().repos.map((r) => r.name)).toEqual(['renamed', 'repo-z'])
   })
 
@@ -93,8 +93,8 @@ describe('repos-pool controller/store', () => {
     await controller.refresh()
     const saved = await controller.save({
       expectedRevision: 1,
-      repo: { name: 'x', url: 'https://example.com/x.git', description: '' },
-      validation: { kind: 'verified' },
+      repo: { name: 'x', urlHttp: 'https://example.com/x.git', description: '' },
+      validation: { http: { kind: 'verified' } },
     })
     expect(saved).toEqual({ kind: 'failed', code: 'conflict', revision: 5 })
     expect(snap().banner).toBeUndefined() // the form owns save-failure presentation

@@ -22,17 +22,36 @@
  */
 export type RepoStatus = 'verified' | 'unverified' | 'forced-network' | 'forced-auth'
 
+/** The two address slots a repo may carry (decision 0004 / D1). */
+export type AddressSlot = 'ssh' | 'http'
+
+/**
+ * A repository record with per-address state (decision 0004 / D1/D2):
+ *  - `urlSsh`/`urlHttp` are independently optional, but at least one is
+ *    present (enforced by the host schema's refine).
+ *  - Each address carries its own state quadruple (status/validatedAt/
+ *    lastError); the quadruple exists ⟺ the matching url slot exists.
+ *  - Wire semantics: an absent url field means "this address is not
+ *    configured" — on edit, dropping the field removes the address together
+ *    with its state (field presence IS the intent, no 'removed' enum).
+ */
 export interface RepoRecord {
   /** uuid, minted host-side on create. */
   readonly id: string
   readonly name: string
-  readonly url: string
+  /** SSH-family address (ssh:// scheme or scp shorthand). */
+  readonly urlSsh?: string
+  /** HTTP(S)-family address. */
+  readonly urlHttp?: string
   readonly description: string
-  readonly status: RepoStatus
-  /** ISO 8601 timestamp of the last reachability verdict; null when never verified. */
-  readonly validatedAt: string | null
-  /** Short stderr excerpt of the last failure (display-only); null when none. */
-  readonly lastError: string | null
+  readonly statusSsh?: RepoStatus
+  readonly statusHttp?: RepoStatus
+  /** ISO 8601 timestamp of the slot's last reachability verdict; null when never verified. */
+  readonly validatedAtSsh?: string | null
+  readonly validatedAtHttp?: string | null
+  /** Short stderr excerpt of the slot's last failure (display-only); null when none. */
+  readonly lastErrorSsh?: string | null
+  readonly lastErrorHttp?: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -80,14 +99,24 @@ export interface ValidateOutcome {
 // Save flow
 // ---------------------------------------------------------------------------
 
-/** The client-reached validation conclusion carried by a save request. */
-export type SaveValidation =
+/** The client-reached validation conclusion for one address slot. */
+export type SaveVerdict =
   | { readonly kind: 'verified' }
   | { readonly kind: 'unverified' }
   /** Decision D4 as amended 2026-09-24: every non-reachable class is user-decidable, unknown included. */
   | { readonly kind: 'forced'; readonly from: 'network' | 'auth' | 'unknown' }
-  /** Edit with an unchanged URL: the host keeps the record's existing status fields. */
+  /** Edit with an unchanged address: the host keeps the slot's existing state quadruple. */
   | { readonly kind: 'unchanged' }
+
+/**
+ * Per-address save conclusions (decision 0004 / D2): the key set equals the
+ * set of address slots present in the request repo.* — a slot present on one
+ * side but missing on the other is a malformed request (400 host-side).
+ */
+export interface SaveValidation {
+  readonly ssh?: SaveVerdict
+  readonly http?: SaveVerdict
+}
 
 export interface SaveRequestBody {
   readonly expectedRevision: number
@@ -95,7 +124,8 @@ export interface SaveRequestBody {
     /** Present = edit, absent = create. */
     readonly id?: string
     readonly name: string
-    readonly url: string
+    readonly urlSsh?: string
+    readonly urlHttp?: string
     readonly description: string
   }
   readonly validation: SaveValidation
@@ -157,6 +187,8 @@ export interface ErrorResponse {
     | 'unreadable-file'
     | 'internal'
   readonly reason?: UrlRejection
+  /** Which address slot a 422 invalid-url verdict refers to (decision 0004 / D4). */
+  readonly field?: AddressSlot
   readonly currentRevision?: number
   readonly repos?: readonly RepoRecord[]
 }
@@ -171,17 +203,33 @@ function isString(v: unknown): v is string {
   return typeof v === 'string'
 }
 
+/**
+ * One address slot's quadruple: absent url ⇒ absent state (all undefined);
+ * present url ⇒ non-empty string plus a well-formed state quadruple.
+ */
+function addressSlotOk(url: unknown, status: unknown, validatedAt: unknown, lastError: unknown): boolean {
+  if (url === undefined) {
+    return status === undefined && validatedAt === undefined && lastError === undefined
+  }
+  if (!isString(url) || url.length === 0) return false
+  return (
+    isString(status) && REPO_STATUSES.includes(status)
+    && (validatedAt === null || isString(validatedAt))
+    && (lastError === null || isString(lastError))
+  )
+}
+
 export function isRepoRecord(v: unknown): v is RepoRecord {
   if (typeof v !== 'object' || v === null) return false
   const r = v as Record<string, unknown>
+  const sshOk = addressSlotOk(r.urlSsh, r.statusSsh, r.validatedAtSsh, r.lastErrorSsh)
+  const httpOk = addressSlotOk(r.urlHttp, r.statusHttp, r.validatedAtHttp, r.lastErrorHttp)
+  const hasAddress = (isString(r.urlSsh) && r.urlSsh.length > 0) || (isString(r.urlHttp) && r.urlHttp.length > 0)
   return (
     isString(r.id) && r.id.length > 0
     && isString(r.name) && r.name.length > 0
-    && isString(r.url) && r.url.length > 0
     && isString(r.description)
-    && isString(r.status) && REPO_STATUSES.includes(r.status)
-    && (r.validatedAt === null || isString(r.validatedAt))
-    && (r.lastError === null || isString(r.lastError))
+    && sshOk && httpOk && hasAddress
   )
 }
 

@@ -15,7 +15,8 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFil
 import { dirname } from 'node:path'
 import YAML from 'yaml'
 import type { RepoRecord } from '../repos-pool-shared/protocol.js'
-import { ReposFileSchema, type ReposFile } from './types.js'
+import { parseReposFile } from './migrate.js'
+import type { ReposFile } from './types.js'
 
 export interface ReposFileIo {
   rename(from: string, to: string): void
@@ -54,7 +55,7 @@ export class ReposFileStore {
   load(): ReposFileResult {
     const hasBackup = existsSync(`${this.filePath}.bak`)
     if (!existsSync(this.filePath)) {
-      return { ok: true, value: { version: 1, revision: 0, repos: [] } }
+      return { ok: true, value: { version: 2, revision: 0, repos: [] } }
     }
     let text: string
     try {
@@ -68,13 +69,19 @@ export class ReposFileStore {
     } catch (error) {
       return { ok: false, degraded: true, reason: 'parse', detail: String((error as Error)?.message ?? error), hasBackup }
     }
-    const checked = ReposFileSchema.safeParse(parsed)
-    if (!checked.success) {
-      const first = checked.error.issues[0]
-      const detail = first ? `${first.path.join('.')}: ${first.message}` : 'schema mismatch'
-      return { ok: false, degraded: true, reason: 'schema', detail, hasBackup }
+    // parseReposFile validates either file version and migrates v1 in memory
+    // (decision 0004 / D3). It is written throw-free, but a throw inside a
+    // zod transform propagates out of safeParse — the belt-and-braces catch
+    // keeps load()'s never-throws contract unconditional.
+    try {
+      const checked = parseReposFile(parsed)
+      if (!checked.ok) {
+        return { ok: false, degraded: true, reason: 'schema', detail: checked.detail, hasBackup }
+      }
+      return { ok: true, value: checked.value }
+    } catch (error) {
+      return { ok: false, degraded: true, reason: 'schema', detail: String((error as Error)?.message ?? error), hasBackup }
     }
-    return { ok: true, value: checked.data }
   }
 
   /**
@@ -89,7 +96,7 @@ export class ReposFileStore {
       if (current.value.revision !== expectedRevision) {
         return { ok: false, rejected: 'stale-revision', currentRevision: current.value.revision }
       }
-      const next: ReposFile = { version: 1, revision: expectedRevision + 1, repos: [...repos] }
+      const next: ReposFile = { version: 2, revision: expectedRevision + 1, repos: [...repos] }
       this.#atomicSave(next)
       return { ok: true, revision: next.revision }
     }

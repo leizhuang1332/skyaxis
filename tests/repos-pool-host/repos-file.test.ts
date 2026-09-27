@@ -1,6 +1,7 @@
 /**
  * ReposFileStore semantics — the P0 PoC-3 scenarios promoted to regression
- * tests, plus the two production hardenings (write mutex, rename backoff).
+ * tests, plus the two production hardenings (write mutex, rename backoff),
+ * plus the v1→v2 read-side migration matrix (decision 0004 / D3).
  */
 import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -26,19 +27,44 @@ function record(name: string, description = ''): RepoRecord {
   return {
     id: randomUUID(),
     name,
-    url: `https://example.com/${name}.git`,
+    urlHttp: `https://example.com/${name}.git`,
     description,
-    status: 'verified',
-    validatedAt: '2026-09-24T09:30:00.000Z',
-    lastError: null,
+    statusHttp: 'verified',
+    validatedAtHttp: '2026-09-24T09:30:00.000Z',
+    lastErrorHttp: null,
   }
+}
+
+/** A hand-written v1 (single-url era) repos.yaml row. validatedAt/lastError accept null. */
+function v1Row(overrides: Partial<{ id: string; name: string; url: string; status: string; validatedAt: string | null; lastError: string | null }>): string {
+  const {
+    id = randomUUID(),
+    name = 'legacy',
+    url = 'https://example.com/legacy.git',
+    status = 'verified',
+    validatedAt = '2026-09-24T09:30:00.000Z',
+    lastError = null,
+  } = overrides
+  return [
+    `  - id: ${id}`,
+    `    name: ${name}`,
+    `    url: ${JSON.stringify(url)}`,
+    `    description: ''`,
+    `    status: ${status}`,
+    `    validatedAt: ${validatedAt === null ? 'null' : JSON.stringify(validatedAt)}`,
+    `    lastError: ${lastError === null ? 'null' : JSON.stringify(lastError)}`,
+  ].join('\n')
+}
+
+function writeV1(file: string, rows: string[], revision = 3): void {
+  writeFileSync(file, `version: 1\nrevision: ${revision}\nrepos:\n${rows.join('\n')}\n`, 'utf8')
 }
 
 describe('ReposFileStore: read/write roundtrip', () => {
   it('treats a missing file as pristine revision 0 and saves through 0→1', async () => {
     const { store, file } = fixture()
     const initial = store.load()
-    expect(initial).toEqual({ ok: true, value: { version: 1, revision: 0, repos: [] } })
+    expect(initial).toEqual({ ok: true, value: { version: 2, revision: 0, repos: [] } })
 
     const [a, b] = [record('chinese-poetry', '中文诗歌全集'), record('hello-world')]
     const saved = await store.save(0, [a, b])
@@ -63,6 +89,97 @@ describe('ReposFileStore: read/write roundtrip', () => {
     expect(backup.ok && backup.value.repos.map((r) => r.name)).toEqual(['alpha'])
     const live = new ReposFileStore(file).load()
     expect(live.ok && live.value.repos.map((r) => r.name)).toEqual(['alpha', 'beta'])
+  })
+})
+
+describe('ReposFileStore: v1→v2 read-side migration (decision 0004 / D3)', () => {
+  it('slots legacy urls by kind: ssh/scp forms → urlSsh, http(s) → urlHttp, state rides along', () => {
+    const { store, file } = fixture()
+    writeV1(file, [
+      v1Row({ name: 'ssh-scheme', url: 'ssh://git@code.jms.com:2222/ylspm/cal.git' }),
+      v1Row({ name: 'ssh-shorthand', url: 'git@github.com:org/repo.git' }),
+      v1Row({ name: 'scp-shorthand', url: 'code.jms.com:ylspm/repo.git' }),
+      v1Row({ name: 'https', url: 'https://example.com/a.git' }),
+      v1Row({ name: 'http', url: 'http://example.com/b.git', status: 'forced-auth', validatedAt: '2026-09-25T08:00:00.000Z', lastError: 'Permission denied' }),
+    ])
+    const loaded = store.load()
+    expect(loaded.ok).toBe(true)
+    if (!loaded.ok) return
+    // File-level revision preserved verbatim — concurrent panels keep their
+    // optimistic-lock continuity across the upgrade.
+    expect(loaded.value.revision).toBe(3)
+    expect(loaded.value.version).toBe(2)
+    const byName = new Map(loaded.value.repos.map((r) => [r.name, r]))
+    for (const name of ['ssh-scheme', 'ssh-shorthand', 'scp-shorthand']) {
+      const r = byName.get(name)!
+      expect(r.urlSsh).toBeTruthy()
+      expect(r.urlHttp).toBeUndefined()
+      expect(r.statusSsh).toBe('verified')
+      expect(r.validatedAtSsh).toBe('2026-09-24T09:30:00.000Z')
+      expect(r.lastErrorSsh).toBeNull()
+    }
+    for (const name of ['https', 'http']) {
+      const r = byName.get(name)!
+      expect(r.urlHttp).toBeTruthy()
+      expect(r.urlSsh).toBeUndefined()
+      expect(r.statusHttp).toBeTruthy()
+    }
+    const http = byName.get('http')!
+    expect(http.statusHttp).toBe('forced-auth')
+    expect(http.lastErrorHttp).toBe('Permission denied')
+  })
+
+  it('preserves syntax-illegal legacy urls verbatim in the http slot with their state (format conversion ≠ content review)', () => {
+    const { store, file } = fixture()
+    writeV1(file, [
+      v1Row({ name: 'file-scheme', url: 'file:///srv/git/repo.git' }),
+      v1Row({ name: 'whitespace', url: ' ' }),
+      v1Row({ name: 'scheme-less', url: 'srv-git-repo', status: 'unverified', validatedAt: null }),
+    ])
+    const loaded = store.load()
+    expect(loaded.ok).toBe(true)
+    if (!loaded.ok) return
+    const byName = new Map(loaded.value.repos.map((r) => [r.name, r]))
+    // No record dropped, no degrade — legality resurfaces on the record's
+    // next save/validate, not during migration.
+    expect(byName.get('file-scheme')!.urlHttp).toBe('file:///srv/git/repo.git')
+    expect(byName.get('file-scheme')!.statusHttp).toBe('verified')
+    expect(byName.get('whitespace')!.urlHttp).toBe(' ')
+    expect(byName.get('scheme-less')!.urlHttp).toBe('srv-git-repo')
+    expect(byName.get('scheme-less')!.statusHttp).toBe('unverified')
+  })
+
+  it('a v1 .bak remains loadable after manual restore (read-side compatibility bonus)', async () => {
+    const { store, file } = fixture()
+    writeV1(file, [v1Row({ name: 'legacy-backup' })])
+    copyFileSync(file, `${file}.bak`)
+    const loaded = store.load()
+    expect(loaded.ok && loaded.value.repos.map((r) => r.name)).toEqual(['legacy-backup'])
+    // Next save upgrades the on-disk file to v2 in one step.
+    const saved = await store.save(3, [record('next-era')])
+    expect(saved).toEqual({ ok: true, revision: 4 })
+    expect(readFileSync(file, 'utf8')).toContain('version: 2')
+  })
+
+  it('degrades on unknown or missing version with an actionable detail', () => {
+    const { store, file } = fixture()
+    writeFileSync(file, 'version: 3\nrevision: 0\nrepos: []', 'utf8')
+    const unknown = store.load()
+    expect(unknown.ok).toBe(false)
+    expect(unknown.ok === false && unknown.detail).toContain('未知版本')
+
+    writeFileSync(file, 'revision: 0\nrepos: []', 'utf8')
+    const missing = store.load()
+    expect(missing.ok).toBe(false)
+    expect(missing.ok === false && missing.detail).toContain('缺少 version')
+  })
+
+  it('a v1 row failing its own schema still degrades (legacy behavior unchanged)', () => {
+    const { store, file } = fixture()
+    writeFileSync(file, `version: 1\nrevision: 0\nrepos:\n${v1Row({ name: 'bad', validatedAt: 'not-a-date' })}\n`, 'utf8')
+    const degraded = store.load()
+    expect(degraded.ok).toBe(false)
+    expect(degraded.ok === false && degraded.reason).toBe('schema')
   })
 })
 
@@ -105,9 +222,14 @@ describe('ReposFileStore: degraded loads never throw', () => {
     expect(parse.ok === false && parse.hasBackup).toBe(true)
 
     writeFileSync(file, 'version: 1\nrevision: "not-a-number"\nrepos: []', 'utf8')
-    const schema = store.load()
-    expect(schema.ok).toBe(false)
-    expect(schema.ok === false && schema.reason).toBe('schema')
+    const schemaV1 = store.load()
+    expect(schemaV1.ok).toBe(false)
+    expect(schemaV1.ok === false && schemaV1.reason).toBe('schema')
+
+    writeFileSync(file, `version: 2\nrevision: 0\nrepos:\n${v1Row({ name: 'bad' })}\n`, 'utf8')
+    const schemaV2 = store.load()
+    expect(schemaV2.ok).toBe(false)
+    expect(schemaV2.ok === false && schemaV2.reason).toBe('schema')
   })
 
   it('recovers from .bak after manual restore', async () => {

@@ -43,7 +43,8 @@ export function ReposPoolPage(props: {
     ? state.repos
     : state.repos.filter((repo) =>
         repo.name.toLowerCase().includes(needle)
-        || repo.url.toLowerCase().includes(needle)
+        || (repo.urlSsh?.toLowerCase().includes(needle) ?? false)
+        || (repo.urlHttp?.toLowerCase().includes(needle) ?? false)
         || repo.description.toLowerCase().includes(needle))
 
   // Mount + window focus: pull the list (abort the mount pull on unmount).

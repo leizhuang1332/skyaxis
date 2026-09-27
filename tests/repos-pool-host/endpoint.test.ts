@@ -3,6 +3,11 @@
  * construction): dispatch through createSharedFetchHandler('/api'), real
  * ReposFileStore on a temp dir, validator unwired unless a fake subprocess is
  * injected (probe → unverified/no-service).
+ *
+ * Dual-address era (decision 0004): SAVE_BODY puts the url in the urlHttp
+ * FIELD and lets the host slot it by value — the wire contract is
+ * "field presence is the intent, kind decides the slot". The default verdict
+ * follows the value's family so legacy call sites keep their meaning.
  */
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -14,6 +19,7 @@ import type { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { ErrorResponse, ListResponse } from '../../src/repos-pool-shared/protocol.js'
 import { REPOS_LIST_PATH, REPOS_REMOVE_PATH, REPOS_SAVE_PATH, REPOS_VALIDATE_PATH } from '../../src/repos-pool-shared/protocol.js'
+import { checkUrlSyntax } from '../../src/repos-pool-shared/url-syntax.js'
 import { registerReposPoolEndpoints } from '../../src/repos-pool-host/endpoint.js'
 import { ReposFileStore } from '../../src/repos-pool-host/repos-file.js'
 import { ReposValidator } from '../../src/repos-pool-host/validator.js'
@@ -54,11 +60,18 @@ function fakeGit(outcome: { exitCode: number | null; signal: string | null; stde
   } as unknown as SubprocessRuntime
 }
 
-const SAVE_BODY = (url: string, name = 'demo', validation: unknown = { kind: 'verified' }, id?: string) => ({
-  expectedRevision: 0,
-  repo: { ...(id ? { id } : {}), name, url, description: '' },
-  validation,
-})
+const SAVE_BODY = (url: string, name = 'demo', validation?: unknown, id?: string) => {
+  const syntax = checkUrlSyntax(url)
+  const slot = syntax.acceptable && (syntax.kind === 'ssh' || syntax.kind === 'scp') ? 'ssh' : 'http'
+  // The url goes into the field matching its family — the wire contract is
+  // "field presence is the intent, field family matches the value" (a
+  // family/field mismatch is a client bug and a 400, decision 0004 / D2).
+  return {
+    expectedRevision: 0,
+    repo: { ...(id ? { id } : {}), name, ...(slot === 'ssh' ? { urlSsh: url } : { urlHttp: url }), description: '' },
+    validation: validation ?? { [slot]: { kind: 'verified' } },
+  }
+}
 
 describe('repos endpoints: list & save', () => {
   it('lists the pristine store as revision 0 with an empty array', async () => {
@@ -74,12 +87,18 @@ describe('repos endpoints: list & save', () => {
     const h = await harness()
     const res = await h.post(REPOS_SAVE_PATH, SAVE_BODY('https://github.com/octocat/Hello-World.git'))
     expect(res.status).toBe(200)
-    const body = await res.json() as { ok: true; revision: number; repo: { id: string; status: string; validatedAt: string | null } }
+    const body = await res.json() as { ok: true; revision: number; repo: { id: string; statusHttp: string; validatedAtHttp: string | null; urlSsh?: string } }
     expect(body.ok).toBe(true)
     expect(body.revision).toBe(1)
     expect(body.repo.id).toMatch(/^[0-9a-f-]{36}$/)
-    expect(body.repo.status).toBe('verified')
-    expect(typeof body.repo.validatedAt).toBe('string')
+    expect(body.repo.statusHttp).toBe('verified')
+    expect(typeof body.repo.validatedAtHttp).toBe('string')
+    expect(body.repo.urlSsh).toBeUndefined()
+
+    // Write-then-reload invariant (B10): a record the endpoint assembles must
+    // re-load — a quadruple/slot mismatch would brick the file on next boot.
+    const reloaded = h.file.load()
+    expect(reloaded.ok).toBe(true)
 
     const listed = await (await h.get(REPOS_LIST_PATH)).json() as ListResponse
     expect(listed.ok && listed.repos).toHaveLength(1)
@@ -88,15 +107,16 @@ describe('repos endpoints: list & save', () => {
 
   it('persists a forced-unknown save as unverified (D4 amended)', async () => {
     const h = await harness()
-    const res = await h.post(REPOS_SAVE_PATH, SAVE_BODY('git@github.com:u/repo.git', 'r', { kind: 'forced', from: 'unknown' }))
+    const res = await h.post(REPOS_SAVE_PATH, SAVE_BODY('git@github.com:u/repo.git', 'r', { ssh: { kind: 'forced', from: 'unknown' } }))
     expect(res.status).toBe(200)
-    const body = await res.json() as { repo: { status: string; validatedAt: string | null } }
-    expect(body.repo.status).toBe('unverified')
-    expect(body.repo.validatedAt).toBeNull()
+    const body = await res.json() as { repo: { statusSsh: string; validatedAtSsh: string | null } }
+    expect(body.repo.statusSsh).toBe('unverified')
+    expect(body.repo.validatedAtSsh).toBeNull()
+    expect(h.file.load().ok).toBe(true)
     await h.dispose()
   })
 
-  it('rejects illegitimate URLs with 422 + reason (syntax enforced server-side)', async () => {
+  it('rejects illegitimate URLs with 422 + reason + field (syntax enforced server-side)', async () => {
     const h = await harness()
     for (const [url, reason] of [
       ['file:///C:/x', 'scheme-forbidden'],
@@ -109,6 +129,8 @@ describe('repos endpoints: list & save', () => {
       const body = (await res.json()) as ErrorResponse
       expect(body.code).toBe('invalid-url')
       expect(body.reason).toBe(reason)
+      // The value arrived in the urlHttp field — the 422 points at that field.
+      expect(body.field).toBe('http')
     }
     await h.dispose()
   })
@@ -122,20 +144,21 @@ describe('repos endpoints: list & save', () => {
     expect(duplicate.status).toBe(422)
     expect(((await duplicate.json()) as ErrorResponse).code).toBe('duplicate-url')
 
-    const ghost = await h.post(REPOS_SAVE_PATH, { ...SAVE_BODY('https://example.com/c.git', 'c', { kind: 'verified' }, '00000000-0000-4000-8000-000000000000'), expectedRevision: 2 })
+    const ghost = await h.post(REPOS_SAVE_PATH, { ...SAVE_BODY('https://example.com/c.git', 'c', { http: { kind: 'verified' } }, '00000000-0000-4000-8000-000000000000'), expectedRevision: 2 })
     expect(ghost.status).toBe(404)
     expect(((await ghost.json()) as ErrorResponse).code).toBe('not-found')
 
-    // Unchanged-URL edit keeps the persisted status fields.
+    // Unchanged-address edit keeps the slot's persisted state quadruple.
     const edit = await h.post(REPOS_SAVE_PATH, {
       expectedRevision: 2,
-      repo: { id: first.repo.id, name: 'a-renamed', url: 'https://example.com/a.git', description: 'x' },
-      validation: { kind: 'unchanged' },
+      repo: { id: first.repo.id, name: 'a-renamed', urlHttp: 'https://example.com/a.git', description: 'x' },
+      validation: { http: { kind: 'unchanged' } },
     })
     expect(edit.status).toBe(200)
-    const edited = (await edit.json()) as { repo: { status: string; name: string } }
-    expect(edited.repo.status).toBe('verified')
+    const edited = (await edit.json()) as { repo: { statusHttp: string; name: string } }
+    expect(edited.repo.statusHttp).toBe('verified')
     expect(edited.repo.name).toBe('a-renamed')
+    expect(h.file.load().ok).toBe(true)
     await h.dispose()
   })
 
@@ -161,6 +184,128 @@ describe('repos endpoints: list & save', () => {
 
     const wrongMethod = await h.get(REPOS_SAVE_PATH)
     expect(wrongMethod.status).toBe(404)
+    await h.dispose()
+  })
+})
+
+describe('repos endpoints: dual-address save semantics (decision 0004)', () => {
+  it('lands an ssh-family address in the ssh slot with its own state', async () => {
+    const h = await harness()
+    const res = await h.post(REPOS_SAVE_PATH, SAVE_BODY('ssh://git@code.jms.com:2222/ylspm/cal.git', 'cal'))
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { repo: { urlSsh?: string; urlHttp?: string; statusSsh?: string } }
+    expect(body.repo.urlSsh).toBe('ssh://git@code.jms.com:2222/ylspm/cal.git')
+    expect(body.repo.urlHttp).toBeUndefined()
+    expect(body.repo.statusSsh).toBe('verified')
+    expect(h.file.load().ok).toBe(true)
+    await h.dispose()
+  })
+
+  it('rejects a value whose family disagrees with its field (400, never silently re-slotted)', async () => {
+    const h = await harness()
+    const res = await h.post(REPOS_SAVE_PATH, {
+      expectedRevision: 0,
+      repo: { name: 'misfiled', urlHttp: 'ssh://git@code.jms.com:2222/ylspm/cal.git', description: '' },
+      validation: { http: { kind: 'verified' } },
+    })
+    expect(res.status).toBe(400)
+    expect(((await res.json()) as ErrorResponse).code).toBe('bad-request')
+    await h.dispose()
+  })
+
+  it('saves both slots with independent verdicts in one request', async () => {
+    const h = await harness()
+    const res = await h.post(REPOS_SAVE_PATH, {
+      expectedRevision: 0,
+      repo: {
+        name: 'dual',
+        urlSsh: 'git@github.com:org/dual.git',
+        urlHttp: 'https://github.com/org/dual.git',
+        description: '',
+      },
+      validation: { ssh: { kind: 'unverified' }, http: { kind: 'verified' } },
+    })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { repo: Record<string, unknown> }
+    expect(body.repo.urlSsh).toBe('git@github.com:org/dual.git')
+    expect(body.repo.statusSsh).toBe('unverified')
+    expect(body.repo.validatedAtSsh).toBeNull()
+    expect(body.repo.statusHttp).toBe('verified')
+    expect(typeof body.repo.validatedAtHttp).toBe('string')
+    expect(h.file.load().ok).toBe(true)
+    await h.dispose()
+  })
+
+  it('rejects two same-family values colliding onto one slot with 400 (never silently deduped)', async () => {
+    const h = await harness()
+    const res = await h.post(REPOS_SAVE_PATH, {
+      expectedRevision: 0,
+      repo: {
+        name: 'collide',
+        urlSsh: 'https://example.com/one.git', // http value in the ssh field
+        urlHttp: 'https://example.com/two.git',
+        description: '',
+      },
+      validation: { ssh: { kind: 'verified' }, http: { kind: 'verified' } },
+    })
+    expect(res.status).toBe(400)
+    expect(((await res.json()) as ErrorResponse).code).toBe('bad-request')
+    await h.dispose()
+  })
+
+  it('falls back to unverified for an unchanged verdict without a previous slot (create or new slot)', async () => {
+    const h = await harness()
+    const res = await h.post(REPOS_SAVE_PATH, {
+      expectedRevision: 0,
+      repo: { name: 'odd-client', urlHttp: 'https://example.com/odd.git', description: '' },
+      validation: { http: { kind: 'unchanged' } },
+    })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { repo: { statusHttp: string; validatedAtHttp: string | null } }
+    expect(body.repo.statusHttp).toBe('unverified')
+    expect(body.repo.validatedAtHttp).toBeNull()
+    expect(h.file.load().ok).toBe(true)
+    await h.dispose()
+  })
+
+  it('dropping a url field on edit removes that address together with its state (field presence is the intent)', async () => {
+    const h = await harness()
+    const created = await (await h.post(REPOS_SAVE_PATH, {
+      expectedRevision: 0,
+      repo: { name: 'trim', urlSsh: 'git@github.com:org/trim.git', urlHttp: 'https://example.com/trim.git', description: '' },
+      validation: { ssh: { kind: 'verified' }, http: { kind: 'verified' } },
+    })).json() as { repo: { id: string } }
+
+    const edit = await h.post(REPOS_SAVE_PATH, {
+      expectedRevision: 1,
+      repo: { id: created.repo.id, name: 'trim', urlSsh: 'git@github.com:org/trim.git', description: '' },
+      validation: { ssh: { kind: 'unchanged' } },
+    })
+    expect(edit.status).toBe(200)
+    const body = (await edit.json()) as { repo: { urlSsh?: string; urlHttp?: string; statusHttp?: string; statusSsh?: string } }
+    expect(body.repo.urlSsh).toBe('git@github.com:org/trim.git')
+    expect(body.repo.urlHttp).toBeUndefined()
+    expect(body.repo.statusHttp).toBeUndefined()
+    expect(body.repo.statusSsh).toBe('verified')
+    // The stored file re-loads (no orphan state quadruples left behind).
+    expect(h.file.load().ok).toBe(true)
+    await h.dispose()
+  })
+
+  it('rejects a validation key set that disagrees with the address slots (400)', async () => {
+    const h = await harness()
+    const res = await h.post(REPOS_SAVE_PATH, {
+      expectedRevision: 0,
+      repo: { name: 'keyset', urlHttp: 'https://example.com/keyset.git', description: '' },
+      validation: { ssh: { kind: 'verified' } },
+    })
+    expect(res.status).toBe(400)
+    const unknownKey = await h.post(REPOS_SAVE_PATH, {
+      expectedRevision: 0,
+      repo: { name: 'keyset2', urlHttp: 'https://example.com/keyset2.git', description: '' },
+      validation: { ftp: { kind: 'verified' } },
+    })
+    expect(unknownKey.status).toBe(400)
     await h.dispose()
   })
 })
