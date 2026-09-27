@@ -4,7 +4,7 @@
  * pulls `refresh()` on mount; conflict/not-found outcomes self-heal by
  * refreshing so the revision realigns.
  */
-import type { AddressSlot, RepoRecord, SaveRequestBody } from '../../repos-pool-shared/protocol.js'
+import type { AddressSlot, ImportReport, RepoRecord, SaveRequestBody } from '../../repos-pool-shared/protocol.js'
 import type { ReposPoolStore } from './store.js'
 import type { ReposFetcher } from './fetcher.js'
 
@@ -12,12 +12,22 @@ import type { ReposFetcher } from './fetcher.js'
 export type SaveFailure = {
   readonly code: 'network' | 'conflict' | 'not-found' | 'unreadable-file' | 'bad-request' | 'invalid-url' | 'duplicate-url' | 'internal'
   readonly reason?: import('../../repos-pool-shared/protocol.js').UrlRejection
-  /** Which address slot the 422 refers to (decision 0004 / D4); the P1 one-box form does not consume it yet. */
+  /** Which address slot the 422 refers to (decision 0004 / D4). */
   readonly field?: AddressSlot
   readonly revision?: number
 }
 
 export type SaveOutcome = { readonly kind: 'ok' } | ({ readonly kind: 'failed' } & SaveFailure)
+
+/** Import failure detail, surfaced by the caller (the import dialog). */
+export type ImportFailure = {
+  readonly code: 'network' | 'conflict' | 'unreadable-file' | 'bad-request' | 'too-large' | 'internal'
+  readonly revision?: number
+}
+
+export type ImportOutcome =
+  | { readonly kind: 'ok'; readonly revision: number; readonly repos: readonly RepoRecord[]; readonly report: ImportReport }
+  | ({ readonly kind: 'failed' } & ImportFailure)
 
 export function createReposPoolController(store: ReposPoolStore, fetcher: ReposFetcher) {
   let disposed = false
@@ -118,10 +128,54 @@ export function createReposPoolController(store: ReposPoolStore, fetcher: ReposF
     patch({ banner: { code: result.code === 'unreadable-file' ? 'unreadable-file' : 'internal' } })
   }
 
+  /**
+   * Import orchestration (decision 0004 / D5). `expectedRevision` is ALWAYS
+   * the caller's — the real import must carry the revision the dry-run
+   * response returned (the preview is anchored to that snapshot); reading it
+   * from the store here would silently merge onto whatever snapshot a
+   * background focus-refresh happened to land on. Failures are RETURNED, not
+   * bannered: the dialog owns their presentation. conflict self-heals via
+   * refresh (the dialog goes back to preview); network failures refresh too
+   * so an immediate retry doesn't eat a guaranteed 409.
+   */
+  async function importRepos(content: string, options: { dryRun: boolean; expectedRevision: number }, signal?: AbortSignal): Promise<ImportOutcome> {
+    patch({ busy: true })
+    const result = await fetcher.importRepos({
+      expectedRevision: options.expectedRevision,
+      ...(options.dryRun ? { dryRun: true } : {}),
+      content,
+    }, signal)
+    if (!alive(result)) return { kind: 'failed', code: 'internal' }
+    patch({ busy: false })
+    if (result.kind === 'ok') {
+      if (!options.dryRun) {
+        // Seed from the response snapshot (the save precedent — the merged
+        // list is authoritative), then refresh as a belt-and-braces
+        // realignment.
+        patch({ phase: 'ready', revision: result.revision, repos: [...result.repos], degraded: undefined, banner: undefined })
+        void refresh(signal)
+      }
+      return { kind: 'ok', revision: result.revision, repos: [...result.repos], report: result.report }
+    }
+    if (result.kind === 'network') {
+      await refresh(signal)
+      return { kind: 'failed', code: 'network' }
+    }
+    if (result.status === 409 && result.code === 'conflict') {
+      await refresh(signal)
+      return { kind: 'failed', code: 'conflict', revision: result.currentRevision }
+    }
+    if (result.code === 'too-large' || result.code === 'bad-request' || result.code === 'unreadable-file') {
+      return { kind: 'failed', code: result.code }
+    }
+    return { kind: 'failed', code: 'internal' }
+  }
+
   return {
     refresh,
     save,
     remove,
+    importRepos,
     openCreate: () => patch({ editing: { kind: 'create' }, banner: undefined }),
     openEdit: (repo: RepoRecord) => patch({ editing: { kind: 'edit', repo }, banner: undefined }),
     closeForm: () => patch({ editing: { kind: 'closed' } }),

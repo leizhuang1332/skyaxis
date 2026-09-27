@@ -32,6 +32,11 @@ const DICT = {
     'delete.confirm': '删除',
     'delete.cancel': '取消',
     'error.network': '网络错误，请稍后重试',
+    'view.import': '导入',
+    'status.verified': '已验证',
+    'status.unverified': '未验证',
+    'status.forcedNetwork': '已保存（网络不可达）',
+    'status.forcedAuth': '已保存（无权限）',
   },
 } as const
 
@@ -166,6 +171,65 @@ describe('ReposPoolPage (P3: delete confirm, focus refresh, skeleton, banner dis
     await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: '关闭' }))
     await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+    unmount()
+  })
+})
+
+describe('ReposPoolPage (0005 P3: 双地址行与导入入口)', () => {
+  const DUAL: RepoRecord = {
+    id: 'd1',
+    name: '仓库-d',
+    description: '',
+    urlSsh: 'git@github.com:org/d.git',
+    statusSsh: 'verified',
+    validatedAtSsh: null,
+    lastErrorSsh: null,
+    urlHttp: 'https://example.com/d.git',
+    statusHttp: 'forced-network',
+    validatedAtHttp: null,
+    lastErrorHttp: null,
+  }
+
+  it('renders one line per address (SSH/HTTP label) with a per-slot status tag', async () => {
+    const { unmount } = page({ list: vi.fn(async () => ({ kind: 'ok' as const, revision: 2, repos: [DUAL] })) })
+    await waitFor(() => expect(screen.getByText('仓库-d')).toBeTruthy())
+    expect(screen.getByText('SSH')).toBeTruthy()
+    expect(screen.getByText('HTTP')).toBeTruthy()
+    expect(screen.getByText('git@github.com:org/d.git')).toBeTruthy()
+    expect(screen.getByText('https://example.com/d.git')).toBeTruthy()
+    // Per-slot tags: ssh verified + http forced-network, side by side.
+    expect(screen.getByText('已验证')).toBeTruthy()
+    expect(screen.getByText('已保存（网络不可达）')).toBeTruthy()
+    unmount()
+  })
+
+  it('the filter matches the ssh address too', async () => {
+    const { unmount } = page({ list: vi.fn(async () => ({ kind: 'ok' as const, revision: 2, repos: [DUAL, record('a')] })) })
+    await waitFor(() => expect(screen.getByText('仓库-d')).toBeTruthy())
+    fireEvent.change(screen.getByPlaceholderText('按名称 / 地址 / 简介筛选'), { target: { value: 'github.com:org/d' } })
+    await waitFor(() => {
+      expect(screen.getByText('仓库-d')).toBeTruthy()
+      expect(screen.queryByText('仓库-a')).toBeNull()
+    })
+    unmount()
+  })
+
+  it('the import entry exists and follows the ready&&!busy enable matrix', async () => {
+    const { unmount, store } = page()
+    // loading phase: the mount pull has not settled — entry disabled.
+    expect((screen.getByRole('button', { name: '导入' }) as HTMLButtonElement).disabled).toBe(true)
+    await waitFor(() => expect(screen.getByText('仓库-a')).toBeTruthy())
+    await waitFor(() => expect((screen.getByRole('button', { name: '导入' }) as HTMLButtonElement).disabled).toBe(false))
+    // busy (an in-flight mutation): disabled again.
+    store.set({ ...store.getSnapshot(), busy: true })
+    await waitFor(() => expect((screen.getByRole('button', { name: '导入' }) as HTMLButtonElement).disabled).toBe(true))
+    unmount()
+  })
+
+  it('the import entry stays disabled on a degraded pool', async () => {
+    const { unmount } = page({ list: vi.fn(async () => ({ kind: 'degraded' as const, reason: 'parse' as const, hasBackup: false })) })
+    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy())
+    expect((screen.getByRole('button', { name: '导入' }) as HTMLButtonElement).disabled).toBe(true)
     unmount()
   })
 })

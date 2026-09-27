@@ -27,8 +27,12 @@ interface ReposPoolDictionary {
   readonly 'form.titleEdit': string
   readonly 'form.name': string
   readonly 'form.namePlaceholder': string
-  readonly 'form.url': string
-  readonly 'form.urlPlaceholder': string
+  readonly 'form.urlSsh': string
+  readonly 'form.urlSshPlaceholder': string
+  readonly 'form.urlHttp': string
+  readonly 'form.urlHttpPlaceholder': string
+  readonly 'form.slotSsh': string
+  readonly 'form.slotHttp': string
   readonly 'form.description': string
   readonly 'form.descriptionPlaceholder': string
   readonly 'form.cancel': string
@@ -58,9 +62,43 @@ interface ReposPoolDictionary {
   readonly 'error.urlScpAmbiguous': string
   readonly 'error.urlCredentials': string
   readonly 'error.urlMalformed': string
-  // P1 dual-address guards (decision 0004): one-box form edge cases
-  readonly 'error.protocolSwitchBlocked': string
-  readonly 'error.otherAddressInvalid': string
+  // P3 dual-address guards (decision 0004): two-box form edge cases
+  readonly 'error.slotFamily': string
+  readonly 'error.sameAddress': string
+  // view.import + import.* — dry-run import dialog (decision 0004 D5/D6)
+  readonly 'view.import': string
+  readonly 'import.title': string
+  readonly 'import.pick': string
+  readonly 'import.pickHint': string
+  readonly 'import.reading': string
+  readonly 'import.previewing': string
+  readonly 'import.importing': string
+  readonly 'import.previewHint': string
+  readonly 'import.created': string
+  readonly 'import.updated': string
+  readonly 'import.unchanged': string
+  readonly 'import.skipped': string
+  readonly 'import.skippedTitle': string
+  readonly 'import.unnamed': string
+  readonly 'import.confirm': string
+  readonly 'import.rePreview': string
+  readonly 'import.doneTitle': string
+  readonly 'import.finish': string
+  readonly 'import.rePick': string
+  readonly 'import.staleHint': string
+  readonly 'import.errTooLarge': string
+  readonly 'import.errParse': string
+  readonly 'import.errConflict': string
+  readonly 'import.errUnreadable': string
+  readonly 'import.errNetwork': string
+  // skipReason.* — ImportSkipReason labels (7 values, protocol-locked)
+  readonly 'skipReason.emptyUrls': string
+  readonly 'skipReason.invalidName': string
+  readonly 'skipReason.invalidUrl': string
+  readonly 'skipReason.invalidDescription': string
+  readonly 'skipReason.slotConflict': string
+  readonly 'skipReason.ambiguousName': string
+  readonly 'skipReason.duplicateUrl': string
   // status.* — persisted RepoStatus labels
   readonly 'status.verified': string
   readonly 'status.unverified': string
@@ -101,8 +139,12 @@ const zh: ReposPoolDictionary = {
   'form.titleEdit': '编辑仓库',
   'form.name': '名称',
   'form.namePlaceholder': '例如：chinese-poetry',
-  'form.url': '仓库地址',
-  'form.urlPlaceholder': '例如：https://github.com/org/repo.git',
+  'form.urlSsh': 'SSH 地址',
+  'form.urlSshPlaceholder': '例如：ssh://git@code.jms.com:2222/ylspm/repo.git',
+  'form.urlHttp': 'HTTP 地址',
+  'form.urlHttpPlaceholder': '例如：https://github.com/org/repo.git',
+  'form.slotSsh': 'SSH 地址',
+  'form.slotHttp': 'HTTP 地址',
   'form.description': '简介',
   'form.descriptionPlaceholder': '选填，一段简短说明',
   'form.cancel': '取消',
@@ -114,7 +156,7 @@ const zh: ReposPoolDictionary = {
   'form.validateUnverified': '已跳过可达性校验（未检测到 git 或校验服务不可用）',
   'form.validateSkipped': '地址未变化，沿用上次校验结果',
   'error.nameRequired': '请输入仓库名称',
-  'error.urlRequired': '请输入仓库地址',
+  'error.urlRequired': '请至少填写一个地址（SSH 或 HTTP）',
   'error.invalidUrl': '仓库地址不合法',
   'error.unknownReachability': '无法确认仓库可达性（原因不明），已拒绝保存',
   'error.duplicateUrl': '该仓库地址已存在于清单中',
@@ -130,8 +172,40 @@ const zh: ReposPoolDictionary = {
   'error.urlScpAmbiguous': '无法区分主机名与本地路径，请使用完整 ssh:// 或 https:// 地址',
   'error.urlCredentials': '地址内嵌了账号凭据，请改用凭据管理而非 URL 保存密码',
   'error.urlMalformed': '地址格式无法解析',
-  'error.protocolSwitchBlocked': '该记录已配置 SSH 与 HTTP 两个地址，单输入框暂不支持切换地址类型；请先改为同类型地址，或稍后使用双地址表单',
-  'error.otherAddressInvalid': '该记录另一地址（当前未展示）语法不合法，无法保存；请先修正仓库清单中的该地址',
+  'error.slotFamily': '地址类型与输入框不符，请填入另一个输入框',
+  'error.sameAddress': '两个输入框的地址相同，同一地址只需填写一次',
+  'view.import': '导入',
+  'import.title': '导入仓库配置',
+  'import.pick': '选择配置文件',
+  'import.pickHint': '点击选择 JSON / YAML 配置文件',
+  'import.reading': '正在读取文件…',
+  'import.previewing': '正在生成导入预览…',
+  'import.importing': '正在导入…',
+  'import.previewHint': '以下为导入预览（尚未写入）：',
+  'import.created': '新增',
+  'import.updated': '更新',
+  'import.unchanged': '不变',
+  'import.skipped': '跳过',
+  'import.skippedTitle': '跳过的条目：',
+  'import.unnamed': '（未命名）',
+  'import.confirm': '确认导入',
+  'import.rePreview': '重新预览',
+  'import.doneTitle': '导入完成',
+  'import.finish': '完成',
+  'import.rePick': '重新选择文件',
+  'import.staleHint': '清单已在别处被修改，请重新预览后再确认',
+  'import.errTooLarge': '文件超出大小上限（约 2M 字符）',
+  'import.errParse': '文件内容无法解析，请检查格式（JSON 数组或 repos.yaml 格式）',
+  'import.errConflict': '清单已在别处被修改，请重新预览',
+  'import.errUnreadable': '仓库清单文件不可读（可能已损坏），请检查 repos.yaml',
+  'import.errNetwork': '网络错误，请稍后重试',
+  'skipReason.emptyUrls': '未提供任何地址',
+  'skipReason.invalidName': '名称缺失或超长',
+  'skipReason.invalidUrl': '地址不合法',
+  'skipReason.invalidDescription': '简介超长',
+  'skipReason.slotConflict': '两个地址同族争抢同一槽位',
+  'skipReason.ambiguousName': '清单中已有多个同名仓库',
+  'skipReason.duplicateUrl': '地址与其他仓库重复',
   'status.verified': '已验证',
   'status.unverified': '未验证',
   'status.forcedNetwork': '已保存（网络不可达）',
@@ -166,8 +240,12 @@ const en: ReposPoolDictionary = {
   'form.titleEdit': 'Edit repository',
   'form.name': 'Name',
   'form.namePlaceholder': 'e.g. chinese-poetry',
-  'form.url': 'Repository URL',
-  'form.urlPlaceholder': 'e.g. https://github.com/org/repo.git',
+  'form.urlSsh': 'SSH URL',
+  'form.urlSshPlaceholder': 'e.g. ssh://git@code.jms.com:2222/ylspm/repo.git',
+  'form.urlHttp': 'HTTP URL',
+  'form.urlHttpPlaceholder': 'e.g. https://github.com/org/repo.git',
+  'form.slotSsh': 'SSH URL',
+  'form.slotHttp': 'HTTP URL',
   'form.description': 'Description',
   'form.descriptionPlaceholder': 'Optional, a short note',
   'form.cancel': 'Cancel',
@@ -179,7 +257,7 @@ const en: ReposPoolDictionary = {
   'form.validateUnverified': 'Reachability check skipped (git not found or validation service unavailable)',
   'form.validateSkipped': 'URL unchanged; keeping the previous validation result',
   'error.nameRequired': 'A repository name is required',
-  'error.urlRequired': 'A repository URL is required',
+  'error.urlRequired': 'Enter at least one address (SSH or HTTP)',
   'error.invalidUrl': 'The repository URL is not acceptable',
   'error.unknownReachability': 'Reachability could not be determined (unknown cause); saving was rejected',
   'error.duplicateUrl': 'This URL is already in the list',
@@ -195,8 +273,40 @@ const en: ReposPoolDictionary = {
   'error.urlScpAmbiguous': 'Cannot tell a hostname from a local path; use a full ssh:// or https:// URL',
   'error.urlCredentials': 'Credentials embedded in the URL; use a credential store instead of a password in the URL',
   'error.urlMalformed': 'The URL cannot be parsed',
-  'error.protocolSwitchBlocked': 'This record carries both SSH and HTTP addresses; one input cannot switch between families yet — use a same-family address for now',
-  'error.otherAddressInvalid': 'The record\'s other address (not shown here) is syntactically invalid; fix it in the repos list first',
+  'error.slotFamily': 'Address family does not match this box — use the other input',
+  'error.sameAddress': 'Both boxes hold the same URL; a URL only needs to be entered once',
+  'view.import': 'Import',
+  'import.title': 'Import repository config',
+  'import.pick': 'Pick a config file',
+  'import.pickHint': 'Click to pick a JSON / YAML config file',
+  'import.reading': 'Reading file…',
+  'import.previewing': 'Building import preview…',
+  'import.importing': 'Importing…',
+  'import.previewHint': 'Import preview (nothing written yet):',
+  'import.created': 'created',
+  'import.updated': 'updated',
+  'import.unchanged': 'unchanged',
+  'import.skipped': 'skipped',
+  'import.skippedTitle': 'Skipped entries:',
+  'import.unnamed': '(unnamed)',
+  'import.confirm': 'Import',
+  'import.rePreview': 'Preview again',
+  'import.doneTitle': 'Import complete',
+  'import.finish': 'Done',
+  'import.rePick': 'Pick another file',
+  'import.staleHint': 'The list changed elsewhere — preview again before confirming',
+  'import.errTooLarge': 'File exceeds the size cap (~2M characters)',
+  'import.errParse': 'Content cannot be parsed — expected a JSON array or a repos.yaml-style file',
+  'import.errConflict': 'The list changed elsewhere — preview again',
+  'import.errUnreadable': 'repos.yaml is unreadable (possibly corrupt); check the file',
+  'import.errNetwork': 'Network error, try again later',
+  'skipReason.emptyUrls': 'no address provided',
+  'skipReason.invalidName': 'name missing or too long',
+  'skipReason.invalidUrl': 'invalid URL',
+  'skipReason.invalidDescription': 'description too long',
+  'skipReason.slotConflict': 'two same-family URLs fighting for one slot',
+  'skipReason.ambiguousName': 'multiple records already share this name',
+  'skipReason.duplicateUrl': 'URL duplicates another repository',
   'status.verified': 'Verified',
   'status.unverified': 'Unverified',
   'status.forcedNetwork': 'Saved (unreachable)',

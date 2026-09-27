@@ -93,13 +93,6 @@
   word-break: break-all;
 }
 
-.phaseRow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 4px;
-}
-
 /* ---- list ---- */
 
 /* Two cards per row (acceptance ask); cards keep their internal flex. */
@@ -184,7 +177,12 @@
 
 /* ---- filter bar ---- */
 
+/* Filter input + import entry on one line (P3): the button hugs the input,
+   the input keeps its max-width so the pair never stretches the bar. */
 .filterBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin-bottom: 12px;
 }
 
@@ -217,6 +215,17 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Per-address line label (SSH / HTTP) — fixed min-width keeps the two url
+   lines of a dual-address record vertically aligned. */
+.rowUrlLabel {
+  display: inline-block;
+  min-width: 38px;
+  margin-right: 4px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 18px;
 }
 
 .rowDesc {
@@ -316,6 +325,96 @@
 
 .fieldError {
   color: var(--dsw-alias-state-error-primary);
+  font-size: 12px;
+  line-height: 18px;
+  word-break: break-all;
+}
+
+/* ---- import dialog (P3, decision 0004 D5/D6) ---- */
+
+/* Dashed pick card — same affordance language as the add card, but stacked
+   (icon over hint) since it is the dialog's only interactive area. */
+.importPickCard {
+  width: 100%;
+  min-height: 96px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0.5px dashed var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.importPickCard:hover:not(:disabled) {
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+}
+
+.importPickCard:disabled {
+  cursor: default;
+  color: var(--dsw-alias-label-caption);
+}
+
+.importPickHint {
+  font-size: 13px;
+  line-height: 18px;
+}
+
+/* Report: four count cells on one row, then the skipped detail list. */
+.importReport {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.importCounts {
+  display: flex;
+  gap: 8px;
+}
+
+.importCount {
+  flex: 1;
+  padding: 8px 12px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+  text-align: center;
+}
+
+.importCount b {
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+}
+
+/* skipped > 0: the cell borrows the warn border used by the banner. */
+.importCountWarn {
+  border-color: var(--dsw-alias-state-warn-primary);
+}
+
+.importSkipped {
+  padding: 8px 12px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-base);
+}
+
+.importSkippedTitle {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.importSkippedList {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  color: var(--dsw-alias-label-tertiary);
   font-size: 12px;
   line-height: 18px;
   word-break: break-all;

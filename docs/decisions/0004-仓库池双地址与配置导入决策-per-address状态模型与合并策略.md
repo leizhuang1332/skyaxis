@@ -75,6 +75,12 @@ per-address 模型让上述问题全部消失（无需跨槽合成），代价�
 - `ErrorResponse` 新增可选 `field?: 'ssh' | 'http'` 定位失败槽位（可选字段，破坏性最小）。**注意**：field 定位链（fetcher Failure → parseErrorBody → controller SaveFailure → 表单 per-address fieldError）四层无编译兜底，列为验收项。
 - 空串/纯空白地址在 zod 入口归一为"未提供"（与导入规则 4"空值忽略"同一语义），空值不落库。
 
+> **2026-09-28 P3 实施补充（表单流四条承重裁决）**：
+> ① **结论按值缓存 + stale 守卫**——每槽 verdict 以 `(value, outcome)` 对存放；探测在飞时框被编辑 → 响应落地前比对 `valuesRef`，值不符即**丢弃**（绝不把旧值的结论配新值的 body 落库，顺手封掉 P1 单框时代的既有洞）。重试/再点保存只探"无结论或值不符"的槽，不全量重探。
+> ② **并行探测逐槽 settle**——失败槽回 idle + 该框网络错误文案，成功槽保留结论；任一槽缺结论则本次提交不落盘（错误可见、可编辑重试，不卡死）。
+> ③ **gate confirm 禁用语义修正（对"单一 canSave 共用所有确认路径"的实现层修正）**——DSH `RiskConfirmation` 原语用同一个 `disabled` prop 同时禁用 ack checkbox 与 confirm 按钮：直接传完整 canSave 会**死锁**（未 ack → canSave false → checkbox 被禁 → 永远无法 ack）。落地为：`disabled = busy || anyBoxError`（忙/被拦兄弟槽时整个 gate 不可操作），"所有 gate 全 ack"规则由 footer 保存按钮的 disabled（视觉信号）+ `onConfirm` 内 canSave 短路（行为兜底，单 gate 已 ack 时点击为静默 no-op）共同强制——**不可放行的语义不变，仅按钮视觉态与原裁决有偏差**。
+> ④ **自动保存路径的过期闭包洞（实现期测试暴露的真 bug）**——`handleSubmit` 内 `await` 探测后，闭包读到的 `phase` 仍是点击瞬间的渲染快照，刚探完的槽会被误判"缺结论"而永不自动保存。修复：本闭包内落地的结论收入局部 `landed` 映射，`hasMissing` 判定与 `collectVerdicts` 优先读它（渲染态仅作跨提交的缓存回退）。
+
 ## D5 导入端点（新增第五端点）
 
 - 路径 `REPOS_IMPORT_PATH = '/api/skyaxis/repos/import'`；**buffered JSON**：`{ expectedRevision, dryRun?, content: string }`（前端 `file.text()` 上送；配置文件量级 KB~百 KB，不适用 streaming）。
@@ -86,6 +92,13 @@ per-address 模型让上述问题全部消失（无需跨槽合成），代价�
 - **409 冲突口径**：**以最后一次合并响应为准**，不是幂等重放——重放针对新快照执行，窗口内第三方变更会改变合并结果，前端必须渲染最后一次响应的报告。
 - 大小防线：前端 `file.size` 预检；host 先查 content 长度（自设上限，超限 413）再进 parse，防 YAML.parse 大文档内存峰值。
 - degraded 相位（配置文件损坏）下导入入口禁用（409 unreadable-file 提前拦截于 UI 层）。
+
+> **2026-09-28 P3 实施补充（导入 UI 五条承重裁决）**：
+> ① **真导入的 revision 锚定 dry-run 响应**——`expectedRevision` 取 **dry-run 响应返回的 revision**（组件 preview 态显式持有并传入），controller 绝不代读 store：否则后台 focus-refresh 后确认会静默合并到与预览不同的快照上。
+> ② **409 永不自动链式**——dry-run 或真导入撞 conflict 均落"stale 态"（提示清单已变更），仅**用户手动点"重新预览"**才对新快照重跑 dry-run；不存在 409→自动 dry-run→自动 import 的链条。
+> ③ **前端两段 size 防线**——`file.size > IMPORT_PRECHECK_MAX_BYTES`（8MiB 字节）拒读文件；`file.text()` 后 `content.length > IMPORT_MAX_CONTENT_CHARS`（2M UTF-16 码元）拒发请求。两段分别盖住"未读先拒"与"字节≠码元"（多字节中文文件不被字节预检误拒）。
+> ④ **importing 态禁 onClose**——真导入在飞时服务端可能已落盘，关闭对话框会被读成"取消"；Modal 关闭与遮罩路径全部拒绝，done 态才可关闭。
+> ⑤ **skipped detail 白名单渲染**——detail 仅当值为 `UrlRejection` 枚举时经词典映射显示；host 的 slot-conflict detail 是硬编码中文句子，**不回显**（英文界面语言泄漏防线）。导入入口禁用矩阵钉死为 `phase === 'ready' && !busy`（degraded/loading/load-error/busy 全禁——非 ready 下 dry-run 必 409，是①②的前置闸）。
 
 ## D6 导入合并规则矩阵（需求四规则 + 边界裁决）
 

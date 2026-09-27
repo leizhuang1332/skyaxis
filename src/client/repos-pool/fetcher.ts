@@ -7,6 +7,7 @@
  * error body, and 2xx payloads checked by the hand-written protocol guards.
  */
 import {
+  REPOS_IMPORT_PATH,
   REPOS_LIST_PATH,
   REPOS_REMOVE_PATH,
   REPOS_SAVE_PATH,
@@ -15,6 +16,8 @@ import {
 import type {
   AddressSlot,
   ErrorResponse,
+  ImportReport,
+  ImportRequestBody,
   ListResponse,
   RepoRecord,
   RemoveResponseOk,
@@ -24,6 +27,7 @@ import type {
 } from '../../repos-pool-shared/protocol.js'
 import {
   isErrorResponse,
+  isImportResponseOk,
   isListResponse,
   isRemoveResponseOk,
   isSaveResponseOk,
@@ -41,6 +45,7 @@ export type ListResult =
 export type SaveResult = { readonly kind: 'ok'; readonly revision: number; readonly repo: RepoRecord } | Failure
 export type RemoveResult = { readonly kind: 'ok'; readonly revision: number } | Failure
 export type ValidateResult = { readonly kind: 'ok'; readonly outcome: ValidateOutcome } | Failure
+export type ImportResult = { readonly kind: 'ok'; readonly revision: number; readonly repos: readonly RepoRecord[]; readonly report: ImportReport } | Failure
 
 async function request(path: string, init: RequestInit | undefined, signal: AbortSignal | undefined): Promise<Response | Failure> {
   try {
@@ -120,6 +125,19 @@ export function createReposFetcher() {
       const parsed: unknown = await response.json()
       if (!isValidateResponse(parsed)) return { kind: 'http-error', status: response.status }
       return { kind: 'ok', outcome: { syntax: parsed.syntax, reachability: parsed.reachability } }
+    },
+
+    async importRepos(body: ImportRequestBody, signal?: AbortSignal): Promise<ImportResult> {
+      const response = await request(REPOS_IMPORT_PATH, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      }, signal)
+      if ('kind' in response) return response
+      if (!response.ok) return parseErrorBody(response)
+      const parsed: unknown = await response.json()
+      if (!isImportResponseOk(parsed)) return { kind: 'http-error', status: response.status }
+      return { kind: 'ok', revision: parsed.revision, repos: [...parsed.repos], report: parsed.report }
     },
   }
 }

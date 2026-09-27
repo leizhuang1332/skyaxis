@@ -6,12 +6,13 @@
  * the view layer.
  */
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { Button, IconCloseOutline16, IconDatabaseOutline16, IconSearchOutline16, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconCloseOutline16, IconDatabaseOutline16, IconDownloadOutline16, IconSearchOutline16, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { RepoRecord } from '../../repos-pool-shared/protocol.js'
 import type { ReposPoolController } from './controller.js'
 import type { ReposPoolT } from './dictionary.js'
 import type { ReposFetcher } from './fetcher.js'
+import { ImportDialog } from './import-dialog.js'
 import { ReposList } from './list.js'
 import { RepoForm } from './repo-form.js'
 import type { ReposPoolStore } from './store.js'
@@ -38,6 +39,7 @@ export function ReposPoolPage(props: {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot)
   const [filter, setFilter] = useState('')
   const [pendingRemove, setPendingRemove] = useState<RepoRecord | null>(null)
+  const [importOpen, setImportOpen] = useState(false)
   const needle = filter.trim().toLowerCase()
   const visibleRepos = needle.length === 0
     ? state.repos
@@ -84,6 +86,17 @@ export function ReposPoolPage(props: {
             aria-label={t('view.filterPlaceholder')}
             onChange={(event) => setFilter(event.target.value)}
           />
+          {/* Import entry: enabled only on a ready, non-busy pool — any other
+              phase holds a stale or zero revision and the dry-run would 409
+              (decision 0004 / D5 degraded gate is a subset of this matrix). */}
+          <Button
+            variant="ghost"
+            icon={<IconDownloadOutline16 size={16} />}
+            disabled={state.phase !== 'ready' || state.busy}
+            onClick={() => setImportOpen(true)}
+          >
+            {t('view.import')}
+          </Button>
         </div>
         {state.banner ? (
           <div className={styles.banner} role="alert">
@@ -152,6 +165,13 @@ export function ReposPoolPage(props: {
           controller={controller}
         />
       ) : null}
+      <ImportDialog
+        t={t}
+        open={importOpen}
+        revision={state.revision}
+        controller={controller}
+        onClose={() => setImportOpen(false)}
+      />
       {pendingRemove !== null ? (
         <Modal
           open

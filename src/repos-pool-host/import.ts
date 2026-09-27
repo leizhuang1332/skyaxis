@@ -30,12 +30,13 @@ import { slotOfKind } from '../repos-pool-shared/address.js'
 import type { UrlRejection } from '../repos-pool-shared/protocol.js'
 
 /**
- * Business cap on import content, in UTF-16 code units (content.length).
- * This bounds what YAML.parse has to chew on and rejects absurd files
- * early — it is NOT the process memory fence; the carrier bridge's own
+ * Business cap on import content — see repos-pool-shared/import-file.ts
+ * (shared with the browser precheck since P3). Re-exported for host
+ * consumers; bounds what YAML.parse has to chew on and rejects absurd
+ * files early. NOT the process memory fence; the carrier bridge's own
  * buffered-body cap (300MB) is.
  */
-export const IMPORT_MAX_CONTENT_CHARS = 2_000_000
+export { IMPORT_MAX_CONTENT_CHARS } from '../repos-pool-shared/import-file.js'
 
 const MAX_NAME = 64
 const MAX_DESCRIPTION = 2000
@@ -213,7 +214,7 @@ export function mergeImportEntries(
     const placed: { ssh?: string; http?: string } = {}
     let rejection: UrlRejection | undefined
     let provided = 0
-    for (const [slot, value] of [['ssh', entry.urlSsh], ['http', entry.urlHttp]] as const) {
+    for (const value of [entry.urlSsh, entry.urlHttp]) {
       if (value === undefined) continue
       provided += 1
       const syntax = checkUrlSyntax(value)
@@ -268,7 +269,7 @@ export function mergeImportEntries(
     const previous = matches[0]
     const next: MutableRepo = { ...previous }
     let changed = false
-    for (const [slot, suffix] of [['ssh', 'Ssh'], ['http', 'Http']] as const) {
+    for (const slot of ['ssh', 'http'] as const) {
       const value = placed[slot]
       if (value === undefined) continue
       const prevUrl = slot === 'ssh' ? previous.urlSsh : previous.urlHttp

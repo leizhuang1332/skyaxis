@@ -4,6 +4,7 @@
  * rejections, error-body parsing, and transport-failure collapse.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { REPOS_IMPORT_PATH } from '../../src/repos-pool-shared/protocol.js'
 import { createReposFetcher } from '../../src/client/repos-pool/fetcher.js'
 
 const record = (id: string) => ({
@@ -80,5 +81,37 @@ describe('createReposFetcher', () => {
       validation: { http: { kind: 'verified' } },
     })
     expect(result).toEqual({ kind: 'ok', revision: 4, repo: record('new') })
+  })
+})
+
+describe('createReposFetcher.importRepos (0005 P2/P3)', () => {
+  const REPORT = { created: 1, updated: 0, unchanged: 0, skipped: [] }
+
+  it('POSTs the buffered body to the import path and narrows a healthy response', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ ok: true, revision: 8, repos: [record('i')], report: REPORT }))
+    vi.stubGlobal('fetch', fetchMock)
+    const result = await createReposFetcher().importRepos({ expectedRevision: 7, dryRun: true, content: '[]' })
+    expect(result).toEqual({ kind: 'ok', revision: 8, repos: [record('i')], report: REPORT })
+    const [path, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(path).toBe(REPOS_IMPORT_PATH)
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body as string)).toEqual({ expectedRevision: 7, dryRun: true, content: '[]' })
+  })
+
+  it('parses the 413 too-large error body (code survives for the dialog branch)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ ok: false, code: 'too-large' }, 413)))
+    const result = await createReposFetcher().importRepos({ expectedRevision: 7, content: '[]' })
+    expect(result).toEqual({ kind: 'http-error', status: 413, code: 'too-large' })
+  })
+
+  it('rejects 2xx bodies that fail the import shape guard', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ ok: true, revision: 8, repos: [], report: { ...REPORT, created: 'one' } })))
+    const result = await createReposFetcher().importRepos({ expectedRevision: 7, content: '[]' })
+    expect(result).toEqual({ kind: 'http-error', status: 200 })
+  })
+
+  it('collapses transport failures to network', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('fetch failed') }))
+    await expect(createReposFetcher().importRepos({ expectedRevision: 7, content: '[]' })).resolves.toEqual({ kind: 'network' })
   })
 })
