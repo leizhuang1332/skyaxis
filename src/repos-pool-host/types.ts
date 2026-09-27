@@ -16,6 +16,7 @@
 import { z } from 'zod'
 import type {
   AddressSlot,
+  ImportRequestBody,
   RepoRecord,
   RepoStatus,
   SaveRequestBody,
@@ -142,6 +143,12 @@ export const ValidateRequestSchema = z.object({
   url: z.string().min(1).max(2048),
 })
 
+export const ImportRequestSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  dryRun: z.boolean().optional(),
+  content: z.string().min(1),
+})
+
 // ---------------------------------------------------------------------------
 // Compile-time alignment with the shared protocol (drift = type error)
 // ---------------------------------------------------------------------------
@@ -151,6 +158,7 @@ type _ProtocolRepoRecordAssignableToSchema = RepoRecord extends z.infer<typeof R
 type _SchemaRepoRecordAssignableToProtocol = z.infer<typeof RepoRecordSchema> extends RepoRecord ? true : never
 type _SaveValidationAligned = SaveValidation extends z.infer<typeof SaveValidationSchema> ? true : never
 type _SaveRequestAligned = SaveRequestBody extends z.infer<typeof SaveRequestSchema> ? true : never
+type _ImportRequestAligned = ImportRequestBody extends z.infer<typeof ImportRequestSchema> ? true : never
 
 /** Re-exported so host modules consume the protocol unions under one import. */
 export type HostUrlRejection = UrlRejection

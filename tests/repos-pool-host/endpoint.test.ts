@@ -9,7 +9,7 @@
  * "field presence is the intent, kind decides the slot". The default verdict
  * follows the value's family so legacy call sites keep their meaning.
  */
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
@@ -18,7 +18,8 @@ import type { HostConnectionHandle } from '@deepseek-ai/dsh-client-connection'
 import type { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { ErrorResponse, ListResponse } from '../../src/repos-pool-shared/protocol.js'
-import { REPOS_LIST_PATH, REPOS_REMOVE_PATH, REPOS_SAVE_PATH, REPOS_VALIDATE_PATH } from '../../src/repos-pool-shared/protocol.js'
+import { isImportResponseOk, isRepoRecord } from '../../src/repos-pool-shared/protocol.js'
+import { REPOS_IMPORT_PATH, REPOS_LIST_PATH, REPOS_REMOVE_PATH, REPOS_SAVE_PATH, REPOS_VALIDATE_PATH } from '../../src/repos-pool-shared/protocol.js'
 import { checkUrlSyntax } from '../../src/repos-pool-shared/url-syntax.js'
 import { registerReposPoolEndpoints } from '../../src/repos-pool-host/endpoint.js'
 import { ReposFileStore } from '../../src/repos-pool-host/repos-file.js'
@@ -377,6 +378,120 @@ describe('repos endpoints: remove', () => {
 
     const stale = await h.post(REPOS_REMOVE_PATH, { expectedRevision: 0, id: '00000000-0000-4000-8000-000000000000' })
     expect(stale.status).toBe(409)
+    await h.dispose()
+  })
+})
+
+describe('repos endpoints: import (decision 0004 / D5+D6)', () => {
+  const IMPORT_BODY = (content: string, expectedRevision = 0, dryRun?: boolean) => ({
+    expectedRevision,
+    ...(dryRun !== undefined ? { dryRun } : {}),
+    content,
+  })
+  const JSON_FILE = JSON.stringify([
+    { name: 'yl-jms-spmibill-cal-api', 'url-ssh': 'ssh://git@code.jms.com:2222/ylspm/cal-api.git', 'url-http': 'http://code.jms.com/ylspm/cal-api.git' },
+  ])
+
+  it('dry-run reports and previews without writing a single byte', async () => {
+    const h = await harness()
+    await h.post(REPOS_SAVE_PATH, SAVE_BODY('https://example.com/existing.git', 'existing')) // file now exists
+    const before = readFileSync(h.file.filePath, 'utf8')
+    const res = await h.post(REPOS_IMPORT_PATH, IMPORT_BODY(JSON_FILE, 1, true))
+    expect(res.status).toBe(200)
+    const parsed: unknown = await res.json()
+    expect(isImportResponseOk(parsed)).toBe(true)
+    if (!isImportResponseOk(parsed)) return
+    expect(parsed.revision).toBe(1) // dry-run never bumps
+    expect(parsed.report.created).toBe(1)
+    expect(parsed.repos).toHaveLength(2) // preview snapshot carries the would-be record
+    expect(readFileSync(h.file.filePath, 'utf8')).toBe(before) // byte-identical
+    await h.dispose()
+  })
+
+  it('dry-run checks the revision too: stale preview anchor → 409 + currentRevision', async () => {
+    const h = await harness()
+    await h.post(REPOS_SAVE_PATH, SAVE_BODY('https://example.com/a.git', 'a'))
+    const res = await h.post(REPOS_IMPORT_PATH, IMPORT_BODY(JSON_FILE, 0, true))
+    expect(res.status).toBe(409)
+    expect(((await res.json()) as ErrorResponse).currentRevision).toBe(1)
+    await h.dispose()
+  })
+
+  it('imports for real: revision +1, response passes the browser guard, file reloads, list shows the record', async () => {
+    const h = await harness()
+    const res = await h.post(REPOS_IMPORT_PATH, IMPORT_BODY(JSON_FILE))
+    expect(res.status).toBe(200)
+    const parsed: unknown = await res.json()
+    expect(isImportResponseOk(parsed)).toBe(true)
+    if (!isImportResponseOk(parsed)) return
+    expect(parsed.revision).toBe(1)
+    expect(parsed.report).toMatchObject({ created: 1, updated: 0, unchanged: 0 })
+    expect(parsed.repos.every(isRepoRecord)).toBe(true)
+    // Write-then-reload invariant: the merged record re-loads.
+    expect(h.file.load().ok).toBe(true)
+    const listed = await (await h.get(REPOS_LIST_PATH)).json() as ListResponse
+    const imported = listed.ok ? listed.repos.find((r) => r.name === 'yl-jms-spmibill-cal-api') : undefined
+    expect(imported?.urlSsh).toBe('ssh://git@code.jms.com:2222/ylspm/cal-api.git')
+    expect(imported?.urlHttp).toBe('http://code.jms.com/ylspm/cal-api.git')
+    expect(imported?.statusSsh).toBe('unverified')
+    await h.dispose()
+  })
+
+  it('a description-only change still lands on disk (change detection = slot ∪ description)', async () => {
+    const h = await harness()
+    const created = await (await h.post(REPOS_SAVE_PATH, SAVE_BODY('https://example.com/doc.git', 'doc'))).json() as { repo: { id: string } }
+    const res = await h.post(REPOS_IMPORT_PATH, IMPORT_BODY(
+      JSON.stringify([{ name: 'doc', 'url-http': 'https://example.com/doc.git', description: 'imported note' }]), 1,
+    ))
+    expect(res.status).toBe(200)
+    const parsed = (await res.json()) as { revision: number; report: { updated: number } }
+    expect(parsed.revision).toBe(2)
+    expect(parsed.report.updated).toBe(1)
+    const reloaded = h.file.load()
+    expect(reloaded.ok && reloaded.value.repos[0].description).toBe('imported note')
+    expect(created.repo.id).toBeTruthy()
+    await h.dispose()
+  })
+
+  it('re-importing identical content writes nothing (no revision bump, no file change)', async () => {
+    const h = await harness()
+    await h.post(REPOS_IMPORT_PATH, IMPORT_BODY(JSON_FILE))
+    const afterFirst = readFileSync(h.file.filePath, 'utf8')
+    const again = await h.post(REPOS_IMPORT_PATH, IMPORT_BODY(JSON_FILE, 1))
+    expect(again.status).toBe(200)
+    const parsed = (await again.json()) as { revision: number; report: { created: number; updated: number; unchanged: number } }
+    expect(parsed.revision).toBe(1) // unchanged
+    expect(parsed.report).toMatchObject({ created: 0, updated: 0, unchanged: 1 })
+    expect(readFileSync(h.file.filePath, 'utf8')).toBe(afterFirst)
+    await h.dispose()
+  })
+
+  it('rejects oversized content with 413 too-large before parsing', async () => {
+    const h = await harness()
+    const res = await h.post(REPOS_IMPORT_PATH, IMPORT_BODY('x'.repeat(2_000_001)))
+    expect(res.status).toBe(413)
+    expect(((await res.json()) as ErrorResponse).code).toBe('too-large')
+    await h.dispose()
+  })
+
+  it('answers 400 for unparseable content and scalar documents', async () => {
+    const h = await harness()
+    const badYaml = await h.post(REPOS_IMPORT_PATH, IMPORT_BODY('repos: [ broken :::\n  - {'))
+    expect(badYaml.status).toBe(400)
+    const scalar = await h.post(REPOS_IMPORT_PATH, IMPORT_BODY('hello'))
+    expect(scalar.status).toBe(400)
+    const noRepos = await h.post(REPOS_IMPORT_PATH, IMPORT_BODY('{"version": 2}'))
+    expect(noRepos.status).toBe(400)
+    await h.dispose()
+  })
+
+  it('refuses imports over a degraded file (the UI gate is not the trust boundary)', async () => {
+    const h = await harness()
+    await h.post(REPOS_SAVE_PATH, SAVE_BODY('https://example.com/a.git', 'a'))
+    writeFileSync(h.file.filePath, 'broken: [', 'utf8')
+    const res = await h.post(REPOS_IMPORT_PATH, IMPORT_BODY(JSON_FILE, 1))
+    expect(res.status).toBe(409)
+    expect(((await res.json()) as ErrorResponse).code).toBe('unreadable-file')
     await h.dispose()
   })
 })

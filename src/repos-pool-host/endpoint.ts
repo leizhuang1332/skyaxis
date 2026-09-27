@@ -12,8 +12,10 @@
  * assembly → save.
  */
 import { randomUUID } from 'node:crypto'
+import YAML from 'yaml'
 import type { HostConnectionHandle } from '@deepseek-ai/dsh-client-connection'
 import {
+  REPOS_IMPORT_PATH,
   REPOS_LIST_PATH,
   REPOS_REMOVE_PATH,
   REPOS_SAVE_PATH,
@@ -22,14 +24,17 @@ import {
 import type {
   AddressSlot,
   ErrorResponse,
+  ImportReport,
+  ImportResponseOk,
   ListResponse,
   RepoRecord,
   RepoStatus,
   SaveVerdict,
 } from '../repos-pool-shared/protocol.js'
 import { slotOfKind } from '../repos-pool-shared/address.js'
+import { IMPORT_MAX_CONTENT_CHARS, mergeImportEntries, normalizeImportEntries } from './import.js'
 import type { ReposFileStore } from './repos-file.js'
-import { RemoveRequestSchema, SaveRequestSchema, ValidateRequestSchema } from './types.js'
+import { ImportRequestSchema, RemoveRequestSchema, SaveRequestSchema, ValidateRequestSchema } from './types.js'
 import { checkUrlSyntax as validatorSyntax } from './validator.js'
 import type { ReposValidator } from './validator.js'
 
@@ -214,6 +219,79 @@ export function registerReposPoolEndpoints(connection: HostConnectionHandle, ser
           return errorResponse(409, 'unreadable-file')
         }
         return json({ ok: true, revision: saved.revision, repo: record })
+      } catch (error) {
+        log?.(error)
+        return errorResponse(500, 'internal')
+      }
+    },
+  })
+
+  connection.fetch.register({
+    path: REPOS_IMPORT_PATH,
+    methods: ['POST'],
+    requestBody: 'buffered',
+    fetch: async (request) => {
+      const parsed = ImportRequestSchema.safeParse(await readJsonBody(request))
+      if (!parsed.success) return errorResponse(400, 'bad-request')
+      const { expectedRevision, dryRun, content } = parsed.data
+
+      // Business cap (UTF-16 code units). Bounds what YAML.parse has to chew
+      // on and rejects absurd files early — NOT the process memory fence
+      // (the carrier bridge's buffered-body cap is).
+      if (content.length > IMPORT_MAX_CONTENT_CHARS) return errorResponse(413, 'too-large')
+
+      // One parser for both formats (JSON is a YAML subset). Bare catch: the
+      // yaml library throws ReferenceError (alias-count limit), not just
+      // YAMLParseError (multi-document, bad syntax).
+      let document: unknown
+      try {
+        document = YAML.parse(content)
+      } catch {
+        return errorResponse(400, 'bad-request')
+      }
+      const normalized = normalizeImportEntries(document)
+      if (!normalized.ok) return errorResponse(400, 'bad-request')
+
+      const current = file.load()
+      if (!current.ok) return errorResponse(409, 'unreadable-file')
+      // dry-run checks the revision too: the preview must be anchored to the
+      // same snapshot the follow-up real import would merge onto.
+      if (current.value.revision !== expectedRevision) {
+        return errorResponse(409, 'conflict', { currentRevision: current.value.revision })
+      }
+
+      const merged = mergeImportEntries(current.value.repos, normalized.entries)
+      const report: ImportReport = {
+        created: merged.created,
+        updated: merged.updated,
+        unchanged: merged.unchanged,
+        skipped: [...merged.skipped, ...normalized.skipped],
+      }
+
+      // dry-run: report + preview snapshot only (preview ids are NOT the ids
+      // a later real import would mint).
+      if (dryRun === true) {
+        const body: ImportResponseOk = { ok: true, revision: current.value.revision, repos: merged.nextRepos, report }
+        return json(body)
+      }
+
+      // Zero real change (slots all no-op AND descriptions identical): skip
+      // the write entirely — no revision bump, no .bak churn.
+      if (merged.created === 0 && merged.updated === 0) {
+        const body: ImportResponseOk = { ok: true, revision: current.value.revision, repos: current.value.repos, report }
+        return json(body)
+      }
+
+      try {
+        const saved = await file.save(expectedRevision, merged.nextRepos)
+        if (!saved.ok) {
+          if (saved.rejected === 'stale-revision') {
+            return errorResponse(409, 'conflict', { currentRevision: saved.currentRevision })
+          }
+          return errorResponse(409, 'unreadable-file')
+        }
+        const body: ImportResponseOk = { ok: true, revision: saved.revision, repos: merged.nextRepos, report }
+        return json(body)
       } catch (error) {
         log?.(error)
         return errorResponse(500, 'internal')

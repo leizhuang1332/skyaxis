@@ -51,6 +51,7 @@ per-address 模型让上述问题全部消失（无需跨槽合成），代价�
 > ① **槽级 unchanged 兜底**——`'unchanged'` 但 previous 无该槽（create 或编辑新增槽，罕见客户端信号）**不 422**，落 unverified 四件套（槽内默认），保住陈旧缓存客户端的保存流。
 > ② **YAML null 视同缺键**——手改 repos.yaml 写 `urlSsh:`（冒号后留空，yaml 库解析为 null）语义是"不配该地址"而非坏文件：v2 存储记录的可选字段将 null 归一为缺键，refine 以 `!== undefined` 判存在；`validatedAt*/lastError*` 的 null 是合法语义值（槽存在+未验证）不受影响。
 > ③ **归位撞槽 400**——请求字段族与值族不一致（如 `urlSsh` 装 http 值）或两值归位同槽：**400 bad-request（客户端 bug），绝不静默去重/改槽**。D4 的"按值归位"保证的是**落库槽位由值决定**（存储中 urlSsh 槽必为 ssh 族），并非宽容错位请求——客户端（表单/导入装配）负责把值放进正确字段。
+> **2026-09-27 P2 补充（两条写路径的错位语义分叉）**：import 条目的键族/值族交叉（`url-ssh` 装 http 值）或同族两值抢槽是**用户文件问题 → 该条 skipped（reason `slot-conflict`）带因继续**，与 save 的 400（客户端 bug）分叉——批量导入不因单条错位整单拒。另 D6 的 description 合并口径钉死：**值异才更新、值同 no-op 计 unchanged**（与地址同哲学）——变更检测 = 槽位变更 ∪ description 值异，description-only 更新同样落盘（否则被"零变更不落盘"分支静默丢弃），重复导入同文件不空转。
 
 ## D3 repos.yaml v1→v2 迁移：读侧兼容，格式转换不做内容审查
 
@@ -96,7 +97,7 @@ per-address 模型让上述问题全部消失（无需跨槽合成），代价�
 | 2 有仓库、对应槽位为空 | 补入该地址（unverified 四件套）；**另一地址的状态四件套原样保留**（per-address 模型下与 save 路径语义自动一致） |
 | 3 有仓库有地址、导入值非空且不相等 | 覆盖该槽位 url 并重置其状态四件套（unverified/null/null）；与系统值相等则 no-op 计入 unchanged |
 | 4 导入地址空/空串/纯空白/缺字段 | 该槽位视为"未提供"，**绝不触碰系统已有值**；两地址皆空的新条目整条跳过（`empty-urls`） |
-| description | 与地址同哲学：非空则更新、空则忽略（yaml 导出文件天然带 description，丢弃不合理） |
+| description | 与地址同哲学：非空且**值异**则更新、空或值同则忽略/计 unchanged（yaml 导出文件天然带 description，丢弃不合理；2026-09-27 P2 钉死"值异才更新"防重复导入空转） |
 | id / status / validatedAt / lastError | 一律不采用（防伪造 id 撞库；导入文件中的验证结论不可信） |
 | name 空串/缺失/超 64 | 跳过（`invalid-name`） |
 | 地址非法（checkUrlSyntax 拒绝） | 跳过该条并带具体 UrlRejection（`invalid-url`）——白名单不可因批量放松 |

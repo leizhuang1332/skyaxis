@@ -137,6 +137,59 @@ export interface RemoveRequestBody {
 }
 
 // ---------------------------------------------------------------------------
+// Import flow (decision 0004 / D5+D6)
+// ---------------------------------------------------------------------------
+
+/** Per-entry skip reasons, in merge-pipeline order. */
+export type ImportSkipReason =
+  /** Neither address provided (both blank/missing). */
+  | 'empty-urls'
+  /** Name missing/blank/over 64 chars after trim. */
+  | 'invalid-name'
+  /** An address failed checkUrlSyntax (detail carries the UrlRejection). */
+  | 'invalid-url'
+  /** Description over 2000 chars (the one storage limit nothing else enforces). */
+  | 'invalid-description'
+  /** Two same-family values fighting for one slot, or the kebab/camel spellings of one slot disagree. */
+  | 'slot-conflict'
+  /** The pool already holds 2+ records with this name. */
+  | 'ambiguous-name'
+  /** An address equals any address of a different-name record (earlier entries of this batch included). */
+  | 'duplicate-url'
+
+export interface ImportSkipped {
+  /** Always a string: '' when the entry's own name was unusable, capped at 64 chars. */
+  readonly name: string
+  readonly reason: ImportSkipReason
+  readonly detail?: string
+}
+
+export interface ImportReport {
+  readonly created: number
+  readonly updated: number
+  readonly unchanged: number
+  /** created + updated + unchanged + skipped.length === entry count in the file. */
+  readonly skipped: readonly ImportSkipped[]
+}
+
+export interface ImportRequestBody {
+  readonly expectedRevision: number
+  /** Preview only: merge result and report come back, nothing is written. */
+  readonly dryRun?: boolean
+  /** Raw file content — JSON is a YAML subset, the host parses one way. */
+  readonly content: string
+}
+
+export interface ImportResponseOk {
+  readonly ok: true
+  /** Current revision on dry-run / zero-change; +1 after a real write. */
+  readonly revision: number
+  /** Post-merge snapshot (dry-run preview ids are NOT the ids a later real import will mint). */
+  readonly repos: readonly RepoRecord[]
+  readonly report: ImportReport
+}
+
+// ---------------------------------------------------------------------------
 // Route paths (host registers, browser calls — one source of truth)
 // ---------------------------------------------------------------------------
 
@@ -144,6 +197,7 @@ export const REPOS_LIST_PATH = '/api/skyaxis/repos'
 export const REPOS_VALIDATE_PATH = '/api/skyaxis/repos/validate'
 export const REPOS_SAVE_PATH = '/api/skyaxis/repos/save'
 export const REPOS_REMOVE_PATH = '/api/skyaxis/repos/remove'
+export const REPOS_IMPORT_PATH = '/api/skyaxis/repos/import'
 
 // ---------------------------------------------------------------------------
 // Wire envelopes
@@ -175,7 +229,7 @@ export interface RemoveResponseOk {
   readonly revision: number
 }
 
-/** Error body for 4xx/5xx responses (validate/save/remove). */
+/** Error body for 4xx/5xx responses (validate/save/remove/import). */
 export interface ErrorResponse {
   readonly ok: false
   readonly code:
@@ -186,6 +240,8 @@ export interface ErrorResponse {
     | 'conflict'
     | 'unreadable-file'
     | 'internal'
+    /** Import content over the business cap (413). */
+    | 'too-large'
   readonly reason?: UrlRejection
   /** Which address slot a 422 invalid-url verdict refers to (decision 0004 / D4). */
   readonly field?: AddressSlot
@@ -256,6 +312,31 @@ export function isRemoveResponseOk(v: unknown): v is RemoveResponseOk {
   if (typeof v !== 'object' || v === null) return false
   const r = v as Record<string, unknown>
   return r.ok === true && typeof r.revision === 'number'
+}
+
+const IMPORT_SKIP_REASONS: readonly string[] = [
+  'empty-urls', 'invalid-name', 'invalid-url', 'invalid-description', 'slot-conflict', 'ambiguous-name', 'duplicate-url',
+]
+
+export function isImportResponseOk(v: unknown): v is ImportResponseOk {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  if (r.ok !== true || typeof r.revision !== 'number' || !Array.isArray(r.repos) || !r.repos.every(isRepoRecord)) return false
+  const report = r.report
+  if (typeof report !== 'object' || report === null) return false
+  const p = report as Record<string, unknown>
+  if (typeof p.created !== 'number' || typeof p.updated !== 'number' || typeof p.unchanged !== 'number' || !Array.isArray(p.skipped)) {
+    return false
+  }
+  return p.skipped.every((s) => {
+    if (typeof s !== 'object' || s === null) return false
+    const e = s as Record<string, unknown>
+    return (
+      isString(e.name)
+      && isString(e.reason) && IMPORT_SKIP_REASONS.includes(e.reason)
+      && (e.detail === undefined || isString(e.detail))
+    )
+  })
 }
 
 export function isErrorResponse(v: unknown): v is ErrorResponse {
