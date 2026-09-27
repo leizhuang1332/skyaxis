@@ -8,15 +8,18 @@
  */
 import {
   REQUIREMENTS_LIST_PATH,
+  REQUIREMENTS_REPOS_PATH,
   REQUIREMENTS_REMOVE_PATH,
   REQUIREMENTS_SAVE_PATH,
   REQUIREMENTS_WORKSPACE_PATH,
 } from '../../requirements-shared/protocol.js'
 import type {
+  CloneTaskSnapshot,
   ErrorResponse,
   ListResponse,
   RemoveResponseOk,
   RequirementRecord,
+  ReposMutateRequestBody,
   SaveRequestBody,
   SaveResponseOk,
   WorkspaceSetRequestBody,
@@ -25,6 +28,7 @@ import {
   isErrorResponse,
   isListResponse,
   isRemoveResponseOk,
+  isReposTasksResponse,
   isSaveResponseOk,
   isWorkspaceStatusResponse,
 } from '../../requirements-shared/protocol.js'
@@ -51,6 +55,12 @@ export type WorkspaceStatusResult =
   | Failure
 /** Set/clear share the save envelope shape. */
 export type WorkspaceSetResult = SaveResult
+/** link/unlink answer with the record envelope plus the initial task rows. */
+export type ReposMutateResult =
+  | { readonly kind: 'ok'; readonly revision: number; readonly requirement: RequirementRecord; readonly tasks: readonly CloneTaskSnapshot[] }
+  | Failure
+/** reclone/cancel answer with task rows only (no ledger write). */
+export type ReposTasksResult = { readonly kind: 'ok'; readonly tasks: readonly CloneTaskSnapshot[] } | Failure
 
 async function request(path: string, init: RequestInit | undefined, signal: AbortSignal | undefined): Promise<Response | Failure> {
   try {
@@ -150,6 +160,37 @@ export function createRequirementsFetcher() {
 
     async clearWorkspace(id: string, expectedRevision: number, signal?: AbortSignal): Promise<WorkspaceSetResult> {
       return this.setWorkspace({ expectedRevision, id, action: 'clear' }, signal)
+    },
+
+    async repoTasks(id: string, signal?: AbortSignal): Promise<ReposTasksResult> {
+      const response = await request(
+        `${REQUIREMENTS_REPOS_PATH}?id=${encodeURIComponent(id)}`,
+        { method: 'GET' },
+        signal,
+      )
+      if ('kind' in response) return response
+      if (!response.ok) return parseErrorBody(response)
+      const parsed: unknown = await response.json()
+      if (!isReposTasksResponse(parsed)) return { kind: 'http-error', status: response.status }
+      return { kind: 'ok', tasks: [...parsed.tasks] }
+    },
+
+    async mutateRepos(body: ReposMutateRequestBody, signal?: AbortSignal): Promise<ReposMutateResult | ReposTasksResult> {
+      const response = await request(REQUIREMENTS_REPOS_PATH, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      }, signal)
+      if ('kind' in response) return response
+      if (!response.ok) return parseErrorBody(response)
+      const parsed: unknown = await response.json()
+      // link/unlink → record (+ tasks, empty when none apply); reclone/cancel → tasks only.
+      if (isSaveResponseOk(parsed)) {
+        const withTasks = parsed as SaveResponseOk & { tasks?: readonly CloneTaskSnapshot[] }
+        return { kind: 'ok', revision: withTasks.revision, requirement: withTasks.requirement, tasks: withTasks.tasks ? [...withTasks.tasks] : [] }
+      }
+      if (isReposTasksResponse(parsed)) return { kind: 'ok', tasks: [...parsed.tasks] }
+      return { kind: 'http-error', status: response.status }
     },
 
     /** Recreates the host registration only — answers with the refreshed status. */

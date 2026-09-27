@@ -97,6 +97,36 @@ describe('requirements: dictionaries', () => {
       'page.degradedBackupHint',
       'page.loading',
       'panel.title',
+      'repos.add',
+      'repos.branchLabel',
+      'repos.branching',
+      'repos.cancel',
+      'repos.cancelled',
+      'repos.cloning',
+      'repos.emptyHint',
+      'repos.emptyPool',
+      'repos.errBusy',
+      'repos.errDestExists',
+      'repos.errGitMissing',
+      'repos.errInvalidBranch',
+      'repos.errNoWorkspace',
+      'repos.errTooMany',
+      'repos.failAuth',
+      'repos.failGitMissing',
+      'repos.failNetwork',
+      'repos.failedTag',
+      'repos.link',
+      'repos.menuLabel',
+      'repos.poolError',
+      'repos.reclone',
+      'repos.removeCancel',
+      'repos.removeConfirm',
+      'repos.removeDesc',
+      'repos.removeLink',
+      'repos.removeLinkHint',
+      'repos.removeTitle',
+      'repos.removedRepo',
+      'repos.selectRepo',
       'view.addRequirement',
       'view.filterEmpty',
       'view.filterPlaceholder',
@@ -153,7 +183,7 @@ describe('requirements: SlotCore registration contract', () => {
       requirementsMainOptions(),
       (props: PropsRuntime<'main'> & PropsRenderSlots<'requirements.detail.view'>) => {
         const store = createRequirementsStore()
-        const controller = createRequirementsController(store, { list: async () => ({ kind: 'network' }) } as never)
+        const controller = createRequirementsController(store, { list: async () => ({ kind: 'network' }), repoTasks: async () => ({ kind: 'ok', tasks: [] }) } as never)
         return (
           <RequirementsPage
             t={t}
@@ -167,7 +197,7 @@ describe('requirements: SlotCore registration contract', () => {
     )
     // The tab seats, registered AFTER the declaring entry (SlotCore throws
     // on an undeclared slot; order is fixture-controlled).
-    const seats = createRequirementTabSeats({ t, controller: createRequirementsController(createRequirementsStore(), { list: async () => ({ kind: 'network' }) } as never), capabilities: createWorkspaceCapabilities() })
+    const seats = createRequirementTabSeats({ t, controller: createRequirementsController(createRequirementsStore(), { list: async () => ({ kind: 'network' }), repoTasks: async () => ({ kind: 'ok', tasks: [] }) } as never), capabilities: createWorkspaceCapabilities() })
     const disposeOverview = core.register(
       { name: 'requirements.detail.view', id: 'overview', order: 10, label: () => t('detail.tab.overview') },
       seats.RequirementOverviewTab,

@@ -4,12 +4,21 @@
  * `refresh()` on mount; conflict/not-found outcomes self-heal by refreshing
  * so the revision realigns.
  */
-import type { RequirementRecord, SaveRequestBody, WorkspaceSetRequestBody } from '../../requirements-shared/protocol.js'
+import type { CloneTaskSnapshot, RequirementRecord, ReposMutateRequestBody, SaveRequestBody, WorkspaceSetRequestBody } from '../../requirements-shared/protocol.js'
 import type { RequirementsStore } from './store.js'
-import type { RequirementsFetcher, WorkspaceStatusResult } from './fetcher.js'
+import type { RequirementsFetcher, ReposTasksResult, WorkspaceStatusResult } from './fetcher.js'
 
 /** Workspace mutation outcome: 'invalid-path' stays inline (no banner). */
 export type WorkspaceOutcome = 'ok' | 'invalid-path' | 'failed'
+
+/**
+ * Linked-repo mutation outcome: business rejections (the preflight family)
+ * stay inline next to the form; transport/conflict failures banner.
+ */
+export type ReposOutcome =
+  | { kind: 'ok'; tasks: readonly CloneTaskSnapshot[] }
+  | { kind: 'inline'; code: 'no-workspace' | 'invalid-branch' | 'dest-exists' | 'busy' | 'too-many' | 'git-missing' | 'bad-request' }
+  | { kind: 'failed' }
 
 export function createRequirementsController(store: RequirementsStore, fetcher: RequirementsFetcher) {
   let disposed = false
@@ -164,6 +173,65 @@ export function createRequirementsController(store: RequirementsStore, fetcher: 
   }
 
   /** Registry-only repair: no ledger write, so no store change on success. */
+  async function repoTasks(id: string, signal?: AbortSignal): Promise<ReposTasksResult | undefined> {
+    const result = await fetcher.repoTasks(id, signal)
+    return alive(result) ? result : undefined
+  }
+
+  const REPOS_INLINE_CODES = new Set(['no-workspace', 'invalid-branch', 'dest-exists', 'busy', 'too-many', 'git-missing', 'bad-request'])
+
+  async function mutateRepos(body: ReposMutateRequestBody, updatesRecord: boolean, signal?: AbortSignal): Promise<ReposOutcome> {
+    const result = await fetcher.mutateRepos(body, signal)
+    if (!alive(result)) return { kind: 'failed' }
+    if (result.kind === 'ok') {
+      if (updatesRecord && 'requirement' in result) {
+        const snapshot = store.getSnapshot()
+        patch({
+          revision: result.revision,
+          requirements: snapshot.requirements.map((requirement) =>
+            requirement.id === result.requirement.id ? result.requirement : requirement),
+          banner: undefined,
+        })
+      }
+      return { kind: 'ok', tasks: result.tasks }
+    }
+    if (result.kind === 'network') {
+      patch({ banner: { code: 'network' } })
+      return { kind: 'failed' }
+    }
+    if (REPOS_INLINE_CODES.has(result.code ?? '')) {
+      return { kind: 'inline', code: result.code as 'no-workspace' }
+    }
+    if (result.status === 409 && result.code === 'conflict') {
+      patch({ banner: { code: 'conflict', revision: result.currentRevision } })
+      await refresh(signal)
+      return { kind: 'failed' }
+    }
+    if (result.status === 404) {
+      patch({ banner: { code: 'not-found' } })
+      await refresh(signal)
+      return { kind: 'failed' }
+    }
+    patch({ banner: { code: 'internal' } })
+    return { kind: 'failed' }
+  }
+
+  async function linkRepo(id: string, repo: { repoId: string; repoUrl: string; repoName: string }, branch: string, signal?: AbortSignal): Promise<ReposOutcome> {
+    return mutateRepos({ expectedRevision: store.getSnapshot().revision, id, action: 'link', ...repo, branch }, true, signal)
+  }
+
+  async function unlinkRepo(id: string, repoId: string, repoName?: string, signal?: AbortSignal): Promise<ReposOutcome> {
+    return mutateRepos({ expectedRevision: store.getSnapshot().revision, id, action: 'unlink', repoId, ...(repoName !== undefined ? { repoName } : {}) }, true, signal)
+  }
+
+  async function recloneRepo(id: string, repo: { repoId: string; repoUrl: string; repoName: string }, signal?: AbortSignal): Promise<ReposOutcome> {
+    return mutateRepos({ id, action: 'reclone', ...repo }, false, signal)
+  }
+
+  async function cancelRepoClone(id: string, repoId: string, signal?: AbortSignal): Promise<ReposOutcome> {
+    return mutateRepos({ id, action: 'cancel', repoId }, false, signal)
+  }
+
   async function rebindWorkspace(id: string, signal?: AbortSignal): Promise<WorkspaceOutcome> {
     const result = await fetcher.rebindWorkspace(id, signal)
     if (!alive(result)) return 'failed'
@@ -194,6 +262,11 @@ export function createRequirementsController(store: RequirementsStore, fetcher: 
     setWorkspace,
     clearWorkspace,
     rebindWorkspace,
+    repoTasks,
+    linkRepo,
+    unlinkRepo,
+    recloneRepo,
+    cancelRepoClone,
     openCreate: () => patch({ editing: { kind: 'create' }, banner: undefined }),
     openEdit: (requirement: RequirementRecord) => patch({ editing: { kind: 'edit', requirement }, banner: undefined }),
     closeForm: () => patch({ editing: { kind: 'closed' } }),

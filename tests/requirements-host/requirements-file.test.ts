@@ -30,6 +30,7 @@ function record(title: string, description = ''): RequirementRecord {
     title,
     description,
     workspacePath: '',
+  linkedRepos: [],
     createdAt: now,
     updatedAt: now,
   }

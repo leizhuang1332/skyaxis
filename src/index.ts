@@ -7,7 +7,8 @@
  * instead of failing plugin load —
  *   - `sessionProjections` — the task-graph agent-metrics projection,
  *   - `subprocess`         — repos-pool URL reachability probing (git
- *     ls-remote); absent ⇒ validate answers `unverified/no-service`,
+ *     ls-remote) and requirement repo cloning (P3b); absent ⇒ validate
+ *     answers `unverified/no-service`, clone preflight answers git-missing,
  *   - `workspaceRegistry`  — requirement workspace binding (P3a); absent ⇒
  *     binds still store the ledger path with registered:false (web profile
  *     compositions always provide the service),
@@ -22,7 +23,9 @@ import { registerReposPoolEndpoints } from './repos-pool-host/endpoint.js'
 import { ReposFileStore } from './repos-pool-host/repos-file.js'
 import { ReposValidator } from './repos-pool-host/validator.js'
 import { registerRequirementsEndpoints } from './requirements-host/endpoint.js'
+import { registerRequirementsReposEndpoints } from './requirements-host/repos-endpoint.js'
 import { RequirementsFileStore } from './requirements-host/requirements-file.js'
+import { CloneTaskRegistry } from './requirements-host/clone.js'
 import { RequirementWorkspaceBinder } from './requirements-host/workspace.js'
 
 export const inject: readonly string[] = []
@@ -35,9 +38,16 @@ export function apply(ctx: Context): void {
   const reposFile = new ReposFileStore(dshHomePath('skyaxis', 'repos.yaml'))
   const reposValidator = new ReposValidator()
 
+  const cloneTasks = new CloneTaskRegistry()
+
   ctx.inject(['subprocess'], (scope) => {
     reposValidator.setSubprocess(scope.subprocess)
-    return () => reposValidator.setSubprocess(undefined)
+    cloneTasks.setSubprocess(scope.subprocess)
+    return () => {
+      reposValidator.setSubprocess(undefined)
+      // Also converges in-flight clone tasks to aborted.
+      cloneTasks.setSubprocess(undefined)
+    }
   })
 
   const requirementsFile = new RequirementsFileStore(dshHomePath('skyaxis', 'requirements.yaml'))
@@ -57,6 +67,11 @@ export function apply(ctx: Context): void {
     registerRequirementsEndpoints(scope.connection, {
       file: requirementsFile,
       workspaces: workspaceBinder,
+      log: (error) => ctx.logger.error(error),
+    })
+    registerRequirementsReposEndpoints(scope.connection, {
+      file: requirementsFile,
+      clones: cloneTasks,
       log: (error) => ctx.logger.error(error),
     })
   })

@@ -16,6 +16,14 @@
 // Records
 // ---------------------------------------------------------------------------
 
+/** One linked pool repository — an intent declaration, never clone state. */
+export interface LinkedRepo {
+  /** Pool-side RepoRecord id; the client joins the live pool list by it. */
+  readonly repoId: string
+  /** Branch created (checkout -b) after cloning. */
+  readonly branch: string
+}
+
 export interface RequirementRecord {
   /** uuid, minted host-side on create. */
   readonly id: string
@@ -29,6 +37,12 @@ export interface RequirementRecord {
    * carry the previous value over unchanged.
    */
   readonly workspacePath: string
+  /**
+   * Linked pool repositories (intent only — clone runtime state lives in the
+   * host's in-memory task registry, never in this ledger). Maintained by the
+   * repos endpoints; edits through the save form carry the previous value over.
+   */
+  readonly linkedRepos: readonly LinkedRepo[]
   /** ISO 8601 timestamp of record creation; carried over unchanged on edits. */
   readonly createdAt: string
   /** ISO 8601 timestamp of the last edit (equals createdAt on creation). */
@@ -85,6 +99,90 @@ export interface WorkspaceRebindRequest {
 export type WorkspaceSetRequestBody = WorkspaceSetRequest | WorkspaceClearRequest | WorkspaceRebindRequest
 
 // ---------------------------------------------------------------------------
+// Linked repositories / clone flow (P3b)
+// ---------------------------------------------------------------------------
+
+/**
+ * Link carries a repo SNAPSHOT (url/name) from the client: the requirements
+ * host never reads repos.yaml — the two stores hold no state over each other
+ * (the 0002 boundary). Ids stay the join key.
+ */
+export interface ReposLinkRequest {
+  readonly expectedRevision: number
+  readonly id: string
+  readonly action: 'link'
+  readonly repoId: string
+  readonly repoUrl: string
+  readonly repoName: string
+  readonly branch: string
+}
+
+export interface ReposUnlinkRequest {
+  readonly expectedRevision: number
+  readonly id: string
+  readonly action: 'unlink'
+  readonly repoId: string
+  /**
+   * Pool repo name snapshot for locating the cloned directory (dirName is
+   * derived at request time). Absent when the pool row was already removed —
+   * the directory is then left in place (deletable by hand).
+   */
+  readonly repoName?: string
+}
+
+/** Re-clone keeps the ledgered branch and writes no ledger row — no revision. */
+export interface ReposRecloneRequest {
+  readonly id: string
+  readonly action: 'reclone'
+  readonly repoId: string
+  readonly repoUrl: string
+  readonly repoName: string
+}
+
+/** Addressed by (requirement, repo) — the UI row IS the link; no taskId on the wire. */
+export interface ReposCancelRequest {
+  readonly id: string
+  readonly action: 'cancel'
+  readonly repoId: string
+}
+
+export type ReposMutateRequestBody =
+  | ReposLinkRequest
+  | ReposUnlinkRequest
+  | ReposRecloneRequest
+  | ReposCancelRequest
+
+export type CloneFailureClass =
+  | 'auth'
+  | 'network'
+  | 'git-missing'
+  | 'bad-branch'
+  | 'dest-exists'
+  | 'aborted'
+  | 'unknown'
+
+/** Browser-safe clone task row (the host SessionJob shape, minus the push channel). */
+export interface CloneTaskSnapshot {
+  readonly taskId: string
+  readonly repoId: string
+  readonly repoName: string
+  readonly branch: string
+  readonly status: 'cloning' | 'branching' | 'done' | 'failed'
+  /** 0-100, present while cloning when a progress line was parsed. */
+  readonly progressPct?: number
+  readonly failureClass?: CloneFailureClass
+  /** First substantive stderr line on failure, capped. */
+  readonly detail?: string
+  readonly startedAt: number
+  readonly finishedAt?: number
+}
+
+export interface ReposTasksResponseOk {
+  readonly ok: true
+  readonly tasks: readonly CloneTaskSnapshot[]
+}
+
+// ---------------------------------------------------------------------------
 // Route paths (host registers, browser calls — one source of truth)
 // ---------------------------------------------------------------------------
 
@@ -92,6 +190,7 @@ export const REQUIREMENTS_LIST_PATH = '/api/skyaxis/requirements'
 export const REQUIREMENTS_SAVE_PATH = '/api/skyaxis/requirements/save'
 export const REQUIREMENTS_REMOVE_PATH = '/api/skyaxis/requirements/remove'
 export const REQUIREMENTS_WORKSPACE_PATH = '/api/skyaxis/requirements/workspace'
+export const REQUIREMENTS_REPOS_PATH = '/api/skyaxis/requirements/repos'
 
 // ---------------------------------------------------------------------------
 // Wire envelopes
@@ -150,6 +249,12 @@ export interface ErrorResponse {
     | 'conflict'
     | 'unreadable-file'
     | 'internal'
+    | 'no-workspace'
+    | 'dest-exists'
+    | 'busy'
+    | 'too-many'
+    | 'invalid-branch'
+    | 'git-missing'
   readonly currentRevision?: number
   readonly requirements?: readonly RequirementRecord[]
 }
@@ -170,6 +275,7 @@ export function isRequirementRecord(v: unknown): v is RequirementRecord {
     && isString(r.title) && r.title.length > 0
     && isString(r.description)
     && isString(r.workspacePath)
+    && Array.isArray(r.linkedRepos) && r.linkedRepos.every(isLinkedRepo)
     && isString(r.createdAt) && r.createdAt.length > 0
     && isString(r.updatedAt) && r.updatedAt.length > 0
   )
@@ -211,6 +317,38 @@ export function isWorkspaceStatusResponse(v: unknown): v is WorkspaceStatusRespo
     && typeof r.registered === 'boolean'
     && isString(r.suggestedPath)
   )
+}
+
+function isLinkedRepo(v: unknown): v is LinkedRepo {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  return isString(r.repoId) && r.repoId.length > 0 && isString(r.branch) && r.branch.length > 0
+}
+
+const CLONE_STATUSES = ['cloning', 'branching', 'done', 'failed']
+const CLONE_FAILURE_CLASSES = ['auth', 'network', 'git-missing', 'bad-branch', 'dest-exists', 'aborted', 'unknown']
+
+export function isCloneTaskSnapshot(v: unknown): v is CloneTaskSnapshot {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  return (
+    isString(r.taskId) && r.taskId.length > 0
+    && isString(r.repoId) && r.repoId.length > 0
+    && isString(r.repoName)
+    && isString(r.branch)
+    && isString(r.status) && CLONE_STATUSES.includes(r.status)
+    && (r.progressPct === undefined || typeof r.progressPct === 'number')
+    && (r.failureClass === undefined || (isString(r.failureClass) && CLONE_FAILURE_CLASSES.includes(r.failureClass)))
+    && (r.detail === undefined || isString(r.detail))
+    && typeof r.startedAt === 'number'
+    && (r.finishedAt === undefined || typeof r.finishedAt === 'number')
+  )
+}
+
+export function isReposTasksResponse(v: unknown): v is ReposTasksResponseOk {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  return r.ok === true && Array.isArray(r.tasks) && r.tasks.every(isCloneTaskSnapshot)
 }
 
 export function isErrorResponse(v: unknown): v is ErrorResponse {

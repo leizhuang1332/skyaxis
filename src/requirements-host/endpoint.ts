@@ -104,8 +104,9 @@ export function registerRequirementsEndpoints(connection: HostConnectionHandle, 
         id: requirement.id ?? randomUUID(),
         title: requirement.title,
         description: requirement.description,
-        // The save form never edits the binding — carry it over unchanged.
+        // The save form never edits the binding or repo links — carry both over.
         workspacePath: previous?.workspacePath ?? '',
+        linkedRepos: previous?.linkedRepos ?? [],
         ...timestampFields(previous),
       }
       const nextRequirements = previous === undefined

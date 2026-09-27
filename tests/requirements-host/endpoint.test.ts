@@ -18,9 +18,13 @@ import {
   REQUIREMENTS_WORKSPACE_PATH,
 } from '../../src/requirements-shared/protocol.js'
 import { registerRequirementsEndpoints } from '../../src/requirements-host/endpoint.js'
+import { registerRequirementsReposEndpoints } from '../../src/requirements-host/repos-endpoint.js'
 import { RequirementsFileStore } from '../../src/requirements-host/requirements-file.js'
+import { CloneTaskRegistry } from '../../src/requirements-host/clone.js'
 import { RequirementWorkspaceBinder } from '../../src/requirements-host/workspace.js'
 import type { WorkspaceRegistryLike } from '../../src/requirements-host/workspace.js'
+import type { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
+import { REQUIREMENTS_REPOS_PATH } from '../../src/requirements-shared/protocol.js'
 
 const dirs: string[] = []
 afterEach(() => {
@@ -38,12 +42,14 @@ function fakeRegistry() {
   return { registry: registry as unknown as WorkspaceRegistryLike, create, rows }
 }
 
-async function harness(options?: { registry?: WorkspaceRegistryLike }) {
+async function harness(options?: { registry?: WorkspaceRegistryLike; subprocess?: SubprocessRuntime }) {
   const dir = mkdtempSync(join(tmpdir(), 'requirements-endpoint-test-'))
   dirs.push(dir)
   const file = new RequirementsFileStore(join(dir, 'requirements.yaml'))
   const workspaces = new RequirementWorkspaceBinder()
   if (options?.registry !== undefined) workspaces.setRegistry(options.registry)
+  const clones = new CloneTaskRegistry()
+  if (options?.subprocess !== undefined) clones.setSubprocess(options.subprocess)
   const ctx = new Context()
   const fiber = ctx.plugin((pluginCtx) => {
     new HostConnectionService(pluginCtx, [], {} as never)
@@ -51,12 +57,13 @@ async function harness(options?: { registry?: WorkspaceRegistryLike }) {
   await fiber.await()
   const connection = ctx.get('connection') as HostConnectionHandle
   registerRequirementsEndpoints(connection, { file, workspaces })
+  registerRequirementsReposEndpoints(connection, { file, clones })
   const shared = connection.createSharedFetchHandler('/api')
   const base = 'http://127.0.0.1'
   const get = (path: string) => shared.fetch(new Request(base + path))
   const post = (path: string, body: unknown) =>
     shared.fetch(new Request(base + path, { method: 'POST', body: JSON.stringify(body) }))
-  return { file, dir, workspaces, get, post, dispose: () => fiber.dispose() }
+  return { file, dir, workspaces, clones, get, post, dispose: () => fiber.dispose() }
 }
 
 const SAVE_BODY = (title: string, description = '', id?: string) => ({
@@ -448,6 +455,201 @@ describe('requirements endpoints: workspace binding', () => {
     const body = (await edited.json()) as { requirement: { workspacePath: string; title: string } }
     expect(body.requirement.title).toBe('alpha-renamed')
     expect(body.requirement.workspacePath).toBe(realpathSync(target))
+    await h.dispose()
+  })
+})
+
+/** Scripted subprocess fake for clone flows: a queue of outcomes. */
+function cloneGit(outcomes: Array<{ exitCode?: number | null; signal?: string | null; stderr?: string; hang?: boolean }>): SubprocessRuntime {
+  let spawned = 0
+  const terminate = vi.fn()
+  const runtime = {
+    resolveExecutable: async () => '/usr/bin/git',
+    spawn() {
+      const outcome = outcomes[Math.min(spawned, outcomes.length - 1)] ?? {}
+      spawned += 1
+      const text = outcome.stderr ?? ''
+      const done = outcome.hang === true
+        ? new Promise<{ exitCode: number | null; signal: string | null }>(() => {})
+        : Promise.resolve({ exitCode: outcome.exitCode ?? 0, signal: outcome.signal ?? null })
+      return {
+        done,
+        terminate,
+        collected: {
+          stderr: { readFrom: (offset: number) => ({ text: text.slice(offset), nextOffset: text.length, lossy: false }) },
+        },
+      }
+    },
+    terminate,
+  }
+  return runtime as unknown as SubprocessRuntime
+}
+
+describe('requirements endpoints: linked repositories', () => {
+  const REPO_ID = '22222222-2222-4222-8222-222222222222'
+
+  async function setup(h: Awaited<ReturnType<typeof harness>>, options?: { subprocess?: SubprocessRuntime }) {
+    const created = await (await h.post(REQUIREMENTS_SAVE_PATH, SAVE_BODY('alpha'))).json() as { requirement: { id: string } }
+    const ws = join(h.dir, 'ws')
+    await h.post(REQUIREMENTS_WORKSPACE_PATH, { expectedRevision: 1, id: created.requirement.id, action: 'set', path: ws })
+    return created.requirement.id
+  }
+
+  const LINK = (id: string, expectedRevision: number, overrides?: Partial<{ branch: string; repoId: string }>) => ({
+    expectedRevision,
+    id,
+    action: 'link',
+    repoId: overrides?.repoId ?? REPO_ID,
+    repoUrl: 'https://example.com/org/repo.git',
+    repoName: 'My Repo',
+    branch: overrides?.branch ?? 'req-11111111',
+  })
+
+  it('link writes the ledger row and answers with requirement + initial tasks', async () => {
+    const h = await harness({ subprocess: cloneGit([{ exitCode: 0, signal: null }, { exitCode: 0, signal: null }, { exitCode: 0, signal: null }]) })
+    const id = await setup(h)
+    const res = await h.post(REQUIREMENTS_REPOS_PATH, LINK(id, 2))
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { ok: true; revision: number; requirement: { linkedRepos: Array<{ repoId: string; branch: string }> }; tasks: Array<{ status: string; repoId: string }> }
+    expect(body.requirement.linkedRepos).toEqual([{ repoId: REPO_ID, branch: 'req-11111111' }])
+    expect(body.tasks).toHaveLength(1)
+    expect(body.tasks[0]?.repoId).toBe(REPO_ID)
+    expect(['cloning', 'branching', 'done']).toContain(body.tasks[0]?.status)
+    await h.dispose()
+  })
+
+  it('link preflight rejections leave the ledger untouched', async () => {
+    const h = await harness({ subprocess: cloneGit([{ exitCode: 1, signal: null }]) })
+    const id = await setup(h)
+    // invalid branch (check-ref-format exit 1)
+    const invalid = await h.post(REQUIREMENTS_REPOS_PATH, LINK(id, 2, { branch: 'bad..name' }))
+    expect(invalid.status).toBe(400)
+    expect(((await invalid.json()) as ErrorResponse).code).toBe('invalid-branch')
+
+    const listed = await (await h.get(REQUIREMENTS_LIST_PATH)).json() as ListResponse
+    expect(listed.ok && listed.requirements[0]?.linkedRepos).toEqual([])
+    expect(listed.ok && listed.revision).toBe(2)
+    await h.dispose()
+  })
+
+  it('link answers git-missing without a subprocess service', async () => {
+    const h = await harness()
+    const id = await setup(h)
+    const res = await h.post(REQUIREMENTS_REPOS_PATH, LINK(id, 2))
+    expect(res.status).toBe(400)
+    expect(((await res.json()) as ErrorResponse).code).toBe('git-missing')
+    await h.dispose()
+  })
+
+  it('link answers no-workspace for unbound requirements', async () => {
+    const h = await harness()
+    const created = await (await h.post(REQUIREMENTS_SAVE_PATH, SAVE_BODY('alpha'))).json() as { requirement: { id: string } }
+    const res = await h.post(REQUIREMENTS_REPOS_PATH, LINK(created.requirement.id, 1))
+    expect(res.status).toBe(400)
+    expect(((await res.json()) as ErrorResponse).code).toBe('no-workspace')
+    await h.dispose()
+  })
+
+  it('link rejects duplicate repoIds and stale revisions', async () => {
+    const h = await harness({ subprocess: cloneGit([{ exitCode: 0, signal: null }, { exitCode: 0, signal: null }, { exitCode: 0, signal: null }, { exitCode: 0, signal: null }]) })
+    const id = await setup(h)
+    await h.post(REQUIREMENTS_REPOS_PATH, LINK(id, 2))
+    const duplicate = await h.post(REQUIREMENTS_REPOS_PATH, LINK(id, 3))
+    expect(duplicate.status).toBe(400)
+    expect(((await duplicate.json()) as ErrorResponse).code).toBe('bad-request')
+
+    const other = await h.post(REQUIREMENTS_REPOS_PATH, LINK(id, 3, { repoId: '33333333-3333-4333-8333-333333333333' }))
+    expect(other.status).toBe(200)
+
+    const stale = await h.post(REQUIREMENTS_REPOS_PATH, LINK(id, 1, { repoId: '44444444-4444-4444-8444-444444444444' }))
+    expect(stale.status).toBe(409)
+    await h.dispose()
+  })
+
+  it('unlink removes the row, aborts in-flight clones, and deletes the cloned directory', async () => {
+    const h = await harness({ subprocess: cloneGit([{ exitCode: 0, signal: null }, { hang: true }]) })
+    const id = await setup(h)
+    await h.post(REQUIREMENTS_REPOS_PATH, LINK(id, 2))
+    // A completed-looking directory at the ledgered destination: the unlink
+    // must remove it (user decision 2026-09-27 — remove deletes the source).
+    const { mkdirSync } = await import('node:fs')
+    const dest = join(h.dir, 'ws', 'repos', 'My-Repo')
+    mkdirSync(dest, { recursive: true })
+    const res = await h.post(REQUIREMENTS_REPOS_PATH, { expectedRevision: 3, id, action: 'unlink', repoId: REPO_ID, repoName: 'My Repo' })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { requirement: { linkedRepos: unknown[] } }
+    expect(body.requirement.linkedRepos).toEqual([])
+    const tasks = await (await h.get(`${REQUIREMENTS_REPOS_PATH}?id=${id}`)).json() as { tasks: Array<{ failureClass?: string }> }
+    expect(tasks.tasks[0]?.failureClass).toBe('aborted')
+    expect(statSync(dest, { throwIfNoEntry: false })).toBeUndefined()
+    await h.dispose()
+  })
+
+  it('unlink of an absent repoId is an idempotent no-op', async () => {
+    const h = await harness()
+    const id = await setup(h)
+    const res = await h.post(REQUIREMENTS_REPOS_PATH, { expectedRevision: 2, id, action: 'unlink', repoId: REPO_ID })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { revision: number }
+    expect(body.revision).toBe(2)
+    await h.dispose()
+  })
+
+  it('reclone restarts the task without touching the revision', async () => {
+    const h = await harness({ subprocess: cloneGit([{ exitCode: 0, signal: null }, { exitCode: 0, signal: null }, { exitCode: 0, signal: null }, { exitCode: 0, signal: null }]) })
+    const id = await setup(h)
+    await h.post(REQUIREMENTS_REPOS_PATH, LINK(id, 2))
+    const res = await h.post(REQUIREMENTS_REPOS_PATH, {
+      id, action: 'reclone', repoId: REPO_ID, repoUrl: 'https://example.com/org/repo.git', repoName: 'My Repo',
+    })
+    expect(res.status).toBe(200)
+    const listed = await (await h.get(REQUIREMENTS_LIST_PATH)).json() as ListResponse
+    expect(listed.ok && listed.revision).toBe(3) // the link write only — reclone added nothing
+    await h.dispose()
+  })
+
+  it('reclone of an unlinked repoId answers 404', async () => {
+    const h = await harness({ subprocess: cloneGit([{ exitCode: 0, signal: null }]) })
+    const id = await setup(h)
+    const res = await h.post(REQUIREMENTS_REPOS_PATH, {
+      id, action: 'reclone', repoId: REPO_ID, repoUrl: 'https://example.com/org/repo.git', repoName: 'My Repo',
+    })
+    expect(res.status).toBe(404)
+    await h.dispose()
+  })
+
+  it('cancel is idempotent over terminal and unknown tasks', async () => {
+    const h = await harness()
+    const id = await setup(h)
+    const res = await h.post(REQUIREMENTS_REPOS_PATH, { id, action: 'cancel', repoId: REPO_ID })
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { ok: true }).ok).toBe(true)
+    await h.dispose()
+  })
+
+  it('GET tasks answers snapshots, 404 for ghost ids, 400 without id', async () => {
+    const h = await harness()
+    const id = await setup(h)
+    const tasks = await h.get(`${REQUIREMENTS_REPOS_PATH}?id=${id}`)
+    expect(tasks.status).toBe(200)
+    expect(((await tasks.json()) as { tasks: unknown[] }).tasks).toEqual([])
+    const ghost = await h.get(`${REQUIREMENTS_REPOS_PATH}?id=00000000-0000-4000-8000-000000000000`)
+    expect(ghost.status).toBe(404)
+    const noId = await h.get(REQUIREMENTS_REPOS_PATH)
+    expect(noId.status).toBe(400)
+    await h.dispose()
+  })
+
+  it('editing a record through the save form preserves linkedRepos', async () => {
+    const h = await harness({ subprocess: cloneGit([{ exitCode: 0, signal: null }, { exitCode: 0, signal: null }, { exitCode: 0, signal: null }]) })
+    const id = await setup(h)
+    await h.post(REQUIREMENTS_REPOS_PATH, LINK(id, 2))
+    const edited = await h.post(REQUIREMENTS_SAVE_PATH, {
+      expectedRevision: 3,
+      requirement: { id, title: 'alpha-renamed', description: '' },
+    })
+    const body = (await edited.json()) as { requirement: { linkedRepos: unknown[] } }
+    expect(body.requirement.linkedRepos).toEqual([{ repoId: REPO_ID, branch: 'req-11111111' }])
     await h.dispose()
   })
 })

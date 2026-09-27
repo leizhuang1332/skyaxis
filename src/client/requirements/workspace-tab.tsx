@@ -22,6 +22,7 @@ import type { RequirementRecord } from '../../requirements-shared/protocol.js'
 import type { RequirementsController } from './controller.js'
 import type { RequirementsT } from './dictionary.js'
 import type { WorkspaceStatusResult } from './fetcher.js'
+import { ReposSection } from './repos-section.js'
 import styles from './view.module.css'
 
 /** Type-only faces off the remotes client assembly (never value-imported). */
@@ -274,7 +275,7 @@ export function WorkspaceTabBody(props: {
         </div>
         {inlineError !== null && editing !== null ? <div className={styles.fieldError}>{inlineError}</div> : null}
       </div>
-      <GuideSection title={t('workspace.sectionRepos')} hint={t('workspace.sectionReposHint')} />
+      <ReposSection t={t} requirement={requirement} controller={controller} capabilities={props.capabilities} />
       <GuideSection title={t('workspace.sectionPrd')} hint={t('workspace.sectionPrdHint')} />
       {modalOpen ? (
         <WorkspaceSetupModal

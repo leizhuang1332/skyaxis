@@ -34,6 +34,7 @@ const record = (): RequirementRecord => ({
   title: '既有需求',
   description: '既有说明',
   workspacePath: '',
+  linkedRepos: [],
   createdAt: '2026-09-25T09:30:00.000Z',
   updatedAt: '2026-09-25T09:30:00.000Z',
 })

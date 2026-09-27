@@ -73,6 +73,37 @@ interface RequirementsDictionary {
   readonly 'workspace.sectionReposHint': string
   readonly 'workspace.sectionPrd': string
   readonly 'workspace.sectionPrdHint': string
+  // repos.* — linked repositories / clone (0003 P3b)
+  readonly 'repos.add': string
+  readonly 'repos.branchLabel': string
+  readonly 'repos.branching': string
+  readonly 'repos.cancelled': string
+  readonly 'repos.cancel': string
+  readonly 'repos.cloning': string
+  readonly 'repos.emptyHint': string
+  readonly 'repos.emptyPool': string
+  readonly 'repos.errBusy': string
+  readonly 'repos.errDestExists': string
+  readonly 'repos.errGitMissing': string
+  readonly 'repos.errInvalidBranch': string
+  readonly 'repos.errNoWorkspace': string
+  readonly 'repos.errTooMany': string
+  readonly 'repos.failAuth': string
+  readonly 'repos.failGitMissing': string
+  readonly 'repos.failNetwork': string
+  readonly 'repos.failedTag': string
+  readonly 'repos.link': string
+  readonly 'repos.menuLabel': string
+  readonly 'repos.poolError': string
+  readonly 'repos.reclone': string
+  readonly 'repos.removeLink': string
+  readonly 'repos.removeLinkHint': string
+  readonly 'repos.removeTitle': string
+  readonly 'repos.removeDesc': string
+  readonly 'repos.removeConfirm': string
+  readonly 'repos.removeCancel': string
+  readonly 'repos.removedRepo': string
+  readonly 'repos.selectRepo': string
 }
 
 export type RequirementsT = (key: keyof RequirementsDictionary) => string
@@ -130,6 +161,36 @@ const zh: RequirementsDictionary = {
   'workspace.sectionReposHint': '设置工作区后可用（即将上线）。',
   'workspace.sectionPrd': 'PRD 文档',
   'workspace.sectionPrdHint': '设置工作区后可用（即将上线）。',
+  'repos.add': "从仓库池添加",
+  'repos.branchLabel': "分支名",
+  'repos.branching': "创建分支中",
+  'repos.cancelled': "已取消",
+  'repos.cancel': "取消克隆",
+  'repos.cloning': "克隆中",
+  'repos.emptyHint': "从仓库池选择一个仓库，clone 到工作区 repos/ 目录。",
+  'repos.emptyPool': "仓库池为空，请先在仓库池面板添加仓库",
+  'repos.errBusy': "该仓库正在克隆中",
+  'repos.errDestExists': "目标目录已存在",
+  'repos.errGitMissing': "宿主未安装 git",
+  'repos.errInvalidBranch': "分支名不合法",
+  'repos.errNoWorkspace': "请先设置工作区目录",
+  'repos.errTooMany': "并发克隆数已达上限，请稍后再试",
+  'repos.failAuth': "认证失败（凭证缺失或权限不足）",
+  'repos.failGitMissing': "宿主未安装 git",
+  'repos.failNetwork': "网络错误（无法连接或超时）",
+  'repos.failedTag': "克隆失败",
+  'repos.link': "关联并克隆",
+  'repos.menuLabel': "仓库操作",
+  'repos.poolError': "仓库池加载失败",
+  'repos.reclone': "重新 clone",
+  'repos.removeLink': "移除关联",
+  'repos.removeLinkHint': "移除关联不会删除已 clone 的目录",
+  'repos.removeTitle': "移除关联",
+  'repos.removeDesc': "将移除该关联，并删除工作区 repos/ 目录下已克隆的源码。",
+  'repos.removeConfirm': "移除",
+  'repos.removeCancel': "取消",
+  'repos.removedRepo': "已移除的仓库",
+  'repos.selectRepo': "选择仓库",
 }
 
 const en: RequirementsDictionary = {
@@ -185,6 +246,36 @@ const en: RequirementsDictionary = {
   'workspace.sectionReposHint': 'Available after a workspace is set (coming soon).',
   'workspace.sectionPrd': 'PRD documents',
   'workspace.sectionPrdHint': 'Available after a workspace is set (coming soon).',
+  'repos.add': "Add from repo pool",
+  'repos.branchLabel': "Branch name",
+  'repos.branching': "Creating branch",
+  'repos.cancelled': "Cancelled",
+  'repos.cancel': "Cancel clone",
+  'repos.cloning': "Cloning",
+  'repos.emptyHint': "Pick a repository from the pool; it will be cloned into the workspace repos/ directory.",
+  'repos.emptyPool': "The repo pool is empty; add repositories in the repo pool panel first",
+  'repos.errBusy': "This repository is already cloning",
+  'repos.errDestExists': "Target directory already exists",
+  'repos.errGitMissing': "git is not installed on the host",
+  'repos.errInvalidBranch': "Invalid branch name",
+  'repos.errNoWorkspace': "Set a workspace directory first",
+  'repos.errTooMany': "Too many concurrent clones; retry later",
+  'repos.failAuth': "Authentication failed (missing credentials or no access)",
+  'repos.failGitMissing': "git is not installed on the host",
+  'repos.failNetwork': "Network error (unreachable or timed out)",
+  'repos.failedTag': "Clone failed",
+  'repos.link': "Link and clone",
+  'repos.menuLabel': "Repository actions",
+  'repos.poolError': "Failed to load the repo pool",
+  'repos.reclone': "Re-clone",
+  'repos.removeLink': "Remove link",
+  'repos.removeLinkHint': "Removing the link never deletes the cloned directory",
+  'repos.removeTitle': "Remove link",
+  'repos.removeDesc': "Removes the link AND deletes the cloned source under the workspace repos/ directory.",
+  'repos.removeConfirm': "Remove",
+  'repos.removeCancel': "Cancel",
+  'repos.removedRepo': "Removed repository",
+  'repos.selectRepo': "Select a repository",
 }
 
 export function registerRequirementsDictionaries(ctx: Context): void {

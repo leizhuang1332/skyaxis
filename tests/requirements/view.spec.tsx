@@ -46,6 +46,7 @@ const record = (id: string): RequirementRecord => ({
   title: `需求-${id}`,
   description: `说明 ${id}`,
   workspacePath: '',
+  linkedRepos: [],
   createdAt: '2026-09-25T09:30:00.000Z',
   updatedAt: '2026-09-25T09:30:00.000Z',
 })

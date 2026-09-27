@@ -7,7 +7,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import type { RequirementRecord } from '../../src/requirements-shared/protocol.js'
+import type { CloneTaskSnapshot, RequirementRecord } from '../../src/requirements-shared/protocol.js'
 import type { RequirementsController, WorkspaceOutcome } from '../../src/client/requirements/controller.js'
 import type { RequirementsT } from '../../src/client/requirements/dictionary.js'
 import {
@@ -55,6 +55,7 @@ const record = (workspacePath = ''): RequirementRecord => ({
   title: '既有需求',
   description: '既有说明',
   workspacePath,
+  linkedRepos: [],
   createdAt: '2026-09-25T09:30:00.000Z',
   updatedAt: '2026-09-25T09:30:00.000Z',
 })
@@ -83,6 +84,11 @@ function fakeController(overrides?: {
     setWorkspace: vi.fn(async (): Promise<WorkspaceOutcome> => overrides?.setOutcome ?? 'ok'),
     clearWorkspace: vi.fn(async (): Promise<WorkspaceOutcome> => overrides?.setOutcome ?? 'ok'),
     rebindWorkspace: vi.fn(async (): Promise<WorkspaceOutcome> => overrides?.setOutcome ?? 'ok'),
+    repoTasks: vi.fn(async () => ({ kind: 'ok' as const, tasks: [] as readonly CloneTaskSnapshot[] })),
+    linkRepo: vi.fn(async () => ({ kind: 'ok' as const, tasks: [] })),
+    unlinkRepo: vi.fn(async () => ({ kind: 'ok' as const, tasks: [] })),
+    recloneRepo: vi.fn(async () => ({ kind: 'ok' as const, tasks: [] })),
+    cancelRepoClone: vi.fn(async () => ({ kind: 'ok' as const, tasks: [] })),
     refresh: vi.fn(async () => undefined),
     save: vi.fn(async () => true),
     remove: vi.fn(async () => undefined),
