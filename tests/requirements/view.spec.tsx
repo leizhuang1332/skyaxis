@@ -32,6 +32,7 @@ const DICT = {
     'delete.confirm': '删除',
     'delete.cancel': '取消',
     'detail.back': '返回',
+    'detail.switch': '切换需求',
     'detail.missing': '该需求已不存在。',
     'error.network': '网络错误，请稍后重试',
   },
@@ -322,6 +323,68 @@ describe("RequirementsPage (0003 P2: detail tab skeleton)", () => {
       expect(screen.queryByText('需求-b')).toBeNull()
     })
     remount.unmount()
+  })
+
+  // 0004 P2: the header switcher swaps requirements in ONE step, and the
+  // tab is a PER-REQUIREMENT memory — a lands on its remembered tab, b on
+  // its own (first visit falls back to 概览), swaps never cross-pollinate.
+  it('the switcher swaps in one step; each requirement lands on its own remembered tab', async () => {
+    const { unmount } = page()
+    await waitFor(() => expect(screen.getByText('需求-b')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: /需求-a/ }))
+    await waitFor(() => expect(screen.getByRole('heading', { name: '需求-a' })).toBeTruthy())
+    fireEvent.click(screen.getByRole('tab', { name: '工作区' }))
+    await waitFor(() => expect(screen.getByRole('tab', { name: '工作区' }).getAttribute('aria-selected')).toBe('true'))
+
+    const switchTo = async (name: string): Promise<void> => {
+      fireEvent.click(screen.getByRole('button', { name: '切换需求' }))
+      await waitFor(() => screen.getByRole('menuitem', { name }))
+      fireEvent.click(screen.getByRole('menuitem', { name }))
+      await waitFor(() => expect(screen.getByRole('heading', { name })).toBeTruthy())
+    }
+    const active = (): string | null =>
+      screen.getAllByRole('tab').find((el) => el.getAttribute('aria-selected') === 'true')?.textContent ?? null
+
+    await switchTo('需求-b') // b's first visit — falls back to the first tab
+    expect(active()).toBe('概览')
+    fireEvent.click(screen.getByRole('tab', { name: '工作区' }))
+    await waitFor(() => expect(active()).toBe('工作区'))
+
+    await switchTo('需求-a') // a remembered 工作区, not b's state
+    expect(active()).toBe('工作区')
+    await switchTo('需求-b') // b remembered 工作区 too — its own memory
+    expect(active()).toBe('工作区')
+    unmount()
+  })
+
+  // 0004 P2 bug fix: the close-on-scroll listener is a window capture
+  // listener, which hears the menu's own list scrolling too — scrolling the
+  // list must not close the menu; scrolling the page must.
+  it('the switcher menu survives its own list scroll and closes on page scroll', async () => {
+    const { unmount } = page()
+    await waitFor(() => expect(screen.getByText('需求-a')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: /需求-a/ }))
+    await waitFor(() => expect(screen.getByRole('heading', { name: '需求-a' })).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: '切换需求' }))
+    await waitFor(() => screen.getByRole('menuitem', { name: '需求-b' }))
+
+    const viewport = document.querySelector("[role='menu'] > [role='presentation']")
+    expect(viewport).not.toBeNull()
+    fireEvent.scroll(viewport as Element) // the list's own scroll — must stay open
+    expect(screen.getByRole('menuitem', { name: '需求-b' })).toBeTruthy()
+
+    fireEvent.scroll(document.body) // the page scrolled away — a leave intent
+    expect(screen.queryByRole('menuitem', { name: '需求-b' })).toBeNull()
+    unmount()
+  })
+
+  it('hides the switcher when only one requirement exists', async () => {
+    const { unmount } = page({ list: vi.fn(async () => ({ kind: 'ok' as const, revision: 1, requirements: [record('a')] })) })
+    await waitFor(() => expect(screen.getByText('需求-a')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: /需求-a/ }))
+    await waitFor(() => expect(screen.getByRole('heading', { name: '需求-a' })).toBeTruthy())
+    expect(screen.queryByRole('button', { name: '切换需求' })).toBeNull()
+    unmount()
   })
 })
 

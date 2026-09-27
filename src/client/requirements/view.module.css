@@ -84,6 +84,50 @@
   color: var(--dsw-alias-label-primary);
 }
 
+/* Requirement switcher anchor (0004 P2, widened per user feedback): the
+   detailBack pill shape verbatim — icon + visible label (detail.switch —
+   the label text is the accessible name, like detailBack) + trailing
+   chevron as the dropdown cue. Checklist is the only pick-from-list glyph
+   in the set (both icons 14px, like the back chevron). Disabled fades to
+   caption, iconButton style. */
+.detailSwitch {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 4px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+  line-height: 18px;
+  font-family: var(--dsw-font-family);
+}
+
+.detailSwitch:hover:not(:disabled) {
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+}
+
+.detailSwitch:disabled {
+  cursor: default;
+  color: var(--dsw-alias-label-caption);
+}
+
+/* Switcher list cap (user feedback): show 15 rows, scroll beyond. The Menu
+   primitive caps its scrollable list at the viewport height; the class lands
+   on the anchor wrapper (the className prop targets the root, not the
+   portaled list — hence the in-place menu), and the [role=menu] descendant
+   selector (specificity 0,2,0) overrides the primitive's .scrollable cap
+   (0,1,0) regardless of CSS injection order. 518 = 15 dense rows (34px)
+   + the card's 8px padding. */
+.detailSwitchMenu [role='menu'] {
+  max-height: 518px;
+}
+
 /* Description as the title's subtitle line: the row-description ladder
    (12px/18px tertiary), pre-wrap so stored newlines survive. The bottom
    margin clears the header's hairline (header padding-bottom is 0). */

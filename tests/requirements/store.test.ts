@@ -160,33 +160,41 @@ describe('requirements controller/store', () => {
     expect(snap().selectedId).toBeNull()
   })
 
-  it('openDetail resets the tab only when the selection moves; re-entering the same id keeps it', async () => {
+  it('the tab is a per-requirement memory — each id keeps its own, every entry path lands on it', async () => {
     const { controller, snap } = setup()
     await controller.refresh()
     controller.openDetail('a')
     controller.selectDetailTab('workspace')
-    expect(snap().detailTabId).toBe('workspace')
-    controller.openDetail('a') // same id — a panel-round-trip-shaped re-entry
-    expect(snap().detailTabId).toBe('workspace')
-    controller.openDetail('b') // another requirement — host parity reset
-    expect(snap().detailTabId).toBeNull()
+    controller.openDetail('b') // b has no memory yet — the view falls back to the first tab
+    expect(snap().selectedId).toBe('b')
+    expect(snap().detailTabByRequirement).toEqual({ a: 'workspace' })
+    controller.selectDetailTab('overview')
+    controller.openDetail('a') // switcher back to a — a's memory, not b's
+    expect(snap().detailTabByRequirement).toEqual({ a: 'workspace', b: 'overview' })
+    controller.closeDetail() // the list round-trip never wipes memories
+    controller.openDetail('a')
+    expect(snap().detailTabByRequirement).toEqual({ a: 'workspace', b: 'overview' })
   })
 
-  it('closeDetail also clears the tab', async () => {
-    const { controller, snap } = setup()
+  it('remove retires the record\'s tab memory with it', async () => {
+    const { controller, snap } = setup({ remove: vi.fn(async () => ({ kind: 'ok' as const, revision: 2 })) })
     await controller.refresh()
     controller.openDetail('a')
     controller.selectDetailTab('workspace')
-    controller.closeDetail()
-    expect(snap().detailTabId).toBeNull()
+    await controller.remove('a')
+    expect(snap().requirements).toHaveLength(0)
+    expect(snap().detailTabByRequirement).toEqual({})
   })
 
-  it('selectDetailTab and setListFilter write their page-level fields', async () => {
+  it('selectDetailTab records under the live selection; setListFilter writes its field', async () => {
     const { controller, snap } = setup()
     await controller.refresh()
+    controller.selectDetailTab('overview') // no selection yet — a guarded no-op
+    expect(snap().detailTabByRequirement).toEqual({})
+    controller.openDetail('a')
     controller.selectDetailTab('overview')
     controller.setListFilter('需求-a')
-    expect(snap().detailTabId).toBe('overview')
+    expect(snap().detailTabByRequirement).toEqual({ a: 'overview' })
     expect(snap().listFilter).toBe('需求-a')
   })
 

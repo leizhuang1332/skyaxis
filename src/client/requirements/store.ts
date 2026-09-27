@@ -13,13 +13,14 @@
  * the detail view's missing branch, and a future main-slot entry (0003 route
  * decision record) can reuse it verbatim. null = list view, uuid = detail.
  *
- * detailTabId and listFilter are the same page-level family (0004 P1): they
- * ride the store because the host's keyed main slot has no keep-alive — a
- * panel switch unmounts the page component and its useState dies, while the
- * store (registration-closure lifetime) survives the round-trip. The tab
- * resets only when the selection MOVES to another requirement (openDetail);
- * tab-seat internals stay component-local (pull-model, self-healing on
- * remount).
+ * detailTabByRequirement and listFilter are the same page-level family
+ * (0004): they ride the store because the host's keyed main slot has no
+ * keep-alive — a panel switch unmounts the page component and its useState
+ * dies, while the store (registration-closure lifetime) survives the
+ * round-trip. The tab is a PER-REQUIREMENT memory: every entry path (list
+ * or switcher) lands on the requirement's remembered tab, and only remove()
+ * retires an entry; tab-seat internals stay component-local (pull-model,
+ * self-healing on remount).
  */
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { RequirementRecord } from '../../requirements-shared/protocol.js'
@@ -31,8 +32,10 @@ export interface RequirementsState {
   degraded?: { reason: 'parse' | 'schema' | 'io'; hasBackup: boolean }
   editing: { kind: 'closed' } | { kind: 'create' } | { kind: 'edit'; requirement: RequirementRecord }
   selectedId: string | null
-  /** Active detail tab; null = unselected, falls back to the first tab. */
-  detailTabId: string | null
+  /** Per-requirement active-tab memory (0004 follow-up): the last tab each
+   *  requirement was viewed on; entering one falls back to the first tab
+   *  until it has an entry here. */
+  detailTabByRequirement: Readonly<Record<string, string>>
   /** List filter text; survives panel round-trips, cleared never (list-scoped). */
   listFilter: string
   busy: boolean
@@ -48,7 +51,7 @@ const INITIAL_STATE: RequirementsState = {
   requirements: [],
   editing: { kind: 'closed' },
   selectedId: null,
-  detailTabId: null,
+  detailTabByRequirement: {},
   listFilter: '',
   busy: false,
 }

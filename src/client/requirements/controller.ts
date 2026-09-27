@@ -97,7 +97,10 @@ export function createRequirementsController(store: RequirementsStore, fetcher: 
     const result = await fetcher.remove({ expectedRevision: store.getSnapshot().revision, id }, signal)
     if (!alive(result)) return
     if (result.kind === 'ok') {
-      patch({ busy: false, revision: result.revision, requirements: store.getSnapshot().requirements.filter((requirement) => requirement.id !== id), banner: undefined })
+      const { requirements, detailTabByRequirement } = store.getSnapshot()
+      const tabMemory = { ...detailTabByRequirement }
+      delete tabMemory[id] // the record is gone; its tab memory retires with it
+      patch({ busy: false, revision: result.revision, requirements: requirements.filter((requirement) => requirement.id !== id), detailTabByRequirement: tabMemory, banner: undefined })
       return
     }
     patch({ busy: false })
@@ -273,16 +276,20 @@ export function createRequirementsController(store: RequirementsStore, fetcher: 
     // Detail view (0003 P1). openDetail rides a refresh so the pulled-only
     // model keeps the record fresh on entry; refresh never clears selectedId
     // — a vanished record is the detail view's missing branch, not a pop.
-    // The tab resets only when the selection MOVES (host parity — never
-    // auto-select on a fresh view); re-entering the SAME id keeps the tab
-    // (0004 P1: the state rides the store across panel round-trips).
+    // Tab state is a PER-REQUIREMENT memory (0004 follow-up): selectDetailTab
+    // records under the live id, every entry path (list or switcher) lands
+    // on that requirement's remembered tab, and only remove() retires an
+    // entry (with its record). The list round-trip never wipes memories.
     openDetail: (id: string) => {
-      const { selectedId, detailTabId } = store.getSnapshot()
-      patch({ selectedId: id, detailTabId: selectedId === id ? detailTabId : null })
+      patch({ selectedId: id })
       void refresh()
     },
-    closeDetail: () => patch({ selectedId: null, detailTabId: null }),
-    selectDetailTab: (tabId: string) => patch({ detailTabId: tabId }),
+    closeDetail: () => patch({ selectedId: null }),
+    selectDetailTab: (tabId: string) => {
+      const { selectedId, detailTabByRequirement } = store.getSnapshot()
+      if (selectedId === null) return
+      patch({ detailTabByRequirement: { ...detailTabByRequirement, [selectedId]: tabId } })
+    },
     setListFilter: (text: string) => patch({ listFilter: text }),
     dismissBanner: () => patch({ banner: undefined }),
     dispose: () => {

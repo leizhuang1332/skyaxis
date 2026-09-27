@@ -72,6 +72,7 @@ describe('requirements: dictionaries', () => {
       'delete.title',
       'detail.back',
       'detail.missing',
+      'detail.switch',
       'detail.tab.overview',
       'detail.tab.seat',
       'detail.tab.workspace',

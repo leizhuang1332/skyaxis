@@ -219,6 +219,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       | 'delete.confirm'
       | 'delete.cancel'
       | 'detail.back'
+      | 'detail.switch'
       | 'detail.missing'
       | 'detail.tab.overview'
       | 'detail.tab.workspace'

@@ -1,8 +1,9 @@
 /**
  * Requirements page: header (title), then ONE of two in-panel views (0003
  * route B): the list view (filter bar, failure banners, skeleton/list with
- * the add card leading the grid) or the detail view (tab strip in the
- * header + active tab panel in the body). Only the body's content swaps —
+ * the add card leading the grid) or the detail view (back affordance +
+ * requirement switcher + tab strip in the header, active tab panel in the
+ * body). Only the body's content swaps —
  * the form/delete dialogs and the scroll container live at this page level
  * and survive view switches. The filter text and the active tab ride the
  * store (0004 P1): the host's keyed main slot has no keep-alive, so a panel
@@ -13,7 +14,7 @@
  * the view layer.
  */
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { Button, IconChevronLeftOutline14, IconCloseOutline16, IconListPenOutline16, IconSearchOutline16, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconChecklistOutline14, IconChevronDownOutline14, IconChevronLeftOutline14, IconCloseOutline16, IconListPenOutline16, IconSearchOutline16, Input, Menu, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { RequirementRecord } from '../../requirements-shared/protocol.js'
 import type { RequirementsController } from './controller.js'
@@ -55,14 +56,33 @@ export function RequirementsPage(props: {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot)
   const detailTabs = useSyncExternalStore(props.detailTabs.subscribe, props.detailTabs.getSnapshot)
   const [pendingRemove, setPendingRemove] = useState<RequirementRecord | null>(null)
+  // Switcher menu open flag: a pure transient (dies with the component on a
+  // panel switch) — unlike the tab/filter, nothing is lost by dropping it.
+  const [switchOpen, setSwitchOpen] = useState(false)
+  // In-place menus don't reposition on scroll (no portal tracking): close
+  // instead — scrolling away is a leave intent. The capture listener hears
+  // EVERY scroll (scroll events don't bubble but do capture), so the menu's
+  // own list scrolling must be excluded or the list could never scroll
+  // (each wheel tick would close the menu).
+  useEffect(() => {
+    if (!switchOpen) return
+    const close = (event: Event): void => {
+      if (event.target instanceof Element && event.target.closest('[role="menu"]') !== null) return
+      setSwitchOpen(false)
+    }
+    window.addEventListener('scroll', close, { capture: true })
+    return () => window.removeEventListener('scroll', close, { capture: true })
+  }, [switchOpen])
   // null = list view; a record = detail view; undefined = the id outlived
   // its record (missing branch).
   const selected = state.selectedId === null
     ? null
     : state.requirements.find((requirement) => requirement.id === state.selectedId)
-  // Active detail tab (store-held, 0004 P1): null = unselected, falls back
-  // to the first tab; openDetail resets it when the selection moves.
-  const activeTab: RequirementDetailTab | undefined = detailTabs.find((tab) => tab.id === state.detailTabId) ?? detailTabs[0]
+  // Active detail tab (store-held, 0004): a PER-REQUIREMENT memory — each
+  // requirement lands on the tab it was last viewed on; no entry yet (or a
+  // retired tab id) falls back to the first tab.
+  const rememberedTabId = state.selectedId === null ? undefined : state.detailTabByRequirement[state.selectedId]
+  const activeTab: RequirementDetailTab | undefined = detailTabs.find((tab) => tab.id === rememberedTabId) ?? detailTabs[0]
   const needle = state.listFilter.trim().toLowerCase()
   const visibleRequirements = needle.length === 0
     ? state.requirements
@@ -110,6 +130,41 @@ export function RequirementsPage(props: {
                 <IconChevronLeftOutline14 />
                 <span>{t('detail.back')}</span>
               </button>
+              {/* Requirement switcher (0004 P2): one-step swap without the
+                  list round-trip. Renders only with something to switch to;
+                  selection rides openDetail into the per-requirement tab
+                  memory. In-place (NOT portal): the cap on the list height
+                  rides the className → [role=menu] descendant selector — a
+                  portaled list lands under document.body, out of the
+                  owner's selector reach; the header chain has no overflow
+                  clip, and scrolling the page closes the menu instead. */}
+              {selected !== undefined && state.requirements.length > 1 ? (
+                <Menu
+                  open={switchOpen}
+                  onClose={() => setSwitchOpen(false)}
+                  className={styles.detailSwitchMenu}
+                  autoFocus
+                  dense
+                  items={state.requirements.map((requirement) => ({ id: requirement.id, label: requirement.title }))}
+                  selectedId={selected.id}
+                  onSelect={(id) => {
+                    setSwitchOpen(false)
+                    controller.openDetail(id)
+                  }}
+                  anchor={(
+                    <button
+                      type="button"
+                      className={styles.detailSwitch}
+                      disabled={state.busy}
+                      onClick={() => setSwitchOpen(true)}
+                    >
+                      <IconChecklistOutline14 />
+                      <span>{t('detail.switch')}</span>
+                      <IconChevronDownOutline14 />
+                    </button>
+                  )}
+                />
+              ) : null}
               <div className={styles.titleCluster}>
                 <h1 className={styles.title}>{selected !== undefined ? selected.title : t('panel.title')}</h1>
                 {selected !== undefined && selected.description ? (

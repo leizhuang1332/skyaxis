@@ -50,6 +50,7 @@ interface RequirementsDictionary {
   readonly 'delete.cancel': string
   // detail.* — in-panel detail view (0003 route B)
   readonly 'detail.back': string
+  readonly 'detail.switch': string
   readonly 'detail.missing': string
   readonly 'detail.tab.overview': string
   readonly 'detail.tab.workspace': string
@@ -172,6 +173,7 @@ const zh: RequirementsDictionary = {
   'delete.confirm': '删除',
   'delete.cancel': '取消',
   'detail.back': '返回',
+  'detail.switch': '切换需求',
   'detail.missing': '该需求已不存在。',
   'detail.tab.overview': '概览',
   'detail.tab.workspace': '工作区',
@@ -289,6 +291,7 @@ const en: RequirementsDictionary = {
   'delete.confirm': 'Remove',
   'delete.cancel': 'Cancel',
   'detail.back': 'Back',
+  'detail.switch': 'Switch requirement',
   'detail.missing': 'This requirement no longer exists.',
   'detail.tab.overview': 'Overview',
   'detail.tab.workspace': 'Workspace',
