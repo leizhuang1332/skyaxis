@@ -3,12 +3,14 @@
  * route B): the list view (filter bar, failure banners, skeleton/list with
  * the add card leading the grid) or the detail view (tab strip in the
  * header + active tab panel in the body). Only the body's content swaps —
- * the filter state, the form/delete dialogs, and the scroll container live
- * at this page level and survive view switches. The active-tab state also
- * lives here (the strip and the panel sit in two regions) and resets on
- * entering another requirement. Presentation only: data flows in through
- * props (store snapshot via useSyncExternalStore, controller actions), no
- * ctx in the view layer.
+ * the form/delete dialogs and the scroll container live at this page level
+ * and survive view switches. The filter text and the active tab ride the
+ * store (0004 P1): the host's keyed main slot has no keep-alive, so a panel
+ * switch unmounts this component — store-held view state survives the
+ * round-trip, and openDetail resets the tab only when the selection moves
+ * to another requirement. Presentation only: data flows in through props
+ * (store snapshot via useSyncExternalStore, controller actions), no ctx in
+ * the view layer.
  */
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Button, IconChevronLeftOutline14, IconCloseOutline16, IconListPenOutline16, IconSearchOutline16, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -52,19 +54,16 @@ export function RequirementsPage(props: {
   const { t, store, controller } = props
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot)
   const detailTabs = useSyncExternalStore(props.detailTabs.subscribe, props.detailTabs.getSnapshot)
-  const [filter, setFilter] = useState('')
   const [pendingRemove, setPendingRemove] = useState<RequirementRecord | null>(null)
   // null = list view; a record = detail view; undefined = the id outlived
   // its record (missing branch).
   const selected = state.selectedId === null
     ? null
     : state.requirements.find((requirement) => requirement.id === state.selectedId)
-  // Active detail tab: the selection resets per requirement (host parity —
-  // never auto-select on a fresh view), null falls back to the first tab.
-  const [tabId, setTabId] = useState<string | null>(null)
-  useEffect(() => { setTabId(null) }, [state.selectedId])
-  const activeTab: RequirementDetailTab | undefined = detailTabs.find((tab) => tab.id === tabId) ?? detailTabs[0]
-  const needle = filter.trim().toLowerCase()
+  // Active detail tab (store-held, 0004 P1): null = unselected, falls back
+  // to the first tab; openDetail resets it when the selection moves.
+  const activeTab: RequirementDetailTab | undefined = detailTabs.find((tab) => tab.id === state.detailTabId) ?? detailTabs[0]
+  const needle = state.listFilter.trim().toLowerCase()
   const visibleRequirements = needle.length === 0
     ? state.requirements
     : state.requirements.filter((requirement) =>
@@ -119,7 +118,7 @@ export function RequirementsPage(props: {
               </div>
             </div>
             {selected !== undefined ? (
-              <RequirementDetailTabs tabs={detailTabs} activeId={activeTab?.id} onSelect={setTabId} />
+              <RequirementDetailTabs tabs={detailTabs} activeId={activeTab?.id} onSelect={controller.selectDetailTab} />
             ) : null}
           </div>
         ) : (
@@ -138,12 +137,12 @@ export function RequirementsPage(props: {
         <div className={styles.filterBar}>
           <Input
             className={styles.filterInput}
-            value={filter}
+            value={state.listFilter}
             placeholder={t('view.filterPlaceholder')}
             icon={<IconSearchOutline16 size={16} />}
             spellCheck={false}
             aria-label={t('view.filterPlaceholder')}
-            onChange={(event) => setFilter(event.target.value)}
+            onChange={(event) => controller.setListFilter(event.target.value)}
           />
         </div>
         {state.banner ? (

@@ -160,6 +160,36 @@ describe('requirements controller/store', () => {
     expect(snap().selectedId).toBeNull()
   })
 
+  it('openDetail resets the tab only when the selection moves; re-entering the same id keeps it', async () => {
+    const { controller, snap } = setup()
+    await controller.refresh()
+    controller.openDetail('a')
+    controller.selectDetailTab('workspace')
+    expect(snap().detailTabId).toBe('workspace')
+    controller.openDetail('a') // same id — a panel-round-trip-shaped re-entry
+    expect(snap().detailTabId).toBe('workspace')
+    controller.openDetail('b') // another requirement — host parity reset
+    expect(snap().detailTabId).toBeNull()
+  })
+
+  it('closeDetail also clears the tab', async () => {
+    const { controller, snap } = setup()
+    await controller.refresh()
+    controller.openDetail('a')
+    controller.selectDetailTab('workspace')
+    controller.closeDetail()
+    expect(snap().detailTabId).toBeNull()
+  })
+
+  it('selectDetailTab and setListFilter write their page-level fields', async () => {
+    const { controller, snap } = setup()
+    await controller.refresh()
+    controller.selectDetailTab('overview')
+    controller.setListFilter('需求-a')
+    expect(snap().detailTabId).toBe('overview')
+    expect(snap().listFilter).toBe('需求-a')
+  })
+
   it('a refresh that drops the selected record keeps selectedId — the missing branch is the view\'s', async () => {
     const list = vi.fn()
       .mockResolvedValueOnce({ kind: 'ok' as const, revision: 1, requirements: [record('a')] })

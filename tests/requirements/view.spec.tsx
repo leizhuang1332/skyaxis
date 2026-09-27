@@ -72,7 +72,9 @@ function page(fetcherOverrides: Partial<RequirementsFetcher> = {}) {
   const utils = render(
     <RequirementsPage t={bindZh()} store={store} controller={controller} detailTabs={detailTabs} renderSlot={renderSlot} />,
   )
-  return { ...utils, store, controller, fetcher }
+  // detailTabs/renderSlot ride out for the panel-round-trip remount case:
+  // the same store/controller must re-enter a freshly rendered page.
+  return { ...utils, store, controller, fetcher, detailTabs, renderSlot }
 }
 
 describe('RequirementsPage (P2)', () => {
@@ -290,6 +292,36 @@ describe("RequirementsPage (0003 P2: detail tab skeleton)", () => {
     await waitFor(() => expect(screen.getByText('该需求已不存在。')).toBeTruthy())
     expect(screen.queryByRole('tablist')).toBeNull()
     unmount()
+  })
+
+  // 0004 P1: the host's keyed main slot unmounts the page on a panel switch
+  // (no keep-alive) — remounting the SAME store/controller must restore the
+  // detail tab and the list filter, not reset them.
+  it('a panel round-trip (unmount + remount on the same store) keeps the detail tab and the filter', async () => {
+    const { unmount, store, controller, detailTabs, renderSlot } = page()
+    await waitFor(() => expect(screen.getByText('需求-b')).toBeTruthy())
+    fireEvent.change(screen.getByPlaceholderText('按标题 / 描述筛选'), { target: { value: '需求-a' } })
+    await waitFor(() => expect(screen.queryByText('需求-b')).toBeNull())
+    fireEvent.click(screen.getByRole('button', { name: /需求-a/ }))
+    await waitFor(() => expect(screen.getByRole('heading', { name: '需求-a' })).toBeTruthy())
+    fireEvent.click(screen.getByRole('tab', { name: '工作区' }))
+    await waitFor(() => expect(screen.getByRole('tab', { name: '工作区' }).getAttribute('aria-selected')).toBe('true'))
+
+    unmount() // panel switched away — component state dies
+    const remount = render(
+      <RequirementsPage t={bindZh()} store={store} controller={controller} detailTabs={detailTabs} renderSlot={renderSlot} />,
+    )
+    await waitFor(() => expect(screen.getByRole('heading', { name: '需求-a' })).toBeTruthy())
+    expect(screen.getByRole('tab', { name: '工作区' }).getAttribute('aria-selected')).toBe('true')
+    expect(remount.container.querySelector('[data-tab-panel]')?.getAttribute('data-tab-panel')).toBe('workspace')
+
+    fireEvent.click(screen.getByRole('button', { name: '返回' }))
+    await waitFor(() => {
+      const filter = screen.getByPlaceholderText('按标题 / 描述筛选') as HTMLInputElement
+      expect(filter.value).toBe('需求-a')
+      expect(screen.queryByText('需求-b')).toBeNull()
+    })
+    remount.unmount()
   })
 })
 

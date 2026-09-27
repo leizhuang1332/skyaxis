@@ -273,11 +273,17 @@ export function createRequirementsController(store: RequirementsStore, fetcher: 
     // Detail view (0003 P1). openDetail rides a refresh so the pulled-only
     // model keeps the record fresh on entry; refresh never clears selectedId
     // — a vanished record is the detail view's missing branch, not a pop.
+    // The tab resets only when the selection MOVES (host parity — never
+    // auto-select on a fresh view); re-entering the SAME id keeps the tab
+    // (0004 P1: the state rides the store across panel round-trips).
     openDetail: (id: string) => {
-      patch({ selectedId: id })
+      const { selectedId, detailTabId } = store.getSnapshot()
+      patch({ selectedId: id, detailTabId: selectedId === id ? detailTabId : null })
       void refresh()
     },
-    closeDetail: () => patch({ selectedId: null }),
+    closeDetail: () => patch({ selectedId: null, detailTabId: null }),
+    selectDetailTab: (tabId: string) => patch({ detailTabId: tabId }),
+    setListFilter: (text: string) => patch({ listFilter: text }),
     dismissBanner: () => patch({ banner: undefined }),
     dispose: () => {
       disposed = true
