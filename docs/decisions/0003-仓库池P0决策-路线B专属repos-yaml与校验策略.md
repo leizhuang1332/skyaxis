@@ -27,6 +27,8 @@
 
 > **2026-09-24 修订（用户裁定）**：未知类失败**不再硬拒，改为与网络/权限同样走 `RiskConfirmation` 交用户抉择**。触发场景：GitHub 标准 ssh 地址 `git@github.com:org/repo.git` 在非交互探针下因 ssh 主机密钥校验失败（`Host key verification failed.`）原落"未知"被硬拒——用户明确"即使无法确认可达性，也不能硬拒"。修订后的持久化映射：网络/权限 → `forced-network`/`forced-auth`；**未知 → `unverified`**（诚实语义：未成功验证过，不扩枚举值）。同时分类器已将 host key 校验失败（首连/密钥变更）归入权限类（服务器可达、信任门槛未建立）。
 
+> **2026-09-27 修订（决策 [0004](./0004-仓库池双地址与配置导入决策-per-address状态模型与合并策略.md) D1/D2/D5）**：本节 forced/unchanged 与 `RepoRecord.status` 均为**单 url 语境**。仓库池引入双地址（urlSsh/urlHttp）后，status/validatedAt/lastError 三元组按地址独立持久化（per-address 四件套），`SaveValidation` 重定义为按地址槽位携带结论；放行映射（本节表格）对每个地址独立适用，语义不变。另：程序化导入写入不经 `RiskConfirmation`，统一落 `unverified`（决策 0004 D5 显式豁免，与本节"未知 → unverified"诚实语义一致）。
+
 | 分类 | 行为（修订后） |
 |---|---|
 | 网络 | 提示原因，`RiskConfirmation` 确认后**可放行**保存 |
@@ -38,3 +40,4 @@
 
 - 浏览器↔宿主通道收敛为**一套端点族**（list / save / remove / validate），比路线 A 少一条通道（无需 `ctx.remote.settings`、client 入口无需加 `'remote'`）。
 - 调研报告 §6.1 决策点 1/2/3/4 全部关闭；5/6（settings 页副作用、URL 内嵌凭据）随路线 B 一并消失/简化——URL 内嵌凭据仍按 D2 白名单中的合法性规则处理（`https://user:token@host` 属合法 URL 形态，是否入库属 P2 实现期文案与安全细化，默认倾向拒绝并提示）。
+- **2026-09-27 修订（决策 [0004](./0004-仓库池双地址与配置导入决策-per-address状态模型与合并策略.md)）**：端点族由四端点扩为**五端点**（+ `POST /api/skyaxis/repos/import`，JSON/YAML 配置导入，dry-run 预览 + 尽力合并 + 精确报告）；repos.yaml `version` 升 2（双地址 per-address 状态，读侧 v1 兼容迁移，见决策 0004 D3）。
