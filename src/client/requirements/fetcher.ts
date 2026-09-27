@@ -10,6 +10,7 @@ import {
   REQUIREMENTS_LIST_PATH,
   REQUIREMENTS_REMOVE_PATH,
   REQUIREMENTS_SAVE_PATH,
+  REQUIREMENTS_WORKSPACE_PATH,
 } from '../../requirements-shared/protocol.js'
 import type {
   ErrorResponse,
@@ -18,12 +19,14 @@ import type {
   RequirementRecord,
   SaveRequestBody,
   SaveResponseOk,
+  WorkspaceSetRequestBody,
 } from '../../requirements-shared/protocol.js'
 import {
   isErrorResponse,
   isListResponse,
   isRemoveResponseOk,
   isSaveResponseOk,
+  isWorkspaceStatusResponse,
 } from '../../requirements-shared/protocol.js'
 
 export type Failure = { readonly kind: 'network' } | { readonly kind: 'http-error'; readonly status: number; readonly code?: string; readonly currentRevision?: number }
@@ -35,6 +38,19 @@ export type ListResult =
 
 export type SaveResult = { readonly kind: 'ok'; readonly revision: number; readonly requirement: RequirementRecord } | Failure
 export type RemoveResult = { readonly kind: 'ok'; readonly revision: number } | Failure
+
+export type WorkspaceStatusResult =
+  | {
+    readonly kind: 'ok'
+    readonly bound: boolean
+    readonly path: string
+    readonly directoryExists: boolean
+    readonly registered: boolean
+    readonly suggestedPath: string
+  }
+  | Failure
+/** Set/clear share the save envelope shape. */
+export type WorkspaceSetResult = SaveResult
 
 async function request(path: string, init: RequestInit | undefined, signal: AbortSignal | undefined): Promise<Response | Failure> {
   try {
@@ -97,6 +113,64 @@ export function createRequirementsFetcher() {
       if (!isRemoveResponseOk(parsed)) return { kind: 'http-error', status: response.status }
       const ok: RemoveResponseOk = parsed
       return { kind: 'ok', revision: ok.revision }
+    },
+
+    async workspaceStatus(id: string, signal?: AbortSignal): Promise<WorkspaceStatusResult> {
+      const response = await request(
+        `${REQUIREMENTS_WORKSPACE_PATH}?id=${encodeURIComponent(id)}`,
+        { method: 'GET' },
+        signal,
+      )
+      if ('kind' in response) return response
+      if (!response.ok) return parseErrorBody(response)
+      const parsed: unknown = await response.json()
+      if (!isWorkspaceStatusResponse(parsed)) return { kind: 'http-error', status: response.status }
+      return {
+        kind: 'ok',
+        bound: parsed.bound,
+        path: parsed.path,
+        directoryExists: parsed.directoryExists,
+        registered: parsed.registered,
+        suggestedPath: parsed.suggestedPath,
+      }
+    },
+
+    async setWorkspace(body: WorkspaceSetRequestBody, signal?: AbortSignal): Promise<WorkspaceSetResult> {
+      const response = await request(REQUIREMENTS_WORKSPACE_PATH, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      }, signal)
+      if ('kind' in response) return response
+      if (!response.ok) return parseErrorBody(response)
+      const parsed: unknown = await response.json()
+      if (!isSaveResponseOk(parsed)) return { kind: 'http-error', status: response.status }
+      return { kind: 'ok', revision: parsed.revision, requirement: parsed.requirement }
+    },
+
+    async clearWorkspace(id: string, expectedRevision: number, signal?: AbortSignal): Promise<WorkspaceSetResult> {
+      return this.setWorkspace({ expectedRevision, id, action: 'clear' }, signal)
+    },
+
+    /** Recreates the host registration only — answers with the refreshed status. */
+    async rebindWorkspace(id: string, signal?: AbortSignal): Promise<WorkspaceStatusResult> {
+      const response = await request(REQUIREMENTS_WORKSPACE_PATH, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id, action: 'rebind' } as const),
+      }, signal)
+      if ('kind' in response) return response
+      if (!response.ok) return parseErrorBody(response)
+      const parsed: unknown = await response.json()
+      if (!isWorkspaceStatusResponse(parsed)) return { kind: 'http-error', status: response.status }
+      return {
+        kind: 'ok',
+        bound: parsed.bound,
+        path: parsed.path,
+        directoryExists: parsed.directoryExists,
+        registered: parsed.registered,
+        suggestedPath: parsed.suggestedPath,
+      }
     },
   }
 }

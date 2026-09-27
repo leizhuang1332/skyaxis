@@ -21,6 +21,14 @@ export interface RequirementRecord {
   readonly id: string
   readonly title: string
   readonly description: string
+  /**
+   * Bound workspace directory as a canonical (realpath) host path; '' = unbound.
+   * Stores the path, never a workspaceId: re-adding the same directory after a
+   * workspace delete mints a fresh uuid, while the path stays a stable join key.
+   * Maintained by the workspace endpoints only — edits through the save form
+   * carry the previous value over unchanged.
+   */
+  readonly workspacePath: string
   /** ISO 8601 timestamp of record creation; carried over unchanged on edits. */
   readonly createdAt: string
   /** ISO 8601 timestamp of the last edit (equals createdAt on creation). */
@@ -47,12 +55,43 @@ export interface RemoveRequestBody {
 }
 
 // ---------------------------------------------------------------------------
+// Workspace binding flow (P3a)
+// ---------------------------------------------------------------------------
+
+export interface WorkspaceSetRequest {
+  readonly expectedRevision: number
+  readonly id: string
+  readonly action: 'set'
+  readonly path: string
+}
+
+export interface WorkspaceClearRequest {
+  readonly expectedRevision: number
+  readonly id: string
+  readonly action: 'clear'
+}
+
+/**
+ * Recreate the host workspace registration for the already-bound path
+ * (the registry row may have been deleted host-side — deletion never
+ * touches the directory or this ledger). No ledger write, no revision
+ * bump: nothing about the record changes.
+ */
+export interface WorkspaceRebindRequest {
+  readonly id: string
+  readonly action: 'rebind'
+}
+
+export type WorkspaceSetRequestBody = WorkspaceSetRequest | WorkspaceClearRequest | WorkspaceRebindRequest
+
+// ---------------------------------------------------------------------------
 // Route paths (host registers, browser calls — one source of truth)
 // ---------------------------------------------------------------------------
 
 export const REQUIREMENTS_LIST_PATH = '/api/skyaxis/requirements'
 export const REQUIREMENTS_SAVE_PATH = '/api/skyaxis/requirements/save'
 export const REQUIREMENTS_REMOVE_PATH = '/api/skyaxis/requirements/remove'
+export const REQUIREMENTS_WORKSPACE_PATH = '/api/skyaxis/requirements/workspace'
 
 // ---------------------------------------------------------------------------
 // Wire envelopes
@@ -84,11 +123,29 @@ export interface RemoveResponseOk {
   readonly revision: number
 }
 
-/** Error body for 4xx/5xx responses (save/remove). */
+/** Set/clear success envelope — same shape as SaveResponseOk. */
+export type WorkspaceSetResponseOk = SaveResponseOk
+
+/** GET workspace status payload (also answers for unbound records). */
+export interface WorkspaceStatusResponseOk {
+  readonly ok: true
+  readonly bound: boolean
+  /** Bound canonical path; '' when unbound. */
+  readonly path: string
+  /** Whether the bound directory still exists on the host filesystem. */
+  readonly directoryExists: boolean
+  /** Whether the bound path is registered in the host workspace registry. */
+  readonly registered: boolean
+  /** Host-computed default suggestion for the setup dialog ($DSH_HOME based). */
+  readonly suggestedPath: string
+}
+
+/** Error body for 4xx/5xx responses (save/remove/workspace). */
 export interface ErrorResponse {
   readonly ok: false
   readonly code:
     | 'bad-request'
+    | 'invalid-path'
     | 'not-found'
     | 'conflict'
     | 'unreadable-file'
@@ -112,6 +169,7 @@ export function isRequirementRecord(v: unknown): v is RequirementRecord {
     isString(r.id) && r.id.length > 0
     && isString(r.title) && r.title.length > 0
     && isString(r.description)
+    && isString(r.workspacePath)
     && isString(r.createdAt) && r.createdAt.length > 0
     && isString(r.updatedAt) && r.updatedAt.length > 0
   )
@@ -140,6 +198,19 @@ export function isRemoveResponseOk(v: unknown): v is RemoveResponseOk {
   if (typeof v !== 'object' || v === null) return false
   const r = v as Record<string, unknown>
   return r.ok === true && typeof r.revision === 'number'
+}
+
+export function isWorkspaceStatusResponse(v: unknown): v is WorkspaceStatusResponseOk {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  return (
+    r.ok === true
+    && typeof r.bound === 'boolean'
+    && isString(r.path)
+    && typeof r.directoryExists === 'boolean'
+    && typeof r.registered === 'boolean'
+    && isString(r.suggestedPath)
+  )
 }
 
 export function isErrorResponse(v: unknown): v is ErrorResponse {

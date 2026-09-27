@@ -29,6 +29,7 @@ function record(title: string, description = ''): RequirementRecord {
     id: randomUUID(),
     title,
     description,
+    workspacePath: '',
     createdAt: now,
     updatedAt: now,
   }

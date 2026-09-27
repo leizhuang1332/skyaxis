@@ -4,9 +4,12 @@
  * `refresh()` on mount; conflict/not-found outcomes self-heal by refreshing
  * so the revision realigns.
  */
-import type { RequirementRecord, SaveRequestBody } from '../../requirements-shared/protocol.js'
+import type { RequirementRecord, SaveRequestBody, WorkspaceSetRequestBody } from '../../requirements-shared/protocol.js'
 import type { RequirementsStore } from './store.js'
-import type { RequirementsFetcher } from './fetcher.js'
+import type { RequirementsFetcher, WorkspaceStatusResult } from './fetcher.js'
+
+/** Workspace mutation outcome: 'invalid-path' stays inline (no banner). */
+export type WorkspaceOutcome = 'ok' | 'invalid-path' | 'failed'
 
 export function createRequirementsController(store: RequirementsStore, fetcher: RequirementsFetcher) {
   let disposed = false
@@ -106,10 +109,91 @@ export function createRequirementsController(store: RequirementsStore, fetcher: 
     patch({ banner: { code: result.code === 'unreadable-file' ? 'unreadable-file' : 'internal' } })
   }
 
+  /** Pass-through read for the workspace tab (status never enters the page store). */
+  async function workspaceStatus(id: string, signal?: AbortSignal): Promise<WorkspaceStatusResult | undefined> {
+    const result = await fetcher.workspaceStatus(id, signal)
+    return alive(result) ? result : undefined
+  }
+
+  async function mutateWorkspace(body: WorkspaceSetRequestBody, signal?: AbortSignal): Promise<WorkspaceOutcome> {
+    patch({ busy: true })
+    const result = await fetcher.setWorkspace(body, signal)
+    if (!alive(result)) return 'failed'
+    if (result.kind === 'ok') {
+      const snapshot = store.getSnapshot()
+      patch({
+        busy: false,
+        revision: result.revision,
+        requirements: snapshot.requirements.map((requirement) =>
+          requirement.id === result.requirement.id ? result.requirement : requirement),
+        banner: undefined,
+      })
+      return 'ok'
+    }
+    patch({ busy: false })
+    if (result.kind === 'network') {
+      patch({ banner: { code: 'network' } })
+      return 'failed'
+    }
+    // Path validation failures render inline next to the input, never as a banner.
+    if (result.code === 'invalid-path') return 'invalid-path'
+    if (result.status === 409 && result.code === 'conflict') {
+      patch({ banner: { code: 'conflict', revision: result.currentRevision } })
+      await refresh(signal)
+      return 'failed'
+    }
+    if (result.status === 404) {
+      patch({ banner: { code: 'not-found' } })
+      await refresh(signal)
+      return 'failed'
+    }
+    if (result.code !== undefined) {
+      patch({ banner: { code: result.code as 'unreadable-file' | 'bad-request' | 'internal' } })
+      return 'failed'
+    }
+    patch({ banner: { code: 'internal' } })
+    return 'failed'
+  }
+
+  async function setWorkspace(id: string, path: string, signal?: AbortSignal): Promise<WorkspaceOutcome> {
+    return mutateWorkspace({ expectedRevision: store.getSnapshot().revision, id, action: 'set', path }, signal)
+  }
+
+  async function clearWorkspace(id: string, signal?: AbortSignal): Promise<WorkspaceOutcome> {
+    return mutateWorkspace({ expectedRevision: store.getSnapshot().revision, id, action: 'clear' }, signal)
+  }
+
+  /** Registry-only repair: no ledger write, so no store change on success. */
+  async function rebindWorkspace(id: string, signal?: AbortSignal): Promise<WorkspaceOutcome> {
+    const result = await fetcher.rebindWorkspace(id, signal)
+    if (!alive(result)) return 'failed'
+    if (result.kind === 'ok') return 'ok'
+    if (result.kind === 'network') {
+      patch({ banner: { code: 'network' } })
+      return 'failed'
+    }
+    if (result.code === 'invalid-path') return 'invalid-path'
+    if (result.status === 404) {
+      patch({ banner: { code: 'not-found' } })
+      await refresh(signal)
+      return 'failed'
+    }
+    if (result.code !== undefined) {
+      patch({ banner: { code: result.code as 'unreadable-file' | 'bad-request' | 'internal' } })
+      return 'failed'
+    }
+    patch({ banner: { code: 'internal' } })
+    return 'failed'
+  }
+
   return {
     refresh,
     save,
     remove,
+    workspaceStatus,
+    setWorkspace,
+    clearWorkspace,
+    rebindWorkspace,
     openCreate: () => patch({ editing: { kind: 'create' }, banner: undefined }),
     openEdit: (requirement: RequirementRecord) => patch({ editing: { kind: 'edit', requirement }, banner: undefined }),
     closeForm: () => patch({ editing: { kind: 'closed' } }),

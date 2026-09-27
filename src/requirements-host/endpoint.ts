@@ -14,13 +14,18 @@ import {
   REQUIREMENTS_LIST_PATH,
   REQUIREMENTS_REMOVE_PATH,
   REQUIREMENTS_SAVE_PATH,
+  REQUIREMENTS_WORKSPACE_PATH,
 } from '../requirements-shared/protocol.js'
 import type { ErrorResponse, ListResponse, RequirementRecord } from '../requirements-shared/protocol.js'
 import type { RequirementsFileStore } from './requirements-file.js'
-import { RemoveRequestSchema, SaveRequestSchema } from './types.js'
+import type { RequirementWorkspaceBinder } from './workspace.js'
+import { suggestWorkspacePath } from './workspace.js'
+import { RemoveRequestSchema, SaveRequestSchema, WorkspaceRequestSchema } from './types.js'
 
 export interface RequirementsServices {
   readonly file: RequirementsFileStore
+  /** Workspace binding domain logic (P3a); registry itself is optional. */
+  readonly workspaces: RequirementWorkspaceBinder
   /** Host log face for unexpected handler failures (500s). */
   readonly log?: (error: unknown) => void
 }
@@ -55,7 +60,7 @@ function timestampFields(
 }
 
 export function registerRequirementsEndpoints(connection: HostConnectionHandle, services: RequirementsServices): void {
-  const { file, log } = services
+  const { file, workspaces, log } = services
 
   connection.fetch.register({
     path: REQUIREMENTS_LIST_PATH,
@@ -99,6 +104,8 @@ export function registerRequirementsEndpoints(connection: HostConnectionHandle, 
         id: requirement.id ?? randomUUID(),
         title: requirement.title,
         description: requirement.description,
+        // The save form never edits the binding — carry it over unchanged.
+        workspacePath: previous?.workspacePath ?? '',
         ...timestampFields(previous),
       }
       const nextRequirements = previous === undefined
@@ -157,4 +164,121 @@ export function registerRequirementsEndpoints(connection: HostConnectionHandle, 
       }
     },
   })
+
+  // Workspace binding (P3a): one route registration, GET status + POST
+  // set/clear (exact-path registration makes two same-path entries undefined).
+  connection.fetch.register({
+    path: REQUIREMENTS_WORKSPACE_PATH,
+    methods: ['GET', 'POST'],
+    requestBody: 'buffered',
+    fetch: async (request) => {
+      if (request.method === 'GET') return workspaceStatusFlow(request)
+      return workspaceMutateFlow(request)
+    },
+  })
+
+  async function workspaceStatusFlow(request: Request): Promise<Response> {
+    const id = new URL(request.url).searchParams.get('id')
+    if (id === null) return errorResponse(400, 'bad-request')
+
+    const current = file.load()
+    if (!current.ok) return errorResponse(409, 'unreadable-file')
+    const record = current.value.requirements.find((candidate) => candidate.id === id)
+    if (record === undefined) {
+      return errorResponse(404, 'not-found', {
+        currentRevision: current.value.revision,
+        requirements: current.value.requirements,
+      })
+    }
+    return statusResponseFor(record)
+  }
+
+  function statusResponseFor(record: RequirementRecord): Response {
+    const { directoryExists, registered } = workspaces.status(record.workspacePath)
+    return json({
+      ok: true,
+      bound: record.workspacePath !== '',
+      path: record.workspacePath,
+      directoryExists,
+      registered,
+      suggestedPath: suggestWorkspacePath(record.title, record.id),
+    })
+  }
+
+  async function workspaceMutateFlow(request: Request): Promise<Response> {
+    const parsed = WorkspaceRequestSchema.safeParse(await readJsonBody(request))
+    if (!parsed.success) return errorResponse(400, 'bad-request')
+
+    const current = file.load()
+    if (!current.ok) return errorResponse(409, 'unreadable-file')
+    // Revision pre-check before any disk/registry side effect (ledger-writing
+    // actions only — rebind never writes, so it carries no expectedRevision).
+    if (parsed.data.action !== 'rebind' && current.value.revision !== parsed.data.expectedRevision) {
+      return errorResponse(409, 'conflict', { currentRevision: current.value.revision })
+    }
+    const record = current.value.requirements.find((candidate) => candidate.id === parsed.data.id)
+    if (record === undefined) {
+      return errorResponse(404, 'not-found', {
+        currentRevision: current.value.revision,
+        requirements: current.value.requirements,
+      })
+    }
+
+    try {
+      if (parsed.data.action === 'rebind') {
+        if (record.workspacePath === '') return errorResponse(400, 'bad-request')
+        const bound = await workspaces.rebind(record.workspacePath)
+        if (!bound.ok) {
+          if (bound.reason === 'invalid-path') return errorResponse(400, 'invalid-path')
+          log?.(bound.detail ?? 'workspace rebind failed')
+          return errorResponse(500, 'internal')
+        }
+        return statusResponseFor(record)
+      }
+      if (parsed.data.action === 'clear') {
+        // Unbinding an already-unbound record is an idempotent no-op.
+        if (record.workspacePath === '') {
+          return json({ ok: true, revision: current.value.revision, requirement: record })
+        }
+        const next: RequirementRecord = {
+          ...record,
+          workspacePath: '',
+          ...timestampFields(record),
+        }
+        return await persistWorkspaceRecord(parsed.data.expectedRevision, current.value.requirements, next)
+      }
+
+      const bound = await workspaces.bind(parsed.data.path)
+      if (!bound.ok) {
+        if (bound.reason === 'invalid-path') return errorResponse(400, 'invalid-path')
+        log?.(bound.detail ?? 'workspace bind failed')
+        return errorResponse(500, 'internal')
+      }
+      const next: RequirementRecord = {
+        ...record,
+        workspacePath: bound.canonicalPath,
+        ...timestampFields(record),
+      }
+      return await persistWorkspaceRecord(parsed.data.expectedRevision, current.value.requirements, next)
+    } catch (error) {
+      log?.(error)
+      return errorResponse(500, 'internal')
+    }
+  }
+
+  async function persistWorkspaceRecord(
+    expectedRevision: number,
+    requirements: readonly RequirementRecord[],
+    next: RequirementRecord,
+  ): Promise<Response> {
+    const nextRequirements = requirements.map((candidate) => (candidate.id === next.id ? next : candidate))
+    const saved = await file.save(expectedRevision, nextRequirements)
+    if (!saved.ok) {
+      if (saved.rejected === 'stale-revision') {
+        return errorResponse(409, 'conflict', { currentRevision: saved.currentRevision })
+      }
+      return errorResponse(409, 'unreadable-file')
+    }
+    return json({ ok: true, revision: saved.revision, requirement: next })
+  }
 }

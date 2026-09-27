@@ -33,6 +33,7 @@ const record = (): RequirementRecord => ({
   id: '11111111-1111-4111-8111-111111111111',
   title: '既有需求',
   description: '既有说明',
+  workspacePath: '',
   createdAt: '2026-09-25T09:30:00.000Z',
   updatedAt: '2026-09-25T09:30:00.000Z',
 })

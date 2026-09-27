@@ -1,6 +1,6 @@
 /**
  * Requirements dictionaries (zh/en), prefix layers per the repos-pool
- * convention: panel./page./view./form./error./menu./delete./detail.
+ * convention: panel./page./view./form./error./menu./delete./detail./workspace.
  *
  * Key set is mirrored verbatim into the LocaleNamespaceMap merge in
  * register.tsx — a key present here but missing there (or vice versa) is a
@@ -52,8 +52,27 @@ interface RequirementsDictionary {
   readonly 'detail.back': string
   readonly 'detail.missing': string
   readonly 'detail.tab.overview': string
-  readonly 'detail.tab.placeholder': string
+  readonly 'detail.tab.workspace': string
   readonly 'detail.tab.seat': string
+  // workspace.* — workspace binding tab (0003 P3a)
+  readonly 'workspace.setUp': string
+  readonly 'workspace.emptyHint': string
+  readonly 'workspace.pathLabel': string
+  readonly 'workspace.browse': string
+  readonly 'workspace.tagOk': string
+  readonly 'workspace.tagMissing': string
+  readonly 'workspace.tagUnregistered': string
+  readonly 'workspace.open': string
+  readonly 'workspace.unbind': string
+  readonly 'workspace.unbindHint': string
+  readonly 'workspace.rebind': string
+  readonly 'workspace.rebindHint': string
+  readonly 'workspace.invalidPath': string
+  readonly 'workspace.pickerUnavailable': string
+  readonly 'workspace.sectionRepos': string
+  readonly 'workspace.sectionReposHint': string
+  readonly 'workspace.sectionPrd': string
+  readonly 'workspace.sectionPrdHint': string
 }
 
 export type RequirementsT = (key: keyof RequirementsDictionary) => string
@@ -91,8 +110,26 @@ const zh: RequirementsDictionary = {
   'detail.back': '返回',
   'detail.missing': '该需求已不存在。',
   'detail.tab.overview': '概览',
-  'detail.tab.placeholder': '占位',
+  'detail.tab.workspace': '工作区',
   'detail.tab.seat': '功能规划中，此页预留。',
+  'workspace.setUp': '设置工作区目录',
+  'workspace.emptyHint': '为该需求设置一个工作区目录，关联仓库与 PRD 文档将落位其中。',
+  'workspace.pathLabel': '工作区目录',
+  'workspace.browse': '选择目录…',
+  'workspace.tagOk': '正常',
+  'workspace.tagMissing': '目录缺失',
+  'workspace.tagUnregistered': '未注册',
+  'workspace.open': '打开',
+  'workspace.unbind': '解绑',
+  'workspace.unbindHint': '解绑不会删除磁盘上的文件',
+  'workspace.rebind': '重新注册',
+  'workspace.rebindHint': '在宿主工作区列表中重建此目录的注册',
+  'workspace.invalidPath': '路径无效：请输入绝对路径，且不能指向普通文件',
+  'workspace.pickerUnavailable': '当前后端不支持目录选择',
+  'workspace.sectionRepos': '关联仓库',
+  'workspace.sectionReposHint': '设置工作区后可用（即将上线）。',
+  'workspace.sectionPrd': 'PRD 文档',
+  'workspace.sectionPrdHint': '设置工作区后可用（即将上线）。',
 }
 
 const en: RequirementsDictionary = {
@@ -128,8 +165,26 @@ const en: RequirementsDictionary = {
   'detail.back': 'Back',
   'detail.missing': 'This requirement no longer exists.',
   'detail.tab.overview': 'Overview',
-  'detail.tab.placeholder': 'Placeholder',
+  'detail.tab.workspace': 'Workspace',
   'detail.tab.seat': 'A planned feature will land here.',
+  'workspace.setUp': 'Set workspace directory',
+  'workspace.emptyHint': 'Set a directory for this requirement; linked repositories and PRD documents will live inside.',
+  'workspace.pathLabel': 'Workspace directory',
+  'workspace.browse': 'Browse…',
+  'workspace.tagOk': 'OK',
+  'workspace.tagMissing': 'Directory missing',
+  'workspace.tagUnregistered': 'Unregistered',
+  'workspace.open': 'Open',
+  'workspace.unbind': 'Unbind',
+  'workspace.unbindHint': 'Unbinding never deletes files on disk',
+  'workspace.rebind': 'Re-register',
+  'workspace.rebindHint': 'Recreate this directory\'s registration in the host workspace list',
+  'workspace.invalidPath': 'Invalid path: an absolute directory path is required',
+  'workspace.pickerUnavailable': 'Directory picking is unavailable on this backend',
+  'workspace.sectionRepos': 'Linked repositories',
+  'workspace.sectionReposHint': 'Available after a workspace is set (coming soon).',
+  'workspace.sectionPrd': 'PRD documents',
+  'workspace.sectionPrdHint': 'Available after a workspace is set (coming soon).',
 }
 
 export function registerRequirementsDictionaries(ctx: Context): void {

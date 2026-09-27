@@ -34,6 +34,7 @@ import { createRequirementTabSeats } from './detail-tabs.js'
 import { createRequirementsFetcher } from './fetcher.js'
 import { RequirementsIcon, RequirementsPage } from './view.js'
 import { createRequirementsStore } from './store.js'
+import { createWorkspaceCapabilities } from './workspace-tab.js'
 import type { RequirementRecord } from '../../requirements-shared/protocol.js'
 
 /** Paired main-key / panellist-id — the two must stay identical. */
@@ -88,6 +89,22 @@ export function registerRequirementsView(ctx: Context): () => void {
   const store = createRequirementsStore()
   const controller = createRequirementsController(store, fetcher)
 
+  // Optional remote capabilities for the workspace tab (P3a). Sub-scope
+  // injects, NEVER top-level: a composition without these namespaces must
+  // not lose the whole requirements panel — the tab core works over skyaxis's
+  // own HTTP endpoints; only the picker/reveal buttons ride these faces. All
+  // ctx.remote property reads live inside these two callbacks (the reflect
+  // allowlist throws outside an inject scope).
+  const workspaceCapabilities = createWorkspaceCapabilities()
+  const pickerFiber = ctx.inject(['remote', 'remote.directoryPicker'], (scope) => {
+    workspaceCapabilities.setPicker(scope.remote.directoryPicker)
+    return () => workspaceCapabilities.setPicker(undefined)
+  })
+  const openerFiber = ctx.inject(['remote', 'remote.session'], (scope) => {
+    workspaceCapabilities.setOpener(scope.remote.session)
+    return () => workspaceCapabilities.setOpener(undefined)
+  })
+
   // Tab ledger projection (host conversationViews shape): entriesOfSlot is
   // a fresh array per call, so the snapshot store is the stable source the
   // page subscribes to; equality guarding keeps unrelated refreshes silent.
@@ -132,25 +149,28 @@ export function registerRequirementsView(ctx: Context): () => void {
   const disposePanel = ctx.slots.inject('sidebar.panellist', () =>
     ctx.slots.register(requirementsPanelOptions(t), RequirementsIcon))
 
-  // Placeholder tab seats: inject waits for the declaring register (the
-  // main entry above), so order against it never matters.
-  const seats = createRequirementTabSeats(t)
+  // Tab seats: inject waits for the declaring register (the main entry
+  // above), so order against it never matters. The placeholder seat retired
+  // with the workspace tab landing (P3a).
+  const seats = createRequirementTabSeats({ t, controller, capabilities: workspaceCapabilities })
   const disposeOverview = ctx.slots.inject(REQUIREMENTS_DETAIL_VIEW_SLOT, () =>
     ctx.slots.register(
       { name: REQUIREMENTS_DETAIL_VIEW_SLOT, id: 'overview', order: 10, label: () => t('detail.tab.overview') },
       seats.RequirementOverviewTab,
     ))
-  const disposePlaceholder = ctx.slots.inject(REQUIREMENTS_DETAIL_VIEW_SLOT, () =>
+  const disposeWorkspace = ctx.slots.inject(REQUIREMENTS_DETAIL_VIEW_SLOT, () =>
     ctx.slots.register(
-      { name: REQUIREMENTS_DETAIL_VIEW_SLOT, id: 'placeholder', order: 20, label: () => t('detail.tab.placeholder') },
-      seats.RequirementPlaceholderTab,
+      { name: REQUIREMENTS_DETAIL_VIEW_SLOT, id: 'workspace', order: 30, label: () => t('detail.tab.workspace') },
+      seats.RequirementWorkspaceTab,
     ))
 
   return () => {
-    disposePlaceholder()
+    disposeWorkspace()
     disposeOverview()
     disposePanel()
     disposeMain()
+    openerFiber.dispose()
+    pickerFiber.dispose()
     controller.dispose()
   }
 }
@@ -201,7 +221,25 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       | 'detail.back'
       | 'detail.missing'
       | 'detail.tab.overview'
-      | 'detail.tab.placeholder'
+      | 'detail.tab.workspace'
       | 'detail.tab.seat'
+      | 'workspace.setUp'
+      | 'workspace.emptyHint'
+      | 'workspace.pathLabel'
+      | 'workspace.browse'
+      | 'workspace.tagOk'
+      | 'workspace.tagMissing'
+      | 'workspace.tagUnregistered'
+      | 'workspace.open'
+      | 'workspace.unbind'
+      | 'workspace.unbindHint'
+      | 'workspace.rebind'
+      | 'workspace.rebindHint'
+      | 'workspace.invalidPath'
+      | 'workspace.pickerUnavailable'
+      | 'workspace.sectionRepos'
+      | 'workspace.sectionReposHint'
+      | 'workspace.sectionPrd'
+      | 'workspace.sectionPrdHint'
   }
 }

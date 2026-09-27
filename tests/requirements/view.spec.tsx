@@ -45,6 +45,7 @@ const record = (id: string): RequirementRecord => ({
   id,
   title: `需求-${id}`,
   description: `说明 ${id}`,
+  workspacePath: '',
   createdAt: '2026-09-25T09:30:00.000Z',
   updatedAt: '2026-09-25T09:30:00.000Z',
 })
@@ -62,7 +63,7 @@ function page(fetcherOverrides: Partial<RequirementsFetcher> = {}) {
   // register.spec (SlotCore); here the page wiring is what matters.
   const detailTabs = createDetailTabsStore([
     { id: 'overview', order: 10, label: '概览' },
-    { id: 'placeholder', order: 20, label: '占位' },
+    { id: 'workspace', order: 30, label: '工作区' },
   ])
   const renderSlot = ((_key: string, owner: { requirement: { title: string } }, opts?: { only?: string }) => (
     <div data-tab-panel={opts?.only}>{owner.requirement.title}</div>
@@ -245,7 +246,7 @@ describe("RequirementsPage (0003 P2: detail tab skeleton)", () => {
     await waitFor(() => expect(screen.getByRole('heading', { name: '需求-a' })).toBeTruthy())
 
     // Strip over the ledger (fake two tabs); first tab active.
-    expect(screen.getAllByRole('tab').map((el) => el.textContent)).toEqual(['概览', '占位'])
+    expect(screen.getAllByRole('tab').map((el) => el.textContent)).toEqual(['概览', '工作区'])
     expect(screen.getByRole('tab', { name: '概览' }).getAttribute('aria-selected')).toBe('true')
     // Panel outlet renders the active tab with the live record as owner —
     // queried by attribute: the record title also lives in the heading.
@@ -254,10 +255,10 @@ describe("RequirementsPage (0003 P2: detail tab skeleton)", () => {
     expect(panel()?.textContent).toBe('需求-a')
 
     // Clicking the second tab swaps the outlet (only-switch) and the aria.
-    fireEvent.click(screen.getByRole('tab', { name: '占位' }))
+    fireEvent.click(screen.getByRole('tab', { name: '工作区' }))
     await waitFor(() => {
-      expect(screen.getByRole('tab', { name: '占位' }).getAttribute('aria-selected')).toBe('true')
-      expect(panel()?.getAttribute('data-tab-panel')).toBe('placeholder')
+      expect(screen.getByRole('tab', { name: '工作区' }).getAttribute('aria-selected')).toBe('true')
+      expect(panel()?.getAttribute('data-tab-panel')).toBe('workspace')
     })
     unmount()
   })
@@ -267,8 +268,8 @@ describe("RequirementsPage (0003 P2: detail tab skeleton)", () => {
     await waitFor(() => expect(screen.getByText('需求-b')).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: /需求-a/ }))
     await waitFor(() => expect(screen.getByRole('heading', { name: '需求-a' })).toBeTruthy())
-    fireEvent.click(screen.getByRole('tab', { name: '占位' }))
-    await waitFor(() => expect(screen.getByRole('tab', { name: '占位' }).getAttribute('aria-selected')).toBe('true'))
+    fireEvent.click(screen.getByRole('tab', { name: '工作区' }))
+    await waitFor(() => expect(screen.getByRole('tab', { name: '工作区' }).getAttribute('aria-selected')).toBe('true'))
 
     // Back to the list, enter the other record — first tab again.
     fireEvent.click(screen.getByRole('button', { name: '返回' }))

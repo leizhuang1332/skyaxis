@@ -10,6 +10,7 @@ const record = (id: string) => ({
   id,
   title: `需求-${id}`,
   description: `说明 ${id}`,
+  workspacePath: '',
   createdAt: '2026-09-25T09:30:00.000Z',
   updatedAt: '2026-09-25T09:30:00.000Z',
 })
@@ -62,5 +63,51 @@ describe('createRequirementsFetcher', () => {
       requirement: { title: '需求-new', description: '说明 new' },
     })
     expect(result).toEqual({ kind: 'ok', revision: 4, requirement: record('new') })
+  })
+})
+
+describe('createRequirementsFetcher: workspace endpoints', () => {
+  it('narrows a healthy workspace status response', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
+      ok: true, bound: true, path: '/tmp/x', directoryExists: true, registered: true, suggestedPath: '/home/.dsh/skyaxis/workspaces/alpha',
+    })))
+    const result = await createRequirementsFetcher().workspaceStatus('a')
+    expect(result).toEqual({
+      kind: 'ok', bound: true, path: '/tmp/x', directoryExists: true, registered: true, suggestedPath: '/home/.dsh/skyaxis/workspaces/alpha',
+    })
+  })
+
+  it('posts the set body to the workspace route and narrows the record envelope', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ ok: true, revision: 5, requirement: record('a') }))
+    vi.stubGlobal('fetch', fetchMock)
+    const result = await createRequirementsFetcher().setWorkspace({ expectedRevision: 4, id: 'a', action: 'set', path: '/tmp/x' })
+    expect(result).toEqual({ kind: 'ok', revision: 5, requirement: record('a') })
+    const [path, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(path).toBe('/api/skyaxis/requirements/workspace')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body as string)).toEqual({ expectedRevision: 4, id: 'a', action: 'set', path: '/tmp/x' })
+  })
+
+  it('collapses 2xx status bodies missing the fields to http-error', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ ok: true, bound: 'yes' })))
+    const result = await createRequirementsFetcher().workspaceStatus('a')
+    expect(result).toEqual({ kind: 'http-error', status: 200 })
+  })
+})
+
+
+describe('createRequirementsFetcher: rebind', () => {
+  it('posts the bare rebind body and narrows the status envelope', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({
+      ok: true, bound: true, path: '/tmp/x', directoryExists: true, registered: true, suggestedPath: '/s',
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const result = await createRequirementsFetcher().rebindWorkspace('a')
+    expect(result).toEqual({
+      kind: 'ok', bound: true, path: '/tmp/x', directoryExists: true, registered: true, suggestedPath: '/s',
+    })
+    const [path, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(path).toBe('/api/skyaxis/requirements/workspace')
+    expect(JSON.parse(init.body as string)).toEqual({ id: 'a', action: 'rebind' })
   })
 })

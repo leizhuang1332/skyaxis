@@ -29,6 +29,7 @@ import {
 import { RequirementsIcon, RequirementsPage } from '../../src/client/requirements/view.js'
 import { createRequirementsController } from '../../src/client/requirements/controller.js'
 import { createRequirementsStore } from '../../src/client/requirements/store.js'
+import { createWorkspaceCapabilities } from '../../src/client/requirements/workspace-tab.js'
 
 /** Real LocaleRuntime register/bind contract, minimal implementation. */
 function createLocaleHarness() {
@@ -72,8 +73,8 @@ describe('requirements: dictionaries', () => {
       'detail.back',
       'detail.missing',
       'detail.tab.overview',
-      'detail.tab.placeholder',
       'detail.tab.seat',
+      'detail.tab.workspace',
       'error.conflict',
       'error.internal',
       'error.network',
@@ -99,6 +100,24 @@ describe('requirements: dictionaries', () => {
       'view.addRequirement',
       'view.filterEmpty',
       'view.filterPlaceholder',
+      'workspace.browse',
+      'workspace.emptyHint',
+      'workspace.invalidPath',
+      'workspace.open',
+      'workspace.pathLabel',
+      'workspace.pickerUnavailable',
+      'workspace.rebind',
+      'workspace.rebindHint',
+      'workspace.sectionPrd',
+      'workspace.sectionPrdHint',
+      'workspace.sectionRepos',
+      'workspace.sectionReposHint',
+      'workspace.setUp',
+      'workspace.tagMissing',
+      'workspace.tagOk',
+      'workspace.tagUnregistered',
+      'workspace.unbind',
+      'workspace.unbindHint',
     ])
     expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort())
     expect(zh['panel.title']).toBe('需求管理')
@@ -146,22 +165,22 @@ describe('requirements: SlotCore registration contract', () => {
         ) as ReactNode
       },
     )
-    // The two placeholder seats, registered AFTER the declaring entry
-    // (SlotCore throws on an undeclared slot; order is fixture-controlled).
-    const seats = createRequirementTabSeats(t)
+    // The tab seats, registered AFTER the declaring entry (SlotCore throws
+    // on an undeclared slot; order is fixture-controlled).
+    const seats = createRequirementTabSeats({ t, controller: createRequirementsController(createRequirementsStore(), { list: async () => ({ kind: 'network' }) } as never), capabilities: createWorkspaceCapabilities() })
     const disposeOverview = core.register(
       { name: 'requirements.detail.view', id: 'overview', order: 10, label: () => t('detail.tab.overview') },
       seats.RequirementOverviewTab,
     )
-    const disposePlaceholder = core.register(
-      { name: 'requirements.detail.view', id: 'placeholder', order: 20, label: () => t('detail.tab.placeholder') },
-      seats.RequirementPlaceholderTab,
+    const disposeWorkspace = core.register(
+      { name: 'requirements.detail.view', id: 'workspace', order: 30, label: () => t('detail.tab.workspace') },
+      seats.RequirementWorkspaceTab,
     )
     const disposePanel = core.register(
       requirementsPanelOptions(t),
       (props: PropsRuntime<'sidebar.panellist'>) => RequirementsIcon(props) as ReactNode,
     )
-    return { disposeConversation, disposeMain, disposeOverview, disposePlaceholder, disposePanel }
+    return { disposeConversation, disposeMain, disposeOverview, disposeWorkspace, disposePanel }
   }
 
   it('projects {id, order} and resolves the label thunk bilingually', () => {
@@ -207,11 +226,11 @@ describe('requirements: SlotCore registration contract', () => {
     const { disposeMain } = mountFixture(core, t)
 
     const entries = core.entriesOfSlot('requirements.detail.view')
-    expect(entries.map((e) => [e.options.id, e.options.order])).toEqual([['overview', 10], ['placeholder', 20]])
+    expect(entries.map((e) => [e.options.id, e.options.order])).toEqual([['overview', 10], ['workspace', 30]])
     expect(resolveSlotLabel(entries[0].options.label)).toBe('Overview')
     state.current = 'zh'
     expect(resolveSlotLabel(entries[0].options.label)).toBe('概览')
-    expect(resolveSlotLabel(entries[1].options.label)).toBe('占位')
+    expect(resolveSlotLabel(entries[1].options.label)).toBe('工作区')
 
     // Disposing the declaring main entry collapses the child slot (the
     // releaseEntry cascade); the seat disposers stay harmless afterwards.

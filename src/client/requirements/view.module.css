@@ -438,3 +438,140 @@
   line-height: 18px;
   word-break: break-all;
 }
+
+/* ---- workspace tab (0003 P3a) ---- */
+
+.workspaceTab {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.workspaceSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sectionTitle {
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* The unbound state as ONE action card (the addCard language): dashed border
+   marks the slot as an action, not content; the whole card is the button.
+   Hover stays quiet — layer-1 bg + action text lifts to the business primary. */
+.setupCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  min-height: 96px;
+  padding: 24px 16px;
+  border: 0.5px dashed var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: transparent;
+  cursor: pointer;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.setupCard:hover {
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.setupCard:focus-visible {
+  outline: none;
+  border-color: var(--dsw-alias-state-business-primary);
+}
+
+.setupHint {
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.setupAction {
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.setupCard:hover .setupAction {
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.workspacePathRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The path text itself is the click target (no separate edit affordance):
+   quiet until hover, the host row-hover idiom. */
+.pathText {
+  border: none;
+  padding: 2px 4px;
+  background: transparent;
+  cursor: pointer;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  line-height: 18px;
+  font-family: var(--dsw-font-family);
+  word-break: break-all;
+  text-align: left;
+}
+
+.pathText:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  border-radius: 4px;
+}
+
+/* Inline path editor — the QueueDock .editor contract: hairline l4, r6,
+   base bg, focus ring in the business primary. */
+.pathEditor {
+  box-sizing: border-box;
+  flex: 1 1 320px;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: 6px;
+  outline: none;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  line-height: 18px;
+  font-family: var(--dsw-font-family);
+}
+
+.pathEditor:focus {
+  border-color: var(--dsw-alias-state-business-primary);
+}
+
+/* Guide sections (linked repos / PRD, P3b/c placeholders). */
+.guideSection {
+  padding: 10px 12px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-1);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.guideTitle {
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.guideHint {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
