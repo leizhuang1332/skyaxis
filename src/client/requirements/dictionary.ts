@@ -104,6 +104,39 @@ interface RequirementsDictionary {
   readonly 'repos.removeCancel': string
   readonly 'repos.removedRepo': string
   readonly 'repos.selectRepo': string
+  // prd.* — PRD documents (0003 P3c)
+  readonly 'prd.contentLabel': string
+  readonly 'prd.create': string
+  readonly 'prd.createTitle': string
+  readonly 'prd.delete': string
+  readonly 'prd.deleteConfirm': string
+  readonly 'prd.deleteDesc': string
+  readonly 'prd.deleteTitle': string
+  readonly 'prd.emptyHint': string
+  readonly 'prd.errDuplicate': string
+  readonly 'prd.errInvalidName': string
+  readonly 'prd.errNoWorkspace': string
+  readonly 'prd.errTooLarge': string
+  readonly 'prd.loadError': string
+  readonly 'prd.manualCreate': string
+  readonly 'prd.recommend': string
+  readonly 'prd.uploadHint': string
+  readonly 'prd.mdCopiedCode': string
+  readonly 'prd.mdCopyCode': string
+  readonly 'prd.mdFootnotes': string
+  readonly 'prd.mdSuffixHint': string
+  readonly 'prd.menuLabel': string
+  readonly 'prd.nameLabel': string
+  readonly 'prd.namePlaceholder': string
+  readonly 'prd.preview': string
+  readonly 'prd.previewFailed': string
+  readonly 'prd.timeDays': string
+  readonly 'prd.timeHours': string
+  readonly 'prd.timeMinutes': string
+  readonly 'prd.timeMonths': string
+  readonly 'prd.timeNow': string
+  readonly 'prd.timeYears': string
+  readonly 'prd.upload': string
 }
 
 export type RequirementsT = (key: keyof RequirementsDictionary) => string
@@ -158,9 +191,9 @@ const zh: RequirementsDictionary = {
   'workspace.invalidPath': '路径无效：请输入绝对路径，且不能指向普通文件',
   'workspace.pickerUnavailable': '当前后端不支持目录选择',
   'workspace.sectionRepos': '关联仓库',
-  'workspace.sectionReposHint': '设置工作区后可用（即将上线）。',
+  'workspace.sectionReposHint': '设置工作区后可用。',
   'workspace.sectionPrd': 'PRD 文档',
-  'workspace.sectionPrdHint': '设置工作区后可用（即将上线）。',
+  'workspace.sectionPrdHint': '设置工作区后可用。',
   'repos.add': "从仓库池添加",
   'repos.branchLabel': "分支名",
   'repos.branching': "创建分支中",
@@ -191,6 +224,38 @@ const zh: RequirementsDictionary = {
   'repos.removeCancel': "取消",
   'repos.removedRepo': "已移除的仓库",
   'repos.selectRepo': "选择仓库",
+  'prd.contentLabel': '内容',
+  'prd.create': '新建文档',
+  'prd.createTitle': '新建文档',
+  'prd.delete': '删除',
+  'prd.deleteConfirm': '删除',
+  'prd.deleteDesc': '将从磁盘删除该文件，此操作不可恢复。',
+  'prd.deleteTitle': '删除文档',
+  'prd.emptyHint': '上传任意文件或新建 Markdown 文档，保存在工作区 prds/ 目录。',
+  'prd.errDuplicate': '同名文件已存在',
+  'prd.errInvalidName': '文件名无效',
+  'prd.errNoWorkspace': '请先设置工作区目录',
+  'prd.errTooLarge': '文件超过 32MB 上限',
+  'prd.loadError': 'PRD 清单加载失败',
+  'prd.manualCreate': '手动创建',
+  'prd.recommend': '推荐',
+  'prd.uploadHint': '点击选择文件，支持任意类型（≤32MB）',
+  'prd.mdCopiedCode': '已复制',
+  'prd.mdCopyCode': '复制代码',
+  'prd.mdFootnotes': '脚注',
+  'prd.mdSuffixHint': '未以 .md 结尾时将自动补上 .md',
+  'prd.menuLabel': '文档操作',
+  'prd.nameLabel': '文件名',
+  'prd.namePlaceholder': '例如：搜索方案',
+  'prd.preview': '预览',
+  'prd.previewFailed': '预览加载失败',
+  'prd.timeDays': '{n} 天前',
+  'prd.timeHours': '{n} 小时前',
+  'prd.timeMinutes': '{n} 分钟前',
+  'prd.timeMonths': '{n} 个月前',
+  'prd.timeNow': '刚刚',
+  'prd.timeYears': '{n} 年前',
+  'prd.upload': '上传文件',
 }
 
 const en: RequirementsDictionary = {
@@ -243,9 +308,9 @@ const en: RequirementsDictionary = {
   'workspace.invalidPath': 'Invalid path: an absolute directory path is required',
   'workspace.pickerUnavailable': 'Directory picking is unavailable on this backend',
   'workspace.sectionRepos': 'Linked repositories',
-  'workspace.sectionReposHint': 'Available after a workspace is set (coming soon).',
+  'workspace.sectionReposHint': 'Available after a workspace is set.',
   'workspace.sectionPrd': 'PRD documents',
-  'workspace.sectionPrdHint': 'Available after a workspace is set (coming soon).',
+  'workspace.sectionPrdHint': 'Available after a workspace is set.',
   'repos.add': "Add from repo pool",
   'repos.branchLabel': "Branch name",
   'repos.branching': "Creating branch",
@@ -276,6 +341,38 @@ const en: RequirementsDictionary = {
   'repos.removeCancel': "Cancel",
   'repos.removedRepo': "Removed repository",
   'repos.selectRepo': "Select a repository",
+  'prd.contentLabel': 'Content',
+  'prd.create': 'New document',
+  'prd.createTitle': 'New document',
+  'prd.delete': 'Delete',
+  'prd.deleteConfirm': 'Delete',
+  'prd.deleteDesc': 'The file will be deleted from disk; this cannot be undone.',
+  'prd.deleteTitle': 'Delete document',
+  'prd.emptyHint': 'Upload any file or create Markdown; files live in the workspace prds/ directory.',
+  'prd.errDuplicate': 'A file with this name already exists',
+  'prd.errInvalidName': 'Invalid file name',
+  'prd.errNoWorkspace': 'Set a workspace directory first',
+  'prd.errTooLarge': 'The file exceeds the 32MB limit',
+  'prd.loadError': 'Failed to load PRD documents',
+  'prd.manualCreate': 'Create manually',
+  'prd.recommend': 'Recommended',
+  'prd.uploadHint': 'Click to pick a file, any type (≤32MB)',
+  'prd.mdCopiedCode': 'Copied',
+  'prd.mdCopyCode': 'Copy code',
+  'prd.mdFootnotes': 'Footnotes',
+  'prd.mdSuffixHint': 'A .md suffix is appended when missing',
+  'prd.menuLabel': 'Document actions',
+  'prd.nameLabel': 'File name',
+  'prd.namePlaceholder': 'e.g. search-notes',
+  'prd.preview': 'Preview',
+  'prd.previewFailed': 'Failed to load preview',
+  'prd.timeDays': '{n}d ago',
+  'prd.timeHours': '{n}h ago',
+  'prd.timeMinutes': '{n}m ago',
+  'prd.timeMonths': '{n}mo ago',
+  'prd.timeNow': 'just now',
+  'prd.timeYears': '{n}y ago',
+  'prd.upload': 'Upload a file',
 }
 
 export function registerRequirementsDictionaries(ctx: Context): void {

@@ -183,6 +183,27 @@ export interface ReposTasksResponseOk {
 }
 
 // ---------------------------------------------------------------------------
+// PRD documents (P3c) — the prds/ directory IS the source of truth (scanned,
+// never ledgered); every successful endpoint answers with the fresh listing.
+// ---------------------------------------------------------------------------
+
+export interface PrdDocSummary {
+  readonly name: string
+  readonly size: number
+  /** File mtime, epoch ms. */
+  readonly modifiedAt: number
+}
+
+export type PrdMutateRequestBody =
+  | { readonly id: string; readonly action: 'create'; readonly name: string; readonly content: string }
+  | { readonly id: string; readonly action: 'delete'; readonly name: string }
+
+export interface PrdDocsResponseOk {
+  readonly ok: true
+  readonly docs: readonly PrdDocSummary[]
+}
+
+// ---------------------------------------------------------------------------
 // Route paths (host registers, browser calls — one source of truth)
 // ---------------------------------------------------------------------------
 
@@ -191,6 +212,8 @@ export const REQUIREMENTS_SAVE_PATH = '/api/skyaxis/requirements/save'
 export const REQUIREMENTS_REMOVE_PATH = '/api/skyaxis/requirements/remove'
 export const REQUIREMENTS_WORKSPACE_PATH = '/api/skyaxis/requirements/workspace'
 export const REQUIREMENTS_REPOS_PATH = '/api/skyaxis/requirements/repos'
+export const REQUIREMENTS_PRDS_PATH = '/api/skyaxis/requirements/prds'
+export const REQUIREMENTS_PRD_UPLOAD_PATH = '/api/skyaxis/requirements/prd-upload'
 
 // ---------------------------------------------------------------------------
 // Wire envelopes
@@ -255,6 +278,9 @@ export interface ErrorResponse {
     | 'too-many'
     | 'invalid-branch'
     | 'git-missing'
+    | 'duplicate-name'
+    | 'too-large'
+    | 'bad-content-type'
   readonly currentRevision?: number
   readonly requirements?: readonly RequirementRecord[]
 }
@@ -349,6 +375,18 @@ export function isReposTasksResponse(v: unknown): v is ReposTasksResponseOk {
   if (typeof v !== 'object' || v === null) return false
   const r = v as Record<string, unknown>
   return r.ok === true && Array.isArray(r.tasks) && r.tasks.every(isCloneTaskSnapshot)
+}
+
+export function isPrdDocSummary(v: unknown): v is PrdDocSummary {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  return isString(r.name) && r.name.length > 0 && typeof r.size === 'number' && typeof r.modifiedAt === 'number'
+}
+
+export function isPrdDocsResponse(v: unknown): v is PrdDocsResponseOk {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  return r.ok === true && Array.isArray(r.docs) && r.docs.every(isPrdDocSummary)
 }
 
 export function isErrorResponse(v: unknown): v is ErrorResponse {

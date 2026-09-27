@@ -6,11 +6,13 @@
  */
 import { z } from 'zod'
 import type {
+  PrdMutateRequestBody,
   RequirementRecord,
   ReposMutateRequestBody,
   SaveRequestBody,
   WorkspaceSetRequestBody,
 } from '../requirements-shared/protocol.js'
+import { PRD_CREATE_MAX_CHARS, PRD_NAME_MAX_CHARS } from '../requirements-shared/prd-file.js'
 
 export const RequirementRecordSchema = z.object({
   id: z.uuid(),
@@ -112,6 +114,23 @@ const ReposCancelSchema = z.object({
 
 export const ReposRequestSchema = z.discriminatedUnion('action', [ReposLinkSchema, ReposUnlinkSchema, ReposRecloneSchema, ReposCancelSchema])
 
+// P3c: PRD documents. The name guard here is a wire sanity only — the host
+// endpoint re-sanitizes and requires sanitize(name) === name.
+const PrdCreateSchema = z.object({
+  id: z.uuid(),
+  action: z.literal('create'),
+  name: z.string().trim().min(1).max(PRD_NAME_MAX_CHARS),
+  content: z.string().max(PRD_CREATE_MAX_CHARS),
+})
+
+const PrdDeleteSchema = z.object({
+  id: z.uuid(),
+  action: z.literal('delete'),
+  name: z.string().trim().min(1).max(PRD_NAME_MAX_CHARS),
+})
+
+export const PrdRequestSchema = z.discriminatedUnion('action', [PrdCreateSchema, PrdDeleteSchema])
+
 // ---------------------------------------------------------------------------
 // Compile-time alignment with the shared protocol (drift = type error)
 // ---------------------------------------------------------------------------
@@ -122,3 +141,4 @@ type _SchemaRequirementRecordAssignableToProtocol = z.infer<typeof RequirementRe
 type _SaveRequestAligned = SaveRequestBody extends z.infer<typeof SaveRequestSchema> ? true : never
 type _WorkspaceRequestAligned = WorkspaceSetRequestBody extends z.infer<typeof WorkspaceRequestSchema> ? true : never
 type _ReposRequestAligned = ReposMutateRequestBody extends z.infer<typeof ReposRequestSchema> ? true : never
+type _PrdRequestAligned = PrdMutateRequestBody extends z.infer<typeof PrdRequestSchema> ? true : never

@@ -701,3 +701,132 @@
   line-height: 22px;
   color: var(--dsw-alias-label-primary);
 }
+
+/* ---- PRD documents section (0003 P3c) ---- */
+
+.prdMain {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.prdNameLine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.prdName {
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--dsw-alias-label-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prdMeta {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* Preview scroll container — MarkdownText has no height control of its own. */
+.prdPreviewBody {
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+/* Wider preview dialog: the primitive Modal card defaults to min(380px,100%).
+   The !important guards against cross-package CSS-module injection order
+   (both are single-class selectors; primitives' style tag may land after
+   ours depending on module load order). */
+.prdWideDialog {
+  width: min(860px, 100%) !important;
+}
+
+/* Create dialog body: two panes stacked (upload above, manual below),
+   separated by a hairline. */
+.prdCreateGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.prdUploadPane {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.prdFormPane {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+/* Pane title row: label + optional recommend tag. */
+.prdPaneTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* The upload pane IS one action card (the setupCard language): dashed slot,
+   whole card clickable, hover lifts to layer-1. */
+.prdUploadCard {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 120px;
+  padding: 20px 16px;
+  border: 0.5px dashed var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: transparent;
+  cursor: pointer;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.prdUploadCard:hover:not(:disabled) {
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.prdUploadCard:focus-visible {
+  outline: none;
+  border-color: var(--dsw-alias-state-business-primary);
+}
+
+.prdUploadCard:disabled {
+  cursor: default;
+  color: var(--dsw-alias-label-caption);
+}
+
+/* Row main doubles as the preview button for markdown rows (0003 P3c
+   feedback: click the card to preview). Non-md rows render a plain div —
+   no preview target. */
+.prdRowMain {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  padding: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.prdRowMain:disabled {
+  cursor: default;
+}

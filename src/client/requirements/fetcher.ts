@@ -8,6 +8,8 @@
  */
 import {
   REQUIREMENTS_LIST_PATH,
+  REQUIREMENTS_PRDS_PATH,
+  REQUIREMENTS_PRD_UPLOAD_PATH,
   REQUIREMENTS_REPOS_PATH,
   REQUIREMENTS_REMOVE_PATH,
   REQUIREMENTS_SAVE_PATH,
@@ -17,6 +19,8 @@ import type {
   CloneTaskSnapshot,
   ErrorResponse,
   ListResponse,
+  PrdDocSummary,
+  PrdMutateRequestBody,
   RemoveResponseOk,
   RequirementRecord,
   ReposMutateRequestBody,
@@ -27,6 +31,7 @@ import type {
 import {
   isErrorResponse,
   isListResponse,
+  isPrdDocsResponse,
   isRemoveResponseOk,
   isReposTasksResponse,
   isSaveResponseOk,
@@ -61,6 +66,9 @@ export type ReposMutateResult =
   | Failure
 /** reclone/cancel answer with task rows only (no ledger write). */
 export type ReposTasksResult = { readonly kind: 'ok'; readonly tasks: readonly CloneTaskSnapshot[] } | Failure
+/** Every successful prds/ endpoint answers with the fresh listing. */
+export type PrdDocsResult = { readonly kind: 'ok'; readonly docs: readonly PrdDocSummary[] } | Failure
+export type PrdContentResult = { readonly kind: 'ok'; readonly text: string } | Failure
 
 async function request(path: string, init: RequestInit | undefined, signal: AbortSignal | undefined): Promise<Response | Failure> {
   try {
@@ -191,6 +199,66 @@ export function createRequirementsFetcher() {
       }
       if (isReposTasksResponse(parsed)) return { kind: 'ok', tasks: [...parsed.tasks] }
       return { kind: 'http-error', status: response.status }
+    },
+
+    async prdDocs(id: string, signal?: AbortSignal): Promise<PrdDocsResult> {
+      const response = await request(
+        `${REQUIREMENTS_PRDS_PATH}?id=${encodeURIComponent(id)}`,
+        { method: 'GET' },
+        signal,
+      )
+      if ('kind' in response) return response
+      if (!response.ok) return parseErrorBody(response)
+      const parsed: unknown = await response.json()
+      if (!isPrdDocsResponse(parsed)) return { kind: 'http-error', status: response.status }
+      return { kind: 'ok', docs: [...parsed.docs] }
+    },
+
+    async prdDocContent(id: string, name: string, signal?: AbortSignal): Promise<PrdContentResult> {
+      const response = await request(
+        `${REQUIREMENTS_PRDS_PATH}?id=${encodeURIComponent(id)}&name=${encodeURIComponent(name)}`,
+        { method: 'GET' },
+        signal,
+      )
+      if ('kind' in response) return response
+      if (!response.ok) return parseErrorBody(response)
+      // The content route answers text/plain, not a JSON envelope.
+      return { kind: 'ok', text: await response.text() }
+    },
+
+    async createPrdDoc(body: PrdMutateRequestBody, signal?: AbortSignal): Promise<PrdDocsResult> {
+      const response = await request(REQUIREMENTS_PRDS_PATH, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      }, signal)
+      if ('kind' in response) return response
+      if (!response.ok) return parseErrorBody(response)
+      const parsed: unknown = await response.json()
+      if (!isPrdDocsResponse(parsed)) return { kind: 'http-error', status: response.status }
+      return { kind: 'ok', docs: [...parsed.docs] }
+    },
+
+    async deletePrdDoc(id: string, name: string, signal?: AbortSignal): Promise<PrdDocsResult> {
+      return this.createPrdDoc({ id, action: 'delete', name }, signal)
+    },
+
+    /** First non-JSON request: the File rides the body as raw octets. */
+    async uploadPrdDoc(id: string, name: string, file: File, signal?: AbortSignal): Promise<PrdDocsResult> {
+      const response = await request(
+        `${REQUIREMENTS_PRD_UPLOAD_PATH}?id=${encodeURIComponent(id)}&name=${encodeURIComponent(name)}`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/octet-stream' },
+          body: file,
+        },
+        signal,
+      )
+      if ('kind' in response) return response
+      if (!response.ok) return parseErrorBody(response)
+      const parsed: unknown = await response.json()
+      if (!isPrdDocsResponse(parsed)) return { kind: 'http-error', status: response.status }
+      return { kind: 'ok', docs: [...parsed.docs] }
     },
 
     /** Recreates the host registration only — answers with the refreshed status. */

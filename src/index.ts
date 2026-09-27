@@ -23,6 +23,7 @@ import { registerReposPoolEndpoints } from './repos-pool-host/endpoint.js'
 import { ReposFileStore } from './repos-pool-host/repos-file.js'
 import { ReposValidator } from './repos-pool-host/validator.js'
 import { registerRequirementsEndpoints } from './requirements-host/endpoint.js'
+import { registerRequirementsPrdEndpoints } from './requirements-host/prd-endpoint.js'
 import { registerRequirementsReposEndpoints } from './requirements-host/repos-endpoint.js'
 import { RequirementsFileStore } from './requirements-host/requirements-file.js'
 import { CloneTaskRegistry } from './requirements-host/clone.js'
@@ -72,6 +73,10 @@ export function apply(ctx: Context): void {
     registerRequirementsReposEndpoints(scope.connection, {
       file: requirementsFile,
       clones: cloneTasks,
+      log: (error) => ctx.logger.error(error),
+    })
+    registerRequirementsPrdEndpoints(scope.connection, {
+      file: requirementsFile,
       log: (error) => ctx.logger.error(error),
     })
   })

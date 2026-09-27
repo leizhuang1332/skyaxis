@@ -22,6 +22,7 @@ import type { RequirementRecord } from '../../requirements-shared/protocol.js'
 import type { RequirementsController } from './controller.js'
 import type { RequirementsT } from './dictionary.js'
 import type { WorkspaceStatusResult } from './fetcher.js'
+import { PrdSection } from './prd-section.js'
 import { ReposSection } from './repos-section.js'
 import styles from './view.module.css'
 
@@ -276,7 +277,7 @@ export function WorkspaceTabBody(props: {
         {inlineError !== null && editing !== null ? <div className={styles.fieldError}>{inlineError}</div> : null}
       </div>
       <ReposSection t={t} requirement={requirement} controller={controller} capabilities={props.capabilities} />
-      <GuideSection title={t('workspace.sectionPrd')} hint={t('workspace.sectionPrdHint')} />
+      <PrdSection t={t} requirement={requirement} controller={controller} />
       {modalOpen ? (
         <WorkspaceSetupModal
           t={t}

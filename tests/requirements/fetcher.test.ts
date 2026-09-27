@@ -112,3 +112,43 @@ describe('createRequirementsFetcher: rebind', () => {
     expect(JSON.parse(init.body as string)).toEqual({ id: 'a', action: 'rebind' })
   })
 })
+
+describe('createRequirementsFetcher: prd documents', () => {
+  it('lists docs with the id query', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ ok: true, docs: [{ name: 'a.md', size: 3, modifiedAt: 1 }] }))
+    vi.stubGlobal('fetch', fetchMock)
+    const result = await createRequirementsFetcher().prdDocs('x')
+    expect(result).toEqual({ kind: 'ok', docs: [{ name: 'a.md', size: 3, modifiedAt: 1 }] })
+    expect((fetchMock.mock.calls[0] as unknown as [string])[0]).toBe('/api/skyaxis/requirements/prds?id=x')
+  })
+
+  it('reads content as text on ok and parses error bodies otherwise', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('# hello', { status: 200, headers: { 'content-type': 'text/plain' } })))
+    await expect(createRequirementsFetcher().prdDocContent('x', 'a.md')).resolves.toEqual({ kind: 'ok', text: '# hello' })
+
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ ok: false, code: 'too-large' }, 413)))
+    await expect(createRequirementsFetcher().prdDocContent('x', 'a.md')).resolves.toEqual({ kind: 'http-error', status: 413, code: 'too-large' })
+  })
+
+  it('uploads with an octet-stream body carrying the File reference', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ ok: true, docs: [] }))
+    vi.stubGlobal('fetch', fetchMock)
+    const file = new File(['bytes'], '需求 文档.pdf')
+    const result = await createRequirementsFetcher().uploadPrdDoc('x', file.name, file)
+    expect(result).toEqual({ kind: 'ok', docs: [] })
+    const [path, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(path).toBe(`/api/skyaxis/requirements/prd-upload?id=x&name=${encodeURIComponent('需求 文档.pdf')}`)
+    expect(init.method).toBe('POST')
+    expect((init.headers as Record<string, string>)['content-type']).toBe('application/octet-stream')
+    expect(init.body).toBe(file)
+  })
+
+  it('parses duplicate-name rejections and collapses transport failures', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ ok: false, code: 'duplicate-name' }, 409)))
+    await expect(createRequirementsFetcher().uploadPrdDoc('x', 'a.md', new File(['b'], 'a.md'))).resolves.toEqual({
+      kind: 'http-error', status: 409, code: 'duplicate-name',
+    })
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('fetch failed') }))
+    await expect(createRequirementsFetcher().prdDocs('x')).resolves.toEqual({ kind: 'network' })
+  })
+})
