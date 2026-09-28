@@ -2,12 +2,13 @@
 
 English | [中文](README.zh.md)
 
-The skyaxis package is shipped as a skeleton build: it mounts through `cordis.patch.yml` and the DSH profile mechanism, exposes the host and browser loader entries, and registers no business behaviour. The package name and npm identity are reserved so future iterations can drop the implementation back into the same row without re-registering the plugin.
+skyaxis is a deepseek-harness (DSH) plugin for AI coding visualization and single-person workflow management: it turns in-session progress, cross-session output, and requirement-level workflow and artifacts into objects that can be seen at a glance, traced back, pushed forward, and ruled on. It mounts through `cordis.patch.yml` and the DSH profile mechanism and stays strictly observe-only towards the DSH host.
 
-- Mounts as `skyaxis` in the dsh web profile (see `cordis.patch.yml`).
-- Host entry: `src/index.ts` exports `apply` (no-op) and an empty `inject` list.
-- Browser entry: `src/client/index.ts` exports `apply` (no-op) and an empty `inject` list.
-- No HTTP routes, no ledger, no scheduler, no UI surfaces.
+Current surfaces (dual-face plugin):
+
+- **Host face**: self-managed yaml ledgers (`repos.yaml`, `requirements.yaml`, workspace bindings) with atomic writes and optimistic locking, plus HTTP endpoints registered via `connection.fetch.register`.
+- **Browser face**: requirement management (list + detail page with overview / workspace / AI workbench seats), PRD document management, repo pool, and requirement↔repo linking.
+- **AI workbench**: six-stage rail seat (P1a skeleton; the data plane — dual ledgers, artifact files, hard gates — is gated on [decision 0005](docs/decisions/0005-AI工作台治理决策-产物独立文件存储与分级级联清理.md)).
 
 ## Install
 
@@ -37,4 +38,4 @@ pnpm --filter @lz/skyaxis test
 pnpm --filter @lz/skyaxis build
 ```
 
-`pnpm test` runs against an empty `tests/` directory in the skeleton build and exits clean.
+The regression baseline is 431 tests (vitest).

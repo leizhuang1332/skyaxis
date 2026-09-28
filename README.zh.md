@@ -2,12 +2,13 @@
 
 [English](README.md) | 中文
 
-skyaxis 包当前以骨架形式发布：通过 `cordis.patch.yml` 与 dsh profile 机制挂载，仅暴露 host 与浏览器的 loader 入口，不注册任何业务行为。包名与 npm 身份已保留，后续迭代可在不重新注册插件的前提下把实现补回同一行。
+skyaxis 是 deepseek-harness（DSH）的 AI 编程可视化与单人工作流管理插件：把 session 内的进度、跨 session 的产出、需求维度的流程与产物，变成可被一眼看清、可被回溯、可被推进、可被裁决的对象。通过 `cordis.patch.yml` 与 dsh profile 机制挂载，对 DSH 宿主严格 observe-only。
 
-- 在 dsh web profile 中以 `skyaxis` 挂载（见 `cordis.patch.yml`）。
-- Host 入口：`src/index.ts` 导出 `apply`（空操作）与空的 `inject` 列表。
-- 浏览器入口：`src/client/index.ts` 导出 `apply`（空操作）与空的 `inject` 列表。
-- 不挂载任何 HTTP 路由、账本、调度器或界面。
+当前功能面（dual-face 插件）：
+
+- **Host 半**：自管 yaml 账本（`repos.yaml`、`requirements.yaml`、工作区绑定），原子写 + 乐观锁；HTTP 端点经 `connection.fetch.register` 注册。
+- **浏览器半**：需求管理（清单 + 详情页三 seat：概览 / 工作区 / AI 工作台）、PRD 文档管理、仓库池、需求↔仓库关联。
+- **AI 工作台**：六阶段导轨 seat（P1a 骨架；数据面——双账本、产物文件、两道硬门——门控于[决策 0005](docs/decisions/0005-AI工作台治理决策-产物独立文件存储与分级级联清理.md)）。
 
 ## 安装
 
@@ -37,4 +38,4 @@ pnpm --filter @lz/skyaxis test
 pnpm --filter @lz/skyaxis build
 ```
 
-骨架构建下 `pnpm test` 面对空的 `tests/` 目录直接退出通过。
+回归基线为 431 tests（vitest）。
