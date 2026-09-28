@@ -258,6 +258,14 @@ export function ReposSection(props: {
   const adoptable = pool.kind === 'ready' && scan.kind === 'ready'
     ? adoptableRows(pool.repos, scan.dirs, linkedIds)
     : []
+  // SWR edge: a selection made against the stale snapshot must retire when
+  // the fresh list lands without that repo — the row vanishes, and an armed
+  // footer button whose submit can only no-op is a silent dead end.
+  useEffect(() => {
+    if (pool.kind === 'ready' && selection !== null && !pool.repos.some((repo) => repo.id === selection.repoId)) {
+      setSelection(null)
+    }
+  }, [pool, selection])
   // Destructive-action gate: unlink deletes the cloned source, so it always
   // rides behind a confirmation dialog (the delete-requirement pattern).
   const confirmDialog = pendingRemove !== null ? (

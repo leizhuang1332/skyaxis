@@ -743,9 +743,22 @@ describe('ReposSection (branch carry-over default)', () => {
 
 describe('ReposSection (pool stale-while-revalidate: no flash on modal open)', () => {
   const REPO_A_ID = '22222222-2222-4222-8222-222222222222'
+  const REPO_B_ID = '33333333-3333-4333-8333-333333333333'
+
+  const poolResponse = (repos: readonly RepoRecord[]) =>
+    new Response(JSON.stringify({ ok: true, revision: 1, repos }), { status: 200, headers: { 'content-type': 'application/json' } })
 
   it('serves the previous pool on modal open — no removed-repo flash, no blank picker', async () => {
-    vi.stubGlobal('fetch', stubPool())
+    // Two-phase stub: the mount pull lands; the on-open re-pull NEVER
+    // resolves — any state change after the click can only be a regression
+    // clobber (the exact failure this test pins).
+    let call = 0
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      call += 1
+      return call === 1
+        ? poolResponse([poolRepo(REPO_A_ID, 'repo-a'), poolRepo(REPO_B_ID, 'repo-b')])
+        : new Promise<Response>(() => {})
+    }))
     const controller = fakeController()
     const { unmount } = subject({
       requirement: record([{ repoId: REPO_A_ID, branch: 'req-11111111' }]),
@@ -760,6 +773,64 @@ describe('ReposSection (pool stale-while-revalidate: no flash on modal open)', (
     expect(screen.getByText('repo-a')).toBeTruthy()
     expect(screen.getByRole('dialog')).toBeTruthy()
     expect(screen.getByText('repo-b')).toBeTruthy()
+    // Cross a macrotask boundary with the re-pull still held: the no-flash
+    // guarantee extends past the sync frame — a clobber parked in a
+    // microtask or timer would have collapsed the rows by now.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(screen.queryByText(DICT.zh['repos.removedRepo'])).toBeNull()
+    expect(screen.getByText('repo-a')).toBeTruthy()
+    expect(screen.getByText('repo-b')).toBeTruthy()
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    unmount()
+  })
+
+  it('retires a selection whose repo left the fresh pool (no armed no-op button)', async () => {
+    let call = 0
+    let releaseFresh: ((repos: readonly RepoRecord[]) => void) | undefined
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      call += 1
+      if (call === 1) return poolResponse([poolRepo(REPO_A_ID, 'repo-a'), poolRepo(REPO_B_ID, 'repo-b')])
+      return new Promise<Response>((resolve) => { releaseFresh = (repos) => resolve(poolResponse(repos)) })
+    }))
+    const controller = fakeController()
+    const { unmount } = subject({ requirement: record(), controller })
+    await waitFor(() => expect(call).toBe(1))
+    await new Promise((resolve) => setTimeout(resolve, 0)) // let the mount pull land
+    fireEvent.click(screen.getByRole('button', { name: DICT.zh['repos.add'] }))
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    // Select from the STALE list while the re-pull is held.
+    fireEvent.click(screen.getByText('repo-b'))
+    expect((screen.getByRole('button', { name: DICT.zh['repos.link'] }) as HTMLButtonElement).disabled).toBe(false)
+    // The fresh list lands WITHOUT repo-b: the row disappears and the footer
+    // button disarms in the same beat — an armed submit that can only no-op
+    // is a silent dead end.
+    releaseFresh?.([poolRepo(REPO_A_ID, 'repo-a')])
+    await waitFor(() => expect(screen.queryByText('repo-b')).toBeNull())
+    expect((screen.getByRole('button', { name: DICT.zh['repos.link'] }) as HTMLButtonElement).disabled).toBe(true)
+    unmount()
+  })
+
+  it('drops a late stale response when a newer pull already landed (open race)', async () => {
+    let call = 0
+    let releaseMount: ((repos: readonly RepoRecord[]) => void) | undefined
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      call += 1
+      if (call === 1) return new Promise<Response>((resolve) => { releaseMount = (repos) => resolve(poolResponse(repos)) })
+      return poolResponse([poolRepo(REPO_A_ID, 'repo-a'), poolRepo('44444444-4444-4444-8444-444444444444', 'repo-c')])
+    }))
+    const controller = fakeController()
+    const { unmount } = subject({ requirement: record(), controller })
+    await waitFor(() => expect(call).toBe(1))
+    // Open: the nonce bump cancels the hanging mount pull; the open re-pull
+    // lands WITH repo-c.
+    fireEvent.click(screen.getByRole('button', { name: DICT.zh['repos.add'] }))
+    await waitFor(() => expect(screen.getByText('repo-c')).toBeTruthy())
+    // The mount pull finally resolves — with a STALE list lacking repo-c.
+    // The cancelled guard must drop it; without the guard, the stale
+    // snapshot clobbers the fresh one and repo-c vanishes.
+    releaseMount?.([poolRepo(REPO_A_ID, 'repo-a')])
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(screen.getByText('repo-c')).toBeTruthy()
     unmount()
   })
 
