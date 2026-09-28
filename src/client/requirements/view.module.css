@@ -746,6 +746,107 @@
   color: var(--dsw-alias-label-primary);
 }
 
+/* Dual-address picker rows (0005 P4): with both addresses present the row is
+   a div — name button + one button per address as siblings. Focus rides the
+   inner buttons; the row div carries only visuals. The buttons carry the row
+   padding themselves (.poolRowDual zeroes the div's) so no dead click zones
+   remain inside a row that hovers like a button. */
+.poolRowDual {
+  padding: 0;
+  gap: 0;
+}
+
+.poolRepoBtn {
+  display: block;
+  width: 100%;
+  padding: 8px 10px 2px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.poolRepoBtn:focus-visible {
+  outline: 1px solid var(--dsw-alias-state-business-primary);
+}
+
+.poolAddrBtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 1px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.poolAddrBtn:focus-visible {
+  outline: 1px solid var(--dsw-alias-state-business-primary);
+}
+
+.poolRowDual .poolAddrBtn:last-child {
+  padding-bottom: 8px;
+}
+
+/* The picked line rides INSIDE the selected row, whose background is the
+   same business-tertiary token — a background alone would be structurally
+   invisible, so the pick mark is an inset ring in the primary token (the
+   row-border color, mirrored at line level). */
+.poolAddrSelected {
+  background: var(--dsw-alias-state-business-tertiary);
+  box-shadow: inset 0 0 0 1.5px var(--dsw-alias-state-business-primary);
+}
+
+.poolSlotLabel {
+  flex: none;
+  display: inline-block;
+  min-width: 38px;
+  margin-right: 4px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.poolRecBadge {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 999px;
+  color: var(--dsw-alias-state-business-primary);
+  background: var(--dsw-alias-state-business-tertiary);
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.poolAddrLine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* Linked-row inline address blocks (name + per-address + branch flow). */
+.repoAddr {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.repoUrlLabel {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 18px;
+}
+
 /* ---- PRD documents section (0003 P3c) ---- */
 
 .prdMain {

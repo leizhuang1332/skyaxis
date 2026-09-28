@@ -105,6 +105,13 @@ interface RequirementsDictionary {
   readonly 'repos.removeCancel': string
   readonly 'repos.removedRepo': string
   readonly 'repos.selectRepo': string
+  // repos.* dual-address picker additions (0005 P4) — status copy mirrors the
+  // repos-pool namespace verbatim (same product, same meaning).
+  readonly 'repos.recommended': string
+  readonly 'repos.statusForcedAuth': string
+  readonly 'repos.statusForcedNetwork': string
+  readonly 'repos.statusUnverified': string
+  readonly 'repos.statusVerified': string
   // prd.* — PRD documents (0003 P3c)
   readonly 'prd.contentLabel': string
   readonly 'prd.create': string
@@ -226,6 +233,11 @@ const zh: RequirementsDictionary = {
   'repos.removeCancel': "取消",
   'repos.removedRepo': "已移除的仓库",
   'repos.selectRepo': "选择仓库",
+  'repos.recommended': "推荐",
+  'repos.statusForcedAuth': "已保存（无权限）",
+  'repos.statusForcedNetwork': "已保存（网络不可达）",
+  'repos.statusUnverified': "未验证",
+  'repos.statusVerified': "已验证",
   'prd.contentLabel': '内容',
   'prd.create': '新建文档',
   'prd.createTitle': '新建文档',
@@ -344,6 +356,11 @@ const en: RequirementsDictionary = {
   'repos.removeCancel': "Cancel",
   'repos.removedRepo': "Removed repository",
   'repos.selectRepo': "Select a repository",
+  'repos.recommended': "Recommended",
+  'repos.statusForcedAuth': "Saved (no access)",
+  'repos.statusForcedNetwork': "Saved (unreachable)",
+  'repos.statusUnverified': "Unverified",
+  'repos.statusVerified': "Verified",
   'prd.contentLabel': 'Content',
   'prd.create': 'New document',
   'prd.createTitle': 'New document',

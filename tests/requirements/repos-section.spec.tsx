@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import type { CloneTaskSnapshot, RequirementRecord } from '../../src/requirements-shared/protocol.js'
-import type { RepoRecord } from '../../src/repos-pool-shared/protocol.js'
+import type { RepoRecord, RepoStatus } from '../../src/repos-pool-shared/protocol.js'
 import type { RequirementsController, ReposOutcome } from '../../src/client/requirements/controller.js'
 import type { RequirementsT } from '../../src/client/requirements/dictionary.js'
 import { ReposSection } from '../../src/client/requirements/repos-section.js'
@@ -38,6 +38,11 @@ const DICT = {
     'repos.removeConfirm': '移除',
     'repos.removeCancel': '取消',
     'repos.errInvalidBranch': '分支名不合法',
+    'repos.recommended': '推荐',
+    'repos.statusVerified': '已验证',
+    'repos.statusUnverified': '未验证',
+    'repos.statusForcedNetwork': '已保存（网络不可达）',
+    'repos.statusForcedAuth': '已保存（无权限）',
     'workspace.sectionRepos': '关联仓库',
     'workspace.open': '打开',
     'form.cancel': '取消',
@@ -56,6 +61,22 @@ const poolRepo = (id: string, name: string): RepoRecord => ({
   urlHttp: `https://example.com/org/${name}.git`,
   description: '',
   statusHttp: 'verified',
+  validatedAtHttp: '2026-09-25T09:30:00.000Z',
+  lastErrorHttp: null,
+})
+
+/** Dual-address factory (0005 P4): per-slot statuses drive the pickAddress
+ * recommendation ordering the picker asserts on. */
+const dualRepo = (id: string, name: string, sshStatus: RepoStatus = 'verified', httpStatus: RepoStatus = 'verified'): RepoRecord => ({
+  id,
+  name,
+  description: '',
+  urlSsh: `git@example.com:org/${name}.git`,
+  statusSsh: sshStatus,
+  validatedAtSsh: '2026-09-25T09:30:00.000Z',
+  lastErrorSsh: null,
+  urlHttp: `https://example.com/org/${name}.git`,
+  statusHttp: httpStatus,
   validatedAtHttp: '2026-09-25T09:30:00.000Z',
   lastErrorHttp: null,
 })
@@ -271,6 +292,220 @@ describe('ReposSection (0003 P3b: linked repositories)', () => {
     const settled = calls.mock.calls.length
     await vi.advanceTimersByTimeAsync(2100)
     expect(calls.mock.calls.length).toBe(settled)
+    unmount()
+  })
+})
+
+describe('ReposSection (0005 P4: dual-address picker)', () => {
+  const DUAL_ID = '22222222-2222-4222-8222-222222222222'
+  const REQUIREMENT_ID = '11111111-1111-4111-8111-111111111111'
+
+  it('recommends the verified http address over an unverified ssh one and snapshots it on link', async () => {
+    vi.stubGlobal('fetch', stubPool([dualRepo(DUAL_ID, 'repo-a', 'unverified', 'verified')]))
+    const controller = fakeController()
+    const { unmount } = subject({ requirement: record(), controller })
+    fireEvent.click(screen.getByRole('button', { name: DICT.zh['repos.add'] }))
+    await waitFor(() => expect(screen.getByText('repo-a')).toBeTruthy())
+    // The badge rides the recommended (https) address button, not the ssh one.
+    const badge = screen.getByText(DICT.zh['repos.recommended'])
+    expect(badge.closest('button')?.textContent).toContain('https://example.com/org/repo-a.git')
+    expect(badge.closest('button')?.textContent).not.toContain('git@example.com:org/repo-a.git')
+    expect(screen.getByText(DICT.zh['repos.statusVerified'])).toBeTruthy()
+    expect(screen.getByText(DICT.zh['repos.statusUnverified'])).toBeTruthy()
+    fireEvent.click(screen.getByText('repo-a'))
+    fireEvent.click(screen.getByRole('button', { name: DICT.zh['repos.link'] }))
+    await waitFor(() => expect(controller.linkRepo).toHaveBeenCalledWith(
+      REQUIREMENT_ID,
+      { repoId: DUAL_ID, repoUrl: 'https://example.com/org/repo-a.git', repoName: 'repo-a' },
+      'req-11111111',
+    ))
+    unmount()
+  })
+
+  it('recommends verified http over forced ssh and renders the forced status tags', async () => {
+    vi.stubGlobal('fetch', stubPool([
+      dualRepo(DUAL_ID, 'repo-a', 'forced-network', 'verified'),
+      dualRepo('33333333-3333-4333-8333-333333333333', 'repo-b', 'forced-auth', 'verified'),
+    ]))
+    const controller = fakeController()
+    const { unmount } = subject({ requirement: record(), controller })
+    fireEvent.click(screen.getByRole('button', { name: DICT.zh['repos.add'] }))
+    await waitFor(() => expect(screen.getByText('repo-a')).toBeTruthy())
+    // Both rows carry a recommended http line ⇒ two badges: locate repo-a's
+    // http line by its URL, not by the badge text.
+    const aHttpButton = screen.getByText('https://example.com/org/repo-a.git').closest('button')
+    expect(aHttpButton?.textContent).toContain(DICT.zh['repos.recommended'])
+    expect(screen.getByText(DICT.zh['repos.statusForcedNetwork'])).toBeTruthy()
+    expect(screen.getByText(DICT.zh['repos.statusForcedAuth'])).toBeTruthy()
+    fireEvent.click(screen.getByText('repo-a'))
+    fireEvent.click(screen.getByRole('button', { name: DICT.zh['repos.link'] }))
+    await waitFor(() => expect(controller.linkRepo).toHaveBeenCalledWith(
+      REQUIREMENT_ID,
+      { repoId: DUAL_ID, repoUrl: 'https://example.com/org/repo-a.git', repoName: 'repo-a' },
+      'req-11111111',
+    ))
+    unmount()
+  })
+
+  it('prefers ssh within the same trust tier and snapshots it on link', async () => {
+    vi.stubGlobal('fetch', stubPool([dualRepo(DUAL_ID, 'repo-a', 'verified', 'verified')]))
+    const controller = fakeController()
+    const { unmount } = subject({ requirement: record(), controller })
+    fireEvent.click(screen.getByRole('button', { name: DICT.zh['repos.add'] }))
+    await waitFor(() => expect(screen.getByText('repo-a')).toBeTruthy())
+    const badge = screen.getByText(DICT.zh['repos.recommended'])
+    expect(badge.closest('button')?.textContent).toContain('git@example.com:org/repo-a.git')
+    expect(badge.closest('button')?.textContent).not.toContain('https://example.com/org/repo-a.git')
+    // The SSH label rides the same button as the ssh URL (label↔URL pairing).
+    expect(screen.getByText('SSH').closest('button')?.textContent).toContain('git@example.com:org/repo-a.git')
+    fireEvent.click(screen.getByText('repo-a'))
+    fireEvent.click(screen.getByRole('button', { name: DICT.zh['repos.link'] }))
+    await waitFor(() => expect(controller.linkRepo).toHaveBeenCalledWith(
+      REQUIREMENT_ID,
+      { repoId: DUAL_ID, repoUrl: 'git@example.com:org/repo-a.git', repoName: 'repo-a' },
+      'req-11111111',
+    ))
+    unmount()
+  })
+
+  it('pins the manually picked address and moves the recommended badge back', async () => {
+    vi.stubGlobal('fetch', stubPool([dualRepo(DUAL_ID, 'repo-a', 'verified', 'verified')]))
+    const controller = fakeController()
+    const { unmount } = subject({ requirement: record(), controller })
+    fireEvent.click(screen.getByRole('button', { name: DICT.zh['repos.add'] }))
+    await waitFor(() => expect(screen.getByText('repo-a')).toBeTruthy())
+    // Name-row click takes the recommendation (ssh): picked ⇒ no badge.
+    fireEvent.click(screen.getByText('repo-a'))
+    expect(screen.queryByText(DICT.zh['repos.recommended'])).toBeNull()
+    const httpButton = screen.getByText('https://example.com/org/repo-a.git').closest('button')
+    expect(httpButton).toBeTruthy()
+    fireEvent.click(httpButton as HTMLElement)
+    // Pinned http: the badge reappears on the ssh line as the way back.
+    const badge = screen.getByText(DICT.zh['repos.recommended'])
+    expect(badge.closest('button')?.textContent).toContain('git@example.com:org/repo-a.git')
+    fireEvent.click(screen.getByRole('button', { name: DICT.zh['repos.link'] }))
+    await waitFor(() => expect(controller.linkRepo).toHaveBeenCalledWith(
+      REQUIREMENT_ID,
+      { repoId: DUAL_ID, repoUrl: 'https://example.com/org/repo-a.git', repoName: 'repo-a' },
+      'req-11111111',
+    ))
+    unmount()
+  })
+
+  it('reclone snapshots the current recommended address (the D7 known behavior)', async () => {
+    vi.stubGlobal('fetch', stubPool([dualRepo(DUAL_ID, 'repo-a', 'unverified', 'verified')]))
+    const controller = fakeController()
+    const { unmount } = subject({ requirement: record([{ repoId: DUAL_ID, branch: 'req-11111111' }]), controller })
+    fireEvent.click(await waitFor(() => screen.getByRole('button', { name: DICT.zh['repos.menuLabel'] })))
+    fireEvent.click(await waitFor(() => screen.getByRole('menuitem', { name: DICT.zh['repos.reclone'] })))
+    await waitFor(() => expect(controller.recloneRepo).toHaveBeenCalledWith(
+      REQUIREMENT_ID,
+      { repoId: DUAL_ID, repoUrl: 'https://example.com/org/repo-a.git', repoName: 'repo-a' },
+    ))
+    unmount()
+  })
+
+  it('filters rows on either address, not just the recommended one', async () => {
+    vi.stubGlobal('fetch', stubPool([
+      dualRepo(DUAL_ID, 'repo-a', 'verified', 'verified'),
+      poolRepo('33333333-3333-4333-8333-333333333333', 'repo-b'),
+    ]))
+    const controller = fakeController()
+    const { unmount } = subject({ requirement: record(), controller })
+    fireEvent.click(screen.getByRole('button', { name: DICT.zh['repos.add'] }))
+    await waitFor(() => expect(screen.getByText('repo-a')).toBeTruthy())
+    const input = screen.getByPlaceholderText(DICT.zh['view.filterPlaceholder'])
+    // ssh-only needle: matched by the NON-recommended sibling address of repo-a.
+    fireEvent.change(input, { target: { value: 'git@example.com:org/repo-a' } })
+    expect(screen.getByText('repo-a')).toBeTruthy()
+    expect(screen.queryByText('repo-b')).toBeNull()
+    fireEvent.change(input, { target: { value: 'org/repo-b' } })
+    expect(screen.getByText('repo-b')).toBeTruthy()
+    expect(screen.queryByText('repo-a')).toBeNull()
+    fireEvent.change(input, { target: { value: 'no-such-host' } })
+    expect(screen.queryByText('repo-a')).toBeNull()
+    expect(screen.queryByText('repo-b')).toBeNull()
+    unmount()
+  })
+
+  it('renders both addresses on a linked row with slot labels', async () => {
+    vi.stubGlobal('fetch', stubPool([dualRepo(DUAL_ID, 'repo-a', 'unverified', 'verified')]))
+    const controller = fakeController()
+    const { unmount } = subject({ requirement: record([{ repoId: DUAL_ID, branch: 'req-11111111' }]), controller })
+    await waitFor(() => expect(screen.getByText('git@example.com:org/repo-a.git')).toBeTruthy())
+    expect(screen.getByText('https://example.com/org/repo-a.git')).toBeTruthy()
+    // Label↔URL pairing: each slot label's sibling is that slot's URL.
+    expect(screen.getByText('SSH').nextElementSibling?.textContent).toBe('git@example.com:org/repo-a.git')
+    expect(screen.getByText('HTTP').nextElementSibling?.textContent).toBe('https://example.com/org/repo-a.git')
+    unmount()
+  })
+
+  it('single-address rows keep one whole-row button with no recommendation badge', async () => {
+    vi.stubGlobal('fetch', stubPool([poolRepo(DUAL_ID, 'repo-a')]))
+    const controller = fakeController()
+    const { unmount } = subject({ requirement: record(), controller })
+    fireEvent.click(screen.getByRole('button', { name: DICT.zh['repos.add'] }))
+    await waitFor(() => expect(screen.getByText('repo-a')).toBeTruthy())
+    expect(screen.queryByText(DICT.zh['repos.recommended'])).toBeNull()
+    // The name and its single address share ONE button (click-anywhere row).
+    const rowButton = screen.getByText('repo-a').closest('button')
+    expect(rowButton?.textContent).toContain('https://example.com/org/repo-a.git')
+    unmount()
+  })
+
+  it('re-selecting another repo drops the pinned slot (no stale-slot snapshot)', async () => {
+    vi.stubGlobal('fetch', stubPool([
+      dualRepo(DUAL_ID, 'repo-a', 'verified', 'verified'),
+      dualRepo('33333333-3333-4333-8333-333333333333', 'repo-b', 'verified', 'verified'),
+    ]))
+    const controller = fakeController()
+    const { unmount } = subject({ requirement: record(), controller })
+    fireEvent.click(screen.getByRole('button', { name: DICT.zh['repos.add'] }))
+    await waitFor(() => expect(screen.getByText('repo-a')).toBeTruthy())
+    // Pin repo-a's http, then switch repos via the NAME row: repo-b must come
+    // in on its own recommendation (ssh), never the carried-over http pin.
+    fireEvent.click(screen.getByText('https://example.com/org/repo-a.git').closest('button') as HTMLElement)
+    fireEvent.click(screen.getByText('repo-b'))
+    fireEvent.click(screen.getByRole('button', { name: DICT.zh['repos.link'] }))
+    await waitFor(() => expect(controller.linkRepo).toHaveBeenCalledWith(
+      REQUIREMENT_ID,
+      { repoId: '33333333-3333-4333-8333-333333333333', repoUrl: 'git@example.com:org/repo-b.git', repoName: 'repo-b' },
+      'req-11111111',
+    ))
+    unmount()
+  })
+
+  it('link stays disabled until a repo is picked; re-clicking the name row deselects', async () => {
+    vi.stubGlobal('fetch', stubPool([dualRepo(DUAL_ID, 'repo-a', 'verified', 'verified')]))
+    const controller = fakeController()
+    const { unmount } = subject({ requirement: record(), controller })
+    fireEvent.click(screen.getByRole('button', { name: DICT.zh['repos.add'] }))
+    await waitFor(() => expect(screen.getByText('repo-a')).toBeTruthy())
+    const link = () => screen.getByRole('button', { name: DICT.zh['repos.link'] }) as HTMLButtonElement
+    expect(link().disabled).toBe(true)
+    fireEvent.click(screen.getByText('repo-a'))
+    expect(link().disabled).toBe(false)
+    // Toggle off — the only deselect path: the badge returns, link re-disables.
+    fireEvent.click(screen.getByText('repo-a'))
+    expect(link().disabled).toBe(true)
+    expect(screen.getByText(DICT.zh['repos.recommended'])).toBeTruthy()
+    unmount()
+  })
+
+  it('reopening the picker resets the selection', async () => {
+    vi.stubGlobal('fetch', stubPool([dualRepo(DUAL_ID, 'repo-a', 'verified', 'verified')]))
+    const controller = fakeController()
+    const { unmount } = subject({ requirement: record(), controller })
+    fireEvent.click(screen.getByRole('button', { name: DICT.zh['repos.add'] }))
+    await waitFor(() => expect(screen.getByText('repo-a')).toBeTruthy())
+    fireEvent.click(screen.getByText('repo-a'))
+    fireEvent.click(screen.getByRole('button', { name: DICT.zh['form.cancel'] }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    // Reopen: no stale pick — badge visible again, link disabled again.
+    fireEvent.click(screen.getByRole('button', { name: DICT.zh['repos.add'] }))
+    await waitFor(() => expect(screen.getByText('repo-a')).toBeTruthy())
+    expect(screen.getByText(DICT.zh['repos.recommended'])).toBeTruthy()
+    expect((screen.getByRole('button', { name: DICT.zh['repos.link'] }) as HTMLButtonElement).disabled).toBe(true)
     unmount()
   })
 })

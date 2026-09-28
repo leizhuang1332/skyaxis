@@ -3,6 +3,13 @@
  * with live progress polling → row menus (reveal / re-clone / cancel /
  * unlink).
  *
+ * Dual-address picker (0005 P4, decision 0004 / D7): each pool record's
+ * addresses render per line (SSH:/HTTP: label + status Tag); the recommended
+ * one (pickAddress ordering) is badged until the user pins a different line.
+ * link snapshots the CHOSEN slot's URL; reclone keeps snapshotting the
+ * current recommendation (switching pools-side is known behavior). The wire
+ * never changes — repoUrl stays a client-side snapshot.
+ *
  * Local state throughout (the status precedent — nothing here enters the
  * page store): task snapshots, the pool list, and the dialog. Polling runs
  * only while a non-terminal task exists (1s interval, the pull-only channel;
@@ -22,11 +29,12 @@ import {
   Menu,
   Modal,
   StateDot,
+  Tag,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import { createReposFetcher } from '../repos-pool/fetcher.js'
 import { pickAddress } from '../../repos-pool-shared/address.js'
-import type { RepoRecord } from '../../repos-pool-shared/protocol.js'
+import type { AddressSlot, RepoRecord, RepoStatus } from '../../repos-pool-shared/protocol.js'
 import type { CloneTaskSnapshot, RequirementRecord } from '../../requirements-shared/protocol.js'
 import { repoDirName } from '../../requirements-shared/repo-dir.js'
 import type { RequirementsController } from './controller.js'
@@ -38,6 +46,46 @@ type PoolState =
   | { kind: 'loading' }
   | { kind: 'ready'; repos: readonly RepoRecord[] }
   | { kind: 'error' }
+
+/** Per-address view of a pool record — absent slots render nothing (the
+ * repos-pool list.tsx rowSlots twin; not importable without dragging the
+ * ReposPoolT-bound module along). */
+interface RowSlot {
+  readonly slot: AddressSlot
+  readonly label: 'SSH' | 'HTTP'
+  readonly url: string
+  readonly status: RepoStatus
+}
+
+function rowSlots(repo: RepoRecord): readonly RowSlot[] {
+  const slots: RowSlot[] = []
+  if (repo.urlSsh !== undefined && repo.statusSsh !== undefined) {
+    slots.push({ slot: 'ssh', label: 'SSH', url: repo.urlSsh, status: repo.statusSsh })
+  }
+  if (repo.urlHttp !== undefined && repo.statusHttp !== undefined) {
+    slots.push({ slot: 'http', label: 'HTTP', url: repo.urlHttp, status: repo.statusHttp })
+  }
+  return slots
+}
+
+const STATUS_TAG_TONE: Record<RepoStatus, 'success' | 'neutral' | 'warning'> = {
+  'verified': 'success',
+  'unverified': 'neutral',
+  'forced-network': 'warning',
+  'forced-auth': 'warning',
+}
+
+const STATUS_KEY: Record<RepoStatus, Parameters<RequirementsT>[0]> = {
+  'verified': 'repos.statusVerified',
+  'unverified': 'repos.statusUnverified',
+  'forced-network': 'repos.statusForcedNetwork',
+  'forced-auth': 'repos.statusForcedAuth',
+}
+
+/** The picker's single selection decision: which repo, and which of its
+ * addresses to snapshot into repoUrl (decision 0004 / D7). One composite
+ * state — repo and slot can never desynchronize across switches. */
+type Selection = { repoId: string; slot: AddressSlot } | null
 
 function useReposPool(): [PoolState, () => void] {
   const [state, setState] = useState<PoolState>({ kind: 'loading' })
@@ -110,7 +158,7 @@ export function ReposSection(props: {
   const [tasks, seedTasks] = useRepoTasks(controller, requirement.id)
   const [modalOpen, setModalOpen] = useState(false)
   const [filter, setFilter] = useState('')
-  const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null)
+  const [selection, setSelection] = useState<Selection>(null)
   const [branch, setBranch] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [inlineError, setInlineError] = useState<string | null>(null)
@@ -140,19 +188,44 @@ export function ReposSection(props: {
 
   const openModal = (): void => {
     setFilter('')
-    setSelectedRepoId(null)
+    setSelection(null)
     setBranch(`req-${requirement.id.slice(0, 8)}`)
     setInlineError(null)
     refreshPool()
     setModalOpen(true)
   }
 
+  // Name-row click: select the repo on its RECOMMENDED address (the
+  // pickAddress ordering) — also the only deselect path (toggle). Address-line
+  // click: pin that slot. Re-selecting another repo carries no stale slot.
+  const selectRepo = (repoId: string): void => {
+    if (selection !== null && selection.repoId === repoId) {
+      setSelection(null)
+      return
+    }
+    if (pool.kind !== 'ready') return
+    const repo = pool.repos.find((candidate) => candidate.id === repoId)
+    const recommended = repo !== undefined ? pickAddress(repo) : undefined
+    if (recommended === undefined) return // the record guard guarantees ≥1 address; defensive
+    setSelection({ repoId, slot: recommended.slot })
+  }
+
+  const selectAddress = (repoId: string, slot: AddressSlot): void => {
+    setSelection({ repoId, slot })
+  }
+
   const submit = async (): Promise<void> => {
-    if (selectedRepoId === null || pool.kind !== 'ready') return
-    const repo = pool.repos.find((candidate) => candidate.id === selectedRepoId)
+    if (selection === null || pool.kind !== 'ready') return
+    const repo = pool.repos.find((candidate) => candidate.id === selection.repoId)
     if (repo === undefined) return
     setSubmitting(true)
-    const outcome = await controller.linkRepo(requirement.id, { repoId: repo.id, repoUrl: pickAddress(repo)?.url ?? '', repoName: repo.name }, branch.trim())
+    // The snapshot rides the chosen slot; if that slot vanished from the pool
+    // (unreachable today — the pool re-pulls only on open — belt-and-braces
+    // should push refresh ever land), fall back to the current recommendation.
+    const repoUrl = (selection.slot === 'ssh' ? repo.urlSsh : repo.urlHttp)
+      ?? pickAddress(repo)?.url
+      ?? ''
+    const outcome = await controller.linkRepo(requirement.id, { repoId: repo.id, repoUrl, repoName: repo.name }, branch.trim())
     setSubmitting(false)
     if (outcome.kind === 'ok') {
       // Seed the fresh rows (cloning state visible immediately); the gate
@@ -209,10 +282,11 @@ export function ReposSection(props: {
             submitting={submitting}
             inlineError={inlineError}
             linkedIds={linkedIds}
-            selectedRepoId={selectedRepoId}
+            selection={selection}
             onFilterChange={setFilter}
             onBranchChange={(value) => { setBranch(value); setInlineError(null) }}
-            onSelect={setSelectedRepoId}
+            onSelectRepo={selectRepo}
+            onSelectAddress={selectAddress}
             onCancel={() => setModalOpen(false)}
             onSubmit={() => void submit()}
           />
@@ -246,7 +320,12 @@ export function ReposSection(props: {
           <div key={linked.repoId} className={styles.repoRow}>
             <div className={styles.repoMain}>
               <span className={styles.repoName}>{name}</span>
-              {repo !== undefined ? <span className={styles.repoUrl}>{pickAddress(repo)?.url}</span> : null}
+              {repo !== undefined ? rowSlots(repo).map((slot) => (
+                <span key={slot.slot} className={styles.repoAddr}>
+                  <span className={styles.repoUrlLabel}>{slot.label}</span>
+                  <span className={styles.repoUrl}>{slot.url}</span>
+                </span>
+              )) : null}
               <span className={styles.repoBranch}>{linked.branch}</span>
             </div>
             <div className={styles.repoStatus}>
@@ -273,10 +352,11 @@ export function ReposSection(props: {
           submitting={submitting}
           inlineError={inlineError}
           linkedIds={linkedIds}
-          selectedRepoId={selectedRepoId}
+          selection={selection}
           onFilterChange={setFilter}
           onBranchChange={(value) => { setBranch(value); setInlineError(null) }}
-          onSelect={setSelectedRepoId}
+          onSelectRepo={selectRepo}
+          onSelectAddress={selectAddress}
           onCancel={() => setModalOpen(false)}
           onSubmit={() => void submit()}
         />
@@ -382,10 +462,11 @@ function AddRepoModal(props: {
   submitting: boolean
   inlineError: string | null
   linkedIds: ReadonlySet<string>
-  selectedRepoId: string | null
+  selection: Selection
   onFilterChange: (value: string) => void
   onBranchChange: (value: string) => void
-  onSelect: (id: string | null) => void
+  onSelectRepo: (repoId: string) => void
+  onSelectAddress: (repoId: string, slot: AddressSlot) => void
   onCancel: () => void
   onSubmit: () => void
 }): ReactNode {
@@ -393,10 +474,14 @@ function AddRepoModal(props: {
   const candidates = pool.kind === 'ready'
     ? pool.repos.filter((repo) => !props.linkedIds.has(repo.id))
     : []
+  // A hit on EITHER address keeps the row (the repos-pool view.tsx pattern);
+  // description stays out — the row never shows it, so a hit would be
+  // unexplainable.
   const visible = candidates.filter((repo) =>
     props.filter.trim().length === 0
     || repo.name.toLowerCase().includes(props.filter.trim().toLowerCase())
-    || (pickAddress(repo)?.url.toLowerCase().includes(props.filter.trim().toLowerCase()) ?? false))
+    || (repo.urlSsh?.toLowerCase().includes(props.filter.trim().toLowerCase()) ?? false)
+    || (repo.urlHttp?.toLowerCase().includes(props.filter.trim().toLowerCase()) ?? false))
   return (
     <Modal
       open
@@ -409,7 +494,7 @@ function AddRepoModal(props: {
           <Button
             variant="primary"
             icon={<IconPlusOutline16 size={16} />}
-            disabled={props.submitting || props.selectedRepoId === null}
+            disabled={props.submitting || props.selection === null}
             onClick={props.onSubmit}
           >
             {props.submitting ? t('form.submitting') : t('repos.link')}
@@ -428,17 +513,58 @@ function AddRepoModal(props: {
           {pool.kind === 'ready' && visible.length === 0 && candidates.length === 0
             ? <div className={styles.setupHint}>{t('repos.emptyPool')}</div>
             : null}
-          {visible.map((repo) => (
-            <button
-              key={repo.id}
-              type="button"
-              className={repo.id === props.selectedRepoId ? `${styles.poolRow} ${styles.poolRowSelected}` : styles.poolRow}
-              onClick={() => props.onSelect(repo.id === props.selectedRepoId ? null : repo.id)}
-            >
-              <span className={styles.poolName}>{repo.name}</span>
-              <span className={styles.repoUrl}>{pickAddress(repo)?.url}</span>
-            </button>
-          ))}
+          {visible.map((repo) => {
+            const slots = rowSlots(repo)
+            const recommended = pickAddress(repo)?.slot
+            const rowSelected = props.selection?.repoId === repo.id
+            const rowClass = rowSelected ? `${styles.poolRow} ${styles.poolRowSelected}` : styles.poolRow
+            if (slots.length <= 1) {
+              // Single-address rows keep the one whole-row button: nothing to
+              // switch, and the common case keeps today's click-anywhere
+              // interaction.
+              const slot = slots[0]
+              return (
+                <button key={repo.id} type="button" className={rowClass} onClick={() => props.onSelectRepo(repo.id)}>
+                  <span className={styles.poolName}>{repo.name}</span>
+                  {slot !== undefined ? (
+                    <span className={styles.poolAddrLine}>
+                      <span className={styles.poolSlotLabel}>{slot.label}</span>
+                      <span className={styles.repoUrl}>{slot.url}</span>
+                      <Tag tone={STATUS_TAG_TONE[slot.status]}>{t(STATUS_KEY[slot.status])}</Tag>
+                    </span>
+                  ) : null}
+                </button>
+              )
+            }
+            // Dual-address rows: the row is a div — the name button and one
+            // button per address are SIBLINGS (a button cannot nest buttons;
+            // the linked-row div + RowMenu-button precedent).
+            return (
+              <div key={repo.id} className={`${rowClass} ${styles.poolRowDual}`}>
+                <button type="button" className={styles.poolRepoBtn} onClick={() => props.onSelectRepo(repo.id)}>
+                  <span className={styles.poolName}>{repo.name}</span>
+                </button>
+                {slots.map((slot) => {
+                  const picked = rowSelected && props.selection?.slot === slot.slot
+                  return (
+                    <button
+                      key={slot.slot}
+                      type="button"
+                      className={picked ? `${styles.poolAddrBtn} ${styles.poolAddrSelected}` : styles.poolAddrBtn}
+                      onClick={() => props.onSelectAddress(repo.id, slot.slot)}
+                    >
+                      <span className={styles.poolSlotLabel}>{slot.label}</span>
+                      <span className={styles.repoUrl}>{slot.url}</span>
+                      <Tag tone={STATUS_TAG_TONE[slot.status]}>{t(STATUS_KEY[slot.status])}</Tag>
+                      {recommended === slot.slot && !picked ? (
+                        <span className={styles.poolRecBadge}>{t('repos.recommended')}</span>
+                      ) : null}
+                    </button>
+                  )
+                })}
+              </div>
+            )
+          })}
         </div>
         <label className={styles.fieldLabel}>
           {t('repos.branchLabel')}
