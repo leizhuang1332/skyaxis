@@ -435,15 +435,17 @@ describe('ReposSection (0005 P4: dual-address picker)', () => {
     unmount()
   })
 
-  it('renders both addresses on a linked row with slot labels', async () => {
+  it('linked rows show name + branch only — no addresses', async () => {
     vi.stubGlobal('fetch', stubPool([dualRepo(DUAL_ID, 'repo-a', 'unverified', 'verified')]))
     const controller = fakeController()
     const { unmount } = subject({ requirement: record([{ repoId: DUAL_ID, branch: 'req-11111111' }]), controller })
-    await waitFor(() => expect(screen.getByText('git@example.com:org/repo-a.git')).toBeTruthy())
-    expect(screen.getByText('https://example.com/org/repo-a.git')).toBeTruthy()
-    // Label↔URL pairing: each slot label's sibling is that slot's URL.
-    expect(screen.getByText('SSH').nextElementSibling?.textContent).toBe('git@example.com:org/repo-a.git')
-    expect(screen.getByText('HTTP').nextElementSibling?.textContent).toBe('https://example.com/org/repo-a.git')
+    await waitFor(() => expect(screen.getByText('repo-a')).toBeTruthy())
+    expect(screen.getByText('req-11111111')).toBeTruthy()
+    // Neither address, nor its slot labels, render on a linked row.
+    expect(screen.queryByText('git@example.com:org/repo-a.git')).toBeNull()
+    expect(screen.queryByText('https://example.com/org/repo-a.git')).toBeNull()
+    expect(screen.queryByText('SSH')).toBeNull()
+    expect(screen.queryByText('HTTP')).toBeNull()
     unmount()
   })
 
@@ -736,5 +738,58 @@ describe('ReposSection (branch carry-over default)', () => {
     await waitFor(() => expect(screen.getByRole('dialog')).toBeTruthy())
     expect(screen.getByDisplayValue('req-11111111')).toBeTruthy()
     fresh.unmount()
+  })
+})
+
+describe('ReposSection (pool stale-while-revalidate: no flash on modal open)', () => {
+  const REPO_A_ID = '22222222-2222-4222-8222-222222222222'
+
+  it('serves the previous pool on modal open — no removed-repo flash, no blank picker', async () => {
+    vi.stubGlobal('fetch', stubPool())
+    const controller = fakeController()
+    const { unmount } = subject({
+      requirement: record([{ repoId: REPO_A_ID, branch: 'req-11111111' }]),
+      controller,
+    })
+    await waitFor(() => expect(screen.getByText('repo-a')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: DICT.zh['repos.add'] }))
+    // The SYNCHRONOUS first frame after opening: the re-pull has not landed,
+    // yet the linked row keeps its pool name (never the removed-repo
+    // fallback) and the picker already lists the unlinked candidate.
+    expect(screen.queryByText(DICT.zh['repos.removedRepo'])).toBeNull()
+    expect(screen.getByText('repo-a')).toBeTruthy()
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    expect(screen.getByText('repo-b')).toBeTruthy()
+    unmount()
+  })
+
+  it('keeps the stale list serving when the on-open re-pull fails', async () => {
+    let call = 0
+    const okBody = () => new Response(JSON.stringify({ ok: true, revision: 1, repos: [
+      { id: REPO_A_ID, name: 'repo-a', urlHttp: 'https://example.com/org/repo-a.git', description: '', statusHttp: 'verified', validatedAtHttp: '2026-09-25T09:30:00.000Z', lastErrorHttp: null },
+    ] }), { status: 200, headers: { 'content-type': 'application/json' } })
+    const degradedBody = () => new Response(JSON.stringify({ ok: false, degraded: true, reason: 'parse', hasBackup: false }), { status: 200, headers: { 'content-type': 'application/json' } })
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      call += 1
+      // Calls 1-2 (mount + the first open's re-pull) succeed; the SECOND
+      // open's re-pull degrades — that is the scenario under test. Serving
+      // ok on call 2 keeps the open-race (mount fetch cancelled by the
+      // nonce bump) out of the picture.
+      return call <= 2 ? okBody() : degradedBody()
+    }))
+    const controller = fakeController()
+    const { unmount } = subject({ requirement: record(), controller })
+    fireEvent.click(screen.getByRole('button', { name: DICT.zh['repos.add'] }))
+    await waitFor(() => expect(screen.getByText('repo-a')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: DICT.zh['form.cancel'] }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    // Reopen: the re-pull degrades — the stale list must keep serving
+    // (rows stay, no pool-error line).
+    fireEvent.click(screen.getByRole('button', { name: DICT.zh['repos.add'] }))
+    await waitFor(() => expect(call).toBeGreaterThanOrEqual(3))
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(screen.getByText('repo-a')).toBeTruthy()
+    expect(screen.queryByText(DICT.zh['repos.poolError'])).toBeNull()
+    unmount()
   })
 })

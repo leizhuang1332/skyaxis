@@ -684,6 +684,7 @@
   color: var(--dsw-alias-label-primary);
 }
 
+/* Picker address URLs (linked rows show none). */
 .repoUrl {
   font-size: 12px;
   line-height: 18px;
@@ -830,21 +831,6 @@
   align-items: center;
   gap: 6px;
   min-width: 0;
-}
-
-/* Linked-row inline address blocks (name + per-address + branch flow). */
-.repoAddr {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 4px;
-  min-width: 0;
-  max-width: 100%;
-}
-
-.repoUrlLabel {
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 11px;
-  line-height: 18px;
 }
 
 /* ---- PRD documents section (0003 P3c) ---- */

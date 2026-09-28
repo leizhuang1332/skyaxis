@@ -169,13 +169,24 @@ function useReposPool(): [PoolState, () => void] {
     let cancelled = false
     void createReposFetcher().list().then((result) => {
       if (cancelled) return
-      setState(result.kind === 'ok' ? { kind: 'ready', repos: result.repos } : { kind: 'error' })
+      setState((prev) => {
+        // Stale-while-revalidate: a failed RE-pull keeps the last good list
+        // serving (linked rows keep their names, the picker keeps offering);
+        // only the initial load — with nothing to fall back on — lands in
+        // 'error'. Clobbering to 'loading' instead is what made every modal
+        // open flash: all linked-row joins collapsed to the removed-repo
+        // fallback until the fetch settled.
+        if (prev.kind === 'ready' && result.kind !== 'ok') return prev
+        return result.kind === 'ok' ? { kind: 'ready', repos: result.repos } : { kind: 'error' }
+      })
     })
     return () => { cancelled = true }
   }, [nonce])
   // The picker re-pulls on open: repos added in the pool panel while this tab
   // stays mounted must appear (mount-only fetch would serve a stale list).
-  return [state, () => { setState({ kind: 'loading' }); setNonce((n) => n + 1) }]
+  // The refresh only bumps the nonce — the previous snapshot keeps rendering
+  // until the fresh one lands, so the swap is invisible (no blank frame).
+  return [state, () => { setNonce((n) => n + 1) }]
 }
 
 /** Task snapshots with gated 1s polling: runs only while a task is live. */
@@ -454,13 +465,9 @@ export function ReposSection(props: {
         return (
           <div key={linked.repoId} className={styles.repoRow}>
             <div className={styles.repoMain}>
+              {/* Name + branch only — the addresses are picker concerns; a
+                  linked row's URL snapshot is ledger-invisible anyway. */}
               <span className={styles.repoName}>{name}</span>
-              {repo !== undefined ? rowSlots(repo).map((slot) => (
-                <span key={slot.slot} className={styles.repoAddr}>
-                  <span className={styles.repoUrlLabel}>{slot.label}</span>
-                  <span className={styles.repoUrl}>{slot.url}</span>
-                </span>
-              )) : null}
               <span className={styles.repoBranch}>{linked.branch}</span>
             </div>
             <div className={styles.repoStatus}>
