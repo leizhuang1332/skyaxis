@@ -1,0 +1,971 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>skyaxis — AI 工作台 视觉稿 v2（0006）</title>
+<!--
+  静态视觉稿：docs/research/0006-AI工作台调研与设计.md §4 页面规格 v2 的浏览器近似呈现。
+  · token 值为占位近似（DSH 真源是宿主的 --dsw-alias-*），实施时全量替换为真 token。
+  · 样例数据取自用户工作流示例（报价管理：导入导出与数据校验）。
+  · 可交互：阶段导轨切换 / 发现行展开 / 看板卡片 → 模块详情 Modal / 上下文包 Modal / 主题切换。
+-->
+<style>
+  /* ---- 占位 token（近似 DSH alias 体系；实施时替换） ---- */
+  :root {
+    --bg-base: #ffffff;
+    --bg-layer-1: #f6f7f9;
+    --border-l2: #e4e6e9;
+    --border-l3: #cfd3d8;
+    --border-l4: #eceef1;
+    --label-primary: #1b1d20;
+    --label-secondary: #4b5058;
+    --label-tertiary: #878d96;
+    --label-caption: #b5bac1;
+    --business-primary: #4d6bfe;
+    --business-tertiary: rgba(77, 107, 254, 0.10);
+    --interactive-bg-hover: rgba(0, 0, 0, 0.045);
+    --state-success: #1f9d55;
+    --state-success-bg: rgba(31, 157, 85, 0.10);
+    --state-warn: #c47b12;
+    --state-warn-border: #e6a23c;
+    --state-warn-bg: rgba(230, 162, 60, 0.12);
+    --state-error: #e5484d;
+    --state-error-bg: rgba(229, 72, 77, 0.10);
+    --state-info: #4d6bfe;
+    --state-info-bg: rgba(77, 107, 254, 0.10);
+    --bg-skeleton: #edeff2;
+    --shadow-modal: 0 12px 40px rgba(0, 0, 0, 0.16);
+  }
+  [data-theme="dark"] {
+    --bg-base: #1b1f27;
+    --bg-layer-1: #242a34;
+    --border-l2: #343b46;
+    --border-l3: #454e5b;
+    --border-l4: #2c323c;
+    --label-primary: #e9ebee;
+    --label-secondary: #b6bcc5;
+    --label-tertiary: #7e8590;
+    --label-caption: #5c6370;
+    --business-primary: #7b8cff;
+    --business-tertiary: rgba(123, 140, 255, 0.16);
+    --interactive-bg-hover: rgba(255, 255, 255, 0.07);
+    --state-success: #4cc38a;
+    --state-success-bg: rgba(76, 195, 138, 0.14);
+    --state-warn: #e0a13e;
+    --state-warn-border: #8a6a2a;
+    --state-warn-bg: rgba(224, 161, 62, 0.14);
+    --state-error: #ff7378;
+    --state-error-bg: rgba(255, 115, 120, 0.14);
+    --state-info: #7b8cff;
+    --state-info-bg: rgba(123, 140, 255, 0.14);
+    --bg-skeleton: #2a303a;
+    --shadow-modal: 0 12px 40px rgba(0, 0, 0, 0.5);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg-base);
+    color: var(--label-primary);
+    font-size: 14px;
+  }
+  button { font-family: inherit; cursor: pointer; }
+
+  /* ---- 外壳：左侧 48px 假 rail 提示 DSH 宿主比例 ---- */
+  .app { display: flex; height: 100vh; min-width: 960px; }
+  .shellRail {
+    flex: none; width: 48px;
+    display: flex; flex-direction: column; align-items: center;
+    gap: 14px; padding: 12px 0;
+    border-right: 0.5px solid var(--border-l2);
+    background: var(--bg-layer-1);
+    color: var(--label-caption); font-size: 16px;
+  }
+  .shellRail .spacer { flex: 1; }
+  .themeToggle {
+    border: none; background: transparent; color: var(--label-tertiary);
+    font-size: 16px; padding: 6px; border-radius: 6px;
+  }
+  .themeToggle:hover { background: var(--interactive-bg-hover); color: var(--label-primary); }
+
+  .panel { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg-base); }
+
+  /* ---- 详情页 header（几何镜像 ConversationRoot：76px / 10·28·0·20 / border-l3） ---- */
+  .pageHeader {
+    flex: none; min-height: 76px;
+    display: flex; align-items: center;
+    padding: 10px 28px 0 20px;
+    border-bottom: 0.5px solid var(--border-l3);
+  }
+  .detailHeader { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .detailHeaderRow { display: flex; align-items: center; gap: 8px; }
+  .pillBtn {
+    flex: none; display: inline-flex; align-items: center; gap: 4px;
+    min-height: 28px; padding: 4px 10px;
+    border: none; border-radius: 6px; background: transparent;
+    color: var(--label-tertiary); font-size: 13px; line-height: 18px;
+  }
+  .pillBtn:hover { background: var(--bg-layer-1); color: var(--label-primary); }
+  .titleCluster { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+  .pageTitle { margin: 0; font-size: 14px; line-height: 20px; font-weight: 500; }
+  .pageDesc { margin: 0 0 10px; font-size: 12px; line-height: 18px; color: var(--label-tertiary); }
+
+  /* tab 行（detailTab 基线：13/16 wt500 · gap36 · 2px 底条 business-primary） */
+  .tabStrip { display: flex; gap: 36px; margin-top: 10px; padding-left: 8px; }
+  .tabItem {
+    position: relative; padding: 0 0 9px; border: none; background: transparent;
+    font-size: 13px; line-height: 16px; font-weight: 500; color: var(--label-tertiary);
+  }
+  .tabItem::after {
+    content: ''; position: absolute; left: 0; right: 0; bottom: -1px;
+    height: 2px; border-radius: 2px; background: transparent;
+  }
+  .tabItem.active { color: var(--business-primary); }
+  .tabItem.active::after { background: var(--business-primary); }
+
+  /* ---- 滚动 body ---- */
+  .pageBody { flex: 1; min-height: 0; overflow: auto; padding: 16px; }
+
+  /* ---- 阶段导轨（sticky） ---- */
+  .stageRail {
+    position: sticky; top: -16px; z-index: 5;
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    margin: -16px -16px 12px; padding: 12px 16px;
+    background: var(--bg-base);
+    border-bottom: 0.5px solid var(--border-l2);
+  }
+  .stageChip {
+    display: inline-flex; align-items: center; gap: 6px;
+    border: none; background: transparent; border-radius: 6px;
+    padding: 4px 8px; font-size: 13px; line-height: 16px; font-weight: 500;
+    color: var(--label-tertiary);
+  }
+  .stageChip:hover { background: var(--bg-layer-1); color: var(--label-primary); }
+  .stageChip.current { color: var(--business-primary); }
+  .stageChip.done { color: var(--label-secondary); }
+  .stageConnector { flex: none; width: 14px; height: 0.5px; background: var(--border-l3); }
+  .countBadge {
+    display: inline-flex; align-items: center; padding: 0 6px; border-radius: 999px;
+    color: var(--business-primary); background: var(--business-tertiary);
+    font-size: 11px; line-height: 18px; font-weight: 400;
+  }
+  .countBadge.warn { color: var(--state-warn); background: var(--state-warn-bg); }
+  .countBadge.ok { color: var(--state-success); background: var(--state-success-bg); }
+  .stageRail .spacer { flex: 1; }
+
+  /* ---- 按钮 ---- */
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    border-radius: 6px; border: none; background: transparent;
+    font-size: 13px; line-height: 18px; padding: 5px 12px; color: var(--label-secondary);
+  }
+  .btn:hover { background: var(--interactive-bg-hover); color: var(--label-primary); }
+  .btn.primary { background: var(--business-primary); color: #fff; }
+  .btn.primary:hover { background: var(--business-primary); opacity: 0.9; color: #fff; }
+  .btn.outline { border: 0.5px solid var(--border-l3); background: transparent; }
+  .btn.sm { padding: 2px 8px; font-size: 12px; line-height: 18px; }
+  .btn.danger { color: var(--state-error); }
+  .btn:disabled { opacity: 0.45; cursor: default; }
+
+  /* ---- session 条 ---- */
+  .sessionStrip {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+  .sessionStrip .stripLabel { font-size: 12px; line-height: 18px; color: var(--label-tertiary); }
+  .sessionChip {
+    display: inline-flex; align-items: center; gap: 6px;
+    min-height: 28px; padding: 4px 10px; border-radius: 6px;
+    background: var(--bg-layer-1); border: 0.5px solid var(--border-l2);
+    font-size: 12px; line-height: 18px; color: var(--label-secondary);
+  }
+  .sessionChip:hover { border-color: var(--border-l3); color: var(--label-primary); }
+  .dot { flex: none; width: 7px; height: 7px; border-radius: 999px; }
+  .dot.run { background: var(--state-success); }
+  .dot.wait { background: var(--state-warn-border); }
+  .dot.done { background: var(--label-caption); }
+
+  /* ---- 通用 section / 卡片行 ---- */
+  .stack { display: flex; flex-direction: column; gap: 12px; }
+  .section { display: flex; flex-direction: column; gap: 8px; }
+  .sectionHead {
+    display: flex; align-items: center; gap: 8px;
+  }
+  .sectionTitle { font-size: 13px; line-height: 18px; font-weight: 500; color: var(--label-secondary); flex: 1; }
+  .card {
+    display: flex; align-items: flex-start; gap: 8px;
+    padding: 10px 12px; border: 0.5px solid var(--border-l2);
+    border-radius: 12px; background: var(--bg-layer-1);
+  }
+  .card:hover { border-color: var(--border-l3); }
+  .cardMain { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .cardTitleLine { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .cardTitle { font-size: 14px; line-height: 22px; font-weight: 500; }
+  .cardMeta { font-size: 12px; line-height: 18px; color: var(--label-tertiary); }
+
+  /* Tag（primitives Tag 近似） */
+  .tag {
+    display: inline-flex; align-items: center; padding: 0 6px;
+    border-radius: 4px; font-size: 11px; line-height: 18px; white-space: nowrap;
+  }
+  .tag.warning { color: var(--state-warn); background: var(--state-warn-bg); }
+  .tag.success { color: var(--state-success); background: var(--state-success-bg); }
+  .tag.info { color: var(--state-info); background: var(--state-info-bg); }
+  .tag.error { color: var(--state-error); background: var(--state-error-bg); }
+  .tag.neutral { color: var(--label-tertiary); background: var(--interactive-bg-hover); }
+
+  .menuBtn {
+    flex: none; display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; border: none; border-radius: 4px;
+    background: transparent; color: var(--label-tertiary); font-size: 14px;
+  }
+  .menuBtn:hover { color: var(--label-primary); background: var(--interactive-bg-hover); }
+
+  /* 发现行展开区 */
+  .findingDetail {
+    margin-top: 6px; padding: 8px 10px;
+    border-left: 2px solid var(--border-l3);
+    font-size: 12px; line-height: 18px; color: var(--label-tertiary);
+    display: none;
+  }
+  .card.open .findingDetail { display: block; }
+
+  /* 覆盖 chips */
+  .coverChips { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+  .coverChip {
+    display: inline-flex; padding: 0 6px; border-radius: 4px;
+    background: var(--business-tertiary); color: var(--business-primary);
+    font-size: 11px; line-height: 18px;
+  }
+  .hollow { color: var(--state-warn); background: var(--state-warn-bg); }
+
+  /* 虚线动作卡（setupCard 语言） */
+  .actionCard {
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    min-height: 96px; padding: 20px 16px;
+    border: 0.5px dashed var(--border-l2); border-radius: 12px;
+    background: transparent; color: var(--label-secondary);
+  }
+  .actionCard:hover { background: var(--bg-layer-1); }
+  .actionCard .hint { font-size: 13px; color: var(--label-tertiary); }
+  .actionCard .act { font-size: 14px; font-weight: 500; color: var(--label-secondary); }
+  .actionCard:hover .act { color: var(--business-primary); }
+
+  /* ---- 看板（本设计唯一新增几何：横向滚动容器） ---- */
+  .progressLine {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    font-size: 13px; color: var(--label-secondary); margin-bottom: 10px;
+  }
+  .kanban {
+    display: flex; gap: 8px; align-items: flex-start;
+    overflow-x: auto; padding-bottom: 8px;
+  }
+  .kbCol {
+    flex: none; width: 208px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .kbHead {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; line-height: 18px; font-weight: 500; color: var(--label-tertiary);
+    padding: 2px 2px 0;
+  }
+  .kbCard {
+    display: flex; flex-direction: column; gap: 4px;
+    padding: 8px 10px; border: 0.5px solid var(--border-l2);
+    border-radius: 12px; background: var(--bg-layer-1);
+    text-align: left; width: 100%; font: inherit; color: inherit;
+  }
+  .kbCard:hover { border-color: var(--business-primary); }
+  .kbTitle { font-size: 13px; line-height: 18px; font-weight: 500; color: var(--label-primary); }
+  .kbMeta { font-size: 11px; line-height: 16px; color: var(--label-tertiary); display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+  .kbActions { display: flex; gap: 6px; margin-top: 2px; }
+  .kbAdd {
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    min-height: 56px; border: 0.5px dashed var(--border-l2); border-radius: 12px;
+    background: transparent; color: var(--label-caption); font-size: 13px;
+  }
+  .kbAdd:hover { background: var(--bg-layer-1); color: var(--label-primary); }
+
+  /* ---- go/no-go 总览卡（banner 语言） ---- */
+  .gonogo {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 10px 14px; border: 0.5px solid var(--state-warn-border);
+    border-radius: 8px; background: var(--bg-layer-1);
+    font-size: 13px; line-height: 20px;
+  }
+  .gonogo .num { font-weight: 500; }
+
+  /* 漂移提示 */
+  .driftNote {
+    display: inline-flex; align-items: center; gap: 4px;
+    color: var(--state-warn); font-size: 11px;
+  }
+
+  /* ---- 统计卡 ---- */
+  .statRow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+  .statCard {
+    padding: 12px; border: 0.5px solid var(--border-l2); border-radius: 12px;
+    background: var(--bg-layer-1); display: flex; flex-direction: column; gap: 4px;
+  }
+  .statNum { font-size: 18px; line-height: 24px; font-weight: 500; }
+  .statLabel { font-size: 12px; color: var(--label-tertiary); }
+
+  /* ---- 阶段视图切换 ---- */
+  .stageView { display: none; }
+  .stageView.active { display: flex; flex-direction: column; gap: 12px; }
+
+  /* ---- Modal ---- */
+  .modalMask {
+    position: fixed; inset: 0; z-index: 50;
+    display: none; align-items: flex-start; justify-content: center;
+    background: rgba(0, 0, 0, 0.4); padding: 48px 24px;
+  }
+  .modalMask.open { display: flex; }
+  .modal {
+    width: min(860px, 100%); max-height: calc(100vh - 96px);
+    display: flex; flex-direction: column;
+    background: var(--bg-base); border-radius: 12px;
+    box-shadow: var(--shadow-modal); overflow: hidden;
+  }
+  .modal.narrow { width: min(560px, 100%); }
+  .modalHead {
+    flex: none; display: flex; align-items: center; gap: 8px;
+    padding: 14px 20px 10px;
+    font-size: 14px; font-weight: 500;
+  }
+  .modalHead .close {
+    margin-left: auto; border: none; background: transparent;
+    color: var(--label-tertiary); font-size: 15px; padding: 4px 6px; border-radius: 4px;
+  }
+  .modalHead .close:hover { color: var(--label-primary); background: var(--interactive-bg-hover); }
+  .modalBody {
+    flex: 1; min-height: 0; overflow-y: auto; padding: 4px 20px 16px;
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  .modalFoot {
+    flex: none; display: flex; justify-content: flex-end; gap: 8px;
+    padding: 12px 20px 16px; border-top: 0.5px solid var(--border-l4);
+  }
+
+  /* 计划文档渲染（MarkdownText 近似） */
+  .doc { font-size: 13px; line-height: 20px; color: var(--label-secondary); }
+  .doc h4 { margin: 12px 0 4px; font-size: 13px; color: var(--label-primary); }
+  .doc h4:first-child { margin-top: 0; }
+  .doc ul { margin: 0; padding-left: 18px; }
+  .doc li { margin: 2px 0; }
+  .doc code {
+    padding: 0 4px; border-radius: 4px; background: var(--interactive-bg-hover);
+    font-family: Consolas, monospace; font-size: 12px;
+  }
+
+  /* 上下文包 Modal 内的勾选与预览 */
+  .bundleGrid { display: grid; grid-template-columns: 300px 1fr; gap: 14px; }
+  .bundlePick { display: flex; flex-direction: column; gap: 8px; }
+  .pickGroup { display: flex; flex-direction: column; gap: 4px; }
+  .pickGroupTitle { font-size: 12px; font-weight: 500; color: var(--label-secondary); }
+  .pickRow { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--label-secondary); }
+  .bundlePreview {
+    margin: 0; padding: 10px 12px; border: 0.5px solid var(--border-l2); border-radius: 8px;
+    background: var(--bg-layer-1); max-height: 320px; overflow: auto;
+    font-family: Consolas, monospace; font-size: 12px; line-height: 18px;
+    color: var(--label-secondary); white-space: pre-wrap;
+  }
+
+  .footNote {
+    padding: 16px 0 4px; font-size: 12px; line-height: 18px; color: var(--label-caption);
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- 假 DSH shell rail：只为比例参照 -->
+  <div class="shellRail">
+    <span>◈</span><span>◇</span><span>▣</span><span>◑</span>
+    <span class="spacer"></span>
+    <button class="themeToggle" id="themeToggle" title="切换浅/深主题">◐</button>
+  </div>
+
+  <div class="panel">
+    <!-- 详情页 header：返回 + 切换器 + 标题 + tab 行 -->
+    <header class="pageHeader">
+      <div class="detailHeader">
+        <div class="detailHeaderRow">
+          <button class="pillBtn">‹ 返回</button>
+          <button class="pillBtn">▤ 切换需求 ▾</button>
+          <div class="titleCluster">
+            <h1 class="pageTitle">报价管理：导入导出与数据校验</h1>
+            <p class="pageDesc">支持报价单导入导出与数据校验，导出走异步，导入前全量校验</p>
+          </div>
+        </div>
+        <nav class="tabStrip">
+          <button class="tabItem">概览</button>
+          <button class="tabItem">工作区</button>
+          <button class="tabItem active">AI 工作台</button>
+        </nav>
+      </div>
+    </header>
+
+    <main class="pageBody">
+      <!-- 阶段导轨（sticky；观看=点击切换，推进=右侧按钮） -->
+      <div class="stageRail" id="stageRail">
+        <button class="stageChip done" data-stage="s1"><span>① 需求理解</span><span class="countBadge warn">2 待处置</span></button>
+        <span class="stageConnector"></span>
+        <button class="stageChip done" data-stage="s2"><span>② 探索规划</span><span class="countBadge ok">✓ 已批准 · 6 模块</span></button>
+        <span class="stageConnector"></span>
+        <button class="stageChip current" data-stage="s3"><span>③ 执行实施</span><span class="countBadge">1/6 · 1 待验收</span></button>
+        <span class="stageConnector"></span>
+        <button class="stageChip" data-stage="s4"><span>④ 评审</span><span class="countBadge warn">1 待处置</span></button>
+        <span class="stageConnector"></span>
+        <button class="stageChip" data-stage="s5"><span>⑤ 交付</span><span class="countBadge warn">4 项 · 1 待确认</span></button>
+        <span class="stageConnector"></span>
+        <button class="stageChip" data-stage="s6"><span>⑥ 沉淀</span><span class="countBadge">1 候选</span></button>
+        <span class="spacer"></span>
+        <button class="btn outline sm">完成本阶段，进入 ④ 评审 →</button>
+      </div>
+
+      <!-- session 条（跨阶段常驻） -->
+      <div class="sessionStrip">
+        <span class="stripLabel">关联 session（3）</span>
+        <button class="sessionChip"><span class="dot run"></span>M2·导出·开发　运行 12m</button>
+        <button class="sessionChip"><span class="dot wait"></span>M3·导入·开发　待输入</button>
+        <button class="sessionChip"><span class="dot done"></span>评审·代码评审　已完成</button>
+      </div>
+
+      <!-- ============ S1 需求理解 ============ -->
+      <div class="stageView active" id="s1">
+        <div class="section">
+          <div class="sectionHead">
+            <div class="sectionTitle">分析发现</div>
+            <button class="btn sm">生成分析上下文包</button>
+            <button class="btn sm">＋ 手动录入</button>
+            <button class="btn outline sm">导出评审会问题单</button>
+          </div>
+          <div class="card finding">
+            <div class="cardMain">
+              <div class="cardTitleLine">
+                <span class="tag error">源码冲突·高</span>
+                <span class="cardTitle">导出分页方案与现有游标分页冲突</span>
+                <span class="tag warning">待处置</span>
+              </div>
+              <div class="cardMeta">涉及：2.3 数据导出 · 来源 session：分析·09-24</div>
+              <div class="findingDetail">
+                详情：现有 <code>QuoteQueryMapper</code> 使用 cursor 分页（created_at + id），PRD 的同步导出方案要求 offset 深翻页，2.3 亿行下不可行且与现有索引结构冲突。<br>
+                处置记录：——
+              </div>
+            </div>
+            <button class="menuBtn" title="处置">⋯</button>
+          </div>
+          <div class="card finding">
+            <div class="cardMain">
+              <div class="cardTitleLine">
+                <span class="tag warning">数据承载·中</span>
+                <span class="cardTitle">t_quote 2.3 亿行，同步导出必然超时</span>
+                <span class="tag warning">待处置</span>
+              </div>
+              <div class="cardMeta">涉及：2.3 数据导出 · 来源 session：分析·09-24</div>
+              <div class="findingDetail">详情：按当前接口 P99 推算，10w 行同步导出约 40s，网关 30s 超时。建议异步任务 + id 滚动。</div>
+            </div>
+            <button class="menuBtn" title="处置">⋯</button>
+          </div>
+          <div class="card finding">
+            <div class="cardMain">
+              <div class="cardTitleLine">
+                <span class="tag info">可行性·低</span>
+                <span class="cardTitle">外部核价接口限流与并发导入叠加风险</span>
+                <span class="tag neutral">不处理</span>
+              </div>
+              <div class="cardMeta">处置：核价走批量接口，与导入峰值错峰（评审会结论 09-25）</div>
+              <div class="findingDetail">处置记录：不处理——已确认批量接口上限 200qps，错峰后峰值 60qps。</div>
+            </div>
+            <button class="menuBtn" title="处置">⋯</button>
+          </div>
+        </div>
+        <div class="section">
+          <div class="sectionHead">
+            <div class="sectionTitle">验收标准（PRD 初提）</div>
+            <button class="btn sm">＋</button>
+          </div>
+          <div class="card">
+            <div class="cardMain">
+              <div class="cardTitleLine">
+                <span class="cardTitle">C1　导出支持异步任务与 id 滚动，10w 行 &lt; 30s 出文件</span>
+              </div>
+              <div class="coverChips"><span class="coverChip">← M2</span></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="cardMain">
+              <div class="cardTitleLine">
+                <span class="cardTitle">C2　导入前全量规则校验，非法行全部拦截并出错误报告</span>
+              </div>
+              <div class="coverChips"><span class="coverChip">← M4</span><span class="coverChip">← M3</span></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="cardMain">
+              <div class="cardTitleLine">
+                <span class="cardTitle">C3　导入/导出全部接口有权限校验</span>
+              </div>
+              <div class="coverChips"><span class="coverChip hollow">← 空洞：尚无模块覆盖</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ S2 探索规划 ============ -->
+      <div class="stageView" id="s2">
+        <div class="section">
+          <div class="sectionHead">
+            <div class="sectionTitle">模块拆分</div>
+            <button class="btn sm">生成拆分上下文包</button>
+            <button class="btn sm">＋ 模块</button>
+          </div>
+          <div class="card"><div class="cardMain">
+            <div class="cardTitleLine"><span class="cardTitle">M1　CRUD 基础功能</span></div>
+            <div class="cardMeta">边界：报价单增删改查、列表筛选 · 依赖 — · 覆盖 —</div>
+          </div><button class="menuBtn">⋯</button></div>
+          <div class="card"><div class="cardMain">
+            <div class="cardTitleLine"><span class="cardTitle">M2　数据导出</span><span class="tag info">P 并行</span></div>
+            <div class="cardMeta">边界：异步任务 + id 滚动，同步/异步双通道 · 依赖 M1 · 覆盖 C1</div>
+          </div><button class="menuBtn">⋯</button></div>
+          <div class="card"><div class="cardMain">
+            <div class="cardTitleLine"><span class="cardTitle">M3　数据导入</span></div>
+            <div class="cardMeta">边界：OSS 上传、流式读取、500 行批落库 · 依赖 M1 · 覆盖 C2</div>
+          </div><button class="menuBtn">⋯</button></div>
+          <div class="card"><div class="cardMain">
+            <div class="cardTitleLine"><span class="cardTitle">M4　数据校验</span></div>
+            <div class="cardMeta">边界：规则校验引擎 + 外部数据源查询 · 依赖 M3 · 覆盖 C2</div>
+          </div><button class="menuBtn">⋯</button></div>
+          <div class="card"><div class="cardMain">
+            <div class="cardTitleLine"><span class="cardTitle">M5　外部接口封装</span></div>
+            <div class="cardMeta">边界：核价/客户主数据接口 client 封装与降级 · 依赖 — · 覆盖 —</div>
+          </div><button class="menuBtn">⋯</button></div>
+          <div class="card"><div class="cardMain">
+            <div class="cardTitleLine"><span class="cardTitle">M6　权限模块</span></div>
+            <div class="cardMeta">边界：全部导入导出接口的权限注解与拦截 · 依赖 M1,M2,M3 · 覆盖 C3</div>
+          </div><button class="menuBtn">⋯</button></div>
+          <div class="gonogo">
+            <span class="tag success">已批准</span>
+            <span>拆分批准于 2026-09-26 · 6 模块 · 覆盖 C1/C2，<b>C3 待补</b>（M6 尚在待计划列）</span>
+            <span style="flex:1"></span>
+            <button class="btn sm danger">撤销批准</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ S3 执行实施（看板） ============ -->
+      <div class="stageView" id="s3">
+        <div class="progressLine">
+          <span class="tag success">1/6 已验收</span>
+          <span class="tag warning">1 待验收</span>
+          <span class="tag info">1 开发中</span>
+          <span class="tag neutral">1 计划已批准</span>
+          <span class="tag neutral">2 待计划</span>
+          <span style="flex:1"></span>
+          <button class="btn sm">生成模块上下文包</button>
+          <button class="btn sm">导入声明</button>
+        </div>
+        <div class="kanban">
+          <div class="kbCol">
+            <div class="kbHead">待计划 <span class="countBadge">2</span></div>
+            <button class="kbCard" data-module="m5">
+              <span class="kbTitle">M5　外部接口封装</span>
+              <span class="kbMeta"><span class="tag neutral">计划草拟中</span></span>
+              <span class="kbMeta">会话 1 · commit 0</span>
+            </button>
+            <button class="kbCard">
+              <span class="kbTitle">M6　权限模块</span>
+              <span class="kbMeta"><span class="tag neutral">未起草</span></span>
+            </button>
+            <button class="kbAdd">＋ 模块</button>
+          </div>
+          <div class="kbCol">
+            <div class="kbHead">计划已批准 <span class="countBadge">1</span></div>
+            <button class="kbCard" data-module="m4">
+              <span class="kbTitle">M4　数据校验</span>
+              <span class="kbMeta">计划 v1 ✓ 09-26</span>
+              <span class="kbMeta">会话 0 · commit 0 · 覆盖 C2</span>
+            </button>
+          </div>
+          <div class="kbCol">
+            <div class="kbHead">开发中 <span class="countBadge">1</span></div>
+            <button class="kbCard" data-module="m2">
+              <span class="kbTitle">M2　数据导出</span>
+              <span class="kbMeta">计划 v2 ✓ 09-26</span>
+              <span class="kbMeta"><span class="dot run"></span>2 会话 · commit 3</span>
+            </button>
+          </div>
+          <div class="kbCol">
+            <div class="kbHead">待验收 <span class="countBadge warn">1</span></div>
+            <button class="kbCard" data-module="m3">
+              <span class="kbTitle">M3　数据导入</span>
+              <span class="kbMeta">built · 计划 v1 ✓</span>
+              <span class="kbActions">
+                <button class="btn primary sm">验收通过</button>
+                <button class="btn outline sm">不通过</button>
+              </span>
+            </button>
+          </div>
+          <div class="kbCol">
+            <div class="kbHead">已验收 <span class="countBadge ok">1</span></div>
+            <button class="kbCard" data-module="m1">
+              <span class="kbTitle">M1　CRUD 基础功能</span>
+              <span class="kbMeta">计划 v1 ✓ · 验收 09-27</span>
+              <span class="kbMeta">历史：1 次返工</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ S4 评审 ============ -->
+      <div class="stageView" id="s4">
+        <div class="section">
+          <div class="sectionHead">
+            <div class="sectionTitle">评审报告</div>
+            <button class="btn sm">＋ 导入报告</button>
+          </div>
+          <div class="card">
+            <div class="cardMain">
+              <div class="cardTitleLine">
+                <span class="cardTitle">全量代码评审 · 2026-09-27</span>
+                <span class="tag info">发现 8 · confirmed 6 / rejected 2</span>
+              </div>
+              <div class="cardMeta">来源 session：评审·09-27 · 范围：M1/M2/M3 全部 commit</div>
+            </div>
+          </div>
+        </div>
+        <div class="section">
+          <div class="sectionTitle">裁决</div>
+          <div class="card"><div class="cardMain">
+            <div class="cardTitleLine">
+              <span class="tag error">高·事务</span>
+              <span class="cardTitle">导入与校验不在同一事务，失败缺整体回滚</span>
+              <span class="tag success">confirmed · 已修复</span>
+            </div>
+          </div></div>
+          <div class="card"><div class="cardMain">
+            <div class="cardTitleLine">
+              <span class="tag warning">中·空指针</span>
+              <span class="cardTitle">外部核价接口响应体可能为 null，未判空直接取字段</span>
+              <span class="tag warning">confirmed · 待修复</span>
+            </div>
+          </div></div>
+          <div class="card"><div class="cardMain">
+            <div class="cardTitleLine">
+              <span class="tag info">低·性能</span>
+              <span class="cardTitle">导出循环内重复查询客户主数据</span>
+              <span class="tag neutral">rejected：已有幂等缓存，路径不可达</span>
+            </div>
+          </div></div>
+        </div>
+        <div class="section">
+          <div class="sectionTitle">PRD 覆盖矩阵</div>
+          <div class="card"><div class="cardMain">
+            <div class="cardTitleLine"><span class="cardTitle">C1　导出异步 + id 滚动</span></div>
+            <div class="coverChips"><span class="coverChip">← M2</span></div>
+          </div></div>
+          <div class="card"><div class="cardMain">
+            <div class="cardTitleLine"><span class="cardTitle">C2　导入前全量校验</span></div>
+            <div class="coverChips"><span class="coverChip">← M3 待验收</span><span class="coverChip">← M4</span></div>
+          </div></div>
+          <div class="card"><div class="cardMain">
+            <div class="cardTitleLine"><span class="cardTitle">C3　权限校验覆盖全部接口</span></div>
+            <div class="coverChips"><span class="coverChip hollow">← 空洞</span></div>
+          </div></div>
+        </div>
+      </div>
+
+      <!-- ============ S5 交付 ============ -->
+      <div class="stageView" id="s5">
+        <div class="gonogo">
+          <span class="tag warning">前置条件未满足</span>
+          <span>待确认 <span class="num">1</span> · 已确认 <span class="num">3</span> · 漂移 <span class="num">1</span> · 回滚预案 <span class="num">☐</span></span>
+          <span style="flex:1"></span>
+          <button class="btn sm">确认回滚预案</button>
+        </div>
+        <div class="section">
+          <div class="sectionHead">
+            <div class="sectionTitle">上线清单</div>
+            <button class="btn sm">＋ 登记</button>
+            <button class="btn sm">导入声明</button>
+            <button class="btn outline sm">导出上线单</button>
+          </div>
+        </div>
+        <div class="section">
+          <div class="sectionTitle">SQL（2）</div>
+          <div class="card"><div class="cardMain">
+            <div class="cardTitleLine">
+              <span class="cardTitle">R0001　t_quote 加索引 idx_quote_created_at</span>
+              <span class="tag success">已确认</span>
+              <span class="driftNote">⚠ 内容被修改（哈希漂移）</span>
+            </div>
+            <div class="cardMeta">来源 M2 · env prod · 登记 09-26 · 内容已锁定只读</div>
+          </div><button class="menuBtn">⋯</button></div>
+          <div class="card"><div class="cardMain">
+            <div class="cardTitleLine">
+              <span class="cardTitle">R0002　t_quote_import_log 建表</span>
+              <span class="tag warning">待确认</span>
+            </div>
+            <div class="cardMeta">来源 M3 · env prod · 声明导入 09-27 · 待用户确认进清单</div>
+          </div><button class="menuBtn">⋯</button></div>
+        </div>
+        <div class="section">
+          <div class="sectionTitle">配置（1）</div>
+          <div class="card"><div class="cardMain">
+            <div class="cardTitleLine">
+              <span class="cardTitle">R0003　export.enabled 开关，默认 false</span>
+              <span class="tag success">已确认</span>
+            </div>
+            <div class="cardMeta">来源 M2 · env prod,pre · 登记 09-26</div>
+          </div><button class="menuBtn">⋯</button></div>
+        </div>
+        <div class="section">
+          <div class="sectionTitle">开关 / MQ（1）</div>
+          <div class="card"><div class="cardMain">
+            <div class="cardTitleLine">
+              <span class="cardTitle">R0004　quote-import 队列并发 4→8</span>
+              <span class="tag success">已确认</span>
+            </div>
+            <div class="cardMeta">来源 M3 · env prod · 登记 09-27</div>
+          </div><button class="menuBtn">⋯</button></div>
+        </div>
+      </div>
+
+      <!-- ============ S6 沉淀 ============ -->
+      <div class="stageView" id="s6">
+        <div class="section">
+          <div class="sectionTitle">知识候选（1）</div>
+          <div class="card"><div class="cardMain">
+            <div class="cardTitleLine">
+              <span class="tag info">convention</span>
+              <span class="cardTitle">导出通用约定：异步 + id 滚动，禁止大表全量导出</span>
+            </div>
+            <div class="cardMeta">draft：所有列表类导出一律走异步任务；滚动键必须用唯一索引列（created_at+id）；禁止 offset 深翻页……（提议 session：M2·开发）</div>
+            <div class="kbActions" style="margin-top:6px">
+              <button class="btn primary sm" onclick="openModal('activateModal')">激活</button>
+              <button class="btn sm">编辑</button>
+              <button class="btn sm danger">丢弃</button>
+            </div>
+          </div></div>
+        </div>
+        <div class="section">
+          <div class="sectionTitle">已激活知识（本需求相关）</div>
+          <div class="card"><div class="cardMain">
+            <div class="cardTitleLine">
+              <span class="tag neutral">business·always</span>
+              <span class="cardTitle">报价域术语表与表关系</span>
+            </div>
+            <div class="cardMeta">scope 本需求 · 激活 09-20</div>
+          </div><button class="menuBtn">⋯</button></div>
+          <div class="card"><div class="cardMain">
+            <div class="cardTitleLine">
+              <span class="tag neutral">convention·path</span>
+              <span class="cardTitle">导出实现规范（src/**/export/**）</span>
+            </div>
+            <div class="cardMeta">scope 全局 · 触发 path · 激活 08-12</div>
+          </div><button class="menuBtn">⋯</button></div>
+        </div>
+        <div class="section">
+          <div class="sectionTitle">工作流统计</div>
+          <div class="statRow">
+            <div class="statCard"><span class="statNum">7</span><span class="statLabel">关联 session</span></div>
+            <div class="statCard"><span class="statNum">3/3</span><span class="statLabel">发现处置</span></div>
+            <div class="statCard"><span class="statNum">1</span><span class="statLabel">返工次数</span></div>
+            <div class="statCard"><span class="statNum">14 天</span><span class="statLabel">周期（立项至今）</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="footNote">
+        skyaxis AI 工作台 视觉稿 v2 · 对应 docs/research/0006 §4 页面规格 · token 值为占位近似，实施时替换为 DSH 真源 --dsw-alias-* · 样例数据为虚构
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- ============ 模块详情 Modal（M3 数据导入，built 待验收） ============ -->
+<div class="modalMask" id="moduleModal" onclick="maskClose(event, 'moduleModal')">
+  <div class="modal">
+    <div class="modalHead">
+      <span>M3　数据导入</span>
+      <span class="tag warning">待验收（built）</span>
+      <button class="close" onclick="closeModal('moduleModal')">✕</button>
+    </div>
+    <div class="modalBody">
+      <div class="section">
+        <div class="sectionHead">
+          <div class="sectionTitle">开发计划 · v1 · 已批准 2026-09-26</div>
+          <button class="btn sm" onclick="closeModal('moduleModal'); openModal('bundleModal')">生成模块上下文包</button>
+        </div>
+        <div class="doc">
+          <h4>边界</h4>
+          <ul>
+            <li>OSS 直传 + 服务端流式读取，批 500 行落库</li>
+            <li>校验钩子调用 M4 校验引擎，非法行跳过并记错误报告</li>
+          </ul>
+          <h4>改动点</h4>
+          <ul>
+            <li>新增 <code>PrdImportController</code>（预签名 URL 下发 / 任务提交 / 进度查询）</li>
+            <li>新增 <code>OssClient</code> 封装（预签名、流式拉取、超时降级）</li>
+            <li><code>ImportTaskService</code>：状态机 pending→running→done/failed</li>
+          </ul>
+          <h4>验收标准（对齐 C2）</h4>
+          <ul>
+            <li>10w 行文件导入成功且 &lt; 30s（不含校验外部调用）</li>
+            <li>非法行 100% 拦截并导出错误报告（含行号与原因）</li>
+          </ul>
+          <h4>测试用例</h4>
+          <ul>
+            <li>空文件 / 超大文件（100MB）/ OSS 超时 / 校验引擎不可用降级</li>
+          </ul>
+        </div>
+      </div>
+      <div class="section">
+        <div class="sectionHead"><div class="sectionTitle">关联 session（2）</div><button class="btn sm">＋ 关联</button></div>
+        <div class="card"><div class="cardMain"><div class="cardTitleLine"><span class="cardTitle">M3·导入·开发</span><span class="tag warning">待输入</span></div><div class="cardMeta">绑定 09-27</div></div><button class="menuBtn">⋯</button></div>
+        <div class="card"><div class="cardMain"><div class="cardTitleLine"><span class="cardTitle">M3·导入·开发（返工）</span><span class="tag neutral">已结束</span></div><div class="cardMeta">绑定 09-26</div></div><button class="menuBtn">⋯</button></div>
+      </div>
+      <div class="section">
+        <div class="sectionHead"><div class="sectionTitle">commit（2）</div><button class="btn sm">＋ 记录</button></div>
+        <div class="card"><div class="cardMain"><div class="cardTitleLine"><span class="cardTitle"><code>a1b2c3</code>　导入任务状态机与批落库</span></div><div class="cardMeta">09-26</div></div></div>
+        <div class="card"><div class="cardMain"><div class="cardTitleLine"><span class="cardTitle"><code>d4e5f6</code>　OSS 预签名与流式读取</span></div><div class="cardMeta">09-27</div></div></div>
+      </div>
+      <div class="section">
+        <div class="sectionTitle">验收</div>
+        <div class="card"><div class="cardMain">
+          <div class="cardTitleLine"><span class="cardTitle">尚无验收记录</span></div>
+          <div class="cardMeta">built 声明来自 session：M3·导入·开发（09-27）——验收权在用户</div>
+        </div></div>
+      </div>
+    </div>
+    <div class="modalFoot">
+      <button class="btn outline" onclick="closeModal('moduleModal')">不通过（记返工原因）</button>
+      <button class="btn primary" onclick="closeModal('moduleModal')">验收通过</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 上下文包 Modal ============ -->
+<div class="modalMask" id="bundleModal" onclick="maskClose(event, 'bundleModal')">
+  <div class="modal">
+    <div class="modalHead">
+      <span>生成上下文包 · M3 数据导入</span>
+      <button class="close" onclick="closeModal('bundleModal')">✕</button>
+    </div>
+    <div class="modalBody">
+      <div class="bundleGrid">
+        <div class="bundlePick">
+          <div class="pickGroup">
+            <div class="pickGroupTitle">PRD 节选</div>
+            <label class="pickRow"><input type="checkbox" checked> §2.1 功能概述</label>
+            <label class="pickRow"><input type="checkbox" checked> §2.3 数据导入</label>
+            <label class="pickRow"><input type="checkbox"> §3 数据校验规则</label>
+          </div>
+          <div class="pickGroup">
+            <div class="pickGroupTitle">知识注入（命中 2 · 3.2KB / 上限 8KB）</div>
+            <label class="pickRow"><input type="checkbox" checked> [always] 报价域术语表</label>
+            <label class="pickRow"><input type="checkbox" checked> [path] 导出实现规范</label>
+            <label class="pickRow"><input type="checkbox"> [manual] 结算域注意事项</label>
+          </div>
+          <div class="pickGroup">
+            <div class="pickGroupTitle">模块范围</div>
+            <label class="pickRow"><input type="checkbox" checked> M3 边界 + 已批准计划 v1</label>
+            <label class="pickRow"><input type="checkbox"> 依赖模块（M1）摘要</label>
+          </div>
+        </div>
+        <pre class="bundlePreview">[需求] 报价管理：导入导出与数据校验（阶段 ③执行实施 · M3 待验收）
+[PRD 节选] §2.1 / §2.3 …
+[模块] M3 数据导入 · 依赖 M1 · 覆盖 C2
+  边界：OSS 直传 + 流式读取，批 500 行落库…
+  计划 v1（已批准 09-26）：…
+[知识] 报价域术语表 / 导出实现规范 …
+[状态] commit a1b2c3 d4e5f6 · built 已声明
+[输出约定] 结束时请输出 ```skyaxis-declare 声明块
+  （生成于 revision 42 · 此后账本变更不自动同步）</pre>
+      </div>
+    </div>
+    <div class="modalFoot">
+      <button class="btn" onclick="closeModal('bundleModal')">取消</button>
+      <button class="btn primary" onclick="closeModal('bundleModal')">复制到剪贴板</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 知识激活 Modal ============ -->
+<div class="modalMask" id="activateModal" onclick="maskClose(event, 'activateModal')">
+  <div class="modal narrow">
+    <div class="modalHead">
+      <span>激活知识条目</span>
+      <button class="close" onclick="closeModal('activateModal')">✕</button>
+    </div>
+    <div class="modalBody">
+      <div class="pickGroup">
+        <div class="pickGroupTitle">作用域</div>
+        <label class="pickRow"><input type="radio" name="scope" checked> 全局（所有需求注入）</label>
+        <label class="pickRow"><input type="radio" name="scope"> 工作区（按 path 触发）</label>
+        <label class="pickRow"><input type="radio" name="scope"> 仅本需求</label>
+      </div>
+      <div class="pickGroup">
+        <div class="pickGroupTitle">类型</div>
+        <label class="pickRow"><input type="radio" name="ktype" checked> convention（开发约定）</label>
+        <label class="pickRow"><input type="radio" name="ktype"> business（业务知识）</label>
+      </div>
+      <div class="pickGroup">
+        <div class="pickGroupTitle">触发</div>
+        <label class="pickRow"><input type="radio" name="trig" checked> always（总是注入）</label>
+        <label class="pickRow"><input type="radio" name="trig"> keyword（标题/边界命中）</label>
+        <label class="pickRow"><input type="radio" name="trig"> manual（仅显式勾选）</label>
+      </div>
+    </div>
+    <div class="modalFoot">
+      <button class="btn" onclick="closeModal('activateModal')">取消</button>
+      <button class="btn primary" onclick="closeModal('activateModal')">激活</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // 主题切换
+  document.getElementById('themeToggle').addEventListener('click', () => {
+    const html = document.documentElement
+    html.dataset.theme = html.dataset.theme === 'light' ? 'dark' : 'light'
+  })
+
+  // 阶段导轨：观看切换（不等于推进）
+  document.getElementById('stageRail').addEventListener('click', (event) => {
+    const chip = event.target.closest('.stageChip')
+    if (!chip) return
+    document.querySelectorAll('.stageChip').forEach((el) => el.classList.remove('current'))
+    chip.classList.add('current')
+    document.querySelectorAll('.stageView').forEach((el) => el.classList.remove('active'))
+    document.getElementById(chip.dataset.stage).classList.add('active')
+  })
+
+  // 发现行展开/收起
+  document.querySelectorAll('.card.finding').forEach((row) => {
+    row.querySelector('.cardMain').addEventListener('click', () => row.classList.toggle('open'))
+  })
+
+  // 看板卡片 → 模块详情 Modal（M2/M4/M1 复用 M3 内容，视觉稿不区分）
+  document.querySelectorAll('.kbCard[data-module]').forEach((card) => {
+    card.addEventListener('click', () => openModal('moduleModal'))
+  })
+
+  function openModal(id) {
+    document.getElementById(id).classList.add('open')
+  }
+  function closeModal(id) {
+    document.getElementById(id).classList.remove('open')
+  }
+  function maskClose(event, id) {
+    if (event.target === document.getElementById(id)) closeModal(id)
+  }
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') document.querySelectorAll('.modalMask.open').forEach((m) => m.classList.remove('open'))
+  })
+</script>
+</body>
+</html>
