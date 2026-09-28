@@ -1,9 +1,9 @@
 # skyaxis — 核心画像 A 的一天：5 个场景剧本
 
 > 本文档基于 [personas.md](personas.md)，把核心画像 A「AI 重度多 session 用户」的具体一天工作流写成 5 个剧本。
-> 每个剧本对应 MVP 1-N 个场景，作为 MVP 验收维度的"真实剧本"验床（[ADR 0008 — 每阶段验收标准](decisions/0008-每阶段验收标准.md)）。
+> 每个剧本对应 1-N 个场景，作为验收维度的"真实剧本"验床。
 
-**核心画像 A**：AI 重度多 session 用户（[ADR 0004](decisions/0004-目标用户画像.md) · [users/personas.md](personas.md)）
+**核心画像 A**：AI 重度多 session 用户
 
 ---
 
@@ -86,7 +86,7 @@
 
 ## 剧本 4：下午依赖冲突
 
-**对应 MVP 场景**：**D1 + D2 + ADR 0009**（task DAG + session 间依赖 + subagent 拓扑）
+**对应 MVP 场景**：**D1 + D2**（task DAG + session 间依赖 + subagent 拓扑）
 
 **时间**：下午 14:30
 
@@ -96,7 +96,7 @@
 
 **skyaxis 行为**：
 
-1. skyaxis 显示 session1 的 sub-agent tree（[ADR 0009](decisions/0009-subagent拓扑可视化-MVP范围与轨迹合并策略.md) 拓扑视图），某个 child 节点状态是 `error`
+1. skyaxis 显示 session1 的 sub-agent tree，某个 child 节点状态是 `error`
 2. 老王点击该节点 → 看到 trajectory 里 `tool/call` 失败的上下文
 3. skyaxis 提示："该 sub-agent 的输入可能在 session2 中被修改（基于 SessionDependency 推断）"
 4. 老王切到 skyaxis session 间依赖图（场景 D2）→ 看到 session1 → session2 的"实线"依赖（subagent 父子关系）→ 切到 session2 看那次 schema 修改的 Decision
@@ -147,13 +147,13 @@
 | --- | --- | --- |
 | **A 场景的 subagent 拓扑**（作为场景 A 纵深补强） | 剧本 4 已部分覆盖；完整 subagent 拓扑验证留 v0.1 demo | v0.1 demo 跑通 + ADR 0009 假设 1-3 验证 |
 | **C 场景的多 session 总览深度**（关联 SessionDependency 视图） | 剧本 5 仅覆盖基础聚合，深度视图留 v0.2 demo | v0.2 demo |
-| **D 场景的语义检索** | 已 Non-Goal（[ADR 0005](decisions/0005-MVP边界与Non-Goals.md)） | MVP 后评估 |
+| **D 场景的语义检索** | 已 Non-Goal | MVP 后评估 |
 
 ---
 
 ## skyaxis 一句话总结
 
-> 核心画像 A 的 **5 个剧本** 覆盖 MVP **A / B / C / D / D1 / D2 + ADR 0009** 全部 6 场景 + 1 个扩展场景，作为 MVP 验收维度的真实剧本验床。
+> 核心画像 A 的 **5 个剧本** 覆盖 MVP **A / B / C / D / D1 / D2** 全部 6 场景 + 1 个扩展场景，作为 MVP 验收维度的真实剧本验床。
 
 ---
 
@@ -167,9 +167,4 @@
 
 ## 相关文档
 
-- [ADR 0003 — MVP 场景清单](decisions/0003-MVP场景清单.md)
-- [ADR 0004 — 目标用户画像](decisions/0004-目标用户画像.md)
-- [ADR 0005 — MVP 边界与 Non-Goals](decisions/0005-MVP边界与Non-Goals.md)
-- [ADR 0008 — 每阶段验收标准](decisions/0008-每阶段验收标准.md)
-- [ADR 0009 — subagent 拓扑可视化](decisions/0009-subagent拓扑可视化-MVP范围与轨迹合并策略.md)
 - [users/personas.md](personas.md)
