@@ -975,3 +975,42 @@
 .prdRowMain:disabled {
   cursor: default;
 }
+
+/* Reverse-link discovery strip (repos/ scan): one quiet card listing cloned
+   but unlinked pool repos. The block carries the visuals (the guideSection
+   language); rows are plain flex lines inside it — name + branch reuse the
+   linked-row classes, the adopt action pins right. */
+.discoverBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.discoverTitle {
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.discoverHint {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.discoverRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.discoverAdopt {
+  margin-left: auto;
+  align-self: center;
+}

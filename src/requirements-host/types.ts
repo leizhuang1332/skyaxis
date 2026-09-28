@@ -14,6 +14,14 @@ import type {
 } from '../requirements-shared/protocol.js'
 import { PRD_CREATE_MAX_CHARS, PRD_NAME_MAX_CHARS } from '../requirements-shared/prd-file.js'
 
+/**
+ * The ledger's branch column constraint — every writer into linkedRepos must
+ * hold a row against THIS schema (link via the wire field, adopt via the
+ * host-read HEAD refname): a violating row poisons the whole file on the next
+ * load (schema-degraded), not just its own requirement.
+ */
+export const LedgerBranchSchema = z.string().trim().min(1).max(100).regex(/^[^\x00-\x1f^-]/, 'no control chars, no leading dash')
+
 export const RequirementRecordSchema = z.object({
   id: z.uuid(),
   title: z.string().trim().min(1).max(64),
@@ -23,7 +31,7 @@ export const RequirementRecordSchema = z.object({
   // default keeps legacy yaml files (pre-P3b) readable instead of degraded.
   linkedRepos: z.array(z.object({
     repoId: z.uuid(),
-    branch: z.string().trim().min(1).max(100),
+    branch: LedgerBranchSchema,
   })).default([]),
   createdAt: z.iso.datetime({ offset: true }),
   updatedAt: z.iso.datetime({ offset: true }),
@@ -87,7 +95,7 @@ const ReposLinkSchema = z.object({
   repoId: z.uuid(),
   repoUrl: z.string().trim().min(1).max(2048),
   repoName: z.string().trim().min(1).max(64),
-  branch: z.string().trim().min(1).max(100).regex(/^[^\x00-\x1f^-]/, 'no control chars, no leading dash'),
+  branch: LedgerBranchSchema,
 })
 
 const ReposUnlinkSchema = z.object({
@@ -96,6 +104,16 @@ const ReposUnlinkSchema = z.object({
   action: z.literal('unlink'),
   repoId: z.uuid(),
   repoName: z.string().trim().min(1).max(64).optional(),
+})
+
+// Adopt writes a ledger row for an EXISTING directory; the branch never rides
+// the wire — the host reads it from the repo's .git/HEAD at adopt time.
+const ReposAdoptSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  id: z.uuid(),
+  action: z.literal('adopt'),
+  repoId: z.uuid(),
+  repoName: z.string().trim().min(1).max(64),
 })
 
 const ReposRecloneSchema = z.object({
@@ -112,7 +130,7 @@ const ReposCancelSchema = z.object({
   repoId: z.uuid(),
 })
 
-export const ReposRequestSchema = z.discriminatedUnion('action', [ReposLinkSchema, ReposUnlinkSchema, ReposRecloneSchema, ReposCancelSchema])
+export const ReposRequestSchema = z.discriminatedUnion('action', [ReposLinkSchema, ReposUnlinkSchema, ReposAdoptSchema, ReposRecloneSchema, ReposCancelSchema])
 
 // P3c: PRD documents. The name guard here is a wire sanity only — the host
 // endpoint re-sanitizes and requires sanitize(name) === name.

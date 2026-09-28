@@ -6,7 +6,7 @@
  */
 import type { CloneTaskSnapshot, RequirementRecord, ReposMutateRequestBody, SaveRequestBody, WorkspaceSetRequestBody } from '../../requirements-shared/protocol.js'
 import type { RequirementsStore } from './store.js'
-import type { RequirementsFetcher, ReposTasksResult, WorkspaceStatusResult } from './fetcher.js'
+import type { RequirementsFetcher, ReposScanResult, ReposTasksResult, WorkspaceStatusResult } from './fetcher.js'
 
 /** Workspace mutation outcome: 'invalid-path' stays inline (no banner). */
 export type WorkspaceOutcome = 'ok' | 'invalid-path' | 'failed'
@@ -17,7 +17,7 @@ export type WorkspaceOutcome = 'ok' | 'invalid-path' | 'failed'
  */
 export type ReposOutcome =
   | { kind: 'ok'; tasks: readonly CloneTaskSnapshot[] }
-  | { kind: 'inline'; code: 'no-workspace' | 'invalid-branch' | 'dest-exists' | 'busy' | 'too-many' | 'git-missing' | 'bad-request' }
+  | { kind: 'inline'; code: 'no-workspace' | 'invalid-branch' | 'dest-exists' | 'dest-missing' | 'no-branch' | 'busy' | 'too-many' | 'git-missing' | 'bad-request' }
   | { kind: 'failed' }
 
 export function createRequirementsController(store: RequirementsStore, fetcher: RequirementsFetcher) {
@@ -181,7 +181,13 @@ export function createRequirementsController(store: RequirementsStore, fetcher: 
     return alive(result) ? result : undefined
   }
 
-  const REPOS_INLINE_CODES = new Set(['no-workspace', 'invalid-branch', 'dest-exists', 'busy', 'too-many', 'git-missing', 'bad-request'])
+  /** Pass-through read for the discovery strip (scan facts never enter the page store). */
+  async function repoScan(id: string, signal?: AbortSignal): Promise<ReposScanResult | undefined> {
+    const result = await fetcher.repoScan(id, signal)
+    return alive(result) ? result : undefined
+  }
+
+  const REPOS_INLINE_CODES = new Set(['no-workspace', 'invalid-branch', 'dest-exists', 'dest-missing', 'no-branch', 'busy', 'too-many', 'git-missing', 'bad-request'])
 
   async function mutateRepos(body: ReposMutateRequestBody, updatesRecord: boolean, signal?: AbortSignal): Promise<ReposOutcome> {
     const result = await fetcher.mutateRepos(body, signal)
@@ -221,6 +227,11 @@ export function createRequirementsController(store: RequirementsStore, fetcher: 
 
   async function linkRepo(id: string, repo: { repoId: string; repoUrl: string; repoName: string }, branch: string, signal?: AbortSignal): Promise<ReposOutcome> {
     return mutateRepos({ expectedRevision: store.getSnapshot().revision, id, action: 'link', ...repo, branch }, true, signal)
+  }
+
+  /** Reverse-link an already-cloned directory — branch is host-read, never sent. */
+  async function adoptRepo(id: string, repo: { repoId: string; repoName: string }, signal?: AbortSignal): Promise<ReposOutcome> {
+    return mutateRepos({ expectedRevision: store.getSnapshot().revision, id, action: 'adopt', ...repo }, true, signal)
   }
 
   async function unlinkRepo(id: string, repoId: string, repoName?: string, signal?: AbortSignal): Promise<ReposOutcome> {
@@ -266,7 +277,9 @@ export function createRequirementsController(store: RequirementsStore, fetcher: 
     clearWorkspace,
     rebindWorkspace,
     repoTasks,
+    repoScan,
     linkRepo,
+    adoptRepo,
     unlinkRepo,
     recloneRepo,
     cancelRepoClone,

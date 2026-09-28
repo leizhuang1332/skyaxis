@@ -22,6 +22,7 @@ import type {
   PrdDocSummary,
   PrdMutateRequestBody,
   RemoveResponseOk,
+  RepoDirScanRow,
   RequirementRecord,
   ReposMutateRequestBody,
   SaveRequestBody,
@@ -33,6 +34,7 @@ import {
   isListResponse,
   isPrdDocsResponse,
   isRemoveResponseOk,
+  isReposScanResponse,
   isReposTasksResponse,
   isSaveResponseOk,
   isWorkspaceStatusResponse,
@@ -66,6 +68,8 @@ export type ReposMutateResult =
   | Failure
 /** reclone/cancel answer with task rows only (no ledger write). */
 export type ReposTasksResult = { readonly kind: 'ok'; readonly tasks: readonly CloneTaskSnapshot[] } | Failure
+/** Reverse-link discovery: raw repos/ directory facts (pool join is ours). */
+export type ReposScanResult = { readonly kind: 'ok'; readonly dirs: readonly RepoDirScanRow[] } | Failure
 /** Every successful prds/ endpoint answers with the fresh listing. */
 export type PrdDocsResult = { readonly kind: 'ok'; readonly docs: readonly PrdDocSummary[] } | Failure
 export type PrdContentResult = { readonly kind: 'ok'; readonly text: string } | Failure
@@ -181,6 +185,20 @@ export function createRequirementsFetcher() {
       const parsed: unknown = await response.json()
       if (!isReposTasksResponse(parsed)) return { kind: 'http-error', status: response.status }
       return { kind: 'ok', tasks: [...parsed.tasks] }
+    },
+
+    /** Reverse-link discovery: repos/ directory facts for the requirement's workspace. */
+    async repoScan(id: string, signal?: AbortSignal): Promise<ReposScanResult> {
+      const response = await request(
+        `${REQUIREMENTS_REPOS_PATH}?id=${encodeURIComponent(id)}&scan=1`,
+        { method: 'GET' },
+        signal,
+      )
+      if ('kind' in response) return response
+      if (!response.ok) return parseErrorBody(response)
+      const parsed: unknown = await response.json()
+      if (!isReposScanResponse(parsed)) return { kind: 'http-error', status: response.status }
+      return { kind: 'ok', dirs: [...parsed.dirs] }
     },
 
     async mutateRepos(body: ReposMutateRequestBody, signal?: AbortSignal): Promise<ReposMutateResult | ReposTasksResult> {

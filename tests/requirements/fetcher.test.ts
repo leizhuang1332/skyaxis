@@ -113,8 +113,33 @@ describe('createRequirementsFetcher: rebind', () => {
   })
 })
 
-describe('createRequirementsFetcher: prd documents', () => {
-  it('lists docs with the id query', async () => {
+describe('createRequirementsFetcher: repos scan', () => {
+  it('narrows a healthy scan response with the id+scan query', async () => {
+    const fetchMock = vi.fn(async (_url: unknown) => jsonResponse({ ok: true, dirs: [
+      { name: 'repo-a', isGitRepo: true, branch: 'main', remoteUrl: 'git@example.com:org/a.git' },
+      { name: 'plain', isGitRepo: false },
+    ] }))
+    vi.stubGlobal('fetch', fetchMock)
+    const result = await createRequirementsFetcher().repoScan('11111111-1111-4111-8111-111111111111')
+    expect(result).toEqual({ kind: 'ok', dirs: [
+      { name: 'repo-a', isGitRepo: true, branch: 'main', remoteUrl: 'git@example.com:org/a.git' },
+      { name: 'plain', isGitRepo: false },
+    ] })
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/skyaxis/requirements/repos?id=11111111-1111-4111-8111-111111111111&scan=1')
+  })
+
+  it('rejects 2xx bodies failing the scan guard and parses error bodies', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ ok: true, dirs: [{ name: 'x', isGitRepo: 'yes' }] })))
+    const bad = await createRequirementsFetcher().repoScan('a')
+    expect(bad).toEqual({ kind: 'http-error', status: 200 })
+
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ ok: false, code: 'no-workspace' }, 400)))
+    const rejected = await createRequirementsFetcher().repoScan('a')
+    expect(rejected).toEqual({ kind: 'http-error', status: 400, code: 'no-workspace' })
+  })
+})
+
+describe('createRequirementsFetcher: prd documents', () => {  it('lists docs with the id query', async () => {
     const fetchMock = vi.fn(async () => jsonResponse({ ok: true, docs: [{ name: 'a.md', size: 3, modifiedAt: 1 }] }))
     vi.stubGlobal('fetch', fetchMock)
     const result = await createRequirementsFetcher().prdDocs('x')

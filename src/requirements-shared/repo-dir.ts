@@ -22,6 +22,12 @@ export function repoDirName(repoName: string, fallbackSeed: string): string {
     .replace(/-+$/, '')
     .slice(0, 64)
     .replace(/-+$/, '')
-  if (dir.length > 0) return dir
+  // A pure dot run ('.', '..', '...') survives the strip chain with length > 0
+  // but navigates path.join out of repos/ (join(ws, 'repos', '..') === ws) —
+  // every consumer (clone dest, unlink rm, adopt probe, reveal) would act
+  // outside the sandbox. Treat it as empty: the fallback keeps the result a
+  // safe literal directory name. Mixed names ('.hidden', 'a..b') are legal
+  // dir names and stay.
+  if (dir.length > 0 && !/^[.\s]+$/.test(dir)) return dir
   return `repo-${fallbackSeed.slice(0, 8)}`
 }

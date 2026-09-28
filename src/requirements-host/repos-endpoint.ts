@@ -1,25 +1,36 @@
 /**
- * Linked-repositories endpoints (P3b): GET task snapshots + POST
- * link/unlink/reclone/cancel, over the shared requirements file and the
+ * Linked-repositories endpoints (P3b): GET task snapshots (or, with ?scan=1,
+ * the repos/ directory facts for reverse-link discovery) + POST
+ * link/unlink/adopt/reclone/cancel, over the shared requirements file and the
  * CloneTaskRegistry. One route registration, both methods (the exact-path
  * registration makes two same-path entries undefined — the workspace route
  * precedent).
  *
- * Ledger rules: link/unlink write the file under the revision guard (input
- * validation — preflight — runs BEFORE any ledger write so bad requests
- * never leave dirty rows); reclone/cancel never touch the ledger (the
- * rebind precedent). Unlink (user decision 2026-09-27) ALSO deletes the
+ * Ledger rules: link/unlink/adopt write the file under the revision guard
+ * (input validation — preflight — runs BEFORE any ledger write so bad
+ * requests never leave dirty rows); reclone/cancel never touch the ledger
+ * (the rebind precedent). Unlink (user decision 2026-09-27) ALSO deletes the
  * cloned source directory under repos/ — the UI gates it behind a
  * confirmation dialog; the destructive side (abort + rm) runs only AFTER
  * the ledger write succeeds, so a 409 never kills a clone or deletes data.
+ *
+ * Adopt (reverse-link) mirrors link minus the clone: the directory must
+ * ALREADY sit under repos/ and carry a readable branch (probed host-side at
+ * adopt time — scan display values are never inputs), and the branch in the
+ * ledger row is the repo's checked-out one, not a client-sent value. The
+ * scan itself reports raw directory facts only — pool identity joins stay
+ * client-side (the requirements host never reads repos.yaml, 0002 boundary).
  */
+import { statSync } from 'node:fs'
+import { join } from 'node:path'
 import type { HostConnectionHandle } from '@deepseek-ai/dsh-client-connection'
 import { REQUIREMENTS_REPOS_PATH } from '../requirements-shared/protocol.js'
 import type { ErrorResponse, RequirementRecord } from '../requirements-shared/protocol.js'
 import type { RequirementsFileStore } from './requirements-file.js'
 import type { ClonePreflightReason, CloneTaskRegistry, CloneStartInput } from './clone.js'
-import { ReposRequestSchema } from './types.js'
+import { LedgerBranchSchema, ReposRequestSchema } from './types.js'
 import { repoDirName } from '../requirements-shared/repo-dir.js'
+import { readRepoFacts, scanRepoDirs } from './repos-scan.js'
 
 export interface RequirementsReposServices {
   readonly file: RequirementsFileStore
@@ -75,15 +86,23 @@ export function registerRequirementsReposEndpoints(connection: HostConnectionHan
   })
 
   async function tasksFlow(request: Request): Promise<Response> {
-    const id = new URL(request.url).searchParams.get('id')
+    const url = new URL(request.url)
+    const id = url.searchParams.get('id')
     if (id === null) return errorResponse(400, 'bad-request')
     const current = file.load()
     if (!current.ok) return errorResponse(409, 'unreadable-file')
-    if (!current.value.requirements.some((candidate) => candidate.id === id)) {
+    const record = current.value.requirements.find((candidate) => candidate.id === id)
+    if (record === undefined) {
       return errorResponse(404, 'not-found', {
         currentRevision: current.value.revision,
         requirements: current.value.requirements,
       })
+    }
+    // ?scan=1 switches the GET to reverse-link discovery (the prds route's
+    // name-param switch precedent): raw repos/ facts, no pool identity here.
+    if (url.searchParams.get('scan') !== null) {
+      if (record.workspacePath === '') return errorResponse(400, 'no-workspace')
+      return json({ ok: true, dirs: scanRepoDirs(join(record.workspacePath, 'repos')) })
     }
     return json({ ok: true, tasks: clones.snapshot(id) })
   }
@@ -105,7 +124,7 @@ export function registerRequirementsReposEndpoints(connection: HostConnectionHan
     if (record.workspacePath === '') return errorResponse(400, 'no-workspace')
 
     // Revision pre-check before any side effect (ledger-writing actions only).
-    if ((body.action === 'link' || body.action === 'unlink') && current.value.revision !== body.expectedRevision) {
+    if ((body.action === 'link' || body.action === 'unlink' || body.action === 'adopt') && current.value.revision !== body.expectedRevision) {
       return errorResponse(409, 'conflict', { currentRevision: current.value.revision })
     }
 
@@ -160,6 +179,47 @@ export function registerRequirementsReposEndpoints(connection: HostConnectionHan
         if (body.repoName !== undefined) {
           clones.removeDir(record.workspacePath, repoDirName(body.repoName, body.repoId))
         }
+        return json({ ok: true, revision: saved.revision, requirement: next, tasks: clones.snapshot(body.id) })
+      }
+
+      if (body.action === 'adopt') {
+        if (record.linkedRepos.some((candidate) => candidate.repoId === body.repoId)) {
+          return errorResponse(400, 'bad-request')
+        }
+        // Authoritative probe at adopt time — the scan's display facts are
+        // never an input. The directory itself is the thing being adopted:
+        // gone means gone (rescan), present-but-branchless (non-repo,
+        // detached HEAD) is not adoptable either.
+        const dest = join(record.workspacePath, 'repos', repoDirName(body.repoName, body.repoId))
+        if (statSync(dest, { throwIfNoEntry: false })?.isDirectory() !== true) {
+          return errorResponse(400, 'dest-missing')
+        }
+        const facts = readRepoFacts(dest)
+        if (!facts.isGitRepo || facts.branch === undefined) {
+          return errorResponse(400, 'no-branch')
+        }
+        // The HEAD refname is git-shaped, not ledger-shaped: a >100-char (or
+        // otherwise illegal) branch would pass readRepoFacts and then poison
+        // the whole file on the next load — hold it to the same constraint
+        // the link wire field carries, BEFORE any ledger write.
+        const branch = LedgerBranchSchema.safeParse(facts.branch)
+        if (!branch.success) return errorResponse(400, 'invalid-branch')
+        const next: RequirementRecord = {
+          ...record,
+          linkedRepos: [...record.linkedRepos, { repoId: body.repoId, branch: branch.data }],
+          ...refreshTimestamps(record),
+        }
+        const nextRequirements = current.value.requirements.map((candidate) => (candidate.id === next.id ? next : candidate))
+        const saved = await file.save(body.expectedRevision, nextRequirements)
+        if (!saved.ok) {
+          if (saved.rejected === 'stale-revision') {
+            return errorResponse(409, 'conflict', { currentRevision: saved.currentRevision })
+          }
+          return errorResponse(409, 'unreadable-file')
+        }
+        // No clone is spawned — the existing directory IS the adoption. The
+        // task rows ride along for envelope symmetry (a concurrent link's
+        // live progress stays visible through the same response).
         return json({ ok: true, revision: saved.revision, requirement: next, tasks: clones.snapshot(body.id) })
       }
 

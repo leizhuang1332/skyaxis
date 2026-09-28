@@ -8,7 +8,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
-import type { CloneTaskSnapshot, RequirementRecord } from '../../src/requirements-shared/protocol.js'
+import type { CloneTaskSnapshot, RepoDirScanRow, RequirementRecord } from '../../src/requirements-shared/protocol.js'
 import type { RepoRecord, RepoStatus } from '../../src/repos-pool-shared/protocol.js'
 import type { RequirementsController, ReposOutcome } from '../../src/client/requirements/controller.js'
 import type { RequirementsT } from '../../src/client/requirements/dictionary.js'
@@ -43,6 +43,11 @@ const DICT = {
     'repos.statusUnverified': '未验证',
     'repos.statusForcedNetwork': '已保存（网络不可达）',
     'repos.statusForcedAuth': '已保存（无权限）',
+    'repos.scanTitle': '发现可关联的仓库',
+    'repos.scanHint': '工作区 repos/ 目录中检测到已克隆但未关联的仓库，关联不会重新克隆。',
+    'repos.adopt': '关联',
+    'repos.errDestMissing': '目录已不存在，请刷新页面后重试',
+    'repos.errNoBranch': '无法读取分支（非 git 仓库或 detached HEAD）',
     'workspace.sectionRepos': '关联仓库',
     'workspace.open': '打开',
     'form.cancel': '取消',
@@ -91,10 +96,12 @@ const record = (linkedRepos: ReadonlyArray<{ repoId: string; branch: string }> =
   updatedAt: '2026-09-25T09:30:00.000Z',
 })
 
-function fakeController(options?: { tasks?: readonly CloneTaskSnapshot[]; linkOutcome?: ReposOutcome }) {
+function fakeController(options?: { tasks?: readonly CloneTaskSnapshot[]; linkOutcome?: ReposOutcome; scanDirs?: readonly RepoDirScanRow[]; adoptOutcome?: ReposOutcome }) {
   return {
     repoTasks: vi.fn(async () => ({ kind: 'ok' as const, tasks: options?.tasks ?? [] })),
+    repoScan: vi.fn(async () => ({ kind: 'ok' as const, dirs: options?.scanDirs ?? [] })),
     linkRepo: vi.fn(async (): Promise<ReposOutcome> => options?.linkOutcome ?? { kind: 'ok', tasks: [] }),
+    adoptRepo: vi.fn(async (): Promise<ReposOutcome> => options?.adoptOutcome ?? { kind: 'ok', tasks: [] }),
     unlinkRepo: vi.fn(async (): Promise<ReposOutcome> => ({ kind: 'ok', tasks: [] })),
     recloneRepo: vi.fn(async (): Promise<ReposOutcome> => ({ kind: 'ok', tasks: [] })),
     cancelRepoClone: vi.fn(async (): Promise<ReposOutcome> => ({ kind: 'ok', tasks: [] })),
@@ -507,5 +514,227 @@ describe('ReposSection (0005 P4: dual-address picker)', () => {
     expect(screen.getByText(DICT.zh['repos.recommended'])).toBeTruthy()
     expect((screen.getByRole('button', { name: DICT.zh['repos.link'] }) as HTMLButtonElement).disabled).toBe(true)
     unmount()
+  })
+})
+
+describe('ReposSection (reverse-link discovery: repos/ scan + adopt)', () => {
+  const REQUIREMENT_ID = '11111111-1111-4111-8111-111111111111'
+  const REPO_A_ID = '22222222-2222-4222-8222-222222222222'
+  const REPO_B_ID = '33333333-3333-4333-8333-333333333333'
+
+  const scanRow = (name: string, overrides?: Partial<RepoDirScanRow>): RepoDirScanRow => ({
+    name,
+    isGitRepo: true,
+    branch: 'main',
+    ...(overrides ?? {}),
+  })
+
+  it('renders adoptable pool repos from the scan, skipping non-git, detached, linked and orphan dirs', async () => {
+    vi.stubGlobal('fetch', stubPool())
+    const controller = fakeController({
+      scanDirs: [
+        scanRow('repo-a'),                                  // adoptable
+        scanRow('plain-dir', { isGitRepo: false }),         // not a repo
+        scanRow('detached', { branch: undefined }),         // detached HEAD
+        scanRow('repo-b'),                                  // matches pool repo-b, but LINKED below
+        scanRow('orphan'),                                  // no pool repo derives this name
+      ],
+    })
+    const { unmount } = subject({
+      requirement: record([{ repoId: REPO_B_ID, branch: 'req-11111111' }]),
+      controller,
+    })
+    await waitFor(() => expect(screen.getByText(DICT.zh['repos.scanTitle'])).toBeTruthy())
+    expect(screen.getByText(DICT.zh['repos.scanHint'])).toBeTruthy()
+    // Exactly one adoptable row: repo-a with its on-disk branch and the action.
+    expect(screen.getByText('repo-a')).toBeTruthy()
+    expect(screen.getByText('main')).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: DICT.zh['repos.adopt'] })).toHaveLength(1)
+    unmount()
+  })
+
+  it('renders the discovery strip in the EMPTY state too (lost ledger, surviving clones)', async () => {
+    vi.stubGlobal('fetch', stubPool())
+    const controller = fakeController({ scanDirs: [scanRow('repo-a', { branch: 'feature-x' })] })
+    const { unmount } = subject({ requirement: record(), controller })
+    await waitFor(() => expect(screen.getByText(DICT.zh['repos.scanTitle'])).toBeTruthy())
+    expect(screen.getByText('feature-x')).toBeTruthy()
+    expect(screen.getByRole('button', { name: DICT.zh['repos.adopt'] })).toBeTruthy()
+    unmount()
+  })
+
+  it('adopt dispatches adoptRepo with the repo snapshot (no branch — host reads it)', async () => {
+    vi.stubGlobal('fetch', stubPool())
+    const controller = fakeController({ scanDirs: [scanRow('repo-a', { branch: 'dev' })] })
+    const { unmount } = subject({ requirement: record(), controller })
+    await waitFor(() => expect(screen.getByRole('button', { name: DICT.zh['repos.adopt'] })).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: DICT.zh['repos.adopt'] }))
+    await waitFor(() => expect(controller.adoptRepo).toHaveBeenCalledWith(REQUIREMENT_ID, { repoId: REPO_A_ID, repoName: 'repo-a' }))
+    unmount()
+  })
+
+  it('renders the inline rejection copy when adopt fails', async () => {
+    vi.stubGlobal('fetch', stubPool())
+    const controller = fakeController({
+      scanDirs: [scanRow('repo-a')],
+      adoptOutcome: { kind: 'inline', code: 'dest-missing' },
+    })
+    const { unmount } = subject({ requirement: record(), controller })
+    await waitFor(() => expect(screen.getByRole('button', { name: DICT.zh['repos.adopt'] })).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: DICT.zh['repos.adopt'] }))
+    await waitFor(() => expect(screen.getByText(DICT.zh['repos.errDestMissing'])).toBeTruthy())
+    unmount()
+  })
+
+  it('breaks derived-name collisions with the origin url; an unbreakable tie stays unlisted', async () => {
+    // "my repo" and "my-repo" both derive dirName "my-repo" — a name match
+    // alone cannot pick; the scan's origin url must. (Full dual records: the
+    // pool response guard requires per-slot url/status pairs.)
+    const colliding = [
+      { ...dualRepo(REPO_A_ID, 'my repo'), urlSsh: 'git@example.com:org/a.git' },
+      { ...dualRepo(REPO_B_ID, 'my-repo'), urlSsh: 'git@example.com:org/b.git' },
+    ]
+    vi.stubGlobal('fetch', stubPool(colliding))
+    const withUrl = fakeController({ scanDirs: [scanRow('my-repo', { remoteUrl: 'git@example.com:org/b.git' })] })
+    const first = subject({ requirement: record(), controller: withUrl })
+    await waitFor(() => expect(screen.getByText('my-repo')).toBeTruthy())
+    expect(screen.queryByText('my repo')).toBeNull() // the url loser never lists
+    first.unmount()
+
+    // No url on the scan row: the tie is unbreakable — nothing lists. A
+    // can-list row anchors readiness first, so the absence below is a real
+    // join decision, not a not-yet-rendered frame.
+    vi.stubGlobal('fetch', stubPool([...colliding, poolRepo('44444444-4444-4444-8444-444444444444', 'repo-anchor')]))
+    const withoutUrl = fakeController({ scanDirs: [scanRow('my-repo', { remoteUrl: undefined }), scanRow('repo-anchor')] })
+    const second = subject({ requirement: record(), controller: withoutUrl })
+    await waitFor(() => expect(screen.getByText('repo-anchor')).toBeTruthy())
+    expect(screen.queryByText('my repo')).toBeNull()
+    expect(screen.queryByText('my-repo')).toBeNull()
+    second.unmount()
+  })
+
+  it('leaves the dir unlisted when the origin url matches NO candidate (address rotation)', async () => {
+    const colliding = [
+      { ...dualRepo(REPO_A_ID, 'my repo'), urlSsh: 'git@example.com:org/a.git' },
+      { ...dualRepo(REPO_B_ID, 'my-repo'), urlSsh: 'git@example.com:org/b.git' },
+    ]
+    // The clone predates a pool-side address change: its origin url matches
+    // neither candidate — guessing by name is exactly what must NOT happen.
+    vi.stubGlobal('fetch', stubPool([...colliding, poolRepo('44444444-4444-4444-8444-444444444444', 'repo-anchor')]))
+    const controller = fakeController({ scanDirs: [
+      scanRow('my-repo', { remoteUrl: 'git@example.com:org/other.git' }),
+      scanRow('repo-anchor'),
+    ] })
+    const { unmount } = subject({ requirement: record(), controller })
+    await waitFor(() => expect(screen.getByText('repo-anchor')).toBeTruthy())
+    expect(screen.queryByText('my repo')).toBeNull()
+    expect(screen.queryByText('my-repo')).toBeNull()
+    unmount()
+  })
+
+  it('never re-offers a directory already claimed by a linked repo (occupancy guard)', async () => {
+    // 'my repo' (linked) owns dirName 'my-repo'; the scan dir carries the url
+    // of the UNLINKED 'my-repo' twin — a pure name/url join would offer it,
+    // and adopting would point two ledger rows at one directory.
+    const colliding = [
+      { ...dualRepo(REPO_A_ID, 'my repo'), urlSsh: 'git@example.com:org/a.git' },
+      { ...dualRepo(REPO_B_ID, 'my-repo'), urlSsh: 'git@example.com:org/b.git' },
+    ]
+    vi.stubGlobal('fetch', stubPool(colliding))
+    const controller = fakeController({ scanDirs: [scanRow('my-repo', { remoteUrl: 'git@example.com:org/b.git' })] })
+    const { unmount } = subject({
+      requirement: record([{ repoId: REPO_A_ID, branch: 'req-11111111' }]),
+      controller,
+    })
+    // Readiness: the pull ran and the linked row rendered; give the join a
+    // frame to (wrongly) list, then hold the absence.
+    await waitFor(() => expect(controller.repoScan).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.getByText('my repo')).toBeTruthy())
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(screen.queryByText(DICT.zh['repos.scanTitle'])).toBeNull()
+    expect(screen.queryByRole('button', { name: DICT.zh['repos.adopt'] })).toBeNull()
+    unmount()
+  })
+
+  it('stays silently hidden when the scan pull fails (no strip, no crash)', async () => {
+    vi.stubGlobal('fetch', stubPool())
+    const controller = fakeController()
+    ;(controller as unknown as { repoScan: unknown }).repoScan = vi.fn(async () => ({ kind: 'http-error' as const, status: 400, code: 'no-workspace' as const }))
+    const { unmount } = subject({ requirement: record(), controller })
+    await waitFor(() => expect(controller.repoScan).toHaveBeenCalledTimes(1))
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(screen.queryByText(DICT.zh['repos.scanTitle'])).toBeNull()
+    expect(screen.queryByRole('button', { name: DICT.zh['repos.adopt'] })).toBeNull()
+    unmount()
+  })
+
+  it('ignores a scan that lands after unmount (aborted pull writes no state)', async () => {
+    vi.stubGlobal('fetch', stubPool())
+    const controller = fakeController()
+    let release: ((value: { kind: 'ok'; dirs: readonly RepoDirScanRow[] }) => void) | undefined
+    ;(controller as unknown as { repoScan: unknown }).repoScan = vi.fn(() => new Promise((resolve) => { release = resolve }))
+    const { unmount } = subject({ requirement: record(), controller })
+    await waitFor(() => expect(controller.repoScan).toHaveBeenCalledTimes(1))
+    unmount()
+    // The late ok-response must neither write state nor reject unhandled.
+    release?.({ kind: 'ok', dirs: [scanRow('repo-a')] })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  })
+
+  it('rescans when the workspace binding moves (rebind flow)', async () => {
+    vi.stubGlobal('fetch', stubPool())
+    const controller = fakeController({ scanDirs: [] })
+    const utils = subject({ requirement: record(), controller })
+    await waitFor(() => expect(controller.repoScan).toHaveBeenCalledTimes(1))
+    utils.rerender(utils.element({ ...record(), workspacePath: '/ws-2' }, controller))
+    await waitFor(() => expect(controller.repoScan).toHaveBeenCalledTimes(2))
+    utils.unmount()
+  })
+
+  it('rescans after unlink deletes the directory — no dead adopt entry reappears', async () => {
+    vi.stubGlobal('fetch', stubPool())
+    const controller = fakeController()
+    ;(controller as unknown as { repoScan: unknown }).repoScan = vi.fn()
+      .mockResolvedValueOnce({ kind: 'ok' as const, dirs: [scanRow('repo-a', { branch: 'main' })] as readonly RepoDirScanRow[] })
+      .mockResolvedValue({ kind: 'ok' as const, dirs: [] as readonly RepoDirScanRow[] })
+    const { unmount } = subject({
+      requirement: record([{ repoId: REPO_A_ID, branch: 'req-11111111' }]),
+      controller,
+    })
+    // Dir row exists and repo-a is linked: occupancy hides the strip.
+    await waitFor(() => expect(screen.getByText('repo-a')).toBeTruthy())
+    expect(screen.queryByText(DICT.zh['repos.scanTitle'])).toBeNull()
+    // Unlink (menu → confirm) deletes the directory host-side; the stale
+    // snapshot would immediately re-offer repo-a — the rescan must run.
+    fireEvent.click(screen.getByRole('button', { name: DICT.zh['repos.menuLabel'] }))
+    fireEvent.click(await waitFor(() => screen.getByRole('menuitem', { name: DICT.zh['repos.removeLink'] })))
+    fireEvent.click(screen.getByRole('button', { name: DICT.zh['repos.removeConfirm'] }))
+    await waitFor(() => expect(controller.unlinkRepo).toHaveBeenCalled())
+    await waitFor(() => expect(controller.repoScan).toHaveBeenCalledTimes(2))
+    unmount()
+  })
+})
+
+describe('ReposSection (branch carry-over default)', () => {
+  it('prefills the picker with the LAST linked repo branch, falling back to the minted prefix', async () => {
+    vi.stubGlobal('fetch', stubPool())
+    const controller = fakeController()
+    const links = [
+      { repoId: '22222222-2222-4222-8222-222222222222', branch: 'feature-a' },
+      { repoId: '33333333-3333-4333-8333-333333333333', branch: 'feature-b' },
+    ]
+    const { unmount } = subject({ requirement: record(links), controller })
+    fireEvent.click(screen.getByRole('button', { name: DICT.zh['repos.add'] }))
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeTruthy())
+    // Carry-over: the LAST link's branch, not the minted req- prefix, not the first.
+    expect(screen.getByDisplayValue('feature-b')).toBeTruthy()
+    unmount()
+
+    // No links yet: the minted default still seeds the first link.
+    const fresh = subject({ requirement: record(), controller })
+    fireEvent.click(screen.getByRole('button', { name: DICT.zh['repos.add'] }))
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeTruthy())
+    expect(screen.getByDisplayValue('req-11111111')).toBeTruthy()
+    fresh.unmount()
   })
 })

@@ -10,10 +10,16 @@
  * current recommendation (switching pools-side is known behavior). The wire
  * never changes — repoUrl stays a client-side snapshot.
  *
+ * Reverse-link discovery: the repos/ directory scan (host reports raw facts,
+ * pulled on mount and on binding moves) joins against the live pool list
+ * HERE — derived dirName equality, origin-url tiebreak — and lists cloned
+ * but unlinked pool repos as one-Click adopts. Adopt writes the ledger row
+ * without cloning; the branch comes back host-read from .git/HEAD.
+ *
  * Local state throughout (the status precedent — nothing here enters the
- * page store): task snapshots, the pool list, and the dialog. Polling runs
- * only while a non-terminal task exists (1s interval, the pull-only channel;
- * cleared on unmount, in-flight fetch aborted).
+ * page store): task snapshots, the pool list, the scan, and the dialog.
+ * Polling runs only while a non-terminal task exists (1s interval, the
+ * pull-only channel; cleared on unmount, in-flight fetch aborted).
  *
  * Pool data comes from the repos-pool fetcher (same bundle, pure function
  * face — the single client build has no module boundary). The join by repoId
@@ -35,7 +41,7 @@ import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import { createReposFetcher } from '../repos-pool/fetcher.js'
 import { pickAddress } from '../../repos-pool-shared/address.js'
 import type { AddressSlot, RepoRecord, RepoStatus } from '../../repos-pool-shared/protocol.js'
-import type { CloneTaskSnapshot, RequirementRecord } from '../../requirements-shared/protocol.js'
+import type { CloneTaskSnapshot, RepoDirScanRow, RequirementRecord } from '../../requirements-shared/protocol.js'
 import { repoDirName } from '../../requirements-shared/repo-dir.js'
 import type { RequirementsController } from './controller.js'
 import type { RequirementsT } from './dictionary.js'
@@ -86,6 +92,75 @@ const STATUS_KEY: Record<RepoStatus, Parameters<RequirementsT>[0]> = {
  * addresses to snapshot into repoUrl (decision 0004 / D7). One composite
  * state — repo and slot can never desynchronize across switches. */
 type Selection = { repoId: string; slot: AddressSlot } | null
+
+/** repos/ scan facts: 'loading' is also the resting state after an aborted or
+ * failed pull — a discovery that cannot be read simply stays hidden. */
+type ScanState = { kind: 'loading' } | { kind: 'ready'; dirs: readonly RepoDirScanRow[] }
+
+/** repos/ directory facts, pulled on mount and whenever the binding moves (a
+ * different workspace is a different repos/), plus an explicit refresh for
+ * flows that change the disk under it (unlink deletes a directory). Local
+ * state, the status precedent; an aborted pull leaves 'loading' behind — the
+ * re-run effect owns the next transition, and a rejection lands nowhere (the
+ * openWorkspacePath .catch precedent: an aborted read is not an error). */
+function useRepoScan(controller: RequirementsController, requirementId: string, workspacePath: string): [ScanState, () => void] {
+  const [state, setState] = useState<ScanState>({ kind: 'loading' })
+  const [nonce, setNonce] = useState(0)
+  useEffect(() => {
+    setState({ kind: 'loading' })
+    const controller$ = new AbortController()
+    void controller.repoScan(requirementId, controller$.signal)
+      .then((result) => {
+        if (controller$.signal.aborted) return
+        if (result !== undefined && result.kind === 'ok') setState({ kind: 'ready', dirs: result.dirs })
+      })
+      .catch(() => {})
+    return () => { controller$.abort() }
+  }, [controller, requirementId, workspacePath, nonce])
+  return [state, () => { setNonce((n) => n + 1) }]
+}
+
+/** One adoptable strip row: the pool repo plus its on-disk branch. */
+interface AdoptableRow {
+  readonly repo: RepoRecord
+  readonly branch: string
+}
+
+/**
+ * The client-side identity join (the 0002 boundary keeps the requirements
+ * host out of repos.yaml): a scan dir adopts when its name equals a pool
+ * repo's derived dirName AND it carries a readable branch. Derived names are
+ * lossy and can collide across pool repos — the origin url breaks the tie
+ * when it matches exactly one candidate's addresses; an unbreakable tie or a
+ * URL-less non-match stays unlisted rather than guessed. Orphan dirs (no
+ * pool repo at all) are out of scope by construction.
+ *
+ * Occupancy: a dir already claimed by a LINKED pool repo's derived name is
+ * never re-offered. Adopt inverts link's dest-exists preflight ("must exist"
+ * replaces "must not"), so the host cannot see one directory receiving a
+ * second claim — and unlink of either row would delete the other's working
+ * tree. The join is where the two ledgers of truth meet; the guard lives here.
+ * (Cross-requirement sharing of one workspace dir remains possible by design:
+ * ledger rows hold no name snapshots, so no client can see another
+ * requirement's claims.)
+ */
+function adoptableRows(pool: readonly RepoRecord[], dirs: readonly RepoDirScanRow[], linkedIds: ReadonlySet<string>): readonly AdoptableRow[] {
+  const linkedDirNames = new Set(pool.filter((repo) => linkedIds.has(repo.id)).map((repo) => repoDirName(repo.name, repo.id)))
+  const rows: AdoptableRow[] = []
+  for (const dir of dirs) {
+    if (!dir.isGitRepo || dir.branch === undefined) continue
+    if (linkedDirNames.has(dir.name)) continue
+    const matches = pool.filter((repo) => !linkedIds.has(repo.id) && repoDirName(repo.name, repo.id) === dir.name)
+    if (matches.length === 0) continue
+    let chosen: RepoRecord | undefined = matches.length === 1 ? matches[0] : undefined
+    if (chosen === undefined && dir.remoteUrl !== undefined) {
+      const byUrl = matches.filter((repo) => repo.urlSsh === dir.remoteUrl || repo.urlHttp === dir.remoteUrl)
+      if (byUrl.length === 1) chosen = byUrl[0]
+    }
+    if (chosen !== undefined) rows.push({ repo: chosen, branch: dir.branch })
+  }
+  return rows
+}
 
 function useReposPool(): [PoolState, () => void] {
   const [state, setState] = useState<PoolState>({ kind: 'loading' })
@@ -156,16 +231,22 @@ export function ReposSection(props: {
   const caps = useSyncExternalStore(props.capabilities.store.subscribe, props.capabilities.store.getSnapshot)
   const [pool, refreshPool] = useReposPool()
   const [tasks, seedTasks] = useRepoTasks(controller, requirement.id)
+  const [scan, refreshScan] = useRepoScan(controller, requirement.id, requirement.workspacePath)
   const [modalOpen, setModalOpen] = useState(false)
   const [filter, setFilter] = useState('')
   const [selection, setSelection] = useState<Selection>(null)
   const [branch, setBranch] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [inlineError, setInlineError] = useState<string | null>(null)
+  const [adoptingId, setAdoptingId] = useState<string | null>(null)
+  const [adoptError, setAdoptError] = useState<string | null>(null)
   const [pendingRemove, setPendingRemove] = useState<{ repoId: string; name: string; repoName?: string } | null>(null)
 
   const linkedIds = new Set(requirement.linkedRepos.map((linked) => linked.repoId))
   const taskByRepo = new Map(tasks.map((task) => [task.repoId, task]))
+  const adoptable = pool.kind === 'ready' && scan.kind === 'ready'
+    ? adoptableRows(pool.repos, scan.dirs, linkedIds)
+    : []
   // Destructive-action gate: unlink deletes the cloned source, so it always
   // rides behind a confirmation dialog (the delete-requirement pattern).
   const confirmDialog = pendingRemove !== null ? (
@@ -186,13 +267,60 @@ export function ReposSection(props: {
     />
   ) : null
 
+  // Reverse-link discovery strip, rendered in BOTH states (empty and
+  // populated) — a lost ledger with surviving clones is precisely the
+  // empty-state case. Adopt is one click, no clone, no confirmation: the
+  // action only writes a row and its undo (unlink) asks before deleting.
+  const discoveryStrip = adoptable.length > 0 ? (
+    <div className={styles.discoverBlock}>
+      <div className={styles.discoverTitle}>{t('repos.scanTitle')}</div>
+      <div className={styles.discoverHint}>{t('repos.scanHint')}</div>
+      {adoptable.map((row) => (
+        <div key={row.repo.id} className={styles.discoverRow}>
+          <span className={styles.repoName}>{row.repo.name}</span>
+          <span className={styles.repoBranch}>{row.branch}</span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className={styles.discoverAdopt}
+            disabled={adoptingId !== null}
+            onClick={() => void adopt(row.repo)}
+          >
+            {t('repos.adopt')}
+          </Button>
+        </div>
+      ))}
+      {adoptError !== null ? <div className={styles.fieldError}>{adoptError}</div> : null}
+    </div>
+  ) : null
+
   const openModal = (): void => {
     setFilter('')
     setSelection(null)
-    setBranch(`req-${requirement.id.slice(0, 8)}`)
+    // Branch carry-over: a requirement that already holds links continues on
+    // its LAST link's branch (append order = recency); the minted prefix
+    // seeds only the first link.
+    const last = requirement.linkedRepos[requirement.linkedRepos.length - 1]
+    setBranch(last !== undefined ? last.branch : `req-${requirement.id.slice(0, 8)}`)
     setInlineError(null)
     refreshPool()
     setModalOpen(true)
+  }
+
+  const adopt = async (repo: RepoRecord): Promise<void> => {
+    setAdoptingId(repo.id)
+    setAdoptError(null)
+    const outcome = await controller.adoptRepo(requirement.id, { repoId: repo.id, repoName: repo.name })
+    setAdoptingId(null)
+    if (outcome.kind === 'ok') {
+      // The store patch re-renders the section with the new ledger row — the
+      // strip row retires through linkedIds. No clone is spawned; the seeded
+      // (unchanged) task rows just keep the snapshot honest.
+      seedTasks(outcome.tasks)
+      return
+    }
+    if (outcome.kind === 'inline') setAdoptError(t(INLINE_ERROR_KEYS[outcome.code]))
+    // 'failed': the banner behind the section explains.
   }
 
   // Name-row click: select the repo on its RECOMMENDED address (the
@@ -261,7 +389,13 @@ export function ReposSection(props: {
     const { repoId, repoName } = pendingRemove
     setPendingRemove(null)
     const outcome = await controller.unlinkRepo(requirement.id, repoId, repoName)
-    if (outcome.kind === 'ok') seedTasks(outcome.tasks)
+    // Unlink DELETED a repos/ directory: the scan snapshot is stale the moment
+    // this succeeds, and a stale row would re-offer the just-removed repo as
+    // an adopt that can only fail (dest-missing). Rescan is the honest sync.
+    if (outcome.kind === 'ok') {
+      seedTasks(outcome.tasks)
+      refreshScan()
+    }
   }
 
   if (requirement.linkedRepos.length === 0) {
@@ -273,6 +407,7 @@ export function ReposSection(props: {
           <span className={styles.setupHint}>{t('repos.emptyHint')}</span>
           <span className={styles.setupAction}>{t('repos.add')}</span>
         </button>
+        {discoveryStrip}
         {modalOpen ? (
           <AddRepoModal
             t={t}
@@ -343,6 +478,7 @@ export function ReposSection(props: {
           </div>
         )
       })}
+      {discoveryStrip}
       {modalOpen ? (
         <AddRepoModal
           t={t}
@@ -408,10 +544,12 @@ function taskStatus(t: RequirementsT, task: CloneTaskSnapshot | undefined): Reac
 }
 
 /** Inline error copy per preflight rejection code (typed map, not a template key). */
-const INLINE_ERROR_KEYS: Readonly<Record<'no-workspace' | 'invalid-branch' | 'dest-exists' | 'busy' | 'too-many' | 'git-missing' | 'bad-request', Parameters<RequirementsT>[0]>> = {
+const INLINE_ERROR_KEYS: Readonly<Record<'no-workspace' | 'invalid-branch' | 'dest-exists' | 'dest-missing' | 'no-branch' | 'busy' | 'too-many' | 'git-missing' | 'bad-request', Parameters<RequirementsT>[0]>> = {
   'no-workspace': 'repos.errNoWorkspace',
   'invalid-branch': 'repos.errInvalidBranch',
   'dest-exists': 'repos.errDestExists',
+  'dest-missing': 'repos.errDestMissing',
+  'no-branch': 'repos.errNoBranch',
   busy: 'repos.errBusy',
   'too-many': 'repos.errTooMany',
   'git-missing': 'repos.errGitMissing',

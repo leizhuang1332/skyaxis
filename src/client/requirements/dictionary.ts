@@ -112,6 +112,12 @@ interface RequirementsDictionary {
   readonly 'repos.statusForcedNetwork': string
   readonly 'repos.statusUnverified': string
   readonly 'repos.statusVerified': string
+  // repos.* reverse-link discovery (repos/ scan + adopt)
+  readonly 'repos.scanTitle': string
+  readonly 'repos.scanHint': string
+  readonly 'repos.adopt': string
+  readonly 'repos.errDestMissing': string
+  readonly 'repos.errNoBranch': string
   // prd.* — PRD documents (0003 P3c)
   readonly 'prd.contentLabel': string
   readonly 'prd.create': string
@@ -238,6 +244,11 @@ const zh: RequirementsDictionary = {
   'repos.statusForcedNetwork': "已保存（网络不可达）",
   'repos.statusUnverified': "未验证",
   'repos.statusVerified': "已验证",
+  'repos.scanTitle': "发现可关联的仓库",
+  'repos.scanHint': "工作区 repos/ 目录中检测到已克隆但未关联的仓库，关联不会重新克隆。",
+  'repos.adopt': "关联",
+  'repos.errDestMissing': "目录已不存在，请刷新页面后重试",
+  'repos.errNoBranch': "无法读取分支（非 git 仓库或 detached HEAD）",
   'prd.contentLabel': '内容',
   'prd.create': '新建文档',
   'prd.createTitle': '新建文档',
@@ -361,6 +372,11 @@ const en: RequirementsDictionary = {
   'repos.statusForcedNetwork': "Saved (unreachable)",
   'repos.statusUnverified': "Unverified",
   'repos.statusVerified': "Verified",
+  'repos.scanTitle': "Discovered repositories",
+  'repos.scanHint': "Cloned but unlinked repositories were found under the workspace repos/ directory; linking does not re-clone.",
+  'repos.adopt': "Link",
+  'repos.errDestMissing': "The directory no longer exists; refresh the page and retry",
+  'repos.errNoBranch': "Cannot read the branch (not a git repository, or detached HEAD)",
   'prd.contentLabel': 'Content',
   'prd.create': 'New document',
   'prd.createTitle': 'New document',

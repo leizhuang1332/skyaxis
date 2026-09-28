@@ -130,6 +130,21 @@ export interface ReposUnlinkRequest {
   readonly repoName?: string
 }
 
+/**
+ * Adopt (reverse-link): write the ledger row for a directory that ALREADY sits
+ * under the workspace's repos/ — no clone is spawned. Like link, the request
+ * carries a repo name SNAPSHOT (the destination dirName derives from it); the
+ * branch is NOT client-supplied — the host reads it from the repo's .git/HEAD
+ * at adopt time (the scan's value is display-only, never an input).
+ */
+export interface ReposAdoptRequest {
+  readonly expectedRevision: number
+  readonly id: string
+  readonly action: 'adopt'
+  readonly repoId: string
+  readonly repoName: string
+}
+
 /** Re-clone keeps the ledgered branch and writes no ledger row — no revision. */
 export interface ReposRecloneRequest {
   readonly id: string
@@ -149,6 +164,7 @@ export interface ReposCancelRequest {
 export type ReposMutateRequestBody =
   | ReposLinkRequest
   | ReposUnlinkRequest
+  | ReposAdoptRequest
   | ReposRecloneRequest
   | ReposCancelRequest
 
@@ -180,6 +196,32 @@ export interface CloneTaskSnapshot {
 export interface ReposTasksResponseOk {
   readonly ok: true
   readonly tasks: readonly CloneTaskSnapshot[]
+}
+
+// ---------------------------------------------------------------------------
+// repos/ directory scan (reverse-link discovery) — the host reports RAW
+// directory facts only; which dir belongs to which POOL repo is a client-side
+// join (the requirements host never reads repos.yaml, the 0002 boundary).
+// ---------------------------------------------------------------------------
+
+/** One subdirectory of the workspace's repos/, as the host sees it. */
+export interface RepoDirScanRow {
+  /** Directory name — the join key against client-derived repoDirName(). */
+  readonly name: string
+  /** A .git entry exists (directory, or a worktree/submodule gitdir file). */
+  readonly isGitRepo: boolean
+  /** Current branch from .git/HEAD ("ref: refs/heads/X"); absent when the
+   * repo is on a detached HEAD or HEAD is unreadable — such rows cannot be
+   * adopted (the ledger row needs a branch). */
+  readonly branch?: string
+  /** origin url from .git/config when present — a disambiguator the client
+   * uses when derived dirNames collide across pool repos. */
+  readonly remoteUrl?: string
+}
+
+export interface ReposScanResponseOk {
+  readonly ok: true
+  readonly dirs: readonly RepoDirScanRow[]
 }
 
 // ---------------------------------------------------------------------------
@@ -274,6 +316,8 @@ export interface ErrorResponse {
     | 'internal'
     | 'no-workspace'
     | 'dest-exists'
+    | 'dest-missing'
+    | 'no-branch'
     | 'busy'
     | 'too-many'
     | 'invalid-branch'
@@ -375,6 +419,23 @@ export function isReposTasksResponse(v: unknown): v is ReposTasksResponseOk {
   if (typeof v !== 'object' || v === null) return false
   const r = v as Record<string, unknown>
   return r.ok === true && Array.isArray(r.tasks) && r.tasks.every(isCloneTaskSnapshot)
+}
+
+function isRepoDirScanRow(v: unknown): v is RepoDirScanRow {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  return (
+    isString(r.name) && r.name.length > 0
+    && typeof r.isGitRepo === 'boolean'
+    && (r.branch === undefined || isString(r.branch))
+    && (r.remoteUrl === undefined || isString(r.remoteUrl))
+  )
+}
+
+export function isReposScanResponse(v: unknown): v is ReposScanResponseOk {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  return r.ok === true && Array.isArray(r.dirs) && r.dirs.every(isRepoDirScanRow)
 }
 
 export function isPrdDocSummary(v: unknown): v is PrdDocSummary {
