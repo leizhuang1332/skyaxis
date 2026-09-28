@@ -73,6 +73,7 @@ describe('requirements: dictionaries', () => {
       'detail.back',
       'detail.missing',
       'detail.switch',
+      'detail.tab.aiWorkbench',
       'detail.tab.overview',
       'detail.tab.seat',
       'detail.tab.workspace',
@@ -173,6 +174,19 @@ describe('requirements: dictionaries', () => {
       'view.addRequirement',
       'view.filterEmpty',
       'view.filterPlaceholder',
+      'workbench.railLabel',
+      'workbench.stage.deliver',
+      'workbench.stage.implement',
+      'workbench.stage.plan',
+      'workbench.stage.retro',
+      'workbench.stage.review',
+      'workbench.stage.understand',
+      'workbench.stageHint.deliver',
+      'workbench.stageHint.implement',
+      'workbench.stageHint.plan',
+      'workbench.stageHint.retro',
+      'workbench.stageHint.review',
+      'workbench.stageHint.understand',
       'workspace.browse',
       'workspace.emptyHint',
       'workspace.invalidPath',
@@ -245,6 +259,12 @@ describe('requirements: SlotCore registration contract', () => {
       { name: 'requirements.detail.view', id: 'overview', order: 10, label: () => t('detail.tab.overview') },
       seats.RequirementOverviewTab,
     )
+    // 刻意在 workspace(order 30) 之前注册 aiWorkbench(order 40)：注册顺序 ≠
+    // 呈现顺序，这条 entry 顺带钉死 list slot 按 order 升序投影（tab 行末位）。
+    const disposeAiWorkbench = core.register(
+      { name: 'requirements.detail.view', id: 'aiWorkbench', order: 40, label: () => t('detail.tab.aiWorkbench') },
+      seats.RequirementAiWorkbenchTab,
+    )
     const disposeWorkspace = core.register(
       { name: 'requirements.detail.view', id: 'workspace', order: 30, label: () => t('detail.tab.workspace') },
       seats.RequirementWorkspaceTab,
@@ -253,7 +273,7 @@ describe('requirements: SlotCore registration contract', () => {
       requirementsPanelOptions(t),
       (props: PropsRuntime<'sidebar.panellist'>) => RequirementsIcon(props) as ReactNode,
     )
-    return { disposeConversation, disposeMain, disposeOverview, disposeWorkspace, disposePanel }
+    return { disposeConversation, disposeMain, disposeOverview, disposeAiWorkbench, disposeWorkspace, disposePanel }
   }
 
   it('projects {id, order} and resolves the label thunk bilingually', () => {
@@ -299,11 +319,15 @@ describe('requirements: SlotCore registration contract', () => {
     const { disposeMain } = mountFixture(core, t)
 
     const entries = core.entriesOfSlot('requirements.detail.view')
-    expect(entries.map((e) => [e.options.id, e.options.order])).toEqual([['overview', 10], ['workspace', 30]])
+    expect(entries.map((e) => [e.options.id, e.options.order])).toEqual([['overview', 10], ['workspace', 30], ['aiWorkbench', 40]])
     expect(resolveSlotLabel(entries[0].options.label)).toBe('Overview')
     state.current = 'zh'
     expect(resolveSlotLabel(entries[0].options.label)).toBe('概览')
     expect(resolveSlotLabel(entries[1].options.label)).toBe('工作区')
+    // 第三 seat 双语 + 末位（order 40 > workspace 30，注册顺序相反）。
+    expect(resolveSlotLabel(entries[2].options.label)).toBe('AI 工作台')
+    state.current = 'en'
+    expect(resolveSlotLabel(entries[2].options.label)).toBe('AI Workbench')
 
     // Disposing the declaring main entry collapses the child slot (the
     // releaseEntry cascade); the seat disposers stay harmless afterwards.

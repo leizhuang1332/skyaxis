@@ -163,8 +163,18 @@ export function registerRequirementsView(ctx: Context): () => void {
       { name: REQUIREMENTS_DETAIL_VIEW_SLOT, id: 'workspace', order: 30, label: () => t('detail.tab.workspace') },
       seats.RequirementWorkspaceTab,
     ))
+  // AI 工作台（0006 骨架轮）：order 40 = tab 行末位（概览 10 / 工作区 30 /
+  // AI 工作台 40，与 research 0006 §4.1 页面解剖及 0006-ai-workbench-mockup.html
+  // 的 tab 行一致；§6.4 与 §8 写的「order 25」会把工作台插到工作区之前，属文档
+  // 笔误——list slot 按 priority→order 排序，order 直接决定 tab 位置）。
+  const disposeAiWorkbench = ctx.slots.inject(REQUIREMENTS_DETAIL_VIEW_SLOT, () =>
+    ctx.slots.register(
+      { name: REQUIREMENTS_DETAIL_VIEW_SLOT, id: 'aiWorkbench', order: 40, label: () => t('detail.tab.aiWorkbench') },
+      seats.RequirementAiWorkbenchTab,
+    ))
 
   return () => {
+    disposeAiWorkbench()
     disposeWorkspace()
     disposeOverview()
     disposePanel()
@@ -223,6 +233,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       | 'detail.missing'
       | 'detail.tab.overview'
       | 'detail.tab.workspace'
+      | 'detail.tab.aiWorkbench'
       | 'detail.tab.seat'
       | 'workspace.setUp'
       | 'workspace.emptyHint'
@@ -317,5 +328,18 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       | 'workspace.sectionReposHint'
       | 'workspace.sectionPrd'
       | 'workspace.sectionPrdHint'
+      | 'workbench.railLabel'
+      | 'workbench.stage.understand'
+      | 'workbench.stage.plan'
+      | 'workbench.stage.implement'
+      | 'workbench.stage.review'
+      | 'workbench.stage.deliver'
+      | 'workbench.stage.retro'
+      | 'workbench.stageHint.understand'
+      | 'workbench.stageHint.plan'
+      | 'workbench.stageHint.implement'
+      | 'workbench.stageHint.review'
+      | 'workbench.stageHint.deliver'
+      | 'workbench.stageHint.retro'
   }
 }

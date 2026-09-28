@@ -1000,3 +1000,79 @@
   margin-left: auto;
   align-self: center;
 }
+
+/* ---- AI workbench tab (0006 骨架轮) ---- */
+
+/* 六阶段导轨 + 阶段内容位。本轮无账本，故只有导轨与 guideSection 空态；
+   徽章计数与「完成本阶段 →」推进按钮待 P1 数据面落地后再加（诚实口径见
+   ai-workbench-tab.tsx 头注）。 */
+.workbenchTab {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Full-bleed sticky 导轨（mockup .stageRail 同构）：负 margin 抵消 .body 的
+   16px padding 使其横跨整个滚动区，padding 12px 16px 把内容顶回同一基线；
+   top: -16px 让吸顶位落在 .body 的 border-box 顶边（而非 padding 内缩 16px
+   处），滚动时导轨严丝合缝贴住顶部。几何与 .body 的 padding 耦合——改 .body
+   padding 必须同步这里的 -16px / 16px。z-index + 不透明底避免内容透出。 */
+.stageRail {
+  position: sticky;
+  top: -16px;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: -16px -16px 12px;
+  padding: 12px 16px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-base);
+}
+
+/* chip 是 button（点击切换观看），故显式接管字体族与指针。 */
+.stageChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+  line-height: 16px;
+  font-weight: 500;
+  font-family: var(--dsw-font-family);
+  cursor: pointer;
+}
+
+.stageChip:hover {
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+}
+
+/* 当前观看阶段 = 业务蓝（与 .detailTabActive 同一 token，两主题恒蓝）。 */
+.stageChipCurrent,
+.stageChipCurrent:hover {
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.stageChip:focus-visible {
+  outline: none;
+  border: 0.5px solid var(--dsw-alias-state-business-primary);
+}
+
+/* 阶段间连接线（mockup .stageConnector 同构）：纯装饰，aria-hidden。 */
+.stageConnector {
+  flex: none;
+  width: 14px;
+  height: 0.5px;
+  background: var(--dsw-alias-border-l3);
+}
+
+.stageView {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
