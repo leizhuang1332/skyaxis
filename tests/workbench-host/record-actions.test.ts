@@ -20,6 +20,12 @@
  *   - criteria: C-sequence minting, present-overwrite edits, remove with
  *     covers stripping
  *   - isWorkbenchRecord tolerance face for splitApprovedAt (wire guard)
+ *   - P2: bindSession (lifecycle gate → 404 → dropped 400 → append-only
+ *     bindings with same-session idempotent/different-purpose 400),
+ *     editKnowledgeCandidate (pending-only full replace) and
+ *     dismiss/activateKnowledgeCandidate (three-state machine + the
+ *     dual-ledger knowledgeRow projection: scope coupling, trigger
+ *     normalization, provenance birthplace audit)
  *
  * PINNED GATE DIRECTION: the split stamp UNLOCKS the lifecycle (approvePlan /
  * start / built / accept / reopen / drop run on an APPROVED record and are
@@ -31,10 +37,13 @@
  * §4.2 「批准后卡片组只读、S3 解锁」.
  */
 import { describe, expect, it } from 'vitest'
+import type { KnowledgeRecord } from '../../src/workbench-host/types.js'
 import { applyRecordAction } from '../../src/workbench-host/record-actions.js'
 import { isWorkbenchRecord } from '../../src/workbench-shared/protocol.js'
 import type {
+  ActivateKnowledgeCandidateRequest,
   ErrorResponse,
+  KnowledgeCandidate,
   WorkbenchCriterion,
   WorkbenchFinding,
   WorkbenchMutateRequestBody,
@@ -45,6 +54,8 @@ import type {
 const RID = '11111111-1111-4111-8111-111111111111'
 const NOW = '2026-09-29T09:30:00.000Z'
 const FINDING_ID = '44444444-4444-4444-8444-444444444444'
+const CAND_ID = '55555555-5555-4555-8555-555555555555'
+const GHOST_CAND = '00000000-0000-4000-8000-000000000000'
 
 function baseRecord(overrides: Partial<WorkbenchRecord> = {}): WorkbenchRecord {
   return {
@@ -84,6 +95,19 @@ function criterion(id: string, overrides: Partial<WorkbenchCriterion> = {}): Wor
 
 function finding(overrides: Partial<WorkbenchFinding> = {}): WorkbenchFinding {
   return { id: FINDING_ID, category: 'risk', severity: 'low', title: '慢查询风险', detail: 't_order 无索引', status: 'open', createdAt: NOW, ...overrides }
+}
+
+function candidate(overrides: Partial<KnowledgeCandidate> = {}): KnowledgeCandidate {
+  return {
+    id: CAND_ID,
+    title: '候选：大表导出走异步',
+    draft: '大表导出禁止一次全量拉取',
+    type: 'convention',
+    proposedSessionId: 'sess-origin',
+    at: NOW,
+    status: 'pending',
+    ...overrides,
+  }
 }
 
 /** Applies and unwraps the ok arm — a non-ok result fails the test with its status/code. */
@@ -668,5 +692,250 @@ describe('restoreWorkPackage（已放弃回收站化——验收轮三）', () =
   it('非 dropped 态恢复 → 400 bad-request；未知 id → 404', () => {
     expect(applyRecordAction(baseRecord({ workPackages: [wp('WP1')] }), restore('WP1'))).toEqual({ ok: false, status: 400, code: 'bad-request' })
     expect(applyRecordAction(baseRecord({ workPackages: [] }), restore('WP9'))).toEqual({ ok: false, status: 404, code: 'not-found' })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 12. P2: bindSession
+// ---------------------------------------------------------------------------
+
+describe('bindSession (P2 session binding)', () => {
+  const bind = (id: string, sessionId: string, purpose: 'analysis' | 'dev' | 'review') => ({
+    ...mutate(),
+    action: 'bindSession' as const,
+    id,
+    sessionId,
+    purpose,
+  })
+
+  it('split 未批 → 400 locked-split（绑定属执行期关联，生命周期门先于一切）', () => {
+    const result = applyRecordAction(baseRecord({ workPackages: [wp('WP1')] }), bind('WP1', 'sess-1', 'dev'))
+    expect(result).toEqual({ ok: false, status: 400, code: 'locked-split' })
+  })
+
+  it('未知工作包 → 404 not-found（门在先、存在性其次，与生命周期家族同梯次）', () => {
+    const base = baseRecord({ splitApprovedAt: NOW, workPackages: [wp('WP1')] })
+    expect(applyRecordAction(base, bind('WP9', 'sess-1', 'dev'))).toEqual({ ok: false, status: 404, code: 'not-found' })
+  })
+
+  it('dropped 工作包 → 400 bad-request（弃止包不再接会话）', () => {
+    const base = baseRecord({ splitApprovedAt: NOW, workPackages: [wp('WP1', { status: 'dropped' })] })
+    expect(applyRecordAction(base, bind('WP1', 'sess-1', 'dev'))).toEqual({ ok: false, status: 400, code: 'bad-request' })
+  })
+
+  it('append：绑定行 {sessionId, purpose, boundAt: ISO} 追加且既有绑定保留', () => {
+    const base = baseRecord({
+      splitApprovedAt: NOW,
+      workPackages: [wp('WP1', { sessions: [{ sessionId: 'sess-0', purpose: 'analysis', boundAt: NOW }] })],
+    })
+    const result = applyRecordAction(base, bind('WP1', 'sess-1', 'dev'))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const sessions = result.record.workPackages[0]?.sessions ?? []
+    expect(sessions).toHaveLength(2)
+    expect(sessions[0]).toEqual({ sessionId: 'sess-0', purpose: 'analysis', boundAt: NOW })
+    expect(sessions[1]).toEqual({ sessionId: 'sess-1', purpose: 'dev', boundAt: expect.any(String) })
+    expectIso(sessions[1]?.boundAt)
+  })
+
+  it('同 sessionId 同 purpose ⇒ 幂等 {record: base, unchanged: true}（sessions 不动、revision 面无新账）', () => {
+    const base = baseRecord({
+      splitApprovedAt: NOW,
+      workPackages: [wp('WP1', { sessions: [{ sessionId: 'sess-1', purpose: 'dev', boundAt: NOW }] })],
+    })
+    const result = applyRecordAction(base, bind('WP1', 'sess-1', 'dev'))
+    expect(result).toEqual({ ok: true, record: base, unchanged: true })
+    if (!result.ok) return
+    expect(result.record).toBe(base) // 引用即 base —— 端点凭 unchanged 跳过 save
+    expect(result.record.workPackages[0]?.sessions).toHaveLength(1)
+  })
+
+  it('同 sessionId 异 purpose ⇒ 400 bad-request（双 chip / 静默改史都不允许）', () => {
+    const base = baseRecord({
+      splitApprovedAt: NOW,
+      workPackages: [wp('WP1', { sessions: [{ sessionId: 'sess-1', purpose: 'dev', boundAt: NOW }] })],
+    })
+    expect(applyRecordAction(base, bind('WP1', 'sess-1', 'analysis'))).toEqual({ ok: false, status: 400, code: 'bad-request' })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 13. P2: editKnowledgeCandidate
+// ---------------------------------------------------------------------------
+
+describe('editKnowledgeCandidate (P2 候选编辑)', () => {
+  const edit = (id: string, candidate: { title: string; draft: string; type: 'business' | 'convention' }) => ({
+    ...mutate(),
+    action: 'editKnowledgeCandidate' as const,
+    id,
+    candidate,
+  })
+
+  it('pending：title/draft/type 三字段全替换，id/at/proposedSessionId/status 承接', () => {
+    const base = baseRecord({ knowledgeCandidates: [candidate()] })
+    const record = applyOk(base, edit(CAND_ID, { title: '改题', draft: '改稿内容', type: 'business' }))
+    expect(record.knowledgeCandidates[0]).toEqual({
+      id: CAND_ID,
+      title: '改题',
+      draft: '改稿内容',
+      type: 'business',
+      proposedSessionId: 'sess-origin',
+      at: NOW,
+      status: 'pending',
+    })
+  })
+
+  it('非 pending（promoted / dismissed）→ 400 bad-request（编辑只属于待沉淀队列）', () => {
+    for (const status of ['promoted', 'dismissed'] as const) {
+      const base = baseRecord({ knowledgeCandidates: [candidate({ status })] })
+      expect(applyRecordAction(base, edit(CAND_ID, { title: 'x', draft: 'y', type: 'business' })))
+        .toEqual({ ok: false, status: 400, code: 'bad-request' })
+    }
+  })
+
+  it('未知 id → 404 not-found', () => {
+    const base = baseRecord({ knowledgeCandidates: [candidate()] })
+    expect(applyRecordAction(base, edit(GHOST_CAND, { title: 'x', draft: 'y', type: 'business' })))
+      .toEqual({ ok: false, status: 404, code: 'not-found' })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 14. P2: dismissKnowledgeCandidate
+// ---------------------------------------------------------------------------
+
+describe('dismissKnowledgeCandidate (P2 候选弃置)', () => {
+  const dismiss = (id: string) => ({ ...mutate(), action: 'dismissKnowledgeCandidate' as const, id })
+
+  it('pending → dismissed（其余字段原样保留）', () => {
+    const base = baseRecord({ knowledgeCandidates: [candidate()] })
+    const record = applyOk(base, dismiss(CAND_ID))
+    expect(record.knowledgeCandidates[0]).toEqual({ ...candidate(), status: 'dismissed' })
+  })
+
+  it('已 dismissed ⇒ 幂等 {record: base, unchanged: true}', () => {
+    const base = baseRecord({ knowledgeCandidates: [candidate({ status: 'dismissed' })] })
+    const result = applyRecordAction(base, dismiss(CAND_ID))
+    expect(result).toEqual({ ok: true, record: base, unchanged: true })
+    if (!result.ok) return
+    expect(result.record).toBe(base)
+  })
+
+  it('promoted → 400 bad-request；未知 id → 404', () => {
+    const promoted = baseRecord({ knowledgeCandidates: [candidate({ status: 'promoted' })] })
+    expect(applyRecordAction(promoted, dismiss(CAND_ID))).toEqual({ ok: false, status: 400, code: 'bad-request' })
+    const base = baseRecord({ knowledgeCandidates: [candidate()] })
+    expect(applyRecordAction(base, dismiss(GHOST_CAND))).toEqual({ ok: false, status: 404, code: 'not-found' })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 15. P2: activateKnowledgeCandidate — the dual-ledger projection
+// ---------------------------------------------------------------------------
+
+describe('activateKnowledgeCandidate (P2 双账本推进)', () => {
+  type ActivateKnowledge = ActivateKnowledgeCandidateRequest['knowledge']
+  const activate = (id: string, knowledge: ActivateKnowledge) => ({
+    ...mutate(),
+    action: 'activateKnowledgeCandidate' as const,
+    id,
+    knowledge,
+  })
+  const activateOk = (
+    base: WorkbenchRecord,
+    id: string,
+    knowledge: ActivateKnowledge,
+  ): { record: WorkbenchRecord; unchanged?: boolean; knowledgeRow: KnowledgeRecord } => {
+    const result = applyRecordAction(base, activate(id, knowledge))
+    if (!result.ok || result.knowledgeRow === undefined) throw new Error('expected ok + knowledgeRow')
+    return { record: result.record, unchanged: result.unchanged, knowledgeRow: result.knowledgeRow }
+  }
+
+  it('pending → promoted：knowledgeRow 全字段（id=候选 id、title=候选 title、content=候选 draft、provenance.sessionId=proposedSessionId、keyword value trim）', () => {
+    const base = baseRecord({ knowledgeCandidates: [candidate()] })
+    const result = activateOk(base, CAND_ID, { scope: 'global', type: 'convention', trigger: { mode: 'keyword', value: '  导出  ' } })
+    expect(result.record.knowledgeCandidates[0]?.status).toBe('promoted')
+    expect(result.knowledgeRow).toEqual({
+      id: CAND_ID,
+      scope: 'global',
+      type: 'convention',
+      title: '候选：大表导出走异步',
+      content: '大表导出禁止一次全量拉取',
+      trigger: { mode: 'keyword', value: '导出' },
+      status: 'active',
+      provenance: { requirementId: RID, sessionId: 'sess-origin', at: expect.any(String) },
+    })
+    expectIso(result.knowledgeRow.provenance.at)
+  })
+
+  it('scope=requirement：requirementId=body.requirementId 落 scope 键（provenance.requirementId 同源）', () => {
+    const base = baseRecord({ knowledgeCandidates: [candidate()] })
+    const { knowledgeRow } = activateOk(base, CAND_ID, { scope: 'requirement', type: 'business', trigger: { mode: 'always' } })
+    expect(knowledgeRow.scope).toBe('requirement')
+    expect(knowledgeRow.requirementId).toBe(RID)
+    expect(knowledgeRow.provenance.requirementId).toBe(RID)
+  })
+
+  it('scope=workspace：path trim 后落位', () => {
+    const base = baseRecord({ knowledgeCandidates: [candidate()] })
+    const { knowledgeRow } = activateOk(base, CAND_ID, { scope: 'workspace', type: 'business', trigger: { mode: 'always' }, path: '  C:/repos/main  ' })
+    expect(knowledgeRow.path).toBe('C:/repos/main')
+  })
+
+  it('always / manual：value 剥离（脏参数不入 knowledge.yaml 的 trigger）', () => {
+    const base = baseRecord({ knowledgeCandidates: [candidate()] })
+    const always = activateOk(base, CAND_ID, { scope: 'global', type: 'business', trigger: { mode: 'always', value: 'dirty' } })
+    expect(always.knowledgeRow.trigger).toEqual({ mode: 'always' })
+    const manual = activateOk(base, CAND_ID, { scope: 'global', type: 'business', trigger: { mode: 'manual' } })
+    expect(manual.knowledgeRow.trigger).toEqual({ mode: 'manual' })
+  })
+
+  it('候选无 proposedSessionId：provenance 不带 sessionId 键', () => {
+    const base = baseRecord({ knowledgeCandidates: [candidate({ proposedSessionId: undefined })] })
+    const { knowledgeRow } = activateOk(base, CAND_ID, { scope: 'global', type: 'business', trigger: { mode: 'always' } })
+    expect(knowledgeRow.provenance).toEqual({ requirementId: RID, at: expect.any(String) })
+    expect('sessionId' in knowledgeRow.provenance).toBe(false)
+  })
+
+  it('已 promoted ⇒ {record: base, knowledgeRow, unchanged: true}（行仍随行——端点靠它补写缺失的 knowledge.yaml 条目）', () => {
+    const base = baseRecord({ knowledgeCandidates: [candidate({ status: 'promoted' })] })
+    const result = applyRecordAction(base, activate(CAND_ID, { scope: 'global', type: 'business', trigger: { mode: 'always' } }))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.unchanged).toBe(true)
+    expect(result.record).toBe(base) // 候选面零改动
+    expect(result.knowledgeRow?.id).toBe(CAND_ID)
+    expect(result.knowledgeRow?.status).toBe('active')
+  })
+
+  it('不吃 split 门：已批准契约（splitLocked）下照常推进（S6 复盘横跨全生命周期）', () => {
+    const locked = baseRecord({ splitApprovedAt: NOW, knowledgeCandidates: [candidate()] })
+    const result = activateOk(locked, CAND_ID, { scope: 'global', type: 'business', trigger: { mode: 'always' } })
+    expect(result.record.knowledgeCandidates[0]?.status).toBe('promoted')
+  })
+
+  it('dismissed → 400 bad-request；未知 id → 404', () => {
+    const dismissed = baseRecord({ knowledgeCandidates: [candidate({ status: 'dismissed' })] })
+    expect(applyRecordAction(dismissed, activate(CAND_ID, { scope: 'global', type: 'business', trigger: { mode: 'always' } })))
+      .toEqual({ ok: false, status: 400, code: 'bad-request' })
+    const ghost = baseRecord({ knowledgeCandidates: [candidate()] })
+    expect(applyRecordAction(ghost, activate(GHOST_CAND, { scope: 'global', type: 'business', trigger: { mode: 'always' } })))
+      .toEqual({ ok: false, status: 404, code: 'not-found' })
+  })
+
+  it('参数守卫：workspace 缺 path（undefined / 空白串）→ 400 bad-request', () => {
+    const base = baseRecord({ knowledgeCandidates: [candidate()] })
+    expect(applyRecordAction(base, activate(CAND_ID, { scope: 'workspace', type: 'business', trigger: { mode: 'always' } })))
+      .toEqual({ ok: false, status: 400, code: 'bad-request' })
+    expect(applyRecordAction(base, activate(CAND_ID, { scope: 'workspace', type: 'business', trigger: { mode: 'always' }, path: '   ' })))
+      .toEqual({ ok: false, status: 400, code: 'bad-request' })
+  })
+
+  it('参数守卫：keyword 缺 value（undefined / 空白串）→ 400 bad-request', () => {
+    const base = baseRecord({ knowledgeCandidates: [candidate()] })
+    expect(applyRecordAction(base, activate(CAND_ID, { scope: 'global', type: 'business', trigger: { mode: 'keyword' } })))
+      .toEqual({ ok: false, status: 400, code: 'bad-request' })
+    expect(applyRecordAction(base, activate(CAND_ID, { scope: 'global', type: 'business', trigger: { mode: 'keyword', value: '  ' } })))
+      .toEqual({ ok: false, status: 400, code: 'bad-request' })
   })
 })

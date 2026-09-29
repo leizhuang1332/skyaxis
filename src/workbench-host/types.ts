@@ -13,6 +13,8 @@
 import { z } from 'zod'
 import type {
   WorkbenchMutateRequestBody,
+  WorkbenchKnowledgeMutateRequestBody,
+  WorkbenchKnowledgeRecord,
   WorkbenchRecord,
 } from '../workbench-shared/protocol.js'
 import { WORKBENCH_INLINE_MAX_CHARS, WORKBENCH_STAGES } from '../workbench-shared/protocol.js'
@@ -355,6 +357,57 @@ const RemoveCriterionSchema = z.object({
   id: CriterionIdSchema,
 })
 
+// Session binding (P2) — under the lifecycle gate (split approved).
+const BindSessionSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  action: z.literal('bindSession'),
+  id: WorkPackageIdSchema,
+  sessionId: SessionIdSchema,
+  purpose: z.enum(SESSION_PURPOSE_VALUES),
+})
+
+// Knowledge candidates (S6, OUTSIDE the split gate). The activate promote's
+// cross-ledger coupling rules (workspace ⇒ path, keyword ⇒ value) are
+// business guards in record-actions, not superRefine — the discriminated-
+// union member typing edge (the AcceptWorkPackage note applies here too).
+const KnowledgeTriggerInputSchema = z.object({
+  mode: z.enum(['always', 'keyword', 'manual']),
+  value: z.string().max(256).optional(),
+})
+
+const ActivateKnowledgeCandidateSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  action: z.literal('activateKnowledgeCandidate'),
+  id: z.uuid(),
+  knowledge: z.object({
+    scope: z.enum(['global', 'workspace', 'requirement']),
+    type: z.enum(CANDIDATE_TYPE_VALUES),
+    trigger: KnowledgeTriggerInputSchema,
+    path: z.string().min(1).max(4096).optional(),
+  }),
+})
+
+const EditKnowledgeCandidateSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  action: z.literal('editKnowledgeCandidate'),
+  id: z.uuid(),
+  candidate: z.object({
+    title: z.string().trim().min(1).max(64),
+    draft: z.string().max(WORKBENCH_INLINE_MAX_CHARS),
+    type: z.enum(CANDIDATE_TYPE_VALUES),
+  }),
+})
+
+const DismissKnowledgeCandidateSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  action: z.literal('dismissKnowledgeCandidate'),
+  id: z.uuid(),
+})
+
 export const WorkbenchMutateSchema = z.discriminatedUnion('action', [
   AdvanceStageSchema,
   SaveFindingSchema,
@@ -373,6 +426,45 @@ export const WorkbenchMutateSchema = z.discriminatedUnion('action', [
   RestoreWorkPackageSchema,
   SaveCriterionSchema,
   RemoveCriterionSchema,
+  BindSessionSchema,
+  ActivateKnowledgeCandidateSchema,
+  EditKnowledgeCandidateSchema,
+  DismissKnowledgeCandidateSchema,
+])
+
+// ---------------------------------------------------------------------------
+// knowledge.yaml mutate route (P2) — its OWN union and optimistic lock (the
+// ledger is a global asset store; no implicit-record semantics). The wire
+// trigger surface keeps all four modes; the P2 UI only produces three.
+// ---------------------------------------------------------------------------
+
+const SaveKnowledgeSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  action: z.literal('saveKnowledge'),
+  knowledge: z.object({
+    id: z.uuid().optional(),
+    scope: z.enum(['global', 'workspace', 'requirement']),
+    type: z.enum(CANDIDATE_TYPE_VALUES),
+    title: z.string().trim().min(1).max(64),
+    content: z.string().max(WORKBENCH_INLINE_MAX_CHARS),
+    path: z.string().min(1).max(4096).optional(),
+    requirementId: z.uuid().optional(),
+    trigger: z.object({
+      mode: z.enum(['always', 'path', 'keyword', 'manual']),
+      value: z.string().max(256).optional(),
+    }),
+  }),
+})
+
+const ArchiveKnowledgeSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  action: z.literal('archiveKnowledge'),
+  id: z.uuid(),
+})
+
+export const WorkbenchKnowledgeMutateSchema = z.discriminatedUnion('action', [
+  SaveKnowledgeSchema,
+  ArchiveKnowledgeSchema,
 ])
 
 // ---------------------------------------------------------------------------
@@ -383,3 +475,5 @@ export const WorkbenchMutateSchema = z.discriminatedUnion('action', [
 type _ProtocolWorkbenchRecordAssignableToSchema = WorkbenchRecord extends z.infer<typeof WorkbenchRecordSchema> ? true : never
 type _SchemaWorkbenchRecordAssignableToProtocol = z.infer<typeof WorkbenchRecordSchema> extends WorkbenchRecord ? true : never
 type _MutateRequestAligned = WorkbenchMutateRequestBody extends z.infer<typeof WorkbenchMutateSchema> ? true : never
+type _KnowledgeMutateAligned = WorkbenchKnowledgeMutateRequestBody extends z.infer<typeof WorkbenchKnowledgeMutateSchema> ? true : never
+type _KnowledgeRecordAligned = WorkbenchKnowledgeRecord extends z.infer<typeof KnowledgeRecordSchema> ? true : never

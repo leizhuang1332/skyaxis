@@ -31,9 +31,17 @@ import type {
   WorkbenchRecord,
   WorkbenchWorkPackage,
 } from '../workbench-shared/protocol.js'
+import type { KnowledgeRecord } from './types.js'
 
 export type RecordActionResult =
-  | { ok: true; record: WorkbenchRecord }
+  | {
+    ok: true
+    record: WorkbenchRecord
+    /** The applied action changed nothing (idempotent re-run) — the endpoint skips the ledger save, so the revision does not bump. */
+    unchanged?: boolean
+    /** activateKnowledgeCandidate only: the ready-to-upsert knowledge.yaml row (the dual-ledger tail write stays in the endpoint). */
+    knowledgeRow?: KnowledgeRecord
+  }
   | { ok: false; status: number; code: ErrorResponse['code'] }
 
 const NOT_STARTED_STATUSES = ['planned', 'plan-draft', 'plan-approved'] as const
@@ -290,13 +298,129 @@ export function applyRecordAction(base: WorkbenchRecord, body: WorkbenchMutateRe
     return { ok: true, record: { ...base, criteria: [...base.criteria, created] } }
   }
   // removeCriterion — strip the row, strip every covers reference, reproject.
-  if (splitLocked) return fail(400, 'locked-split')
-  if (!base.criteria.some((criterion) => criterion.id === body.id)) return fail(404, 'not-found')
-  const strippedWorkPackages = base.workPackages.map((candidate) =>
-    candidate.covers.includes(body.id) ? { ...candidate, covers: candidate.covers.filter((covered) => covered !== body.id) } : candidate)
-  const remainingCriteria = base.criteria.filter((criterion) => criterion.id !== body.id)
-  return {
-    ok: true,
-    record: { ...base, workPackages: strippedWorkPackages, criteria: recomputeCoveredBy(remainingCriteria, strippedWorkPackages) },
+  if (body.action === 'removeCriterion') {
+    if (splitLocked) return fail(400, 'locked-split')
+    if (!base.criteria.some((criterion) => criterion.id === body.id)) return fail(404, 'not-found')
+    const strippedWorkPackages = base.workPackages.map((candidate) =>
+      candidate.covers.includes(body.id) ? { ...candidate, covers: candidate.covers.filter((covered) => covered !== body.id) } : candidate)
+    const remainingCriteria = base.criteria.filter((criterion) => criterion.id !== body.id)
+    return {
+      ok: true,
+      record: { ...base, workPackages: strippedWorkPackages, criteria: recomputeCoveredBy(remainingCriteria, strippedWorkPackages) },
+    }
   }
+
+  // --- P2: session binding (lifecycle gate family — binding is an
+  // execution-phase association; the list contract must be active). ---
+
+  if (body.action === 'bindSession') {
+    if (base.splitApprovedAt === undefined) return fail(400, 'locked-split')
+    const target = findWorkPackage(body.id)
+    if (target === undefined) return fail(404, 'not-found')
+    if (target.status === 'dropped') return fail(400, 'bad-request')
+    // sessions[] is append-only (research 0006 §7.2「解绑不删历史」): same
+    // session + same purpose re-binds as a no-op; a DIFFERENT purpose is a
+    // client bug (double chips or silent history rewrite — neither flies).
+    if (target.sessions.some((binding) => binding.sessionId === body.sessionId)) {
+      if (target.sessions.some((binding) => binding.sessionId === body.sessionId && binding.purpose === body.purpose)) {
+        return { ok: true, record: base, unchanged: true }
+      }
+      return fail(400, 'bad-request')
+    }
+    const bound: WorkbenchRecord['workPackages'][number]['sessions'][number] = {
+      sessionId: body.sessionId,
+      purpose: body.purpose,
+      boundAt: now(),
+    }
+    return {
+      ok: true,
+      record: replaceWorkPackage(base, { ...target, sessions: [...target.sessions, bound] }),
+    }
+  }
+
+  // --- P2: knowledge candidates (OUTSIDE the split gate — S6 retro spans
+  // the whole lifecycle, closed included; the gate freezes the list ×
+  // coverage contract, not the沉淀 queue). ---
+
+  if (body.action === 'editKnowledgeCandidate') {
+    const target = base.knowledgeCandidates.find((candidate) => candidate.id === body.id)
+    if (target === undefined) return fail(404, 'not-found')
+    if (target.status !== 'pending') return fail(400, 'bad-request')
+    return {
+      ok: true,
+      record: {
+        ...base,
+        knowledgeCandidates: base.knowledgeCandidates.map((candidate) =>
+          candidate.id === body.id ? { ...candidate, ...body.candidate } : candidate),
+      },
+    }
+  }
+  if (body.action === 'dismissKnowledgeCandidate') {
+    const target = base.knowledgeCandidates.find((candidate) => candidate.id === body.id)
+    if (target === undefined) return fail(404, 'not-found')
+    if (target.status === 'promoted') return fail(400, 'bad-request')
+    if (target.status === 'dismissed') return { ok: true, record: base, unchanged: true }
+    return {
+      ok: true,
+      record: {
+        ...base,
+        knowledgeCandidates: base.knowledgeCandidates.map((candidate) =>
+          candidate.id === body.id ? { ...candidate, status: 'dismissed' } : candidate),
+      },
+    }
+  }
+  if (body.action === 'activateKnowledgeCandidate') {
+    const target = base.knowledgeCandidates.find((candidate) => candidate.id === body.id)
+    if (target === undefined) return fail(404, 'not-found')
+    if (target.status === 'dismissed') return fail(400, 'bad-request')
+    // Cross-ledger coupling guards (business layer — see the zod note):
+    // workspace ⇒ path, keyword ⇒ non-empty value; value is stripped for
+    // always/manual so no dirty parameter rides into knowledge.yaml.
+    const input = body.knowledge
+    if (input.scope === 'workspace' && (input.path === undefined || input.path.trim().length === 0)) {
+      return fail(400, 'bad-request')
+    }
+    if (input.trigger.mode === 'keyword' && (input.trigger.value === undefined || input.trigger.value.trim().length === 0)) {
+      return fail(400, 'bad-request')
+    }
+    const normalizedTrigger = input.trigger.mode === 'keyword'
+      ? { mode: 'keyword' as const, value: input.trigger.value!.trim() }
+      : { mode: input.trigger.mode }
+    // The knowledge row this promote projects into knowledge.yaml. The
+    // candidate id IS the row id — activate is an idempotent upsert on the
+    // knowledge ledger; provenance carries the birthplace audit (promote
+    // may change scope, provenance never moves).
+    const knowledgeRow: KnowledgeRecord = {
+      id: target.id,
+      scope: input.scope,
+      type: input.type,
+      title: target.title,
+      content: target.draft,
+      ...(input.scope === 'workspace' ? { path: input.path!.trim() } : {}),
+      ...(input.scope === 'requirement' ? { requirementId: body.requirementId } : {}),
+      trigger: normalizedTrigger,
+      status: 'active',
+      provenance: {
+        requirementId: body.requirementId,
+        ...(target.proposedSessionId !== undefined ? { sessionId: target.proposedSessionId } : {}),
+        at: now(),
+      },
+    }
+    if (target.status === 'promoted') {
+      // Convergence / no-op: the candidate is already promoted — the row
+      // still travels so the endpoint can repair a missing knowledge.yaml
+      // entry (the dual-ledger tail write is the only thing that can lag).
+      return { ok: true, record: base, knowledgeRow, unchanged: true }
+    }
+    return {
+      ok: true,
+      record: {
+        ...base,
+        knowledgeCandidates: base.knowledgeCandidates.map((candidate) =>
+          candidate.id === body.id ? { ...candidate, status: 'promoted' } : candidate),
+      },
+      knowledgeRow,
+    }
+  }
+  return fail(400, 'bad-request')
 }

@@ -30,6 +30,7 @@ import type { HostConnectionHandle } from '@deepseek-ai/dsh-client-connection'
 import { afterEach, describe, expect, it } from 'vitest'
 import type {
   ErrorResponse,
+  KnowledgeCandidate,
   PlanEntry,
   ReviewReportEntry,
   WorkbenchDetailResponseOk,
@@ -47,6 +48,7 @@ import {
 } from '../../src/workbench-shared/protocol.js'
 import { planDocPath, reviewDocPath } from '../../src/workbench-host/artifact-path.js'
 import { contentHashOf } from '../../src/workbench-host/artifact-store.js'
+import { KnowledgeFileStore } from '../../src/workbench-host/knowledge-file.js'
 import { WorkbenchFileStore } from '../../src/workbench-host/workbench-file.js'
 import { registerWorkbenchEndpoints } from '../../src/workbench-host/endpoint.js'
 
@@ -72,6 +74,7 @@ async function harness() {
   const dir = mkdtempSync(join(tmpdir(), 'workbench-endpoint-test-'))
   dirs.push(dir)
   const file = new WorkbenchFileStore(join(dir, 'workbench.yaml'))
+  const knowledgeFile = new KnowledgeFileStore(join(dir, 'knowledge.yaml'))
   const workbenchRoot = join(dir, 'workbench')
   const ctx = new Context()
   const fiber = ctx.plugin((pluginCtx) => {
@@ -79,7 +82,7 @@ async function harness() {
   })
   await fiber.await()
   const connection = ctx.get('connection') as HostConnectionHandle
-  registerWorkbenchEndpoints(connection, { file, workbenchRoot })
+  registerWorkbenchEndpoints(connection, { file, knowledgeFile, workbenchRoot })
   const shared = connection.createSharedFetchHandler('/api')
   disposables.push(() => fiber.dispose())
   const get = (path: string) => shared.fetch(new Request(BASE + path))
@@ -92,7 +95,7 @@ async function harness() {
     if (!saved.ok) throw new Error(`seed failed: ${JSON.stringify(saved)}`)
     return saved.revision
   }
-  return { file, dir, workbenchRoot, get, post, postText, seed }
+  return { file, knowledgeFile, dir, workbenchRoot, get, post, postText, seed }
 }
 
 type Harness = Awaited<ReturnType<typeof harness>>
@@ -978,5 +981,224 @@ describe('POST /api/skyaxis/workbench — gate and status smoke (second knife)',
     const retry = await postPlan(h, { requirementId: RID, workPackageId: 'WP1', expectedRevision: 2 }, 'SAME BODY')
     expect(retry.status).toBe(200)
     expect(await retry.json()).toMatchObject({ ok: true, revision: 2, version: 1 }) // idempotent — no save
+  })
+})
+
+// ---------------------------------------------------------------------------
+// POST /api/skyaxis/workbench — P2 knowledge candidates & session bindings
+// （host 面端到端：双账本 activate、降级前置 409、幂等重试、绑定三面）
+// ---------------------------------------------------------------------------
+
+describe('POST /api/skyaxis/workbench — P2 knowledge candidates & session bindings', () => {
+  const CAND = '55555555-5555-4555-8555-555555555555'
+  const CAND_SEED: KnowledgeCandidate = {
+    id: CAND,
+    title: '候选：大表导出走异步',
+    draft: '大表导出禁止一次全量拉取',
+    type: 'convention',
+    proposedSessionId: 'sess-origin',
+    at: NOW,
+    status: 'pending',
+  }
+  const seedCandidate = async (h: Harness, overrides: Partial<KnowledgeCandidate> = {}) =>
+    h.seed([seedRecord(RID, { knowledgeCandidates: [{ ...CAND_SEED, ...overrides }] })])
+  const activateBody = (expectedRevision: number) => ({
+    expectedRevision,
+    requirementId: RID,
+    action: 'activateKnowledgeCandidate' as const,
+    id: CAND,
+    knowledge: { scope: 'requirement' as const, type: 'convention' as const, trigger: { mode: 'keyword' as const, value: '  导出  ' } },
+  })
+
+  it('activate 端到端双账本：workbench 候选 promoted + knowledge.yaml 行（id=候选 id、trigger 归一化、provenance 带 proposedSessionId）', async () => {
+    const h = await harness()
+    await seedCandidate(h) // workbench revision 1
+
+    const res = await h.post(WORKBENCH_PATH, activateBody(1))
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { ok: true; revision: number; record: WorkbenchRecord }
+    expect(body.revision).toBe(2)
+    expect(body.record.knowledgeCandidates[0]?.status).toBe('promoted')
+
+    const wb = h.file.load()
+    expect(wb.ok).toBe(true)
+    if (wb.ok) expect(wb.value.records[0]?.knowledgeCandidates[0]?.status).toBe('promoted')
+
+    const kb = h.knowledgeFile.load()
+    expect(kb.ok).toBe(true)
+    if (!kb.ok) return
+    expect(kb.value.revision).toBe(1)
+    expect(kb.value.records).toHaveLength(1)
+    expect(kb.value.records[0]).toEqual({
+      id: CAND,
+      scope: 'requirement',
+      type: 'convention',
+      title: '候选：大表导出走异步',
+      content: '大表导出禁止一次全量拉取',
+      requirementId: RID,
+      trigger: { mode: 'keyword', value: '导出' },
+      status: 'active',
+      provenance: { requirementId: RID, sessionId: 'sess-origin', at: expect.any(String) },
+    })
+  })
+
+  it('activate 幂等重试：同 body 再 POST ⇒ 200，workbench revision 不增、行仍单份（replace-or-append 不重复）', async () => {
+    const h = await harness()
+    await seedCandidate(h)
+    const first = await h.post(WORKBENCH_PATH, activateBody(1))
+    expect(first.status).toBe(200)
+
+    // 契约注记：workbench 侧跳过 save（revision 冻结在 2）；knowledge 侧
+    // unchanged 分支仍执行 upsertKnowledgeRow 尾写（fresh-load replace），
+    // 该 store 无 no-op 检测 → knowledge revision 会 +1 且 provenance.at 刷新。
+    // 此处按实现钉住「workbench 不增 + 行不重复 + 候选不再翻转」。
+    const retry = await h.post(WORKBENCH_PATH, activateBody(2))
+    expect(retry.status).toBe(200)
+    const body = (await retry.json()) as { ok: true; revision: number; record: WorkbenchRecord }
+    expect(body.revision).toBe(2) // workbench 侧不增
+    expect(body.record.knowledgeCandidates[0]?.status).toBe('promoted')
+
+    const wb = h.file.load()
+    expect(wb.ok).toBe(true)
+    if (wb.ok) {
+      expect(wb.value.revision).toBe(2) // workbench 文件未被重写
+      expect(wb.value.records[0]?.knowledgeCandidates).toHaveLength(1)
+    }
+
+    const kb = h.knowledgeFile.load()
+    expect(kb.ok).toBe(true)
+    if (kb.ok) expect(kb.value.records).toHaveLength(1) // 行不重复（by-id replace）
+  })
+
+  it('promoted 重试补写缺失的 knowledge 行（tail-write repair）：workbench 零改动，行落盘', async () => {
+    const h = await harness()
+    await seedCandidate(h, { status: 'promoted' }) // workbench revision 1；knowledge.yaml 不存在（pristine）
+
+    const res = await h.post(WORKBENCH_PATH, activateBody(1))
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { ok: true; revision: number }
+    expect(body.revision).toBe(1) // workbench 不增
+
+    const kb = h.knowledgeFile.load()
+    expect(kb.ok).toBe(true)
+    if (!kb.ok) return
+    expect(kb.value.revision).toBe(1)
+    expect(kb.value.records[0]?.id).toBe(CAND)
+  })
+
+  it('knowledge 账本降级 ⇒ activate 409 unreadable-file 且 workbench 候选仍 pending（save 前置检查，零改动）', async () => {
+    const h = await harness()
+    await seedCandidate(h)
+    writeFileSync(h.knowledgeFile.filePath, 'broken: [', 'utf8')
+
+    const res = await h.post(WORKBENCH_PATH, activateBody(1))
+    expect(res.status).toBe(409)
+    expect(await errorCode(res)).toBe('unreadable-file')
+
+    const detail = (await (await h.get(`${WORKBENCH_PATH}?requirementId=${RID}`)).json()) as WorkbenchDetailResponseOk
+    expect(detail.record?.knowledgeCandidates[0]?.status).toBe('pending') // 未被推进
+
+    const wb = h.file.load()
+    expect(wb.ok).toBe(true)
+    if (wb.ok) expect(wb.value.revision).toBe(1) // 账本零改动
+  })
+
+  it('activate 未知候选 ⇒ 404（两账本零落笔）', async () => {
+    const h = await harness()
+    await seedCandidate(h)
+    const res = await h.post(WORKBENCH_PATH, { ...activateBody(1), id: GHOST })
+    expect(res.status).toBe(404)
+    expect(await errorCode(res)).toBe('not-found')
+    const wb = h.file.load()
+    expect(wb.ok).toBe(true)
+    if (wb.ok) expect(wb.value.revision).toBe(1)
+    expect(h.knowledgeFile.load()).toEqual({ ok: true, value: { version: 1, revision: 0, records: [] } })
+  })
+
+  it('activate workspace scope：path trim 落 knowledge 行', async () => {
+    const h = await harness()
+    await seedCandidate(h)
+    const res = await h.post(WORKBENCH_PATH, {
+      expectedRevision: 1,
+      requirementId: RID,
+      action: 'activateKnowledgeCandidate',
+      id: CAND,
+      knowledge: { scope: 'workspace', type: 'business', trigger: { mode: 'always' }, path: '  C:/repos/main  ' },
+    })
+    expect(res.status).toBe(200)
+
+    const kb = h.knowledgeFile.load()
+    expect(kb.ok).toBe(true)
+    if (kb.ok) {
+      expect(kb.value.records[0]?.scope).toBe('workspace')
+      expect(kb.value.records[0]?.path).toBe('C:/repos/main')
+    }
+  })
+
+  it('activate 候选无 proposedSessionId：provenance 不带 sessionId 键', async () => {
+    const h = await harness()
+    await seedCandidate(h, { proposedSessionId: undefined })
+    const res = await h.post(WORKBENCH_PATH, {
+      expectedRevision: 1,
+      requirementId: RID,
+      action: 'activateKnowledgeCandidate',
+      id: CAND,
+      knowledge: { scope: 'global', type: 'convention', trigger: { mode: 'always' } },
+    })
+    expect(res.status).toBe(200)
+
+    const kb = h.knowledgeFile.load()
+    expect(kb.ok).toBe(true)
+    if (kb.ok) {
+      expect(kb.value.records[0]?.provenance).toEqual({ requirementId: RID, at: expect.any(String) })
+      expect('sessionId' in (kb.value.records[0]?.provenance ?? {})).toBe(false)
+    }
+  })
+
+  it('bindSession：split 未批 ⇒ 400 locked-split', async () => {
+    const h = await harness()
+    await h.seed([seedRecord(RID, { workPackages: [seedWorkPackage('WP1')] })])
+
+    const res = await h.post(WORKBENCH_PATH, { expectedRevision: 1, requirementId: RID, action: 'bindSession', id: 'WP1', sessionId: 'sess-a', purpose: 'dev' })
+    expect(res.status).toBe(400)
+    expect(await errorCode(res)).toBe('locked-split')
+  })
+
+  it('bindSession：批准后 append 落盘；重复绑定 200 且 revision 不增、不产生第二行', async () => {
+    const h = await harness()
+    await h.seed([seedRecord(RID, { splitApprovedAt: NOW, workPackages: [seedWorkPackage('WP1')] })]) // revision 1
+
+    const first = await h.post(WORKBENCH_PATH, { expectedRevision: 1, requirementId: RID, action: 'bindSession', id: 'WP1', sessionId: 'sess-a', purpose: 'dev' })
+    expect(first.status).toBe(200)
+    const firstBody = (await first.json()) as { ok: true; revision: number; record: WorkbenchRecord }
+    expect(firstBody.revision).toBe(2)
+    expect(firstBody.record.workPackages[0]?.sessions).toEqual([{ sessionId: 'sess-a', purpose: 'dev', boundAt: expect.any(String) }])
+
+    const retry = await h.post(WORKBENCH_PATH, { expectedRevision: 2, requirementId: RID, action: 'bindSession', id: 'WP1', sessionId: 'sess-a', purpose: 'dev' })
+    expect(retry.status).toBe(200)
+    expect(((await retry.json()) as { revision: number }).revision).toBe(2) // 幂等：revision 不增
+
+    const loaded = h.file.load()
+    expect(loaded.ok).toBe(true)
+    if (loaded.ok) {
+      expect(loaded.value.revision).toBe(2)
+      expect(loaded.value.records[0]?.workPackages[0]?.sessions).toHaveLength(1)
+    }
+  })
+
+  it('bindSession：同 sessionId 异 purpose ⇒ 400 bad-request（账本不动）', async () => {
+    const h = await harness()
+    await h.seed([seedRecord(RID, {
+      splitApprovedAt: NOW,
+      workPackages: [seedWorkPackage('WP1', { sessions: [{ sessionId: 'sess-a', purpose: 'dev', boundAt: NOW }] })],
+    })])
+
+    const res = await h.post(WORKBENCH_PATH, { expectedRevision: 1, requirementId: RID, action: 'bindSession', id: 'WP1', sessionId: 'sess-a', purpose: 'analysis' })
+    expect(res.status).toBe(400)
+    expect(await errorCode(res)).toBe('bad-request')
+
+    const loaded = h.file.load()
+    expect(loaded.ok).toBe(true)
+    if (loaded.ok) expect(loaded.value.revision).toBe(1) // 被拒写入零残留
   })
 })

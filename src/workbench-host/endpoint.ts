@@ -38,11 +38,15 @@ import { planDocPath, reviewDocPath } from './artifact-path.js'
 import { ArtifactStore, contentHashOf } from './artifact-store.js'
 import { scanWorkbenchArtifacts } from './orphan-scan.js'
 import { applyRecordAction } from './record-actions.js'
+import type { KnowledgeFileStore } from './knowledge-file.js'
+import type { KnowledgeRecord } from './types.js'
 import type { WorkbenchFileStore } from './workbench-file.js'
 import { WorkbenchMutateSchema } from './types.js'
 
 export interface WorkbenchEndpointServices {
   readonly file: WorkbenchFileStore
+  /** knowledge.yaml store — consumed by the activate-candidate dual-ledger tail write (P2). */
+  readonly knowledgeFile: KnowledgeFileStore
   /** $DSH_HOME/skyaxis/workbench — the artifacts root. */
   readonly workbenchRoot: string
   /** Host log face for unexpected handler failures (500s). */
@@ -173,6 +177,24 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     if (!applied.ok) return errorResponse(applied.status, applied.code)
     const next = applied.record
 
+    // Dual-ledger activate (P2): the candidate row for knowledge.yaml rides
+    // on the result. Readability is a PRE-check — knowledge degraded ⇒ 409
+    // with the workbench ledger untouched (no promote without its projection).
+    if (applied.knowledgeRow !== undefined) {
+      const knowledge = services.knowledgeFile.load()
+      if (!knowledge.ok) return errorResponse(409, 'unreadable-file')
+    }
+
+    // Idempotent no-op (repeat bind / repeat dismiss / promoted-already):
+    // skip the ledger save — the revision must not bump for nothing.
+    if (applied.unchanged === true) {
+      if (applied.knowledgeRow !== undefined) {
+        const repair = await upsertKnowledgeRow(services.knowledgeFile, applied.knowledgeRow, log)
+        if (!repair) return errorResponse(500, 'internal')
+      }
+      return json({ ok: true, revision: current.value.revision, record: next })
+    }
+
     const nextRecords = existing === undefined
       ? [...current.value.records, next]
       : current.value.records.map((candidate) => (candidate.requirementId === body.requirementId ? next : candidate))
@@ -183,6 +205,14 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
           return errorResponse(409, 'conflict', { currentRevision: saved.currentRevision })
         }
         return errorResponse(409, 'unreadable-file')
+      }
+      // Tail write (the D6-cascade discipline): the workbench ledger is
+      // committed and authoritative; the knowledge.yaml upsert is a
+      // best-effort projection. A failure answers 500 (retry converges via
+      // the unchanged branch above — candidate promoted + row missing).
+      if (applied.knowledgeRow !== undefined) {
+        const projected = await upsertKnowledgeRow(services.knowledgeFile, applied.knowledgeRow, log)
+        if (!projected) return errorResponse(500, 'internal')
       }
       return json({ ok: true, revision: saved.revision, record: next })
     } catch (error) {
@@ -459,4 +489,60 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
 /** The records array with `next` replacing the requirement's row. */
 function withRecord(records: readonly WorkbenchRecord[], requirementId: string, next: WorkbenchRecord): readonly WorkbenchRecord[] {
   return records.map((candidate) => (candidate.requirementId === requirementId ? next : candidate))
+}
+
+/**
+ * knowledge.yaml idempotent upsert by row id (the dual-ledger promote's tail
+ * write): replace-or-append under a FRESH load's revision (the tail never
+ * trusts the client's expectedRevision — that key belongs to workbench.yaml).
+ */
+async function upsertKnowledgeRow(
+  knowledgeFile: KnowledgeFileStore,
+  row: KnowledgeRecord,
+  log?: (error: unknown) => void,
+): Promise<boolean> {
+  try {
+    const current = knowledgeFile.load()
+    if (!current.ok) {
+      log?.(new Error('knowledge tail write skipped: degraded ledger'))
+      return false
+    }
+    // Row-equivalence short-circuit: a byte-identical retry (the unchanged
+    // branch re-mints provenance.at each call, so compare the IDENTITY-
+    // meaningful fields) must not bump the knowledge revision either — the
+    // idempotent-convergence contract covers BOTH ledgers.
+    const existing = current.value.records.find((candidate) => candidate.id === row.id)
+    if (existing !== undefined && knowledgeRowEquivalent(existing, row)) return true
+    const nextRecords = existing !== undefined
+      ? current.value.records.map((candidate) => (candidate.id === row.id ? row : candidate))
+      : [...current.value.records, row]
+    const saved = await knowledgeFile.save(current.value.revision, nextRecords)
+    if (!saved.ok) {
+      log?.(new Error(`knowledge tail write rejected: ${saved.rejected}`))
+      return false
+    }
+    return true
+  } catch (error) {
+    log?.(error)
+    return false
+  }
+}
+
+/**
+ * Identity-field equivalence for the activate upsert short-circuit: the
+ * re-minted provenance.at (and provenance.sessionId when the candidate
+ * gained one) is intentionally excluded — a retry refreshing the timestamp
+ * alone is NOT a data change and must not write.
+ */
+function knowledgeRowEquivalent(a: KnowledgeRecord, b: KnowledgeRecord): boolean {
+  return a.id === b.id
+    && a.scope === b.scope
+    && a.type === b.type
+    && a.title === b.title
+    && a.content === b.content
+    && a.path === b.path
+    && a.requirementId === b.requirementId
+    && a.trigger.mode === b.trigger.mode
+    && a.trigger.value === b.trigger.value
+    && a.status === b.status
 }

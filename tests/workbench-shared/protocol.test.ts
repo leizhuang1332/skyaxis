@@ -12,10 +12,13 @@ import type {
   KnowledgeCandidate,
   WorkbenchFinding,
   WorkbenchCriterion,
+  WorkbenchKnowledgeRecord,
   WorkbenchWorkPackage,
   WorkbenchRecord,
 } from '../../src/workbench-shared/protocol.js'
 import {
+  KNOWLEDGE_INJECTION_MAX_BYTES,
+  KNOWLEDGE_INJECTION_MAX_ENTRIES,
   WORKBENCH_INLINE_MAX_CHARS,
   WORKBENCH_STAGES,
   isArtifactContentResponse,
@@ -25,6 +28,9 @@ import {
   isPlanVersion,
   isReviewId,
   isWorkbenchDetailResponse,
+  isWorkbenchKnowledgeListResponse,
+  isWorkbenchKnowledgeRecord,
+  isWorkbenchKnowledgeSaveResponseOk,
   isWorkbenchListResponse,
   isWorkbenchRecord,
   isWorkbenchSaveResponseOk,
@@ -314,5 +320,62 @@ describe('envelope guards', () => {
     expect(isErrorResponse({ ok: false, code: 'conflict', currentRevision: 7 })).toBe(true)
     expect(isErrorResponse({ ok: false, code: 'conflict', currentRevision: '7' })).toBe(false)
     expect(isErrorResponse({ code: 'conflict' })).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// P2 knowledge guards + 注入常量（scope 耦合按 repos-pool addressSlotOk 先例）
+// ---------------------------------------------------------------------------
+
+describe('knowledge guards + injection constants (P2)', () => {
+  function kbRow(overrides: Partial<WorkbenchKnowledgeRecord> = {}): WorkbenchKnowledgeRecord {
+    return {
+      id: '33333333-3333-4333-8333-333333333333',
+      scope: 'global',
+      type: 'business',
+      title: '异步导出约定',
+      content: '大表禁止全量拉取',
+      trigger: { mode: 'always' },
+      status: 'active',
+      provenance: { at: AT },
+      ...overrides,
+    }
+  }
+
+  it('isWorkbenchKnowledgeRecord：三 scope 正例（workspace 带 path / requirement 带 requirementId）', () => {
+    expect(isWorkbenchKnowledgeRecord(kbRow())).toBe(true)
+    expect(isWorkbenchKnowledgeRecord(kbRow({ scope: 'workspace', path: 'C:/repos/main' }))).toBe(true)
+    expect(isWorkbenchKnowledgeRecord(kbRow({ scope: 'requirement', requirementId: RID }))).toBe(true)
+  })
+
+  it('scope 耦合反例：workspace 无 path / requirement 无 requirementId ⇒ 拒', () => {
+    expect(isWorkbenchKnowledgeRecord(kbRow({ scope: 'workspace' }))).toBe(false)
+    expect(isWorkbenchKnowledgeRecord(kbRow({ scope: 'requirement' }))).toBe(false)
+  })
+
+  it('trigger 坏 mode 拒；status 坏值拒；provenance 缺 at 拒', () => {
+    expect(isWorkbenchKnowledgeRecord(kbRow({ trigger: { mode: 'cron' as never } }))).toBe(false)
+    expect(isWorkbenchKnowledgeRecord(kbRow({ trigger: { mode: 'keyword' } }))).toBe(true) // value 可缺席（mode 决定消费）
+    expect(isWorkbenchKnowledgeRecord(kbRow({ status: 'draft' as never }))).toBe(false)
+    expect(isWorkbenchKnowledgeRecord({ ...kbRow(), provenance: { sessionId: 'sess-1' } })).toBe(false)
+  })
+
+  it('isWorkbenchKnowledgeListResponse：ok / degraded 双臂', () => {
+    expect(isWorkbenchKnowledgeListResponse({ ok: true, revision: 3, records: [kbRow()] })).toBe(true)
+    expect(isWorkbenchKnowledgeListResponse({ ok: true, revision: 3, records: [kbRow({ status: 'bogus' as never })] })).toBe(false)
+    expect(isWorkbenchKnowledgeListResponse({ ok: false, degraded: true, reason: 'schema', hasBackup: true })).toBe(true)
+    expect(isWorkbenchKnowledgeListResponse({ ok: false, degraded: true, reason: 'weird', hasBackup: false })).toBe(false)
+    expect(isWorkbenchKnowledgeListResponse({ ok: false, degraded: true, hasBackup: false })).toBe(false)
+  })
+
+  it('isWorkbenchKnowledgeSaveResponseOk', () => {
+    expect(isWorkbenchKnowledgeSaveResponseOk({ ok: true, revision: 2, record: kbRow() })).toBe(true)
+    expect(isWorkbenchKnowledgeSaveResponseOk({ ok: true, revision: 2, record: kbRow({ scope: 'workspace' }) })).toBe(false)
+    expect(isWorkbenchKnowledgeSaveResponseOk({ ok: true, revision: 2 })).toBe(false)
+  })
+
+  it('注入常量钉值（SOW：8 条 / 8192 字节）', () => {
+    expect(KNOWLEDGE_INJECTION_MAX_ENTRIES).toBe(8)
+    expect(KNOWLEDGE_INJECTION_MAX_BYTES).toBe(8192)
   })
 })

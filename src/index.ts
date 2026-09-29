@@ -30,6 +30,7 @@ import { CloneTaskRegistry } from './requirements-host/clone.js'
 import { RequirementWorkspaceBinder } from './requirements-host/workspace.js'
 import { WorkbenchCascadeService } from './workbench-host/cascade-service.js'
 import { registerWorkbenchEndpoints } from './workbench-host/endpoint.js'
+import { registerWorkbenchKnowledgeEndpoints } from './workbench-host/knowledge-endpoint.js'
 import { KnowledgeFileStore } from './workbench-host/knowledge-file.js'
 import { WorkbenchFileStore } from './workbench-host/workbench-file.js'
 
@@ -99,7 +100,12 @@ export function apply(ctx: Context): void {
     })
     registerWorkbenchEndpoints(scope.connection, {
       file: workbenchFile,
+      knowledgeFile,
       workbenchRoot,
+      log: (error) => ctx.logger.error(error),
+    })
+    registerWorkbenchKnowledgeEndpoints(scope.connection, {
+      file: knowledgeFile,
       log: (error) => ctx.logger.error(error),
     })
   })

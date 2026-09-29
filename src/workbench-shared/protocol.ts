@@ -431,6 +431,59 @@ export interface RemoveCriterionRequest {
   readonly id: string
 }
 
+// --- Session bindings (P2: manual binding from the S3 detail dialog) ---
+
+export interface BindSessionRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'bindSession'
+  readonly id: string
+  /** Host-minted binding row {sessionId, purpose, boundAt}; sessions[] is append-only (no unbind). */
+  readonly sessionId: string
+  readonly purpose: 'analysis' | 'dev' | 'review'
+}
+
+// --- Knowledge candidates (S6; OUTSIDE the split gate — retro spans the
+// whole lifecycle. Activate is the dual-ledger promote: candidate → promoted
+// in workbench.yaml (this union's optimistic lock) + an active row in
+// knowledge.yaml as a best-effort tail write keyed by the SAME id.) ---
+
+export interface ActivateKnowledgeCandidateRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'activateKnowledgeCandidate'
+  /** Candidate uuid — becomes the knowledge row's id (the idempotent-promote link). */
+  readonly id: string
+  readonly knowledge: {
+    /** P2 UI offers global | requirement only (workspace joins path triggering in P5). */
+    readonly scope: 'global' | 'workspace' | 'requirement'
+    readonly type: 'business' | 'convention'
+    /** mode 'path' is P5 (same deferred face as workspace scope). */
+    readonly trigger: { readonly mode: 'always' | 'keyword' | 'manual'; readonly value?: string }
+    /** workspace scope only — required when scope is 'workspace'. */
+    readonly path?: string
+  }
+}
+
+export interface EditKnowledgeCandidateRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'editKnowledgeCandidate'
+  readonly id: string
+  readonly candidate: {
+    readonly title: string
+    readonly draft: string
+    readonly type: 'business' | 'convention'
+  }
+}
+
+export interface DismissKnowledgeCandidateRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'dismissKnowledgeCandidate'
+  readonly id: string
+}
+
 export type WorkbenchMutateRequestBody =
   | AdvanceStageRequest
   | SaveFindingRequest
@@ -449,6 +502,97 @@ export type WorkbenchMutateRequestBody =
   | RestoreWorkPackageRequest
   | SaveCriterionRequest
   | RemoveCriterionRequest
+  | BindSessionRequest
+  | ActivateKnowledgeCandidateRequest
+  | EditKnowledgeCandidateRequest
+  | DismissKnowledgeCandidateRequest
+
+// ---------------------------------------------------------------------------
+// Knowledge base (P2) — a SEPARATE route with its own action union and its
+// own optimistic lock: knowledge.yaml is a global asset store, not a
+// per-requirement ledger (no implicit-record semantics; a different revision
+// space). The activate-promote above is the ONLY cross-ledger action and it
+// treats knowledge.yaml as a tail-write projection.
+// ---------------------------------------------------------------------------
+
+/** One active/archived knowledge row on the wire (host KnowledgeRecord mirrored). */
+export interface WorkbenchKnowledgeRecord {
+  readonly id: string
+  readonly scope: 'global' | 'workspace' | 'requirement'
+  readonly type: 'business' | 'convention'
+  readonly title: string
+  /** Inline ledger text — capped by WORKBENCH_INLINE_MAX_CHARS (D4-⑤). */
+  readonly content: string
+  /** workspace-scope ownership key. */
+  readonly path?: string
+  /** requirement-scope ownership key (what the D6 cascade filters on). */
+  readonly requirementId?: string
+  readonly trigger: {
+    readonly mode: 'always' | 'path' | 'keyword' | 'manual'
+    readonly value?: string
+  }
+  readonly status: 'active' | 'archived'
+  readonly provenance: {
+    readonly requirementId?: string
+    readonly sessionId?: string
+    readonly at: string
+  }
+}
+
+export interface WorkbenchKnowledgeListResponseOk {
+  readonly ok: true
+  readonly revision: number
+  /**
+   * Filtered by the query: scope==='requirement' && requirementId match ∪
+   * scope==='global' (the user-ratified P2 view; workspace rows join P5
+   * path matching). Both statuses travel; the client filters active.
+   */
+  readonly records: readonly WorkbenchKnowledgeRecord[]
+}
+
+export interface WorkbenchKnowledgeListResponseDegraded {
+  readonly ok: false
+  readonly degraded: true
+  readonly reason: 'parse' | 'schema' | 'io'
+  readonly hasBackup: boolean
+}
+
+export type WorkbenchKnowledgeListResponse = WorkbenchKnowledgeListResponseOk | WorkbenchKnowledgeListResponseDegraded
+
+export interface WorkbenchKnowledgeSaveResponseOk {
+  readonly ok: true
+  readonly revision: number
+  readonly record: WorkbenchKnowledgeRecord
+}
+
+export interface SaveKnowledgeRequest {
+  readonly expectedRevision: number
+  readonly action: 'saveKnowledge'
+  /** Absent = manual create (host mints a uuid, status 'active'); present = full-row replace edit. */
+  readonly knowledge: {
+    readonly id?: string
+    readonly scope: 'global' | 'workspace' | 'requirement'
+    readonly type: 'business' | 'convention'
+    readonly title: string
+    readonly content: string
+    readonly path?: string
+    readonly requirementId?: string
+    /** Full four-mode surface: path arrives with its P5 consumers, no wire churn later. */
+    readonly trigger: { readonly mode: 'always' | 'path' | 'keyword' | 'manual'; readonly value?: string }
+  }
+}
+
+export interface ArchiveKnowledgeRequest {
+  readonly expectedRevision: number
+  readonly action: 'archiveKnowledge'
+  readonly id: string
+}
+
+export type WorkbenchKnowledgeMutateRequestBody = SaveKnowledgeRequest | ArchiveKnowledgeRequest
+
+/** SOW knowledge-injection caps (client-side assembly v1; mechanism fixed, values adjustable). */
+export const KNOWLEDGE_INJECTION_MAX_ENTRIES = 8
+export const KNOWLEDGE_INJECTION_MAX_BYTES = 8 * 1024
 
 // ---------------------------------------------------------------------------
 // Artifact documents flow — WORKBENCH_ARTIFACTS_PATH, query-discriminated,
@@ -474,6 +618,7 @@ export type WorkbenchMutateRequestBody =
 export const WORKBENCH_PATH = '/api/skyaxis/workbench'
 export const WORKBENCH_ARTIFACTS_PATH = '/api/skyaxis/workbench/artifacts'
 export const WORKBENCH_SCAN_PATH = '/api/skyaxis/workbench/scan'
+export const WORKBENCH_KNOWLEDGE_PATH = '/api/skyaxis/workbench/knowledge'
 
 // ---------------------------------------------------------------------------
 // Wire envelopes
@@ -904,4 +1049,57 @@ export function isErrorResponse(v: unknown): v is ErrorResponse {
     && isString(r.code)
     && (r.currentRevision === undefined || typeof r.currentRevision === 'number')
   )
+}
+
+// ---------------------------------------------------------------------------
+// Knowledge guards (browser side) — scope-coupled like the repos-pool
+// addressSlotOk precedent: workspace ⇒ path present, requirement ⇒
+// requirementId present; a row whose scope and keys disagree collapses to a
+// guard failure instead of joining halfway in the UI.
+// ---------------------------------------------------------------------------
+
+const KNOWLEDGE_SCOPES = ['global', 'workspace', 'requirement']
+const KNOWLEDGE_TYPES = ['business', 'convention']
+const KNOWLEDGE_TRIGGER_MODES = ['always', 'path', 'keyword', 'manual']
+const KNOWLEDGE_STATUSES = ['active', 'archived']
+
+export function isWorkbenchKnowledgeRecord(v: unknown): v is WorkbenchKnowledgeRecord {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  if (!isString(r.id) || r.id.length === 0) return false
+  if (!isString(r.scope) || !KNOWLEDGE_SCOPES.includes(r.scope)) return false
+  if (!isString(r.type) || !KNOWLEDGE_TYPES.includes(r.type)) return false
+  if (!isString(r.title) || r.title.length === 0) return false
+  if (!isString(r.content)) return false
+  if (r.scope === 'workspace' && !isString(r.path)) return false
+  if (r.scope === 'requirement' && !isString(r.requirementId)) return false
+  if (typeof r.trigger !== 'object' || r.trigger === null) return false
+  const trigger = r.trigger as Record<string, unknown>
+  if (!isString(trigger.mode) || !KNOWLEDGE_TRIGGER_MODES.includes(trigger.mode)) return false
+  if (trigger.value !== undefined && !isString(trigger.value)) return false
+  if (!isString(r.status) || !KNOWLEDGE_STATUSES.includes(r.status)) return false
+  if (typeof r.provenance !== 'object' || r.provenance === null) return false
+  const provenance = r.provenance as Record<string, unknown>
+  return (provenance.requirementId === undefined || isString(provenance.requirementId))
+    && (provenance.sessionId === undefined || isString(provenance.sessionId))
+    && isString(provenance.at) && provenance.at.length > 0
+}
+
+export function isWorkbenchKnowledgeListResponse(v: unknown): v is WorkbenchKnowledgeListResponse {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  if (r.ok === true) {
+    return typeof r.revision === 'number' && Array.isArray(r.records) && r.records.every(isWorkbenchKnowledgeRecord)
+  }
+  return (
+    r.ok === false && r.degraded === true
+    && (r.reason === 'parse' || r.reason === 'schema' || r.reason === 'io')
+    && typeof r.hasBackup === 'boolean'
+  )
+}
+
+export function isWorkbenchKnowledgeSaveResponseOk(v: unknown): v is WorkbenchKnowledgeSaveResponseOk {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  return r.ok === true && typeof r.revision === 'number' && isWorkbenchKnowledgeRecord(r.record)
 }
