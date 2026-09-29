@@ -71,12 +71,12 @@ export function createWorkbenchController(store: WorkbenchStore, fetcher: Workbe
     patchSlot(requirementId, { banner: failureBanner(result), ...(staysReady ? {} : { phase: 'load-error' }) })
   }
 
-  function failureBanner(result: WorkbenchFailure): { code: 'conflict' | 'network' | 'unreadable-file' | 'not-found' | 'bad-request' | 'internal'; revision?: number } {
+  function failureBanner(result: WorkbenchFailure): { code: 'conflict' | 'network' | 'unreadable-file' | 'not-found' | 'bad-request' | 'internal' | 'locked-split' | 'locked-version'; revision?: number } {
     if (result.kind === 'network') return { code: 'network' }
     if (result.status === 409 && result.code === 'conflict') return { code: 'conflict', revision: result.currentRevision }
     if (result.status === 409) return { code: 'unreadable-file' }
     if (result.status === 404) return { code: 'not-found' }
-    if (result.code !== undefined) return { code: result.code as 'bad-request' | 'internal' }
+    if (result.code !== undefined) return { code: result.code as 'bad-request' | 'internal' | 'locked-split' | 'locked-version' }
     return { code: 'internal' }
   }
 
@@ -96,23 +96,79 @@ export function createWorkbenchController(store: WorkbenchStore, fetcher: Workbe
     return false
   }
 
+  /** Revision the slot currently holds (0 for an unloaded slot — implicit-create actions still land). */
+  const slotRevision = (requirementId: string): number =>
+    store.getSnapshot().byRequirement[requirementId]?.revision ?? 0
+
   return {
     open,
     advanceStage: (requirementId: string, stage: WorkbenchRecord['stage'], signal?: AbortSignal) =>
-      mutate(requirementId, () => {
-        const revision = store.getSnapshot().byRequirement[requirementId]?.revision ?? 0
-        return fetcher.advanceStage(requirementId, revision, stage, undefined, signal)
-      }, signal),
+      mutate(requirementId, () => fetcher.advanceStage(requirementId, slotRevision(requirementId), stage, undefined, signal), signal),
     saveFinding: (requirementId: string, finding: Omit<WorkbenchFinding, 'id' | 'createdAt'> & { id?: string }, signal?: AbortSignal) =>
-      mutate(requirementId, () => {
-        const revision = store.getSnapshot().byRequirement[requirementId]?.revision ?? 0
-        return fetcher.saveFinding(requirementId, revision, finding, signal)
-      }, signal),
+      mutate(requirementId, () => fetcher.saveFinding(requirementId, slotRevision(requirementId), finding, signal), signal),
     removeFinding: (requirementId: string, id: string, signal?: AbortSignal) =>
-      mutate(requirementId, () => {
-        const revision = store.getSnapshot().byRequirement[requirementId]?.revision ?? 0
-        return fetcher.removeFinding(requirementId, revision, id, signal)
-      }, signal),
+      mutate(requirementId, () => fetcher.removeFinding(requirementId, slotRevision(requirementId), id, signal), signal),
+
+    // Work-package CRUD (hard gate ①).
+    saveWorkPackage: (requirementId: string, workPackage: { id?: string; title: string; boundary: string; dependsOn: readonly string[]; parallel?: boolean; covers: readonly string[] }, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.saveWorkPackage(requirementId, slotRevision(requirementId), workPackage, signal), signal),
+    removeWorkPackage: (requirementId: string, id: string, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.removeWorkPackage(requirementId, slotRevision(requirementId), id, signal), signal),
+    moveWorkPackage: (requirementId: string, id: string, direction: 'up' | 'down', signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.moveWorkPackage(requirementId, slotRevision(requirementId), id, direction, signal), signal),
+
+    // Hard gates + state machine.
+    approveSplit: (requirementId: string, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.approveSplit(requirementId, slotRevision(requirementId), signal), signal),
+    revokeSplitApproval: (requirementId: string, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.revokeSplitApproval(requirementId, slotRevision(requirementId), signal), signal),
+    approvePlan: (requirementId: string, id: string, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.approvePlan(requirementId, slotRevision(requirementId), id, signal), signal),
+    startWorkPackage: (requirementId: string, id: string, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.startWorkPackage(requirementId, slotRevision(requirementId), id, signal), signal),
+    markWorkPackageBuilt: (requirementId: string, id: string, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.markWorkPackageBuilt(requirementId, slotRevision(requirementId), id, signal), signal),
+    acceptWorkPackage: (requirementId: string, id: string, result: 'pass' | 'fail', note?: string, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.acceptWorkPackage(requirementId, slotRevision(requirementId), id, result, note, signal), signal),
+    reopenWorkPackage: (requirementId: string, id: string, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.reopenWorkPackage(requirementId, slotRevision(requirementId), id, signal), signal),
+    dropWorkPackage: (requirementId: string, id: string, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.dropWorkPackage(requirementId, slotRevision(requirementId), id, signal), signal),
+
+    // Criteria.
+    saveCriterion: (requirementId: string, criterion: { id?: string; text: string; sourceSection?: string }, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.saveCriterion(requirementId, slotRevision(requirementId), criterion, signal), signal),
+    removeCriterion: (requirementId: string, id: string, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.removeCriterion(requirementId, slotRevision(requirementId), id, signal), signal),
+
+    /**
+     * Plan draft write: the artifact endpoint answers with the revision but
+     * NOT the record (the ledger side-effect runs there — plans append /
+     * status flips). Patch the revision, then re-pull the slot so the UI
+     * converges with the ledger in one round trip. Locked-* 400s only move
+     * the banner — the generic self-heal (409/404) already covers races.
+     */
+    writePlan: async (requirementId: string, workPackageId: string, text: string, signal?: AbortSignal): Promise<boolean> => {
+      patchSlot(requirementId, { busy: true })
+      const result = await fetcher.writePlan(requirementId, workPackageId, text, slotRevision(requirementId), undefined, signal)
+      if (!alive(result)) return false
+      if (result.kind === 'ok') {
+        patchSlot(requirementId, { busy: false, revision: result.revision, banner: undefined })
+        await open(requirementId, signal)
+        return true
+      }
+      patchSlot(requirementId, { busy: false, banner: failureBanner(result) })
+      if (result.kind === 'http-error' && (result.status === 409 || result.status === 404)) {
+        await open(requirementId, signal)
+      }
+      return false
+    },
+
+    planContent: async (requirementId: string, workPackageId: string, version: number, signal?: AbortSignal) => {
+      const result = await fetcher.planContent(requirementId, workPackageId, version, signal)
+      return alive(result) ? result : undefined
+    },
+
     dismissBanner: (requirementId: string) => patchSlot(requirementId, { banner: undefined }),
     dispose: () => {
       disposed = true

@@ -22,7 +22,7 @@ export interface RequirementWorkbenchState {
   degraded?: { reason: 'parse' | 'schema' | 'io'; hasBackup: boolean }
   busy: boolean
   banner?: {
-    code: 'conflict' | 'network' | 'unreadable-file' | 'not-found' | 'bad-request' | 'internal'
+    code: 'conflict' | 'network' | 'unreadable-file' | 'not-found' | 'bad-request' | 'internal' | 'locked-split' | 'locked-version'
     revision?: number
   }
 }

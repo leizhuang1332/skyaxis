@@ -143,6 +143,64 @@ export function createWorkbenchFetcher() {
       return this.mutate({ expectedRevision, requirementId, action: 'saveFinding', finding: { ...finding } }, signal)
     },
 
+    // --- Work-package CRUD (hard gate ①: pre-approval only) ---
+
+    async saveWorkPackage(requirementId: string, expectedRevision: number, workPackage: { id?: string; title: string; boundary: string; dependsOn: readonly string[]; parallel?: boolean; covers: readonly string[] }, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'saveWorkPackage', workPackage: { ...workPackage } }, signal)
+    },
+
+    async removeWorkPackage(requirementId: string, expectedRevision: number, id: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'removeWorkPackage', id }, signal)
+    },
+
+    async moveWorkPackage(requirementId: string, expectedRevision: number, id: string, direction: 'up' | 'down', signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'moveWorkPackage', id, direction }, signal)
+    },
+
+    // --- Hard gates ① (split) and the work-package state machine ---
+
+    async approveSplit(requirementId: string, expectedRevision: number, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'approveSplit' }, signal)
+    },
+
+    async revokeSplitApproval(requirementId: string, expectedRevision: number, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'revokeSplitApproval' }, signal)
+    },
+
+    async approvePlan(requirementId: string, expectedRevision: number, id: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'approvePlan', id }, signal)
+    },
+
+    async startWorkPackage(requirementId: string, expectedRevision: number, id: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'startWorkPackage', id }, signal)
+    },
+
+    async markWorkPackageBuilt(requirementId: string, expectedRevision: number, id: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'markWorkPackageBuilt', id }, signal)
+    },
+
+    async acceptWorkPackage(requirementId: string, expectedRevision: number, id: string, result: 'pass' | 'fail', note?: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'acceptWorkPackage', id, result, ...(note !== undefined ? { note } : {}) }, signal)
+    },
+
+    async reopenWorkPackage(requirementId: string, expectedRevision: number, id: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'reopenWorkPackage', id }, signal)
+    },
+
+    async dropWorkPackage(requirementId: string, expectedRevision: number, id: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'dropWorkPackage', id }, signal)
+    },
+
+    // --- Criteria (under the split lock like the list itself) ---
+
+    async saveCriterion(requirementId: string, expectedRevision: number, criterion: { id?: string; text: string; sourceSection?: string }, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'saveCriterion', criterion: { ...criterion } }, signal)
+    },
+
+    async removeCriterion(requirementId: string, expectedRevision: number, id: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'removeCriterion', id }, signal)
+    },
+
     async removeFinding(requirementId: string, expectedRevision: number, id: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
       return this.mutate({ expectedRevision, requirementId, action: 'removeFinding', id }, signal)
     },

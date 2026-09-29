@@ -320,3 +320,478 @@
   opacity: 0.5;
   cursor: default;
 }
+
+/* ==========================================================================
+ * Second knife: S1 criteria / S2 breakdown / S3 board / detail dialog.
+ * All alias-only; literal px for spacing/radius (no --dsw-space tokens).
+ * ========================================================================== */
+
+/* ---- shared: section heads, forms, row menus, danger ---- */
+
+.sectionHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.sectionTitle {
+  flex: 1;
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-secondary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.modalForm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.formField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.formField input,
+.formField textarea {
+  padding: 6px 8px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  font-family: var(--dsw-font-family);
+}
+
+.formHint {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.fieldError {
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.checkList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.checkRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.ackRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.iconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.iconButton:hover {
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+}
+
+/* danger overlays the primary/ghost base color (no danger variant exists). */
+.dangerButton {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+/* ---- S1 criteria ---- */
+
+.criteriaSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.criterionRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+/* The hollow warning: an uncovered criterion is a live acceptance gap. */
+.criterionRowHole {
+  border-color: var(--dsw-alias-state-warn-primary);
+}
+
+.criterionRowMain {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.criterionRowTitle {
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.coverChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.coverChip {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.coverChipHole {
+  background: transparent;
+  border: 0.5px solid var(--dsw-alias-state-warn-primary);
+  color: var(--dsw-alias-state-warn-primary);
+}
+
+/* ---- S2 breakdown ---- */
+
+.splitSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wpRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.wpRowMain {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.wpRowTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+
+.wpRowBoundary {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wpRowMeta {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.splitFooter {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* Approved banner (the mockup .gonogo): approval stamp + stats + revoke. */
+.gonogo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 0.5px solid var(--dsw-alias-state-warn-primary);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.gonogoText {
+  flex: none;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.gonogoSpacer {
+  flex: 1;
+}
+
+/* ---- S3 board (the ONE new geometry: horizontal scroll container) ---- */
+
+.boardSection {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.progressLine {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.board {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.boardCol {
+  flex: none;
+  width: 224px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.boardColHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.boardColCount {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+/* Card = div (clickable title area is a real button; action buttons are
+   siblings — buttons never nest inside buttons). */
+.boardCard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.boardCardMain {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font-family: var(--dsw-font-family);
+}
+
+.boardCardTitle {
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+
+.boardCardMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.boardCardMetaText {
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.boardCardActions {
+  display: flex;
+  gap: 6px;
+}
+
+/* ---- S3 work-package detail dialog ---- */
+
+/* The prdWideDialog precedent: the primitive card defaults to 380px, the
+   !important wins against cross-package css-module injection order. */
+.wpDialog {
+  width: min(860px, 100%) !important;
+}
+
+.wpDialogBody {
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.wpDialogSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.wpDialogSection:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.wpVersionRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.wpVersionChip {
+  padding: 2px 8px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+  font-family: var(--dsw-font-family);
+  cursor: pointer;
+}
+
+.wpVersionCurrent {
+  border-color: var(--dsw-alias-state-business-primary);
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.wpDocBody {
+  max-height: 40vh;
+  overflow-y: auto;
+  padding: 8px 12px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.wpWarnStrip {
+  padding: 6px 10px;
+  border: 0.5px solid var(--dsw-alias-state-warn-primary);
+  border-radius: 8px;
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.wpMissing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 0.5px solid var(--dsw-alias-state-warn-primary);
+  border-radius: 8px;
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* Draft editor: monospace reads as an authored document. */
+.wpDraftTextarea {
+  font-family: var(--dsw-font-mono, monospace);
+}
+
+.wpDraftActions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.wpFooterStack {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wpFooterAside {
+  display: flex;
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+.wpFooterMain {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.wpAcceptanceRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+}
+
+.wpAcceptanceNote {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.wpAcceptanceAt {
+  flex: none;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+}

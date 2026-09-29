@@ -1,0 +1,366 @@
+/**
+ * S3 work-package detail modal (860px wide, the prdWideDialog precedent):
+ * the plan section is hard gate ② — version chain rows + MarkdownText body
+ * + the tail-draft editor (writes through the tail-draft pipeline; the
+ * version number is host-assigned) + footer [退回修改][批准计划]. The
+ * lifecycle action row and the acceptance section carry the state machine
+ * (start / mark built / accept / reject-with-required-reason / reopen /
+ * drop). Sessions and commits render read-only this round (binding is P2).
+ *
+ * Plan bodies cache per version in COMPONENT state (lazy fetch + abort;
+ * never the store — 512K-class transient payloads die with the dialog).
+ * Missing and tampered plan files render their honest states (D4-④): the
+ * tail draft offers retry-write (idempotent convergence repairs the disk);
+ * approved/archived versions only disclose.
+ */
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { MarkdownText, Modal, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
+import { WORKBENCH_ARTIFACT_MAX_CHARS } from '../../workbench-shared/protocol.js'
+import type { WorkbenchWorkPackage } from '../../workbench-shared/protocol.js'
+import type { WorkbenchT } from './dictionary.js'
+import type { WorkbenchController } from './controller.js'
+import type { RequirementWorkbenchState } from './store.js'
+import styles from './view.module.css'
+
+const STATUS_TAG_TONE: Record<WorkbenchWorkPackage['status'], 'neutral' | 'warning' | 'info' | 'success' | 'quiet'> = {
+  planned: 'neutral',
+  'plan-draft': 'warning',
+  'plan-approved': 'info',
+  'in-dev': 'info',
+  built: 'warning',
+  accepted: 'success',
+  dropped: 'quiet',
+}
+
+const STATUS_LABEL_KEY: Record<WorkbenchWorkPackage['status'], Parameters<WorkbenchT>[0]> = {
+  planned: 'detail.statusPlanned',
+  'plan-draft': 'detail.statusPlanDraft',
+  'plan-approved': 'detail.statusPlanApproved',
+  'in-dev': 'detail.statusInDev',
+  built: 'detail.statusBuilt',
+  accepted: 'detail.statusAccepted',
+  dropped: 'detail.statusDropped',
+}
+
+type PlanBody =
+  | { phase: 'loading' }
+  | { phase: 'error' }
+  | { phase: 'missing' }
+  | { phase: 'ready'; content: string; tampered: boolean }
+
+export function WorkPackageDialog(props: {
+  t: WorkbenchT
+  workPackage: WorkbenchWorkPackage
+  slot: RequirementWorkbenchState
+  controller: WorkbenchController
+  requirementId: string
+  onClose: () => void
+}): ReactNode {
+  const { t, workPackage, slot, controller, requirementId } = props
+  const plans = [...workPackage.plans].sort((a, b) => b.version - a.version)
+  const tailDraftVersion = plans.find((plan) => plan.approvedAt === undefined)?.version ?? null
+  const [selectedVersion, setSelectedVersion] = useState<number | null>(plans[0]?.version ?? null)
+  const [bodies, setBodies] = useState<ReadonlyMap<number, PlanBody>>(new Map())
+  const [draftText, setDraftText] = useState('')
+  const [draftSeeded, setDraftSeeded] = useState(false)
+  // Bumping after a draft save invalidates the per-version cache AND
+  // re-triggers the fetch effect (bodies is deliberately outside its deps
+  // to avoid refetch loops — the nonce is the explicit invalidation signal).
+  const [refetchNonce, setRefetchNonce] = useState(0)
+  const [savingDraft, setSavingDraft] = useState(false)
+  const [dropOpen, setDropOpen] = useState(false)
+  const [rejectOpen, setRejectOpen] = useState(false)
+  const [rejectNote, setRejectNote] = useState('')
+  const [rejectError, setRejectError] = useState<string | null>(null)
+  const seqRef = useRef(0)
+
+  const fileExists = (version: number): boolean | undefined =>
+    slot.planFileExists.find((row) => row.workPackageId === workPackage.id && row.version === version)?.exists
+
+  const cache = (version: number, body: PlanBody): void => {
+    setBodies((current) => new Map(current).set(version, body))
+  }
+
+  // Fetch the selected version on demand (abort on switch/unmount; a late
+  // older response must not overwrite a newer selection).
+  useEffect(() => {
+    if (selectedVersion === null) return
+    if (bodies.get(selectedVersion) !== undefined) return
+    const seq = ++seqRef.current
+    cache(selectedVersion, { phase: 'loading' })
+    let cancelled = false
+    void controller.planContent(requirementId, workPackage.id, selectedVersion).then((result) => {
+      if (cancelled || seq !== seqRef.current) return
+      if (result === undefined) {
+        cache(selectedVersion, { phase: 'error' })
+        return
+      }
+      if (result.kind === 'ok') {
+        cache(selectedVersion, { phase: 'ready', content: result.content, tampered: result.contentTampered })
+        return
+      }
+      cache(selectedVersion, result.kind === 'http-error' && result.status === 404 ? { phase: 'missing' } : { phase: 'error' })
+    })
+    return () => {
+      cancelled = true
+    }
+    // bodies intentionally excluded: a cached version skips the fetch; the
+    // cache is invalidated explicitly after a draft save via refetchNonce.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedVersion, requirementId, workPackage.id, refetchNonce])
+
+  // Seed the draft editor once from the tail draft's body.
+  useEffect(() => {
+    if (draftSeeded || tailDraftVersion === null) return
+    const body = bodies.get(tailDraftVersion)
+    if (body?.phase === 'ready') {
+      setDraftText(body.content)
+      setDraftSeeded(true)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tailDraftVersion, bodies])
+
+  // Stable identity — MarkdownText's memo drops its render cache otherwise
+  // (the prd-section labels-memo precedent).
+  const markdownLabels = useMemo(() => ({
+    code: { copyLabel: t('md.copyCode'), copiedLabel: t('md.copiedCode') },
+    footnotes: t('md.footnotes'),
+  }), [t])
+
+  const selectedBody = selectedVersion === null ? null : (bodies.get(selectedVersion) ?? null)
+
+  const saveDraft = (): void => {
+    setSavingDraft(true)
+    void controller.writePlan(requirementId, workPackage.id, draftText).then((ok) => {
+      setSavingDraft(false)
+      if (ok) {
+        // Invalidate every cached version (the tail may have been re-versioned
+        // or re-hashed) and refetch the selection; reseed the editor.
+        setBodies(new Map())
+        setDraftSeeded(false)
+        setRefetchNonce((nonce) => nonce + 1)
+      }
+    })
+  }
+
+  const versionTag = (version: number): { label: string; tone: 'neutral' | 'warning' | 'success' } => {
+    const entry = workPackage.plans.find((plan) => plan.version === version)
+    if (entry === undefined) return { label: '', tone: 'neutral' }
+    if (entry.approvedAt !== undefined) return { label: t('detail.versionApproved'), tone: 'success' }
+    if (version === tailDraftVersion) return { label: t('detail.versionDraft'), tone: 'warning' }
+    return { label: t('detail.versionArchived'), tone: 'neutral' }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={() => { props.onClose() }}
+      title={`${workPackage.id}　${workPackage.title}`}
+      closeLabel={t('action.cancel')}
+      className={styles.wpDialog}
+      contentClassName={styles.wpDialogBody}
+      footer={
+        <div className={styles.wpFooterStack}>
+          <div className={styles.wpFooterAside}>
+            {workPackage.status === 'plan-approved' ? (
+              <button type="button" className={styles.ghostButton} disabled={slot.busy} onClick={() => { void controller.startWorkPackage(requirementId, workPackage.id) }}>{t('detail.startWork')}</button>
+            ) : null}
+            {workPackage.status === 'in-dev' ? (
+              <button type="button" className={styles.ghostButton} disabled={slot.busy} onClick={() => { void controller.markWorkPackageBuilt(requirementId, workPackage.id) }}>{t('detail.markBuilt')}</button>
+            ) : null}
+            {workPackage.status === 'accepted' ? (
+              <button type="button" className={styles.ghostButton} disabled={slot.busy} onClick={() => { void controller.reopenWorkPackage(requirementId, workPackage.id) }}>{t('detail.reopen')}</button>
+            ) : null}
+            {workPackage.status === 'planned' || workPackage.status === 'plan-draft' || workPackage.status === 'plan-approved' ? (
+              <button type="button" className={`${styles.ghostButton} ${styles.dangerButton}`} disabled={slot.busy} onClick={() => { setDropOpen(true) }}>{t('detail.drop')}</button>
+            ) : null}
+          </div>
+          <div className={styles.wpFooterMain}>
+            <button type="button" className={styles.ghostButton} onClick={() => { props.onClose() }}>{t('detail.returnForEdit')}</button>
+            {tailDraftVersion !== null ? (
+              <button
+                type="button"
+                className={styles.primaryButton}
+                disabled={slot.busy}
+                onClick={() => { void controller.approvePlan(requirementId, workPackage.id) }}
+              >
+                {t('detail.approvePlan')}
+              </button>
+            ) : null}
+          </div>
+        </div>
+      }
+    >
+      <div className={styles.wpDialogSection}>
+        <div className={styles.sectionTitle}>
+          {t('detail.planSection')}
+          <Tag tone={STATUS_TAG_TONE[workPackage.status]}>{t(STATUS_LABEL_KEY[workPackage.status])}</Tag>
+        </div>
+        {plans.length === 0 ? <div className={styles.formHint}>{t('detail.noPlans')}</div> : (
+          <>
+            <div className={styles.wpVersionRow}>
+              {plans.map((plan, index) => {
+                const tag = versionTag(plan.version)
+                const missing = fileExists(plan.version) === false
+                return (
+                  <button
+                    key={plan.version}
+                    type="button"
+                    className={plan.version === selectedVersion ? `${styles.wpVersionChip} ${styles.wpVersionCurrent}` : styles.wpVersionChip}
+                    onClick={() => { setSelectedVersion(plan.version) }}
+                  >
+                    v{plan.version}
+                    {index === 0 ? ` · ${t('detail.versionCurrent')}` : ''}
+                    {` · ${tag.label}`}
+                    {missing ? ` · ${t('board.planMissing')}` : ''}
+                  </button>
+                )
+              })}
+            </div>
+            {selectedBody === null || selectedBody.phase === 'loading' ? <div className={styles.formHint}>{t('page.loading')}</div> : null}
+            {selectedBody?.phase === 'error' ? <div className={styles.fieldError}>{t('detail.planLoadFailed')}</div> : null}
+            {selectedBody?.phase === 'missing' ? (
+              <div className={styles.wpMissing}>
+                <span>{t('detail.planMissing')}</span>
+                {selectedVersion === tailDraftVersion ? (
+                  <button type="button" className={styles.ghostButton} disabled={slot.busy} onClick={saveDraft}>{t('detail.planRewrite')}</button>
+                ) : null}
+              </div>
+            ) : null}
+            {selectedBody?.phase === 'ready' ? (
+              <>
+                {selectedBody.tampered ? <div className={styles.wpWarnStrip}>{t('detail.tampered')}</div> : null}
+                <div className={styles.wpDocBody}>
+                  <MarkdownText text={selectedBody.content} labels={markdownLabels} />
+                </div>
+              </>
+            ) : null}
+            <label className={styles.formField}>
+              <span>{t('detail.draftLabel')}</span>
+              <textarea
+                rows={6}
+                className={styles.wpDraftTextarea}
+                value={draftText}
+                maxLength={WORKBENCH_ARTIFACT_MAX_CHARS}
+                placeholder={t('detail.draftPlaceholder')}
+                onChange={(event) => { setDraftText(event.target.value) }}
+              />
+            </label>
+            <div className={styles.wpDraftActions}>
+              <button type="button" className={styles.primaryButton} disabled={savingDraft || slot.busy} onClick={saveDraft}>{t('detail.draftSave')}</button>
+            </div>
+          </>
+        )}
+      </div>
+
+      <div className={styles.wpDialogSection}>
+        <div className={styles.sectionTitle}>{t('detail.sessionsSection')}</div>
+        <div className={styles.formHint}>
+          {t('board.sessions').replaceAll('{n}', String(workPackage.sessions.length))}
+          {workPackage.commits.length > 0 ? ` · ${t('board.commits').replaceAll('{n}', String(workPackage.commits.length))}` : ''}
+        </div>
+      </div>
+
+      <div className={styles.wpDialogSection}>
+        <div className={styles.sectionTitle}>{t('detail.acceptanceSection')}</div>
+        {workPackage.status === 'built' ? (
+          <div className={styles.formHint}>{t('detail.builtSourceManual')}</div>
+        ) : null}
+        {workPackage.acceptances.length === 0 ? <div className={styles.formHint}>{t('detail.acceptanceEmpty')}</div> : (
+          workPackage.acceptances.map((acceptance, index) => (
+            <div key={index} className={styles.wpAcceptanceRow}>
+              <Tag tone={acceptance.result === 'pass' ? 'success' : 'danger'}>
+                {acceptance.result === 'pass' ? t('detail.acceptancePass') : t('detail.acceptanceFail')}
+              </Tag>
+              <span className={styles.wpAcceptanceNote}>{acceptance.note ?? ''}</span>
+              <span className={styles.wpAcceptanceAt}>{acceptance.at}</span>
+            </div>
+          ))
+        )}
+        {workPackage.status === 'built' ? (
+          <div className={styles.wpFooterMain}>
+            <button
+              type="button"
+              className={styles.primaryButton}
+              disabled={slot.busy}
+              onClick={() => { void controller.acceptWorkPackage(requirementId, workPackage.id, 'pass') }}
+            >
+              {t('board.accept')}
+            </button>
+            <button
+              type="button"
+              className={`${styles.ghostButton} ${styles.dangerButton}`}
+              disabled={slot.busy}
+              onClick={() => { setRejectOpen(true); setRejectNote(''); setRejectError(null) }}
+            >
+              {t('board.reject')}
+            </button>
+          </div>
+        ) : null}
+      </div>
+
+      <Modal
+        open={dropOpen}
+        onClose={() => { setDropOpen(false) }}
+        title={t('detail.dropTitle')}
+        closeLabel={t('action.cancel')}
+        footer={
+          <>
+            <button type="button" className={styles.ghostButton} onClick={() => { setDropOpen(false) }}>{t('action.cancel')}</button>
+            <button
+              type="button"
+              className={`${styles.primaryButton} ${styles.dangerButton}`}
+              disabled={slot.busy}
+              onClick={() => {
+                setDropOpen(false)
+                void controller.dropWorkPackage(requirementId, workPackage.id)
+              }}
+            >
+              {t('detail.drop')}
+            </button>
+          </>
+        }
+      >
+        {t('detail.dropDescription')}
+      </Modal>
+
+      <Modal
+        open={rejectOpen}
+        onClose={() => { setRejectOpen(false) }}
+        title={t('board.rejectTitle')}
+        closeLabel={t('action.cancel')}
+        footer={
+          <>
+            <button type="button" className={styles.ghostButton} onClick={() => { setRejectOpen(false) }}>{t('action.cancel')}</button>
+            <button
+              type="button"
+              className={`${styles.primaryButton} ${styles.dangerButton}`}
+              disabled={slot.busy}
+              onClick={() => {
+                if (rejectNote.trim().length === 0) {
+                  setRejectError(t('board.rejectReasonRequired'))
+                  return
+                }
+                setRejectOpen(false)
+                void controller.acceptWorkPackage(requirementId, workPackage.id, 'fail', rejectNote.trim())
+              }}
+            >
+              {t('board.rejectSubmit')}
+            </button>
+          </>
+        }
+      >
+        <label className={styles.formField}>
+          <span>{t('board.rejectReasonLabel')}</span>
+          <textarea
+            rows={3}
+            value={rejectNote}
+            maxLength={2000}
+            onChange={(event) => { setRejectNote(event.target.value); setRejectError(null) }}
+          />
+        </label>
+        {rejectError !== null ? <div className={styles.fieldError}>{rejectError}</div> : null}
+      </Modal>
+    </Modal>
+  )
+}

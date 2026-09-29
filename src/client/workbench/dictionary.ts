@@ -71,6 +71,119 @@ interface WorkbenchDictionary {
   readonly 'error.unreadableFile': string
   readonly 'error.notFound': string
   readonly 'error.internal': string
+  readonly 'error.lockedSplit': string
+  readonly 'error.lockedVersion': string
+  // action.* — shared modal/form verbs (new sections reuse; finding.* keeps its own)
+  readonly 'action.cancel': string
+  readonly 'action.save': string
+  readonly 'action.confirm': string
+  // menu.* — shared row-menu items (S2 rows and criteria rows)
+  readonly 'menu.edit': string
+  readonly 'menu.remove': string
+  readonly 'menu.moveUp': string
+  readonly 'menu.moveDown': string
+  // criteria.* — S1 acceptance-criteria section
+  readonly 'criteria.sectionTitle': string
+  readonly 'criteria.add': string
+  readonly 'criteria.addTitle': string
+  readonly 'criteria.editTitle': string
+  readonly 'criteria.textLabel': string
+  readonly 'criteria.sourceLabel': string
+  readonly 'criteria.removeTitle': string
+  readonly 'criteria.removeDescription': string
+  readonly 'criteria.uncovered': string
+  // split.* — S2 breakdown list + hard gate ①
+  readonly 'split.sectionTitle': string
+  readonly 'split.add': string
+  readonly 'split.approve': string
+  readonly 'split.approveTitle': string
+  readonly 'split.statWorkPackages': string
+  readonly 'split.statCovered': string
+  readonly 'split.statHole': string
+  readonly 'split.approveAck': string
+  readonly 'split.approveConfirm': string
+  readonly 'split.approvedTag': string
+  readonly 'split.approvedAtPrefix': string
+  readonly 'split.revoke': string
+  readonly 'split.revokeTitle': string
+  readonly 'split.revokeDescription': string
+  readonly 'split.revokeConfirm': string
+  // wp.* — work-package form fields
+  readonly 'wp.addTitle': string
+  readonly 'wp.editTitle': string
+  readonly 'wp.titleLabel': string
+  readonly 'wp.boundaryLabel': string
+  readonly 'wp.dependsLabel': string
+  readonly 'wp.coversLabel': string
+  readonly 'wp.parallelLabel': string
+  readonly 'wp.parallelTag': string
+  readonly 'wp.noneMark': string
+  readonly 'wp.removeTitle': string
+  readonly 'wp.removeDescription': string
+  // board.* — S3 kanban columns, cards, acceptance queue
+  readonly 'board.colPlanned': string
+  readonly 'board.colPlanApproved': string
+  readonly 'board.colInDev': string
+  readonly 'board.colBuilt': string
+  readonly 'board.colAccepted': string
+  readonly 'board.lockedHint': string
+  readonly 'board.notDrafted': string
+  readonly 'board.drafting': string
+  readonly 'board.planTag': string
+  readonly 'board.planMissing': string
+  readonly 'board.sessions': string
+  readonly 'board.commits': string
+  readonly 'board.progressAccepted': string
+  readonly 'board.progressBuilt': string
+  readonly 'board.progressInDev': string
+  readonly 'board.progressPlanApproved': string
+  readonly 'board.progressPlanned': string
+  readonly 'board.accept': string
+  readonly 'board.reject': string
+  readonly 'board.rejectTitle': string
+  readonly 'board.rejectReasonLabel': string
+  readonly 'board.rejectReasonRequired': string
+  readonly 'board.rejectSubmit': string
+  // detail.* — work-package dialog (statuses, plan section, lifecycle actions)
+  readonly 'detail.statusPlanned': string
+  readonly 'detail.statusPlanDraft': string
+  readonly 'detail.statusPlanApproved': string
+  readonly 'detail.statusInDev': string
+  readonly 'detail.statusBuilt': string
+  readonly 'detail.statusAccepted': string
+  readonly 'detail.statusDropped': string
+  readonly 'detail.planSection': string
+  readonly 'detail.versionCurrent': string
+  readonly 'detail.versionDraft': string
+  readonly 'detail.versionArchived': string
+  readonly 'detail.versionApproved': string
+  readonly 'detail.noPlans': string
+  readonly 'detail.planMissing': string
+  readonly 'detail.planRewrite': string
+  readonly 'detail.planLoadFailed': string
+  readonly 'detail.tampered': string
+  readonly 'detail.draftLabel': string
+  readonly 'detail.draftPlaceholder': string
+  readonly 'detail.draftSave': string
+  readonly 'detail.sessionsSection': string
+  readonly 'detail.commitsSection': string
+  readonly 'detail.acceptanceSection': string
+  readonly 'detail.acceptanceEmpty': string
+  readonly 'detail.acceptancePass': string
+  readonly 'detail.acceptanceFail': string
+  readonly 'detail.builtSourceManual': string
+  readonly 'detail.returnForEdit': string
+  readonly 'detail.approvePlan': string
+  readonly 'detail.startWork': string
+  readonly 'detail.markBuilt': string
+  readonly 'detail.reopen': string
+  readonly 'detail.drop': string
+  readonly 'detail.dropTitle': string
+  // md.* — MarkdownText labels (the prd-section precedent; stable identity via useMemo at the call site)
+  readonly 'md.copyCode': string
+  readonly 'md.copiedCode': string
+  readonly 'md.footnotes': string
+  readonly 'detail.dropDescription': string
 }
 
 export type WorkbenchT = (key: keyof WorkbenchDictionary) => string
@@ -126,6 +239,111 @@ const zh: WorkbenchDictionary = {
   'error.unreadableFile': '账本文件不可写（可能已损坏），请检查 workbench.yaml',
   'error.notFound': '记录已不存在，已自动刷新',
   'error.internal': '服务内部错误',
+  'error.lockedSplit': '拆分未批准或已撤销：清单与流程已锁定，请先批准拆分（硬门①）',
+  'error.lockedVersion': '该计划版本已批准锁定，不可修改；修正请另存新草稿',
+  'action.cancel': '取消',
+  'action.save': '保存',
+  'action.confirm': '确认',
+  'menu.edit': '编辑',
+  'menu.remove': '删除',
+  'menu.moveUp': '上移',
+  'menu.moveDown': '下移',
+  'criteria.sectionTitle': '验收标准',
+  'criteria.add': '＋ 添加标准',
+  'criteria.addTitle': '新建验收标准',
+  'criteria.editTitle': '编辑验收标准',
+  'criteria.textLabel': '标准内容',
+  'criteria.sourceLabel': '来源章节（可选）',
+  'criteria.removeTitle': '删除验收标准',
+  'criteria.removeDescription': '确定删除该验收标准？工作包对该标准的覆盖引用将被一并剥离。',
+  'criteria.uncovered': '尚无工作包覆盖',
+  'split.sectionTitle': '工作包拆分',
+  'split.add': '＋ 工作包',
+  'split.approve': '批准拆分',
+  'split.approveTitle': '批准拆分（硬门①）',
+  'split.statWorkPackages': '{n} 个工作包',
+  'split.statCovered': '{n}/{m} 条标准已覆盖',
+  'split.statHole': '{n} 条标准无覆盖',
+  'split.approveAck': '批准后工作包清单与验收标准将锁定，执行看板与计划流程解锁；如需调整可撤销批准（清单保留）。',
+  'split.approveConfirm': '批准拆分',
+  'split.approvedTag': '已批准',
+  'split.approvedAtPrefix': '拆分批准于',
+  'split.revoke': '撤销批准',
+  'split.revokeTitle': '撤销拆分批准',
+  'split.revokeDescription': '撤销后工作包清单与全部流程动作将重新锁定，直至再次批准；清单本身保留。确定撤销？',
+  'split.revokeConfirm': '撤销批准',
+  'wp.addTitle': '新建工作包',
+  'wp.editTitle': '编辑工作包',
+  'wp.titleLabel': '标题',
+  'wp.boundaryLabel': '边界（做什么 / 不做什么）',
+  'wp.dependsLabel': '依赖的工作包',
+  'wp.coversLabel': '覆盖的验收标准',
+  'wp.parallelLabel': '可与其他工作包并行',
+  'wp.parallelTag': 'P 并行',
+  'wp.noneMark': '—',
+  'wp.removeTitle': '删除工作包',
+  'wp.removeDescription': '确定删除该工作包？兄弟工作包对它的依赖引用将被一并剥离。',
+  'board.colPlanned': '待计划',
+  'board.colPlanApproved': '计划已批准',
+  'board.colInDev': '开发中',
+  'board.colBuilt': '待验收',
+  'board.colAccepted': '已验收',
+  'board.lockedHint': '批准拆分后此处呈现执行看板（硬门①未过）。',
+  'board.notDrafted': '未起草',
+  'board.drafting': '草拟中',
+  'board.planTag': '计划 v{n}',
+  'board.planMissing': '计划文件缺失',
+  'board.sessions': '{n} 会话',
+  'board.commits': 'commit {n}',
+  'board.progressAccepted': '{n}/{m} 已验收',
+  'board.progressBuilt': '{n} 待验收',
+  'board.progressInDev': '{n} 开发中',
+  'board.progressPlanApproved': '{n} 计划已批准',
+  'board.progressPlanned': '{n} 待计划',
+  'board.accept': '验收通过',
+  'board.reject': '不通过',
+  'board.rejectTitle': '验收不通过',
+  'board.rejectReasonLabel': '返工原因（必填）',
+  'board.rejectReasonRequired': '请填写返工原因',
+  'board.rejectSubmit': '确认不通过',
+  'detail.statusPlanned': '已登记',
+  'detail.statusPlanDraft': '计划草拟中',
+  'detail.statusPlanApproved': '计划已批准',
+  'detail.statusInDev': '开发中',
+  'detail.statusBuilt': '待验收（已完成声明）',
+  'detail.statusAccepted': '已验收',
+  'detail.statusDropped': '已放弃',
+  'detail.planSection': '开发计划',
+  'detail.versionCurrent': '当前',
+  'detail.versionDraft': '草稿',
+  'detail.versionArchived': '归档',
+  'detail.versionApproved': '已批准',
+  'detail.noPlans': '尚无计划：起草并批准后，开发流程解锁。',
+  'detail.planMissing': '文件缺失（写入中断或被外部删除）',
+  'detail.planRewrite': '重试写入',
+  'detail.planLoadFailed': '计划正文加载失败',
+  'detail.tampered': '内容校验不一致：文件可能被外部修改，以下正文仅供参考。',
+  'detail.draftLabel': '草稿（保存即覆盖尾版本，版本号由系统分配）',
+  'detail.draftPlaceholder': '以 markdown 撰写实施计划…',
+  'detail.draftSave': '保存草稿',
+  'detail.sessionsSection': '关联会话',
+  'detail.commitsSection': 'commit 记录',
+  'detail.acceptanceSection': '验收',
+  'detail.acceptanceEmpty': '尚无验收记录',
+  'detail.acceptancePass': '通过',
+  'detail.acceptanceFail': '不通过',
+  'detail.builtSourceManual': '完成声明为手动标记（声明导入通道上线后由声明块接管）',
+  'detail.returnForEdit': '退回修改',
+  'detail.approvePlan': '批准计划',
+  'detail.startWork': '开始开发',
+  'detail.markBuilt': '标记完成待验收',
+  'detail.reopen': '重开',
+  'detail.drop': '放弃',
+  'detail.dropTitle': '放弃工作包',
+  'md.copyCode': '复制代码',
+  'md.copiedCode': '已复制',
+  'md.footnotes': '脚注',
+  'detail.dropDescription': '确定放弃该工作包？已放弃的工作包不再入板，历史保留。',
 }
 
 const en: WorkbenchDictionary = {
@@ -179,6 +397,111 @@ const en: WorkbenchDictionary = {
   'error.unreadableFile': 'The ledger file is unwritable (possibly corrupted); check workbench.yaml',
   'error.notFound': 'The record no longer exists, refreshed automatically',
   'error.internal': 'Internal server error',
+  'error.lockedSplit': 'The split is not approved (or was revoked): the list and the workflow are locked — approve the split first (hard gate ①)',
+  'error.lockedVersion': 'That plan version is approved and locked; fix forward by saving a new draft',
+  'action.cancel': 'Cancel',
+  'action.save': 'Save',
+  'action.confirm': 'Confirm',
+  'menu.edit': 'Edit',
+  'menu.remove': 'Remove',
+  'menu.moveUp': 'Move up',
+  'menu.moveDown': 'Move down',
+  'criteria.sectionTitle': 'Acceptance criteria',
+  'criteria.add': '＋ Add criterion',
+  'criteria.addTitle': 'New acceptance criterion',
+  'criteria.editTitle': 'Edit acceptance criterion',
+  'criteria.textLabel': 'Criterion text',
+  'criteria.sourceLabel': 'Source section (optional)',
+  'criteria.removeTitle': 'Remove criterion',
+  'criteria.removeDescription': 'Remove this criterion? Coverage references from work packages will be stripped along with it.',
+  'criteria.uncovered': 'No work package covers this',
+  'split.sectionTitle': 'Work-package breakdown',
+  'split.add': '＋ Work package',
+  'split.approve': 'Approve split',
+  'split.approveTitle': 'Approve split (hard gate ①)',
+  'split.statWorkPackages': '{n} work packages',
+  'split.statCovered': '{n}/{m} criteria covered',
+  'split.statHole': '{n} criteria uncovered',
+  'split.approveAck': 'Approving locks the work-package list and criteria; the execution board and the plan workflow unlock. You can revoke to edit again (the list is preserved).',
+  'split.approveConfirm': 'Approve split',
+  'split.approvedTag': 'Approved',
+  'split.approvedAtPrefix': 'Split approved at',
+  'split.revoke': 'Revoke approval',
+  'split.revokeTitle': 'Revoke split approval',
+  'split.revokeDescription': 'Revoking re-locks the list and every workflow action until the next approval; the list itself is preserved. Revoke now?',
+  'split.revokeConfirm': 'Revoke approval',
+  'wp.addTitle': 'New work package',
+  'wp.editTitle': 'Edit work package',
+  'wp.titleLabel': 'Title',
+  'wp.boundaryLabel': 'Boundary (what it does / does not do)',
+  'wp.dependsLabel': 'Depends on',
+  'wp.coversLabel': 'Covers criteria',
+  'wp.parallelLabel': 'Can run in parallel',
+  'wp.parallelTag': 'P parallel',
+  'wp.noneMark': '—',
+  'wp.removeTitle': 'Remove work package',
+  'wp.removeDescription': 'Remove this work package? Dependent references from sibling packages will be stripped along with it.',
+  'board.colPlanned': 'To plan',
+  'board.colPlanApproved': 'Plan approved',
+  'board.colInDev': 'In dev',
+  'board.colBuilt': 'To accept',
+  'board.colAccepted': 'Accepted',
+  'board.lockedHint': 'The execution board appears here once the split is approved (hard gate ① pending).',
+  'board.notDrafted': 'No draft',
+  'board.drafting': 'Drafting',
+  'board.planTag': 'Plan v{n}',
+  'board.planMissing': 'Plan file missing',
+  'board.sessions': '{n} sessions',
+  'board.commits': 'commit {n}',
+  'board.progressAccepted': '{n}/{m} accepted',
+  'board.progressBuilt': '{n} to accept',
+  'board.progressInDev': '{n} in dev',
+  'board.progressPlanApproved': '{n} plan approved',
+  'board.progressPlanned': '{n} to plan',
+  'board.accept': 'Accept',
+  'board.reject': 'Reject',
+  'board.rejectTitle': 'Acceptance failed',
+  'board.rejectReasonLabel': 'Rework reason (required)',
+  'board.rejectReasonRequired': 'Fill in the rework reason',
+  'board.rejectSubmit': 'Confirm rejection',
+  'detail.statusPlanned': 'Registered',
+  'detail.statusPlanDraft': 'Drafting plan',
+  'detail.statusPlanApproved': 'Plan approved',
+  'detail.statusInDev': 'In dev',
+  'detail.statusBuilt': 'To accept (completion declared)',
+  'detail.statusAccepted': 'Accepted',
+  'detail.statusDropped': 'Dropped',
+  'detail.planSection': 'Implementation plan',
+  'detail.versionCurrent': 'current',
+  'detail.versionDraft': 'draft',
+  'detail.versionArchived': 'archived',
+  'detail.versionApproved': 'approved',
+  'detail.noPlans': 'No plan yet: draft one and approve it to unlock the workflow.',
+  'detail.planMissing': 'File missing (write interrupted or deleted externally)',
+  'detail.planRewrite': 'Retry write',
+  'detail.planLoadFailed': 'Failed to load the plan body',
+  'detail.tampered': 'Content hash mismatch: the file may have been modified externally — treat the body below as reference only.',
+  'detail.draftLabel': 'Draft (saving overwrites the tail version; the version number is assigned by the system)',
+  'detail.draftPlaceholder': 'Write the implementation plan in markdown…',
+  'detail.draftSave': 'Save draft',
+  'detail.sessionsSection': 'Linked sessions',
+  'detail.commitsSection': 'Commits',
+  'detail.acceptanceSection': 'Acceptance',
+  'detail.acceptanceEmpty': 'No acceptance record yet',
+  'detail.acceptancePass': 'pass',
+  'detail.acceptanceFail': 'fail',
+  'detail.builtSourceManual': 'Completion was marked manually (the declare-block import takes over once it lands)',
+  'detail.returnForEdit': 'Return for edits',
+  'detail.approvePlan': 'Approve plan',
+  'detail.startWork': 'Start work',
+  'detail.markBuilt': 'Mark built (to accept)',
+  'detail.reopen': 'Reopen',
+  'detail.drop': 'Drop',
+  'detail.dropTitle': 'Drop work package',
+  'md.copyCode': 'Copy code',
+  'md.copiedCode': 'Copied',
+  'md.footnotes': 'Footnotes',
+  'detail.dropDescription': 'Drop this work package? Dropped packages leave the board; history is preserved.',
 }
 
 export function registerWorkbenchDictionaries(ctx: Context): void {

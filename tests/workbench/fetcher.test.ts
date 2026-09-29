@@ -145,4 +145,32 @@ describe('workbench fetcher', () => {
     expect(calls[1].init.body).toBe('# report')
     expect(calls[2].url).toBe(`/api/skyaxis/workbench/artifacts?kind=review&requirementId=${RID}&reviewId=rev-a1`)
   })
+
+  it('second-knife action methods post their discriminated bodies (split gates + lifecycle)', async () => {
+    const calls: unknown[] = []
+    vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
+      calls.push(JSON.parse(String(init.body)))
+      return new Response(JSON.stringify({ ok: true, revision: 9, record: okRecord() }))
+    })
+    const fetcher = createWorkbenchFetcher()
+    expect((await fetcher.approveSplit(RID, 4)).kind).toBe('ok')
+    expect((await fetcher.approvePlan(RID, 4, 'WP1')).kind).toBe('ok')
+    expect((await fetcher.moveWorkPackage(RID, 4, 'WP2', 'up')).kind).toBe('ok')
+    expect((await fetcher.acceptWorkPackage(RID, 4, 'WP3', 'fail', '缺回滚')).kind).toBe('ok')
+    expect((await fetcher.saveWorkPackage(RID, 4, { title: 'T', boundary: '', dependsOn: [], covers: [] })).kind).toBe('ok')
+    expect((await fetcher.saveCriterion(RID, 4, { text: 'C' })).kind).toBe('ok')
+
+    expect(calls[0]).toEqual({ expectedRevision: 4, requirementId: RID, action: 'approveSplit' })
+    expect(calls[1]).toEqual({ expectedRevision: 4, requirementId: RID, action: 'approvePlan', id: 'WP1' })
+    expect(calls[2]).toEqual({ expectedRevision: 4, requirementId: RID, action: 'moveWorkPackage', id: 'WP2', direction: 'up' })
+    expect(calls[3]).toEqual({ expectedRevision: 4, requirementId: RID, action: 'acceptWorkPackage', id: 'WP3', result: 'fail', note: '缺回滚' })
+    expect(calls[4]).toEqual({ expectedRevision: 4, requirementId: RID, action: 'saveWorkPackage', workPackage: { title: 'T', boundary: '', dependsOn: [], covers: [] } })
+    expect(calls[5]).toEqual({ expectedRevision: 4, requirementId: RID, action: 'saveCriterion', criterion: { text: 'C' } })
+  })
+
+  it('locked-split and locked-version error codes parse into the failure shape', async () => {
+    vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ ok: false, code: 'locked-split' }), { status: 400 }))
+    const result = await createWorkbenchFetcher().approvePlan(RID, 1, 'WP1')
+    expect(result).toEqual({ kind: 'http-error', status: 400, code: 'locked-split' })
+  })
 })
