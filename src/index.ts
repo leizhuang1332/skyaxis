@@ -28,6 +28,10 @@ import { registerRequirementsReposEndpoints } from './requirements-host/repos-en
 import { RequirementsFileStore } from './requirements-host/requirements-file.js'
 import { CloneTaskRegistry } from './requirements-host/clone.js'
 import { RequirementWorkspaceBinder } from './requirements-host/workspace.js'
+import { WorkbenchCascadeService } from './workbench-host/cascade-service.js'
+import { registerWorkbenchEndpoints } from './workbench-host/endpoint.js'
+import { KnowledgeFileStore } from './workbench-host/knowledge-file.js'
+import { WorkbenchFileStore } from './workbench-host/workbench-file.js'
 
 export const inject: readonly string[] = []
 
@@ -54,6 +58,19 @@ export function apply(ctx: Context): void {
   const requirementsFile = new RequirementsFileStore(dshHomePath('skyaxis', 'requirements.yaml'))
   const workspaceBinder = new RequirementWorkspaceBinder()
 
+  // Workbench ledgers are SIBLINGS of the artifacts root (decisions/0005
+  // 细化① layout template): workbench.yaml / knowledge.yaml beside the
+  // workbench/ directory, so D6 directory renames never touch a ledger.
+  const workbenchRoot = dshHomePath('skyaxis', 'workbench')
+  const workbenchFile = new WorkbenchFileStore(dshHomePath('skyaxis', 'workbench.yaml'))
+  const knowledgeFile = new KnowledgeFileStore(dshHomePath('skyaxis', 'knowledge.yaml'))
+  const workbenchCascade = new WorkbenchCascadeService({
+    workbenchFile,
+    knowledgeFile,
+    workbenchRoot,
+    log: (error) => ctx.logger.error(error),
+  })
+
   ctx.inject(['workspaceRegistry'], (scope) => {
     workspaceBinder.setRegistry(scope.workspaceRegistry)
     return () => workspaceBinder.setRegistry(undefined)
@@ -68,6 +85,7 @@ export function apply(ctx: Context): void {
     registerRequirementsEndpoints(scope.connection, {
       file: requirementsFile,
       workspaces: workspaceBinder,
+      cleanup: workbenchCascade,
       log: (error) => ctx.logger.error(error),
     })
     registerRequirementsReposEndpoints(scope.connection, {
@@ -77,6 +95,11 @@ export function apply(ctx: Context): void {
     })
     registerRequirementsPrdEndpoints(scope.connection, {
       file: requirementsFile,
+      log: (error) => ctx.logger.error(error),
+    })
+    registerWorkbenchEndpoints(scope.connection, {
+      file: workbenchFile,
+      workbenchRoot,
       log: (error) => ctx.logger.error(error),
     })
   })

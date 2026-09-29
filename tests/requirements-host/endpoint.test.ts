@@ -18,6 +18,7 @@ import {
   REQUIREMENTS_WORKSPACE_PATH,
 } from '../../src/requirements-shared/protocol.js'
 import { registerRequirementsEndpoints } from '../../src/requirements-host/endpoint.js'
+import type { WorkbenchCleanupLike } from '../../src/requirements-host/endpoint.js'
 import { registerRequirementsReposEndpoints } from '../../src/requirements-host/repos-endpoint.js'
 import { RequirementsFileStore } from '../../src/requirements-host/requirements-file.js'
 import { CloneTaskRegistry } from '../../src/requirements-host/clone.js'
@@ -42,7 +43,7 @@ function fakeRegistry() {
   return { registry: registry as unknown as WorkspaceRegistryLike, create, rows }
 }
 
-async function harness(options?: { registry?: WorkspaceRegistryLike; subprocess?: SubprocessRuntime }) {
+async function harness(options?: { registry?: WorkspaceRegistryLike; subprocess?: SubprocessRuntime; cleanup?: WorkbenchCleanupLike }) {
   const dir = mkdtempSync(join(tmpdir(), 'requirements-endpoint-test-'))
   dirs.push(dir)
   const file = new RequirementsFileStore(join(dir, 'requirements.yaml'))
@@ -56,7 +57,7 @@ async function harness(options?: { registry?: WorkspaceRegistryLike; subprocess?
   })
   await fiber.await()
   const connection = ctx.get('connection') as HostConnectionHandle
-  registerRequirementsEndpoints(connection, { file, workspaces })
+  registerRequirementsEndpoints(connection, { file, workspaces, cleanup: options?.cleanup })
   registerRequirementsReposEndpoints(connection, { file, clones })
   const shared = connection.createSharedFetchHandler('/api')
   const base = 'http://127.0.0.1'
@@ -202,6 +203,79 @@ describe('requirements endpoints: remove', () => {
     const stale = await h.post(REQUIREMENTS_REMOVE_PATH, { expectedRevision: 0, id: created.requirement.id })
     expect(stale.status).toBe(409)
     expect(((await stale.json()) as ErrorResponse).code).toBe('conflict')
+    await h.dispose()
+  })
+})
+
+describe('requirements endpoints: remove workbench cascade (D6 two-phase)', () => {
+  it('runs beginRemoval before the save and completeRemoval after it, with the removed snapshot', async () => {
+    const calls: string[] = []
+    const revisions: number[] = []
+    let fileAtCall: () => number = () => 0
+    const cleanup: WorkbenchCleanupLike = {
+      beginRemoval: (requirement) => {
+        calls.push(`begin:${requirement.id}`)
+        revisions.push(fileAtCall())
+      },
+      completeRemoval: (requirement) => {
+        calls.push(`complete:${requirement.id}`)
+        revisions.push(fileAtCall())
+      },
+    }
+    const h = await harness({ cleanup })
+    fileAtCall = () => {
+      const load = h.file.load()
+      return load.ok ? load.value.revision : -1
+    }
+    const created = await (await h.post(REQUIREMENTS_SAVE_PATH, SAVE_BODY('a'))).json() as { requirement: { id: string } }
+    const removed = await h.post(REQUIREMENTS_REMOVE_PATH, { expectedRevision: 1, id: created.requirement.id })
+    expect(removed.status).toBe(200)
+    // Order proof, two independent observations: the call sequence, AND the
+    // ledger revision each phase saw — begin must observe the PRE-save
+    // revision, complete the POST-save one (the save ran between them; a
+    // save-first implementation would show equal revisions).
+    expect(calls).toEqual([`begin:${created.requirement.id}`, `complete:${created.requirement.id}`])
+    expect(revisions).toEqual([1, 2])
+    await h.dispose()
+  })
+
+  it('409/404 paths never touch the cascade (zero side effects)', async () => {
+    const begin = vi.fn()
+    const complete = vi.fn()
+    const h = await harness({ cleanup: { beginRemoval: begin, completeRemoval: complete } })
+    const created = await (await h.post(REQUIREMENTS_SAVE_PATH, SAVE_BODY('a'))).json() as { requirement: { id: string } }
+
+    const stale = await h.post(REQUIREMENTS_REMOVE_PATH, { expectedRevision: 0, id: created.requirement.id })
+    expect(stale.status).toBe(409)
+    const ghost = await h.post(REQUIREMENTS_REMOVE_PATH, { expectedRevision: 1, id: '00000000-0000-4000-8000-000000000000' })
+    expect(ghost.status).toBe(404)
+    expect(begin).not.toHaveBeenCalled()
+    expect(complete).not.toHaveBeenCalled()
+    await h.dispose()
+  })
+
+  it('a throwing cleanup never changes the remove verdict (double guard)', async () => {
+    const h = await harness({
+      cleanup: {
+        beginRemoval: () => { throw new Error('boom-begin') },
+        completeRemoval: () => { throw new Error('boom-complete') },
+      },
+    })
+    const created = await (await h.post(REQUIREMENTS_SAVE_PATH, SAVE_BODY('a'))).json() as { requirement: { id: string } }
+    const removed = await h.post(REQUIREMENTS_REMOVE_PATH, { expectedRevision: 1, id: created.requirement.id })
+    expect(removed.status).toBe(200)
+    const listed = await (await h.get(REQUIREMENTS_LIST_PATH)).json() as ListResponse
+    expect(listed.ok && listed.requirements).toHaveLength(0)
+    await h.dispose()
+  })
+
+  it('absent cleanup keeps removal ledger-only (orphan-tolerance fallback)', async () => {
+    const h = await harness()
+    const created = await (await h.post(REQUIREMENTS_SAVE_PATH, SAVE_BODY('a'))).json() as { requirement: { id: string } }
+    const removed = await h.post(REQUIREMENTS_REMOVE_PATH, { expectedRevision: 1, id: created.requirement.id })
+    expect(removed.status).toBe(200)
+    const listed = await (await h.get(REQUIREMENTS_LIST_PATH)).json() as ListResponse
+    expect(listed.ok && listed.requirements).toHaveLength(0)
     await h.dispose()
   })
 })

@@ -7,6 +7,11 @@
  * existence, and revision matching. Timestamps are maintained host-side —
  * create mints createdAt=updatedAt=now; edit carries createdAt over and
  * refreshes updatedAt (the repos-pool statusFields counterpart).
+ *
+ * remove additionally triggers the optional workbench D6 cascade (tombstone
+ * → ledger → knowledge → .trash rename, best-effort, never changing the
+ * response verdict) when a cleanup service is injected — see
+ * WorkbenchCleanupLike below.
  */
 import { randomUUID } from 'node:crypto'
 import type { HostConnectionHandle } from '@deepseek-ai/dsh-client-connection'
@@ -22,10 +27,27 @@ import type { RequirementWorkspaceBinder } from './workspace.js'
 import { suggestWorkspacePath } from './workspace.js'
 import { RemoveRequestSchema, SaveRequestSchema, WorkspaceRequestSchema } from './types.js'
 
+/**
+ * Consumer-side minimal interface for the workbench cascade (decisions/0005
+ * D6 step ①③④⑤ — the tombstone-before-rename cleanup). Structurally typed
+ * so fakes satisfy it in tests; the implementation lives in
+ * workbench-host/cascade-service.ts and is injected at assembly time
+ * (index.ts). Absent service ⇒ cascade skipped, naturally falling back to
+ * orphan tolerance — this host never imports the workbench module.
+ */
+export interface WorkbenchCleanupLike {
+  /** D6 step ① — tombstone into the live artifact dir, BEFORE the requirements save. */
+  beginRemoval(requirement: RequirementRecord): void
+  /** D6 steps ③④⑤ — ledger deletions + .trash rename, AFTER a committed save. Sync or queued-async. */
+  completeRemoval(requirement: RequirementRecord): void | Promise<void>
+}
+
 export interface RequirementsServices {
   readonly file: RequirementsFileStore
   /** Workspace binding domain logic (P3a); registry itself is optional. */
   readonly workspaces: RequirementWorkspaceBinder
+  /** Workbench cascade cleanup (D6); absent ⇒ removal stays ledger-only. */
+  readonly cleanup?: WorkbenchCleanupLike
   /** Host log face for unexpected handler failures (500s). */
   readonly log?: (error: unknown) => void
 }
@@ -143,13 +165,29 @@ export function registerRequirementsEndpoints(connection: HostConnectionHandle, 
       if (current.value.revision !== expectedRevision) {
         return errorResponse(409, 'conflict', { currentRevision: current.value.revision })
       }
-      if (!current.value.requirements.some((candidate) => candidate.id === id)) {
+      const removed = current.value.requirements.find((candidate) => candidate.id === id)
+      if (removed === undefined) {
         return errorResponse(404, 'not-found', {
           currentRevision: current.value.revision,
           requirements: current.value.requirements,
         })
       }
       const nextRequirements = current.value.requirements.filter((candidate) => candidate.id !== id)
+      // D6 cascade, two-phase per the pinned order ①→②→③④⑤: the tombstone
+      // lands in the live artifact dir BEFORE the requirements save (a save
+      // failure then leaves a live requirement plus a harmless overwrite-on-
+      // retry tombstone — remove re-runs converge), and the destructive tail
+      // runs only after a committed save, so a 409 never archives anything
+      // (the "Only a committed unlink is destructive" discipline). Every
+      // cascade failure degrades to log + residue; the ok verdict below
+      // depends on this ledger save and nothing else.
+      // Double guard: the service contract says never-throws, but a buggy
+      // implementation must not change the remove verdict either way.
+      try {
+        services.cleanup?.beginRemoval(removed)
+      } catch (error) {
+        log?.(error)
+      }
       try {
         const saved = await file.save(expectedRevision, nextRequirements)
         if (!saved.ok) {
@@ -157,6 +195,11 @@ export function registerRequirementsEndpoints(connection: HostConnectionHandle, 
             return errorResponse(409, 'conflict', { currentRevision: saved.currentRevision })
           }
           return errorResponse(409, 'unreadable-file')
+        }
+        try {
+          await services.cleanup?.completeRemoval(removed)
+        } catch (error) {
+          log?.(error)
         }
         return json({ ok: true, revision: saved.revision })
       } catch (error) {
