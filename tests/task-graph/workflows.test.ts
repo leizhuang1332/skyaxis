@@ -69,14 +69,14 @@ function runEnd(
 
 function summary(
   id: string,
-  fields: Partial<Pick<SessionSummary, 'running' | 'completed' | 'displayTitle'>> = {},
+  fields: Partial<Pick<SessionSummary, 'running' | 'blank' | 'displayTitle'>> = {},
 ): SessionSummary {
   return {
     id: sid(id),
     displayTitle: fields.displayTitle ?? `Title ${id}`,
     running: fields.running ?? false,
-    completed: fields.completed,
-    blank: false,
+    completed: false,
+    blank: fields.blank ?? false,
     updatedAt: 0,
   } as SessionSummary
 }

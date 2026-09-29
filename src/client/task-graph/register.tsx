@@ -152,6 +152,5 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       | 'status.done'
       | 'status.failed'
       | 'status.cancelled'
-      | 'status.waiting'
   }
 }

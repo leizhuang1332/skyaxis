@@ -123,8 +123,6 @@ function statusLabel(status: TaskNode['data']['status'], t: TaskGraphT): string 
       return t('status.failed')
     case 'cancelled':
       return t('status.cancelled')
-    case 'waiting':
-      return t('status.waiting')
     case undefined:
       return ''
   }
@@ -203,9 +201,6 @@ const taskGraphNodeCss = `
 }
 .skyaxis-tg-node[data-status='cancelled'] .skyaxis-tg-node-dot {
   background: var(--dsw-alias-label-dimmed);
-}
-.skyaxis-tg-node[data-status='waiting'] .skyaxis-tg-node-dot {
-  background: var(--dsw-alias-state-warn-primary);
 }
 .skyaxis-tg-node-label {
   overflow: hidden;

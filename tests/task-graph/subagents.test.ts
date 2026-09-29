@@ -23,7 +23,7 @@ function sid(id: string): SessionId {
 
 function summary(
   id: string,
-  fields: Partial<Pick<SessionSummary, 'parentId' | 'origin' | 'running' | 'completed' | 'displayTitle'>> = {},
+  fields: Partial<Pick<SessionSummary, 'parentId' | 'origin' | 'running' | 'blank' | 'displayTitle'>> = {},
 ): SessionSummary {
   return {
     id: sid(id),
@@ -31,8 +31,8 @@ function summary(
     parentId: fields.parentId,
     origin: fields.origin,
     running: fields.running ?? false,
-    completed: fields.completed,
-    blank: false,
+    completed: false,
+    blank: fields.blank ?? false,
     updatedAt: 0,
   } as SessionSummary
 }
@@ -165,12 +165,17 @@ describe('buildSubagentGraph', () => {
     expect(nodes.find((n) => n.id === 'subagent:bare')!.data.label).toBe('子代理')
   })
 
-  it('maps summary running/completed to task status', () => {
+  it('maps summary to task status via the three-state derivation (blank decides pending; completed ignored)', () => {
+    // P2 fix (research 0007 §1.3): completed is a client notification bit —
+    // long-finished sessions observed after the fact have completed=false and
+    // used to collapse to 'pending'. The derivation now reads blank.
     const byId = byIdOf(
       summary('root'),
       summary('busy', { parentId: sid('root'), origin: 'subagent', running: true }),
-      summary('fin', { parentId: sid('root'), origin: 'subagent', completed: true }),
-      summary('idle', { parentId: sid('root'), origin: 'subagent' }),
+      // 空闲有史：!running && !blank → done（completed 位被无视——构造 completed:false）
+      summary('idleHistory', { parentId: sid('root'), origin: 'subagent' }),
+      // 未开始：blank → pending
+      summary('fresh', { parentId: sid('root'), origin: 'subagent', blank: true }),
     )
     const { nodes } = buildSubagentGraph({
       rootId: sid('root'),
@@ -180,8 +185,8 @@ describe('buildSubagentGraph', () => {
       fallbackLabel: 'Subagent',
     })
     expect(nodes.find((n) => n.id === 'subagent:busy')!.data.status).toBe('running')
-    expect(nodes.find((n) => n.id === 'subagent:fin')!.data.status).toBe('done')
-    expect(nodes.find((n) => n.id === 'subagent:idle')!.data.status).toBe('pending')
+    expect(nodes.find((n) => n.id === 'subagent:idleHistory')!.data.status).toBe('done')
+    expect(nodes.find((n) => n.id === 'subagent:fresh')!.data.status).toBe('pending')
   })
 
   it('keeps id namespaces disjoint from the inferred task graph', () => {

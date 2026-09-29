@@ -22,7 +22,6 @@
  *   - failed        ← 所在 turn 的 turn/end.reason.kind === 'error' 且任务
  *                     自身未 completed（任务完成是事实，turn 失败不篡改）；
  *                     同时该 turn 的 user-prompt 节点标 failed
- *   - waiting       v0.3 不生成
  *
  * 节点身份（P0）：task 节点 ID = `todo-{turn}-{contentHash}`，按 content 锚定。
  *   todo/write 是 whole-list 替换语义——每次 todo 状态更新，同 content 的任务

@@ -93,9 +93,15 @@ export function lineageDepths(
   return depths
 }
 
-/** SessionSummary → TaskStatus 的诚实映射（root 与 subagent 节点共用）。 */
+/**
+ * SessionSummary → TaskStatus 的诚实映射（root 与 subagent 节点共用）。
+ * P2 三态派生（research 0007 §1.3）：`completed` 是客户端通知位（仅对未选中
+ * 会话观察到 running→idle 边沿时武装、载入时已 idle 的会话永远 false），弃用；
+ * `blank`（空日志位）承担「未开始」判别——running / 空闲有史 / 未开始。
+ */
 export function summaryStatus(summary: SessionSummary): TaskStatus {
-  return summary.running ? 'running' : summary.completed ? 'done' : 'pending'
+  if (summary.running) return 'running'
+  return summary.blank ? 'pending' : 'done'
 }
 
 /** buildSubagentGraph 的输入（全部来自 sessions.list 快照）。 */
@@ -193,9 +199,12 @@ export function buildSubagentGraph(input: SubagentGraphInput): {
 }
 
 /**
- * subagent 子树的变更签名：后代 (id, label, running, completed) 的确定性序列。
+ * subagent 子树的变更签名：后代 (id, label, running, blank) 的确定性序列。
  * connector 用它判断"同 current 但子树变了"是否需要重推（新 subagent 诞生 /
  * 子树状态翻转都覆盖），避免在任意 list 通知上全量重推。
+ * 签名位用 blank 而非 completed（P2，research 0007 §1.3）：completed 是
+ * 客户端通知位，其虚假翻转（选中清除 / 通知武装）不应触发重推；blank 的
+ * 翻转（首条消息落盘 = 未开始→有史）才是真状态变化。
  */
 export function subagentSignature(
   rootId: SessionId,
@@ -212,7 +221,7 @@ export function subagentSignature(
     parts.push(
       `${String(id)}@${depth}:${summary?.displayTitle ?? ''}:${
         summary?.running ? 'r' : '-'
-      }:${summary?.completed ? 'c' : '-'}`,
+      }:${summary?.blank ? 'b' : '-'}`,
     )
   }
   return parts.join('|')
