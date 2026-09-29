@@ -228,6 +228,11 @@ describe('isWorkbenchRecord', () => {
     expect(isWorkbenchRecord(record({ stageHistory: [{ stage: 'understand', at: '' }] }))).toBe(false)
   })
 
+  it('coveredBy holds WORK-PACKAGE ids — a C-pattern here poisoned live ledgers (acceptance round 2)', () => {
+    expect(isWorkbenchRecord(record({ criteria: [criterion({ coveredBy: ['WP1', 'WP2'] })] }))).toBe(true)
+    expect(isWorkbenchRecord(record({ criteria: [criterion({ coveredBy: ['C1'] })] }))).toBe(false)
+  })
+
   it('releaseItems keep contentHash REQUIRED (Flyway checksum mode)', () => {
     const { contentHash: _h, ...noHash } = releaseItem()
     expect(isWorkbenchRecord(record({ releaseItems: [noHash as ReleaseItem] }))).toBe(false)

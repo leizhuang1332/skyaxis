@@ -103,7 +103,7 @@ export const WorkbenchCriterionSchema = z.object({
   id: CriterionIdSchema,
   text: z.string().max(2000),
   sourceSection: z.string().max(256).optional(),
-  coveredBy: z.array(CriterionIdSchema),
+  coveredBy: z.array(WorkPackageIdSchema), // work-package ids, NOT criterion ids (research §6.1: coveredBy: moduleId[] — a C-pattern here poisons the file on the first covering save)
 })
 
 const ReviewVerdictSchema = z.object({

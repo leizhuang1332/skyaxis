@@ -501,6 +501,29 @@ describe('POST /api/skyaxis/workbench — action union', () => {
 // POST /api/skyaxis/workbench/artifacts — plan writes
 // ---------------------------------------------------------------------------
 
+describe('acceptance round-2 regressions', () => {
+  it('two work packages covering the SAME criterion: both saves 200, ledger reloads clean (coveredBy WP-pattern)', async () => {
+    // Live-acceptance repro: the second saveWorkPackage answered 409
+    // unreadable-file because the first save wrote coveredBy: [WP1] and the
+    // zod schema validated it against the C-pattern — poisoning the ledger
+    // on its next load. The schema now validates work-package ids.
+    const h = await harness()
+    const post = (body: unknown) => h.post(WORKBENCH_PATH, body)
+    const rid = RID
+    await post({ expectedRevision: 0, requirementId: rid, action: 'saveCriterion', criterion: { text: '标准' } })
+    const base = { requirementId: rid, action: 'saveWorkPackage', workPackage: { title: 'WP', boundary: '', dependsOn: [], covers: ['C1'] } }
+    const first = await post({ ...base, expectedRevision: 1 })
+    expect(first.status).toBe(200)
+    const second = await post({ ...base, expectedRevision: 2 })
+    expect(second.status).toBe(200)
+    // The ledger file on disk reloads clean (this is where it degraded live).
+    const detail = await h.get(`${WORKBENCH_PATH}?requirementId=${rid}`)
+    expect(detail.status).toBe(200)
+    const body = (await detail.json()) as { record: { criteria: { coveredBy: string[] }[] } }
+    expect(body.record.criteria[0]?.coveredBy).toEqual(['WP1', 'WP2'])
+  })
+})
+
 describe('POST /api/skyaxis/workbench/artifacts — plan writes', () => {
   it('rejects non-text/plain bodies with 415 and malformed queries with 400', async () => {
     const h = await harness()

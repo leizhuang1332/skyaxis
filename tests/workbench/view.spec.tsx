@@ -217,6 +217,21 @@ describe('WorkbenchTabBody（六阶段导轨 · 真实数据源）', () => {
     expect(screen.getByText(workbenchZh['advance.closed'])).toBeTruthy()
   })
 
+  it('findings form: cancel closes it; a failed save keeps it open for retry (banner path)', async () => {
+    const controller = { ...fakeController(), saveFinding: vi.fn(async () => false) } as ReturnType<typeof fakeController>
+    render(<WorkbenchTabBody t={bindZh()} requirement={requirement} slot={slot({ record: workbenchRecord() })} controller={controller} />)
+    fireEvent.click(screen.getByRole('button', { name: workbenchZh['finding.add'] }))
+    expect(screen.getByText(workbenchZh['finding.addTitle'])).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: workbenchZh['finding.cancel'] }))
+    expect(screen.queryByText(workbenchZh['finding.addTitle'])).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: workbenchZh['finding.add'] }))
+    fireEvent.change(screen.getByLabelText(workbenchZh['finding.titleLabel']), { target: { value: 'x' } })
+    fireEvent.click(screen.getByRole('button', { name: workbenchZh['finding.submit'] }))
+    await waitFor(() => expect(controller.saveFinding).toHaveBeenCalledTimes(1))
+    expect(screen.getByText(workbenchZh['finding.addTitle'])).toBeTruthy() // failed save keeps the form
+  })
+
   it('the seat factory subscribes the store (re-renders on slot updates) and pulls the controller on mount', async () => {
     const store: WorkbenchStore = createWorkbenchStore()
     const controller = fakeController()

@@ -679,7 +679,7 @@ function isWorkbenchCriterion(v: unknown): v is WorkbenchCriterion {
     isString(r.id) && r.id.length > 0
     && isString(r.text)
     && (r.sourceSection === undefined || isString(r.sourceSection))
-    && Array.isArray(r.coveredBy) && r.coveredBy.every((c) => isString(c) && c.length > 0)
+    && Array.isArray(r.coveredBy) && r.coveredBy.every((c) => isString(c) && isWorkPackageId(c))
   )
 }
 

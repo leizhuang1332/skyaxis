@@ -170,16 +170,16 @@ export function WorkbenchTabBody(props: {
               </div>
             ) : null}
             {viewing === 'understand' ? (
-              <FindingsSection key={requirementId} t={t} slot={slot} controller={controller} requirementId={requirementId} />
+              <FindingsSection key={`findings-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} />
             ) : null}
             {record !== null && viewing === 'understand' ? (
-              <CriteriaSection key={requirementId} t={t} slot={slot} controller={controller} requirementId={requirementId} />
+              <CriteriaSection key={`criteria-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} />
             ) : null}
             {record !== null && viewing === 'plan' ? (
-              <SplitSection key={requirementId} t={t} slot={slot} controller={controller} requirementId={requirementId} />
+              <SplitSection key={`split-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} />
             ) : null}
             {record !== null && viewing === 'implement' ? (
-              <BoardSection key={requirementId} t={t} slot={slot} controller={controller} requirementId={requirementId} />
+              <BoardSection key={`board-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} />
             ) : null}
             {record !== null && (viewing === 'review' || viewing === 'deliver' || viewing === 'retro') ? (
               <div className={styles.guideSection}>
