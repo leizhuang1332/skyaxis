@@ -122,6 +122,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       | 'criteria.removeTitle'
       | 'criteria.removeDescription'
       | 'criteria.uncovered'
+      | 'criteria.lockedHint'
       | 'split.sectionTitle'
       | 'split.add'
       | 'split.approve'

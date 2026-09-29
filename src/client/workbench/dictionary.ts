@@ -92,6 +92,7 @@ interface WorkbenchDictionary {
   readonly 'criteria.removeTitle': string
   readonly 'criteria.removeDescription': string
   readonly 'criteria.uncovered': string
+  readonly 'criteria.lockedHint': string
   // split.* — S2 breakdown list + hard gate ①
   readonly 'split.sectionTitle': string
   readonly 'split.add': string
@@ -260,6 +261,7 @@ const zh: WorkbenchDictionary = {
   'criteria.removeTitle': '删除验收标准',
   'criteria.removeDescription': '确定删除该验收标准？工作包对该标准的覆盖引用将被一并剥离。',
   'criteria.uncovered': '尚无工作包覆盖',
+  'criteria.lockedHint': '拆分已批准：验收标准与工作包清单一并锁定，撤销批准后可编辑。',
   'split.sectionTitle': '工作包拆分',
   'split.add': '＋ 工作包',
   'split.approve': '批准拆分',
@@ -421,6 +423,7 @@ const en: WorkbenchDictionary = {
   'criteria.removeTitle': 'Remove criterion',
   'criteria.removeDescription': 'Remove this criterion? Coverage references from work packages will be stripped along with it.',
   'criteria.uncovered': 'No work package covers this',
+  'criteria.lockedHint': 'The split is approved: criteria are locked with the list — revoke the approval to edit.',
   'split.sectionTitle': 'Work-package breakdown',
   'split.add': '＋ Work package',
   'split.approve': 'Approve split',

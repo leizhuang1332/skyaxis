@@ -148,14 +148,15 @@ describe('CriteriaSection（S1 验收标准）', () => {
     await waitFor(() => expect(controller.removeCriterion).toHaveBeenCalledWith(RID, 'C1'))
   })
 
-  it('splitApprovedAt 已设：无＋按钮、无行 Menu（整节只读）', () => {
+  it('splitApprovedAt 已设：无＋按钮、无行 Menu（整节只读）+ 锁定成因提示（不无声消失）', () => {
     subject(slot({ record: record({ splitApprovedAt: AT, criteria: [criterion('C1'), criterion('C2')] }) }))
 
     expect(screen.queryByRole('button', { name: workbenchZh['criteria.add'] })).toBeNull()
     expect(screen.queryByRole('button', { name: 'C1' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'C2' })).toBeNull()
-    // 行本身仍可读。
+    // 行本身仍可读；按钮的位置换成锁定成因提示（诚实 UI：锁的成因在 S2，此处必须自解释）。
     expect(screen.getByText('C1 标准-C1')).toBeTruthy()
+    expect(screen.getByText(workbenchZh['criteria.lockedHint'])).toBeTruthy()
   })
 
   it('sourceSection 填写时进入 body（与用例 2 的缺席形状共同钉死可选键双向）', async () => {

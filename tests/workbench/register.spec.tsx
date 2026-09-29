@@ -95,6 +95,7 @@ describe('workbench: dictionaries', () => {
       'criteria.add',
       'criteria.addTitle',
       'criteria.editTitle',
+      'criteria.lockedHint',
       'criteria.removeDescription',
       'criteria.removeTitle',
       'criteria.sectionTitle',

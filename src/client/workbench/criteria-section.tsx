@@ -34,7 +34,11 @@ export function CriteriaSection(props: {
     <div className={styles.criteriaSection}>
       <div className={styles.sectionHead}>
         <div className={styles.sectionTitle}>{t('criteria.sectionTitle')}</div>
-        {locked ? null : (
+        {locked ? (
+          // The lock's cause lives in S2 (the approved split) — far from here.
+          // Silent disappearance would be a mystery; disclose why and how out.
+          <div className={styles.formHint}>{t('criteria.lockedHint')}</div>
+        ) : (
           <button type="button" className={styles.ghostButton} onClick={() => { setEditing({ kind: 'create' }) }}>{t('criteria.add')}</button>
         )}
       </div>
