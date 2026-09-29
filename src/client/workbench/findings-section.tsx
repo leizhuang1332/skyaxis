@@ -24,6 +24,8 @@ export function FindingsSection(props: {
   slot: RequirementWorkbenchState
   controller: WorkbenchController
   requirementId: string
+  /** S1 entry: open the analysis SOW modal (view-owned instance). */
+  onOpenSow?: () => void
 }): ReactNode {
   const { t, slot, controller, requirementId } = props
   const [formOpen, setFormOpen] = useState(false)
@@ -48,6 +50,11 @@ export function FindingsSection(props: {
 
   return (
     <div className={styles.findingSection}>
+      {props.onOpenSow !== undefined ? (
+        <div className={styles.sowEntryRow}>
+          <button type="button" className={styles.ghostButton} onClick={() => { props.onOpenSow?.() }}>{t('sow.analysisButton')}</button>
+        </div>
+      ) : null}
       {findings.map((finding) => (
         <div key={finding.id} className={finding.status === 'open' ? styles.findingRow : `${styles.findingRow} ${styles.findingRowMuted}`}>
           <div className={styles.findingRowTitle}>{finding.title}</div>

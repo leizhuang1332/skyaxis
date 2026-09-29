@@ -18,12 +18,16 @@ import { WORKBENCH_STAGES } from '../../workbench-shared/protocol.js'
 import type { RequirementRecord } from '../../requirements-shared/protocol.js'
 import type { WorkbenchT } from './dictionary.js'
 import type { WorkbenchController } from './controller.js'
-import type { RequirementWorkbenchState, WorkbenchStore } from './store.js'
-import { slotFor } from './store.js'
+import type { KnowledgeSliceState, RequirementWorkbenchState, WorkbenchStore } from './store.js'
+import { knowledgeFor, slotFor } from './store.js'
 import { FindingsSection } from './findings-section.js'
 import { CriteriaSection } from './criteria-section.js'
 import { SplitSection } from './split-section.js'
 import { BoardSection } from './board-section.js'
+import { SessionStrip } from './session-strip.js'
+import { KnowledgeSection } from './knowledge-section.js'
+import { SowModal } from './sow-modal.js'
+import type { WorkbenchWorkPackage } from '../../workbench-shared/protocol.js'
 import styles from './view.module.css'
 
 const STAGE_LABEL_KEY: Record<WorkbenchStage, Parameters<WorkbenchT>[0]> = {
@@ -86,15 +90,45 @@ function nextStageOf(stage: WorkbenchStage | 'closed'): WorkbenchStage | 'closed
   return index === WORKBENCH_STAGES.length - 1 ? 'closed' : WORKBENCH_STAGES[index + 1]!
 }
 
+/** The live-session summary face the strip/picker consume (register.tsx owns the real impl; tests inject). */
+export interface SessionStripSummary {
+  readonly id: string
+  readonly displayTitle: string
+  readonly running: boolean
+  readonly blank: boolean
+}
+
+export interface WorkbenchSessionsFace {
+  readonly ids: readonly string[]
+  readonly summariesById: Readonly<Record<string, SessionStripSummary | undefined>>
+  subscribe(listener: () => void): () => void
+  navigate(sessionId: string): void
+}
+
+/** Module-level stable empty face (an inline literal would break getSnapshot identity). */
+const EMPTY_SESSIONS: WorkbenchSessionsFace = { ids: [], summariesById: {}, subscribe: () => () => {}, navigate: () => {} }
+
 export function WorkbenchTabBody(props: {
   t: WorkbenchT
   requirement: RequirementRecord
   slot: RequirementWorkbenchState
   controller: WorkbenchController
+  /** Knowledge slice (requirement ∪ global view) for the S6 section + SOW modal. */
+  knowledge: KnowledgeSliceState
+  /** Optional live-session face — absent (jsdom / tests) ⇒ strip degrades honestly. */
+  sessions?: WorkbenchSessionsFace
 }): ReactNode {
-  const { t, slot, controller } = props
+  const { t, slot, controller, knowledge } = props
   const requirementId = props.requirement.id
+  // Live session summaries (zero-polling: the face's own subscribe drives
+  // re-renders; absent face ⇒ stable empty snapshot, hooks never conditional).
+  const sessionsFace = useSyncExternalStore(
+    (listener) => (props.sessions ?? EMPTY_SESSIONS).subscribe(listener),
+    () => props.sessions ?? EMPTY_SESSIONS,
+  )
   const [viewing, setViewing] = useState<WorkbenchStage>('understand')
+  // SOW modal state — view-owned so every section entry shares one instance.
+  const [sow, setSow] = useState<{ purpose: 'analysis' | 'split' | 'dev'; workPackage?: WorkbenchWorkPackage } | null>(null)
   // Follow the record's stage on first ready (and re-arm on requirement
   // switches); later refreshes never move the user's viewing choice.
   const syncedRef = useRef(false)
@@ -161,6 +195,19 @@ export function WorkbenchTabBody(props: {
             </div>
           ) : null}
           {stage === 'closed' ? <div className={styles.closedNotice}>{t('advance.closed')}</div> : null}
+          {record !== null ? (
+            <SessionStrip
+              t={t}
+              record={record}
+              requirement={{ id: requirementId, title: props.requirement.title }}
+              summaries={sessionsFace.ids.flatMap((id) => {
+                const summary = sessionsFace.summariesById[id]
+                return summary === undefined ? [] : [summary]
+              })}
+              navigableIds={sessionsFace.ids}
+              onNavigate={(sessionId) => { sessionsFace.navigate(sessionId) }}
+            />
+          ) : null}
           <div className={styles.stageView} role="tabpanel" aria-label={t(STAGE_LABEL_KEY[viewing])}>
             {record === null ? (
               <div className={styles.guideSection}>
@@ -170,18 +217,29 @@ export function WorkbenchTabBody(props: {
               </div>
             ) : null}
             {viewing === 'understand' ? (
-              <FindingsSection key={`findings-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} />
+              <FindingsSection key={`findings-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} onOpenSow={() => { setSow({ purpose: 'analysis' }) }} />
             ) : null}
             {record !== null && viewing === 'understand' ? (
               <CriteriaSection key={`criteria-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} />
             ) : null}
             {record !== null && viewing === 'plan' ? (
-              <SplitSection key={`split-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} />
+              <SplitSection key={`split-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} onOpenSow={() => { setSow({ purpose: 'split' }) }} />
             ) : null}
             {record !== null && viewing === 'implement' ? (
-              <BoardSection key={`board-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} />
+              <BoardSection key={`board-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} sessions={sessionsFace} onOpenSow={(workPackage) => { setSow({ purpose: 'dev', workPackage }) }} />
             ) : null}
-            {record !== null && (viewing === 'review' || viewing === 'deliver' || viewing === 'retro') ? (
+            {record !== null && viewing === 'retro' ? (
+              <KnowledgeSection
+                key={`knowledge-${requirementId}`}
+                t={t}
+                requirement={props.requirement}
+                slot={slot}
+                knowledge={knowledge}
+                controller={controller}
+                requirementId={requirementId}
+              />
+            ) : null}
+            {record !== null && (viewing === 'review' || viewing === 'deliver') ? (
               <div className={styles.guideSection}>
                 <div className={styles.guideTitle}>{t(STAGE_LABEL_KEY[viewing])}</div>
                 <div className={styles.guideHint}>{t(STAGE_HINT_KEY[viewing])}</div>
@@ -195,6 +253,17 @@ export function WorkbenchTabBody(props: {
               </button>
             </div>
           ) : null}
+          <SowModal
+            t={t}
+            open={sow !== null}
+            purpose={sow?.purpose ?? 'analysis'}
+            requirement={props.requirement}
+            record={record}
+            knowledgeRecords={knowledge.records}
+            revision={slot.revision}
+            workPackage={sow?.workPackage}
+            onClose={() => { setSow(null) }}
+          />
         </>
       ) : null}
     </div>
@@ -219,14 +288,16 @@ function bannerCodeToKey(code: 'conflict' | 'network' | 'unreadable-file' | 'not
   }
 }
 
-/** Seat wiring/** Seat wiring: subscribes the store, pulls the controller on mount (P1a contract, grown to real data). */
+/** Seat wiring: subscribes the store, pulls the controller on mount (P1a contract, grown to real data). */
 export function createWorkbenchTabSeat(options: {
   t: WorkbenchT
   store: WorkbenchStore
   controller: WorkbenchController
+  /** Live-session face from register.tsx (optional — absent in jsdom/tests). */
+  sessions?: WorkbenchSessionsFace
 }): (props: PropsRuntime<'requirements.detail.view'>) => ReactNode {
-  const { t, store, controller } = options
-  return (props) => <WorkbenchSeat t={t} store={store} controller={controller} requirement={props.requirement} />
+  const { t, store, controller, sessions } = options
+  return (props) => <WorkbenchSeat t={t} store={store} controller={controller} requirement={props.requirement} sessions={sessions} />
 }
 
 function WorkbenchSeat(props: {
@@ -234,10 +305,12 @@ function WorkbenchSeat(props: {
   store: WorkbenchStore
   controller: WorkbenchController
   requirement: RequirementRecord
+  sessions?: WorkbenchSessionsFace
 }): ReactNode {
   const state = useSyncExternalStore(props.store.subscribe, props.store.getSnapshot)
   useEffect(() => {
     void props.controller.open(props.requirement.id)
+    void props.controller.openKnowledge(props.requirement.id)
   }, [props.controller, props.requirement.id])
   return (
     <WorkbenchTabBody
@@ -245,6 +318,8 @@ function WorkbenchSeat(props: {
       requirement={props.requirement}
       slot={slotFor(state, props.requirement.id)}
       controller={props.controller}
+      knowledge={knowledgeFor(state, props.requirement.id)}
+      sessions={props.sessions}
     />
   )
 }

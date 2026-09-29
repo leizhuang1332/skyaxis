@@ -1,0 +1,300 @@
+// @vitest-environment jsdom
+/**
+ * SOW 生成 Modal（0006 P2）：注入 fake fetchPrdList/fetchPrdText/
+ * fetchPlanText/copy——PRD 章节渲染与勾选联动预览、多文档 select 切换、
+ * 加载失败/无文档态、知识命中计数行与默认勾选态（always+keyword 勾、
+ * manual 不勾）、勾选联动知识预览、超上限禁复制 + 警示、copy 成功 copied
+ * 一秒复位、copy 失败警示可重试、dev 语境 [工作包] 段（已批准计划两态、
+ * 依赖摘要勾选）。
+ *
+ * 预览断言走 data-testid 的 <pre> 文本（buildSow 产物是整块字符串）；
+ * Modal portal 进 body，afterEach 显式清理。
+ */
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import type { WorkbenchKnowledgeRecord, WorkbenchRecord, WorkbenchWorkPackage } from '../../src/workbench-shared/protocol.js'
+import type { RequirementRecord } from '../../src/requirements-shared/protocol.js'
+import type { WorkbenchT } from '../../src/client/workbench/dictionary.js'
+import { workbenchZh } from '../../src/client/workbench/dictionary.js'
+import { SowModal } from '../../src/client/workbench/sow-modal.js'
+
+const RID = '11111111-1111-4111-8111-111111111111'
+const AT = '2026-09-29T08:00:00.000Z'
+
+const bindZh = (): WorkbenchT => (key) => (workbenchZh as unknown as Record<string, string>)[key] ?? key
+
+const requirement: RequirementRecord = {
+  id: RID,
+  title: '导出功能改造',
+  description: '支持大数据量异步导出',
+  workspacePath: '',
+  linkedRepos: [],
+  createdAt: AT,
+  updatedAt: AT,
+}
+
+function knowledge(id: string, overrides: Partial<WorkbenchKnowledgeRecord> = {}): WorkbenchKnowledgeRecord {
+  return {
+    id,
+    scope: 'requirement',
+    type: 'business',
+    title: `知识-${id}`,
+    content: `内容-${id}`,
+    requirementId: RID,
+    trigger: { mode: 'always' },
+    status: 'active',
+    provenance: { at: AT },
+    ...overrides,
+  }
+}
+
+function wp(id: string, overrides: Partial<WorkbenchWorkPackage> = {}): WorkbenchWorkPackage {
+  return {
+    id,
+    title: `工作包-${id}`,
+    boundary: `边界-${id}`,
+    order: 1,
+    dependsOn: [],
+    covers: [],
+    status: 'plan-approved',
+    plans: [],
+    sessions: [],
+    commits: [],
+    acceptances: [],
+    ...overrides,
+  }
+}
+
+function record(overrides: Partial<WorkbenchRecord> = {}): WorkbenchRecord {
+  return {
+    requirementId: RID,
+    stage: 'implement',
+    stageHistory: [{ stage: 'implement', at: AT }],
+    criteria: [],
+    findings: [],
+    workPackages: [],
+    releaseItems: [],
+    reviewReports: [],
+    knowledgeCandidates: [],
+    ...overrides,
+  }
+}
+
+afterEach(() => {
+  cleanup()
+})
+
+type SowModalProps = Parameters<typeof SowModal>[0]
+
+function subject(overrides: Partial<SowModalProps> = {}) {
+  return render(
+    <SowModal
+      t={bindZh()}
+      open
+      purpose="analysis"
+      requirement={requirement}
+      record={null}
+      knowledgeRecords={[]}
+      revision={7}
+      onClose={() => { /* noop */ }}
+      fetchPrdList={async () => []}
+      fetchPrdText={async () => ''}
+      fetchPlanText={async () => undefined}
+      copy={async () => true}
+      {...overrides}
+    />,
+  )
+}
+
+const tick = async (): Promise<void> => {
+  await new Promise((resolve) => setTimeout(resolve, 20))
+}
+
+const previewText = (rendered: ReturnType<typeof subject>): string =>
+  rendered.getByTestId('sow-preview').textContent ?? ''
+
+describe('SowModal（SOW 生成 Modal）', () => {
+  it('PRD 章节渲染（默认全勾）联动预览；单文档不出 select；勾选变化即时反映', async () => {
+    const fetchPrdText = vi.fn(async (name: string) =>
+      name === 'a.md' ? '# 背景\n背景正文\n\n## 方案\n方案正文' : '')
+    const rendered = subject({ fetchPrdList: async () => [{ name: 'a.md' }], fetchPrdText })
+
+    await waitFor(() => expect(fetchPrdText).toHaveBeenCalledWith('a.md'))
+    await waitFor(() => expect(previewText(rendered)).toContain('文档：a.md'))
+    const text = previewText(rendered)
+    expect(text).toContain('## 背景\n背景正文')
+    expect(text).toContain('## 方案\n方案正文')
+    expect(rendered.queryByRole('combobox')).toBeNull()
+
+    // 取消勾选「背景」→ 预览即时丢该节（含标题行），方案节保留。
+    fireEvent.click(rendered.getByLabelText('背景'))
+    const after = previewText(rendered)
+    expect(after).not.toContain('背景正文')
+    expect(after).not.toContain('## 背景')
+    expect(after).toContain('方案正文')
+  })
+
+  it('多文档 select 切换：切到 b.md 重取正文并重置全勾', async () => {
+    const fetchPrdText = vi.fn(async (name: string) =>
+      name === 'a.md' ? '# a 正文' : '## b 背景\nb 正文')
+    const rendered = subject({
+      fetchPrdList: async () => [{ name: 'a.md' }, { name: 'b.md' }],
+      fetchPrdText,
+    })
+
+    await waitFor(() => expect(fetchPrdText).toHaveBeenCalledWith('a.md'))
+    const select = (await rendered.findByRole('combobox')) as HTMLSelectElement
+    fireEvent.change(select, { target: { value: 'b.md' } })
+    await waitFor(() => expect(fetchPrdText).toHaveBeenCalledWith('b.md'))
+    await waitFor(() => expect(previewText(rendered)).toContain('文档：b.md'))
+    expect(previewText(rendered)).toContain('## b 背景\nb 正文')
+    expect(fetchPrdText).toHaveBeenCalledTimes(2)
+  })
+
+  it('PRD 列表加载失败 → prdLoadError；无文档 → prdEmpty', async () => {
+    const rendered = subject({ fetchPrdList: async () => null })
+    expect(await rendered.findByText(workbenchZh['sow.prdLoadError'])).toBeTruthy()
+    expect(previewText(rendered)).toContain('（未选择）')
+    rendered.unmount()
+
+    const rendered2 = subject({ fetchPrdList: async () => [] })
+    expect(await rendered2.findByText(workbenchZh['sow.prdEmpty'])).toBeTruthy()
+  })
+
+  it('知识命中计数行：{n} 只计 always+keyword，{size}/{cap} KB 一位小数；行渲染 [mode] 标题', async () => {
+    const rendered = subject({
+      knowledgeRecords: [
+        knowledge('k1', { trigger: { mode: 'always' } }),
+        knowledge('k2', { trigger: { mode: 'keyword', value: '导出' } }),
+        knowledge('k3', { trigger: { mode: 'keyword', value: '不存在词' } }),
+        knowledge('k4', { trigger: { mode: 'manual' } }),
+      ],
+    })
+
+    expect(await rendered.findByText(/命中 2 · 0\.0 KB \/ 上限 8\.0 KB/)).toBeTruthy()
+    expect(rendered.getByLabelText('[always] 知识-k1')).toBeTruthy()
+    expect(rendered.getByLabelText('[keyword] 知识-k2')).toBeTruthy()
+    expect(rendered.getByLabelText('[manual] 知识-k4')).toBeTruthy()
+    expect(rendered.queryByLabelText('[keyword] 知识-k3')).toBeNull()
+    // 默认勾选态：always+keyword 入预览，manual 不入；未命中 k3 全程不入。
+    expect(previewText(rendered)).toContain('### 知识-k1')
+    expect(previewText(rendered)).toContain('### 知识-k2')
+    expect(previewText(rendered)).not.toContain('知识-k4')
+    expect(previewText(rendered)).not.toContain('知识-k3')
+  })
+
+  it('知识勾选联动：取消 always → 知识段（无）；勾上 manual → 进入预览', async () => {
+    const rendered = subject({
+      knowledgeRecords: [knowledge('k1'), knowledge('k4', { trigger: { mode: 'manual' } })],
+    })
+
+    await rendered.findByLabelText('[always] 知识-k1')
+    fireEvent.click(rendered.getByLabelText('[always] 知识-k1'))
+    await waitFor(() => expect(previewText(rendered)).toContain('[知识注入]\n（无）'))
+    fireEvent.click(rendered.getByLabelText('[manual] 知识-k4'))
+    await waitFor(() => expect(previewText(rendered)).toContain('### 知识-k4\n（触发：manual）\n内容-k4'))
+  })
+
+  it('超上限（条数）：copy 禁用 + 警示行；取消一条即恢复可复制', async () => {
+    const nine = Array.from({ length: 9 }, (_, index) => knowledge(`k${index + 1}`))
+    const copy = vi.fn(async () => true)
+    const rendered = subject({ knowledgeRecords: nine, copy })
+
+    const warn = await rendered.findByRole('alert')
+    expect(warn.textContent).toContain('超出注入上限（9 条 /')
+    const copyButton = rendered.getByRole('button', { name: workbenchZh['sow.copy'] }) as HTMLButtonElement
+    expect(copyButton.disabled).toBe(true)
+    fireEvent.click(copyButton)
+    await tick()
+    expect(copy).not.toHaveBeenCalled()
+
+    fireEvent.click(rendered.getByLabelText('[always] 知识-k1'))
+    await waitFor(() => expect(rendered.queryByRole('alert')).toBeNull())
+    expect(((rendered.getByRole('button', { name: workbenchZh['sow.copy'] }) as HTMLButtonElement)).disabled).toBe(false)
+  })
+
+  it('copy 成功：copy 收到预览全文，按钮 copied 一秒后复位', async () => {
+    const copy = vi.fn(async (_text: string) => true)
+    const rendered = subject({ copy })
+
+    const copyButton = (): HTMLButtonElement => rendered.getByRole('button', { name: workbenchZh['sow.copy'] }) as HTMLButtonElement
+    await waitFor(() => expect(copyButton().disabled).toBe(false))
+    fireEvent.click(copyButton())
+    await waitFor(() => expect(copy).toHaveBeenCalledTimes(1))
+    const sent = copy.mock.calls[0][0]
+    expect(sent).toContain('[需求]')
+    expect(sent).toContain('标题：导出功能改造')
+    expect(sent).toContain('生成于 revision 7 ·')
+    expect(rendered.getByText(workbenchZh['sow.copied'])).toBeTruthy()
+    await new Promise((resolve) => setTimeout(resolve, 1100))
+    expect(rendered.getByText(workbenchZh['sow.copy'])).toBeTruthy()
+  })
+
+  it('copy 失败：copyFailed 警示（可重试），重试成功警示消失', async () => {
+    const copy = vi.fn(async (_text: string) => true).mockResolvedValueOnce(false)
+    const rendered = subject({ copy })
+
+    const copyButton = (): HTMLButtonElement => rendered.getByRole('button', { name: workbenchZh['sow.copy'] }) as HTMLButtonElement
+    await waitFor(() => expect(copyButton().disabled).toBe(false))
+    fireEvent.click(copyButton())
+    expect(await rendered.findByRole('alert')).toBeTruthy()
+    expect(screen.getByRole('alert').textContent).toBe(workbenchZh['sow.copyFailed'])
+    expect(copyButton().disabled).toBe(false)
+    fireEvent.click(copyButton())
+    await waitFor(() => expect(copy).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(rendered.queryByRole('alert')).toBeNull())
+    expect(rendered.getByText(workbenchZh['sow.copied'])).toBeTruthy()
+  })
+
+  it('dev 语境：预览含 [工作包] 段 + 已批准计划正文 + dev declare；有计划不出无计划提示', async () => {
+    const target = wp('WP1', { title: '导出队列', boundary: '做队列；不做存储' })
+    const fetchPlanText = vi.fn(async () => '1. 建任务表')
+    const rendered = subject({
+      purpose: 'dev',
+      workPackage: target,
+      record: record({ workPackages: [target] }),
+      fetchPlanText,
+    })
+
+    await waitFor(() => expect(fetchPlanText).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(previewText(rendered)).toContain('### 已批准计划\n1. 建任务表'))
+    const text = previewText(rendered)
+    expect(text).toContain('[工作包]\nWP1　导出队列\n边界：做队列；不做存储')
+    expect(text).toContain('workPackage: WP1\nclaims:\n  - built: true')
+    expect(text).toContain('生成于 revision 7 ·')
+    expect(rendered.queryByText(workbenchZh['sow.wpNoApprovedPlan'])).toBeNull()
+    // 无依赖工作包 → 依赖摘要勾选行不出现。
+    expect(rendered.queryByLabelText(workbenchZh['sow.wpDeps'])).toBeNull()
+  })
+
+  it('dev 语境无已批准计划：wpNoApprovedPlan 提示 + 预览占位行', async () => {
+    const rendered = subject({
+      purpose: 'dev',
+      workPackage: wp('WP1'),
+      record: record({ workPackages: [wp('WP1')] }),
+      fetchPlanText: async () => undefined,
+    })
+
+    expect(await rendered.findByText(workbenchZh['sow.wpNoApprovedPlan'])).toBeTruthy()
+    await waitFor(() => expect(previewText(rendered)).toContain('（尚无已批准计划）'))
+  })
+
+  it('dev 语境依赖摘要勾选：默认不勾不产摘要，勾上后预览逐依赖一行', async () => {
+    const target = wp('WP1', { title: '导出队列', dependsOn: ['WP2'] })
+    const rendered = subject({
+      purpose: 'dev',
+      workPackage: target,
+      record: record({
+        workPackages: [target, wp('WP2', { title: '存储层', boundary: '只做表结构', order: 2 })],
+      }),
+      fetchPlanText: async () => undefined,
+    })
+
+    const depsBox = await rendered.findByLabelText(workbenchZh['sow.wpDeps']) as HTMLInputElement
+    expect(depsBox.checked).toBe(false)
+    await waitFor(() => expect(previewText(rendered)).toContain('[工作包]'))
+    expect(previewText(rendered)).not.toContain('依赖工作包摘要')
+    fireEvent.click(depsBox)
+    await waitFor(() => expect(previewText(rendered)).toContain('依赖工作包摘要：\n- WP2 存储层 · 只做表结构'))
+  })
+})

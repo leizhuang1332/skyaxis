@@ -27,6 +27,8 @@ export function SplitSection(props: {
   slot: RequirementWorkbenchState
   controller: WorkbenchController
   requirementId: string
+  /** S2 entry: open the split SOW modal (view-owned instance). */
+  onOpenSow?: () => void
 }): ReactNode {
   const { t, slot, controller, requirementId } = props
   const record = slot.record
@@ -63,6 +65,7 @@ export function SplitSection(props: {
       <div className={styles.sectionHead}>
         <div className={styles.sectionTitle}>{t('split.sectionTitle')}</div>
         {/* stale 徽章预留位（research §4.2）：自动化在 P5，无数据不渲染占位。 */}
+        <button type="button" className={styles.ghostButton} onClick={() => { props.onOpenSow?.() }}>{t('sow.splitButton')}</button>
         {approved ? null : (
           <button type="button" className={styles.ghostButton} onClick={() => { setEditing({ kind: 'create' }) }}>{t('split.add')}</button>
         )}

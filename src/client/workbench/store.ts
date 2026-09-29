@@ -1,5 +1,8 @@
 /**
- * Workbench UI store: per-requirement slots keyed by requirementId.
+ * Workbench UI store: per-requirement slots keyed by requirementId, plus a
+ * parallel knowledge slice (P2) — the SOW modal and the S6 view both need
+ * the requirement ∪ global knowledge view, which is a SEPARATE ledger with
+ * its own revision (the wire split mirrors here).
  *
  * Lifecycle follows the repos-pool closure precedent — created in the
  * registration closure, destroyed with the apply disposer. The keyed main
@@ -9,7 +12,7 @@
  * anti-flash contract) while a background revalidation lands.
  */
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
-import type { PlanFileExistsRow, ReviewFileExistsRow, WorkbenchRecord } from '../../workbench-shared/protocol.js'
+import type { PlanFileExistsRow, ReviewFileExistsRow, WorkbenchKnowledgeRecord, WorkbenchRecord } from '../../workbench-shared/protocol.js'
 
 export interface RequirementWorkbenchState {
   phase: 'loading' | 'ready' | 'degraded' | 'load-error'
@@ -27,11 +30,22 @@ export interface RequirementWorkbenchState {
   }
 }
 
-export interface WorkbenchState {
-  readonly byRequirement: Readonly<Record<string, RequirementWorkbenchState>>
+/** The knowledge.yaml view for one requirement (requirement ∪ global, server-filtered). */
+export interface KnowledgeSliceState {
+  phase: 'loading' | 'ready' | 'degraded' | 'load-error'
+  /** The knowledge ledger revision this slice last saw (its OWN optimistic lock). */
+  revision: number
+  records: readonly WorkbenchKnowledgeRecord[]
+  degraded?: { reason: 'parse' | 'schema' | 'io'; hasBackup: boolean }
+  busy?: boolean
 }
 
-const INITIAL_STATE: WorkbenchState = { byRequirement: {} }
+export interface WorkbenchState {
+  readonly byRequirement: Readonly<Record<string, RequirementWorkbenchState>>
+  readonly knowledgeByRequirement: Readonly<Record<string, KnowledgeSliceState>>
+}
+
+const INITIAL_STATE: WorkbenchState = { byRequirement: {}, knowledgeByRequirement: {} }
 
 export function slotFor(state: WorkbenchState, requirementId: string): RequirementWorkbenchState {
   return state.byRequirement[requirementId] ?? {
@@ -41,6 +55,14 @@ export function slotFor(state: WorkbenchState, requirementId: string): Requireme
     planFileExists: [],
     reviewFileExists: [],
     busy: false,
+  }
+}
+
+export function knowledgeFor(state: WorkbenchState, requirementId: string): KnowledgeSliceState {
+  return state.knowledgeByRequirement[requirementId] ?? {
+    phase: 'loading',
+    revision: 0,
+    records: [],
   }
 }
 

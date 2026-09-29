@@ -21,6 +21,10 @@ import { createWorkbenchTabSeat, WorkbenchTabBody } from '../../src/client/workb
 
 const RID = '11111111-1111-4111-8111-111111111111'
 
+function knowledgeState(): { phase: 'ready'; revision: number; records: never[] } {
+  return { phase: 'ready', revision: 1, records: [] }
+}
+
 const bindZh = (): WorkbenchT => (key) => (workbenchZh as unknown as Record<string, string>)[key] ?? key
 
 const requirement: RequirementRecord = {
@@ -69,6 +73,7 @@ function slot(overrides: Partial<RequirementWorkbenchState> = {}): RequirementWo
 function fakeController(): WorkbenchController & { advanceStage: ReturnType<typeof vi.fn>; saveFinding: ReturnType<typeof vi.fn> } {
   return {
     open: vi.fn(async () => undefined),
+    openKnowledge: vi.fn(async () => undefined),
     advanceStage: vi.fn(async () => true),
     saveFinding: vi.fn(async () => true),
     removeFinding: vi.fn(async () => true),
@@ -85,7 +90,7 @@ afterEach(() => {
 
 describe('WorkbenchTabBody（六阶段导轨 · 真实数据源）', () => {
   it('renders the six stages in pipeline order; no record starts viewing at ①', () => {
-    render(<WorkbenchTabBody t={bindZh()} requirement={requirement} slot={slot()} controller={fakeController()} />)
+    render(<WorkbenchTabBody t={bindZh()} requirement={requirement} slot={slot()} controller={fakeController()} knowledge={knowledgeState()} />)
 
     const rail = screen.getByRole('tablist', { name: '工作流阶段' })
     expect(rail).toBeTruthy()
@@ -105,6 +110,7 @@ describe('WorkbenchTabBody（六阶段导轨 · 真实数据源）', () => {
         requirement={requirement}
         slot={slot({ record: workbenchRecord({ stage: 'implement' }) })}
         controller={fakeController()}
+      knowledge={knowledgeState()}
       />,
     )
     expect(screen.getByRole('tab', { name: '③ 执行实施' }).getAttribute('aria-selected')).toBe('true')
@@ -118,6 +124,7 @@ describe('WorkbenchTabBody（六阶段导轨 · 真实数据源）', () => {
         requirement={requirement}
         slot={slot({ record: workbenchRecord() })}
         controller={fakeController()}
+      knowledge={knowledgeState()}
       />,
     )
 
@@ -125,16 +132,18 @@ describe('WorkbenchTabBody（六阶段导轨 · 真实数据源）', () => {
     fireEvent.click(screen.getByRole('tab', { name: '④ 评审' }))
     expect(screen.getByRole('tab', { name: '④ 评审' }).getAttribute('aria-selected')).toBe('true')
     expect(panel().textContent).toContain(workbenchZh['workbench.stageHint.review'])
-    // 观看是自由的（§4.1）：可回退、可跳到任意阶段。
+    // 观看是自由的（§4.1）：可回退、可跳到任意阶段。retro（⑥）自 P2 起是
+    // 知识库真内容（候选节标题），不再是 stageHint 占位。
     fireEvent.click(screen.getByRole('tab', { name: '⑥ 沉淀' }))
-    expect(panel().textContent).toContain(workbenchZh['workbench.stageHint.retro'])
+    expect(panel().textContent).toContain(workbenchZh['knowledge.candidatesTitle'])
+    expect(panel().textContent).not.toContain(workbenchZh['workbench.stageHint.retro'])
   })
 
   // 诚实口径守卫（双向）：无记录 ⇒ 徽章与推进不出现、空态引导在场——但
   // 「手动添加发现」动作卡必须在场：它是隐式建账的入口，藏掉它就把每个新
   // 需求锁死在工作台之外（对抗评审确认的 critical 修复钉）。
   it('record null renders no badges, no advance control — but the record-minting add card', () => {
-    render(<WorkbenchTabBody t={bindZh()} requirement={requirement} slot={slot()} controller={fakeController()} />)
+    render(<WorkbenchTabBody t={bindZh()} requirement={requirement} slot={slot()} controller={fakeController()} knowledge={knowledgeState()} />)
 
     const rail = screen.getByRole('tablist', { name: '工作流阶段' })
     expect(rail.querySelectorAll('button')).toHaveLength(WORKBENCH_STAGES.length)
@@ -156,6 +165,7 @@ describe('WorkbenchTabBody（六阶段导轨 · 真实数据源）', () => {
         requirement={requirement}
         slot={slot({ record: workbenchRecord({ findings: [finding('a', 'open'), finding('b', 'open'), finding('c', 'resolved')] }) })}
         controller={fakeController()}
+      knowledge={knowledgeState()}
       />,
     )
     expect(screen.getByText('2 待处置')).toBeTruthy()
@@ -169,6 +179,7 @@ describe('WorkbenchTabBody（六阶段导轨 · 真实数据源）', () => {
         requirement={requirement}
         slot={slot({ record: workbenchRecord({ findings: [finding('a', 'resolved'), finding('b', 'wont-fix')] }) })}
         controller={fakeController()}
+      knowledge={knowledgeState()}
       />,
     )
     expect(screen.queryByText(/待处置/)).toBeNull()
@@ -182,6 +193,7 @@ describe('WorkbenchTabBody（六阶段导轨 · 真实数据源）', () => {
         requirement={requirement}
         slot={slot({ record: workbenchRecord({ stage: 'understand' }) })}
         controller={controller}
+      knowledge={knowledgeState()}
       />,
     )
     const button = screen.getByRole('button', { name: '完成本阶段 → ② 探索规划' })
@@ -199,6 +211,7 @@ describe('WorkbenchTabBody（六阶段导轨 · 真实数据源）', () => {
         requirement={requirement}
         slot={slot({ record: workbenchRecord({ stage: 'retro' }) })}
         controller={controller}
+      knowledge={knowledgeState()}
       />,
     )
     fireEvent.click(screen.getByRole('button', { name: '关闭需求 →' }))
@@ -211,6 +224,7 @@ describe('WorkbenchTabBody（六阶段导轨 · 真实数据源）', () => {
         requirement={requirement}
         slot={slot({ record: workbenchRecord({ stage: 'closed' }) })}
         controller={controller}
+      knowledge={knowledgeState()}
       />,
     )
     expect(screen.queryByText(/完成本阶段|关闭需求/)).toBeNull()
@@ -219,7 +233,7 @@ describe('WorkbenchTabBody（六阶段导轨 · 真实数据源）', () => {
 
   it('findings form: cancel closes it; a failed save keeps it open for retry (banner path)', async () => {
     const controller = { ...fakeController(), saveFinding: vi.fn(async () => false) } as ReturnType<typeof fakeController>
-    render(<WorkbenchTabBody t={bindZh()} requirement={requirement} slot={slot({ record: workbenchRecord() })} controller={controller} />)
+    render(<WorkbenchTabBody t={bindZh()} requirement={requirement} slot={slot({ record: workbenchRecord() })} controller={controller} knowledge={knowledgeState()} />)
     fireEvent.click(screen.getByRole('button', { name: workbenchZh['finding.add'] }))
     expect(screen.getByText(workbenchZh['finding.addTitle'])).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: workbenchZh['finding.cancel'] }))
@@ -243,6 +257,7 @@ describe('WorkbenchTabBody（六阶段导轨 · 真实数据源）', () => {
     // seat reading one static snapshot would keep rendering the loading state.
     act(() => {
       store.set({
+        knowledgeByRequirement: {},
         byRequirement: {
           [RID]: { phase: 'ready', revision: 1, record: workbenchRecord({ findings: [finding('a', 'open')] }), planFileExists: [], reviewFileExists: [], busy: false },
         },

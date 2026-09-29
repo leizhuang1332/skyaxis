@@ -15,6 +15,7 @@
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { MarkdownText, Modal, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
+import { SessionPicker } from './session-picker.js'
 import { WORKBENCH_ARTIFACT_MAX_CHARS } from '../../workbench-shared/protocol.js'
 import type { WorkbenchWorkPackage } from '../../workbench-shared/protocol.js'
 import type { WorkbenchT } from './dictionary.js'
@@ -54,9 +55,12 @@ export function WorkPackageDialog(props: {
   slot: RequirementWorkbenchState
   controller: WorkbenchController
   requirementId: string
+  sessions?: { ids: readonly string[]; summariesById: Readonly<Record<string, { id: string; displayTitle: string; running: boolean; blank: boolean } | undefined>> }
+  onOpenSow?: (workPackage: WorkbenchWorkPackage) => void
   onClose: () => void
 }): ReactNode {
   const { t, workPackage, slot, controller, requirementId } = props
+  const [pickerOpen, setPickerOpen] = useState(false)
   const plans = [...workPackage.plans].sort((a, b) => b.version - a.version)
   const tailDraftVersion = plans.find((plan) => plan.approvedAt === undefined)?.version ?? null
   const [selectedVersion, setSelectedVersion] = useState<number | null>(plans[0]?.version ?? null)
@@ -195,6 +199,9 @@ export function WorkPackageDialog(props: {
         <div className={styles.sectionTitle}>
           {t('detail.planSection')}
           <Tag tone={STATUS_TAG_TONE[workPackage.status]}>{t(STATUS_LABEL_KEY[workPackage.status])}</Tag>
+          {props.onOpenSow !== undefined ? (
+            <button type="button" className={styles.ghostButton} onClick={() => { props.onOpenSow?.(workPackage) }}>{t('sow.workPackageButton')}</button>
+          ) : null}
         </div>
         {plans.length === 0 ? <div className={styles.formHint}>{t('detail.noPlans')}</div> : (
           <>
@@ -254,11 +261,45 @@ export function WorkPackageDialog(props: {
       </div>
 
       <div className={styles.wpDialogSection}>
-        <div className={styles.sectionTitle}>{t('detail.sessionsSection')}</div>
-        <div className={styles.formHint}>
-          {t('board.sessions').replaceAll('{n}', String(workPackage.sessions.length))}
-          {workPackage.commits.length > 0 ? ` · ${t('board.commits').replaceAll('{n}', String(workPackage.commits.length))}` : ''}
+        <div className={styles.sectionTitle}>
+          {t('detail.sessionsSection')}
+          {workPackage.commits.length > 0 ? <span className={styles.formHint}>{t('board.commits').replaceAll('{n}', String(workPackage.commits.length))}</span> : null}
+          <button type='button' className={styles.ghostButton} onClick={() => { setPickerOpen(true) }}>{t('session.bindButton')}</button>
         </div>
+        {workPackage.sessions.length === 0 ? <div className={styles.formHint}>{t('session.pickerHint')}</div> : null}
+        {workPackage.sessions.map((binding) => {
+          const summary = props.sessions?.summariesById[binding.sessionId]
+          return (
+            <div key={binding.sessionId + binding.purpose} className={styles.findingRow}>
+              <div className={styles.findingRowTitle}>
+                {binding.sessionId.slice(0, 8)} {summary !== undefined ? summary.displayTitle : t('session.stateGone')}
+              </div>
+              <div className={styles.findingRowMeta}>
+                {binding.purpose === 'analysis' ? t('session.purposeAnalysis') : binding.purpose === 'dev' ? t('session.purposeDev') : t('session.purposeReview')}
+                {' · '}
+                {summary === undefined ? t('session.stateGone') : summary.running ? t('session.stateRunning') : summary.blank ? t('session.stateBlank') : t('session.stateIdle')}
+                {' · '}
+                {t('session.boundAtPrefix')} {binding.boundAt}
+              </div>
+            </div>
+          )
+        })}
+        {props.sessions !== undefined ? (
+          <SessionPicker
+            t={t}
+            open={pickerOpen}
+            rows={props.sessions.ids.flatMap((id) => {
+              const summary = props.sessions?.summariesById[id]
+              return summary === undefined ? [] : [{ id, displayTitle: summary.displayTitle, running: summary.running }]
+            })}
+            boundSessionIds={workPackage.sessions.map((binding) => binding.sessionId)}
+            busy={slot.busy}
+            onClose={() => { setPickerOpen(false) }}
+            onBind={(sessionId, purpose) => {
+              void controller.bindSession(requirementId, workPackage.id, sessionId, purpose).then((ok) => { if (ok) setPickerOpen(false) })
+            }}
+          />
+        ) : null}
       </div>
 
       <div className={styles.wpDialogSection}>

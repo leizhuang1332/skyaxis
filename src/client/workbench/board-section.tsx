@@ -35,6 +35,10 @@ export function BoardSection(props: {
   slot: RequirementWorkbenchState
   controller: WorkbenchController
   requirementId: string
+  /** Live-session face (register-injected; absent in tests ⇒ picker/strip degrade). */
+  sessions?: { ids: readonly string[]; summariesById: Readonly<Record<string, { id: string; displayTitle: string; running: boolean; blank: boolean } | undefined>> }
+  /** S3 entry: open the work-package SOW modal for the given package. */
+  onOpenSow?: (workPackage: WorkbenchWorkPackage) => void
 }): ReactNode {
   const { t, slot, controller, requirementId } = props
   const record = slot.record
@@ -153,6 +157,8 @@ export function BoardSection(props: {
           slot={slot}
           controller={controller}
           requirementId={requirementId}
+          sessions={props.sessions}
+          onOpenSow={props.onOpenSow}
           onClose={() => { setDialogId(null) }}
         />
       ) : null}

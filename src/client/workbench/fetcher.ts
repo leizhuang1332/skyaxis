@@ -13,6 +13,7 @@
  */
 import {
   WORKBENCH_ARTIFACTS_PATH,
+  WORKBENCH_KNOWLEDGE_PATH,
   WORKBENCH_PATH,
 } from '../../workbench-shared/protocol.js'
 import type {
@@ -21,6 +22,10 @@ import type {
   PlanFileExistsRow,
   ReviewFileExistsRow,
   WorkbenchFinding,
+  WorkbenchKnowledgeListResponse,
+  WorkbenchKnowledgeMutateRequestBody,
+  WorkbenchKnowledgeRecord,
+  WorkbenchKnowledgeSaveResponseOk,
   WorkbenchListResponse,
   WorkbenchMutateRequestBody,
   WorkbenchRecord,
@@ -31,6 +36,8 @@ import {
   isArtifactWriteResponseOk,
   isErrorResponse,
   isWorkbenchDetailResponse,
+  isWorkbenchKnowledgeListResponse,
+  isWorkbenchKnowledgeSaveResponseOk,
   isWorkbenchListResponse,
   isWorkbenchSaveResponseOk,
 } from '../../workbench-shared/protocol.js'
@@ -42,6 +49,15 @@ export type WorkbenchFailure =
 export type WorkbenchListResult =
   | { readonly kind: 'ok'; readonly revision: number; readonly records: readonly WorkbenchRecord[] }
   | { readonly kind: 'degraded'; readonly reason: 'parse' | 'schema' | 'io'; readonly hasBackup: boolean }
+  | WorkbenchFailure
+
+export type WorkbenchKnowledgeListResult =
+  | { readonly kind: 'ok'; readonly revision: number; readonly records: readonly WorkbenchKnowledgeRecord[] }
+  | { readonly kind: 'degraded'; readonly reason: 'parse' | 'schema' | 'io'; readonly hasBackup: boolean }
+  | WorkbenchFailure
+
+export type WorkbenchKnowledgeMutateResult =
+  | { readonly kind: 'ok'; readonly revision: number; readonly record: WorkbenchKnowledgeRecord }
   | WorkbenchFailure
 
 export type WorkbenchDetailResult =
@@ -204,6 +220,63 @@ export function createWorkbenchFetcher() {
 
     async removeCriterion(requirementId: string, expectedRevision: number, id: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
       return this.mutate({ expectedRevision, requirementId, action: 'removeCriterion', id }, signal)
+    },
+
+    // --- P2: session binding + knowledge candidates (main union) ---
+
+    async bindSession(requirementId: string, expectedRevision: number, id: string, sessionId: string, purpose: 'analysis' | 'dev' | 'review', signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'bindSession', id, sessionId, purpose }, signal)
+    },
+
+    async activateKnowledgeCandidate(requirementId: string, expectedRevision: number, id: string, knowledge: { scope: 'global' | 'workspace' | 'requirement'; type: 'business' | 'convention'; trigger: { mode: 'always' | 'keyword' | 'manual'; value?: string }; path?: string }, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'activateKnowledgeCandidate', id, knowledge: { ...knowledge } }, signal)
+    },
+
+    async editKnowledgeCandidate(requirementId: string, expectedRevision: number, id: string, candidate: { title: string; draft: string; type: 'business' | 'convention' }, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'editKnowledgeCandidate', id, candidate: { ...candidate } }, signal)
+    },
+
+    async dismissKnowledgeCandidate(requirementId: string, expectedRevision: number, id: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'dismissKnowledgeCandidate', id }, signal)
+    },
+
+    // --- P2: knowledge.yaml route (its OWN union + optimistic lock) ---
+
+    async knowledgeList(requirementId: string, signal?: AbortSignal): Promise<WorkbenchKnowledgeListResult> {
+      const response = await request(
+        `${WORKBENCH_KNOWLEDGE_PATH}?requirementId=${encodeURIComponent(requirementId)}`,
+        { method: 'GET' },
+        signal,
+      )
+      if ('kind' in response) return response
+      if (!response.ok) return parseErrorBody(response)
+      const body: unknown = await response.json()
+      if (!isWorkbenchKnowledgeListResponse(body)) return { kind: 'http-error', status: response.status }
+      const parsed: WorkbenchKnowledgeListResponse = body
+      if (parsed.ok) return { kind: 'ok', revision: parsed.revision, records: [...parsed.records] }
+      return { kind: 'degraded', reason: parsed.reason, hasBackup: parsed.hasBackup }
+    },
+
+    async knowledgeMutate(body: WorkbenchKnowledgeMutateRequestBody, signal?: AbortSignal): Promise<WorkbenchKnowledgeMutateResult> {
+      const response = await request(WORKBENCH_KNOWLEDGE_PATH, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      }, signal)
+      if ('kind' in response) return response
+      if (!response.ok) return parseErrorBody(response)
+      const parsed: unknown = await response.json()
+      if (!isWorkbenchKnowledgeSaveResponseOk(parsed)) return { kind: 'http-error', status: response.status }
+      const ok: WorkbenchKnowledgeSaveResponseOk = parsed
+      return { kind: 'ok', revision: ok.revision, record: ok.record }
+    },
+
+    async saveKnowledge(expectedRevision: number, knowledge: { id?: string; scope: 'global' | 'workspace' | 'requirement'; type: 'business' | 'convention'; title: string; content: string; path?: string; requirementId?: string; trigger: { mode: 'always' | 'path' | 'keyword' | 'manual'; value?: string } }, signal?: AbortSignal): Promise<WorkbenchKnowledgeMutateResult> {
+      return this.knowledgeMutate({ expectedRevision, action: 'saveKnowledge', knowledge: { ...knowledge } }, signal)
+    },
+
+    async archiveKnowledge(expectedRevision: number, id: string, signal?: AbortSignal): Promise<WorkbenchKnowledgeMutateResult> {
+      return this.knowledgeMutate({ expectedRevision, action: 'archiveKnowledge', id }, signal)
     },
 
     async removeFinding(requirementId: string, expectedRevision: number, id: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {

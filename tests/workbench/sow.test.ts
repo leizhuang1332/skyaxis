@@ -1,0 +1,271 @@
+/**
+ * SOW 纯函数（0006 P2）：splitPrdSections（ATX 切分 / preamble 归一 / 空文）
+ * + matchKnowledge（always 全 / keyword 大小写命中 / manual 列出不命中标记 /
+ * archived 排除 / path 不列）+ knowledgeBytes（UTF-8 逐条求和）+ buildSow
+ * 五段矩阵（analysis record-null 降级、split criteria 清单、dev 全段两态、
+ * declare 骨架 workPackage 键、revision 戳）。
+ */
+import { describe, expect, it } from 'vitest'
+import type {
+  WorkbenchCriterion,
+  WorkbenchKnowledgeRecord,
+  WorkbenchRecord,
+  WorkbenchWorkPackage,
+} from '../../src/workbench-shared/protocol.js'
+import type { RequirementRecord } from '../../src/requirements-shared/protocol.js'
+import { buildSow, knowledgeBytes, matchKnowledge, splitPrdSections } from '../../src/client/workbench/sow.js'
+
+const RID = '11111111-1111-4111-8111-111111111111'
+const AT = '2026-09-29T08:00:00.000Z'
+
+function knowledge(id: string, overrides: Partial<WorkbenchKnowledgeRecord> = {}): WorkbenchKnowledgeRecord {
+  return {
+    id,
+    scope: 'requirement',
+    type: 'business',
+    title: `知识-${id}`,
+    content: `内容-${id}`,
+    requirementId: RID,
+    trigger: { mode: 'always' },
+    status: 'active',
+    provenance: { at: AT },
+    ...overrides,
+  }
+}
+
+function wp(id: string, overrides: Partial<WorkbenchWorkPackage> = {}): WorkbenchWorkPackage {
+  return {
+    id,
+    title: `工作包-${id}`,
+    boundary: `边界-${id}`,
+    order: 1,
+    dependsOn: [],
+    covers: [],
+    status: 'planned',
+    plans: [],
+    sessions: [],
+    commits: [],
+    acceptances: [],
+    ...overrides,
+  }
+}
+
+const requirement: RequirementRecord = {
+  id: RID,
+  title: '导出功能改造',
+  description: '支持大数据量异步导出',
+  workspacePath: '',
+  linkedRepos: [],
+  createdAt: AT,
+  updatedAt: AT,
+}
+
+const criteria: WorkbenchCriterion[] = [
+  { id: 'C1', text: '十万行导出 30 秒内完成', coveredBy: ['WP1'] },
+  { id: 'C2', text: '导出任务可取消', coveredBy: [] },
+]
+
+function record(overrides: Partial<WorkbenchRecord> = {}): WorkbenchRecord {
+  return {
+    requirementId: RID,
+    stage: 'plan',
+    stageHistory: [{ stage: 'plan', at: AT }],
+    criteria: [],
+    findings: [],
+    workPackages: [],
+    releaseItems: [],
+    reviewReports: [],
+    knowledgeCandidates: [],
+    ...overrides,
+  }
+}
+
+const baseCtx = {
+  purpose: 'analysis',
+  requirement,
+  record: null,
+  revision: 3,
+  generatedAt: '2026-09-29T12:34:56.789Z',
+} as const
+
+describe('splitPrdSections', () => {
+  it('ATX 多级标题切分，正文原文保留、按文档序', () => {
+    const sections = splitPrdSections('# 总览\n总览正文\n\n## 背景\n背景正文\n### 细节\n细节正文')
+    expect(sections).toEqual([
+      { heading: '总览', text: '总览正文' },
+      { heading: '背景', text: '背景正文' },
+      { heading: '细节', text: '细节正文' },
+    ])
+  })
+
+  it('首标题前非空 preamble 归一节（heading 空串），节体 trim', () => {
+    const sections = splitPrdSections('前置说明\n\n# 标题\n\n正文')
+    expect(sections).toEqual([
+      { heading: '', text: '前置说明' },
+      { heading: '标题', text: '正文' },
+    ])
+  })
+
+  it('无标题全文归 preamble 一节；空文切不出节', () => {
+    expect(splitPrdSections('只有正文一段\n还有第二段')).toEqual([{ heading: '', text: '只有正文一段\n还有第二段' }])
+    expect(splitPrdSections('')).toEqual([])
+    expect(splitPrdSections('\n\n')).toEqual([])
+  })
+})
+
+describe('matchKnowledge', () => {
+  it('always 全列；keyword 大小写不敏感命中才列，未命中不列', () => {
+    const picks = matchKnowledge(
+      [
+        knowledge('k1', { trigger: { mode: 'always' } }),
+        knowledge('k2', { trigger: { mode: 'keyword', value: ' Export ' } }),
+        knowledge('k3', { trigger: { mode: 'keyword', value: '不存在词' } }),
+      ],
+      '支持 export 功能改造\n异步导出',
+    )
+    expect(picks.map((pick) => ({ id: pick.record.id, match: pick.match }))).toEqual([
+      { id: 'k1', match: 'always' },
+      { id: 'k2', match: 'keyword' },
+    ])
+  })
+
+  it('manual 列出且标记 manual（勾选交呈现层）', () => {
+    const picks = matchKnowledge([knowledge('k4', { trigger: { mode: 'manual' } })], '')
+    expect(picks).toHaveLength(1)
+    expect(picks[0].match).toBe('manual')
+  })
+
+  it('archived 排除；path（P5）不列', () => {
+    const picks = matchKnowledge(
+      [
+        knowledge('k5', { status: 'archived', trigger: { mode: 'always' } }),
+        knowledge('k6', { trigger: { mode: 'path', value: 'src/**' } }),
+      ],
+      '导出',
+    )
+    expect(picks).toEqual([])
+  })
+})
+
+describe('knowledgeBytes', () => {
+  it('UTF-8 字节逐条求和（CJK 3 字节、ASCII 1 字节）', () => {
+    // 'ab' = 2 字节 + '文' = 3 字节 → 5；'' + 'a文' = 4。
+    const total = knowledgeBytes([
+      { ...knowledge('k1'), title: 'ab', content: '文' },
+      { ...knowledge('k2'), title: '', content: 'a文' },
+    ])
+    expect(total).toBe(9)
+    expect(knowledgeBytes([])).toBe(0)
+  })
+})
+
+describe('buildSow', () => {
+  it('analysis 语境 record null 降级：仅标题+描述+未建立行，无 [工作包] 段，非 dev declare 骨架', () => {
+    const text = buildSow(baseCtx)
+    expect(text).toContain('[需求]')
+    expect(text).toContain('标题：导出功能改造')
+    expect(text).toContain('描述：支持大数据量异步导出')
+    expect(text).toContain('（工作台记录未建立）')
+    expect(text).not.toContain('当前阶段')
+    expect(text).not.toContain('[工作包]')
+    expect(text).toContain('```yaml\n# skyaxis-declare\nknowledge: []\nstageReady: false\n```')
+    expect(text).not.toContain('workPackage:')
+    expect(text).not.toContain('claims:')
+  })
+
+  it('split 语境：工作包状态快照（id+title+中文状态+raw status）+ 验收标准清单', () => {
+    const text = buildSow({
+      ...baseCtx,
+      purpose: 'split',
+      record: record({
+        stage: 'plan',
+        criteria,
+        workPackages: [
+          wp('WP1', { title: '导出队列', status: 'accepted' }),
+          wp('WP2', { title: '存储层', order: 2 }),
+        ],
+      }),
+    })
+    expect(text).toContain('当前阶段：探索规划')
+    expect(text).toContain('WP1 导出队列 · 已验收（accepted）')
+    expect(text).toContain('WP2 存储层 · 已登记（planned）')
+    expect(text).toContain('C1 十万行导出 30 秒内完成')
+    expect(text).toContain('C2 导出任务可取消')
+  })
+
+  it('dev 语境全段（approvedPlanText 有 + includeDeps）：边界/依赖/覆盖标准/已批准计划/依赖摘要/dev declare', () => {
+    const target = wp('WP1', {
+      title: '导出队列',
+      boundary: '做队列；不做存储',
+      dependsOn: ['WP2'],
+      covers: ['C1'],
+      status: 'plan-approved',
+    })
+    const text = buildSow({
+      ...baseCtx,
+      purpose: 'dev',
+      record: record({ stage: 'implement', criteria, workPackages: [target, wp('WP2', { title: '存储层', boundary: '只做表结构', order: 2 })] }),
+      workPackage: target,
+      approvedPlanText: '1. 建任务表\n2. 起异步任务',
+      prdSections: [{ heading: '背景', text: 'PRD 背景' }],
+      prdDocumentName: 'prd.md',
+      knowledgePicks: [knowledge('k1', { trigger: { mode: 'always' } })],
+      includeDeps: true,
+    })
+    expect(text).toContain('[工作包]')
+    expect(text).toContain('WP1　导出队列')
+    expect(text).toContain('边界：做队列；不做存储')
+    expect(text).toContain('依赖：WP2')
+    expect(text).toContain('覆盖标准：\n- C1 十万行导出 30 秒内完成')
+    expect(text).toContain('### 已批准计划\n1. 建任务表\n2. 起异步任务')
+    expect(text).toContain('依赖工作包摘要：\n- WP2 存储层 · 只做表结构')
+    expect(text).toContain('[PRD 节选]\n文档：prd.md\n\n## 背景\nPRD 背景')
+    expect(text).toContain('[知识注入]\n### 知识-k1\n（触发：always）\n内容-k1')
+    expect(text).toContain('```yaml\n# skyaxis-declare\nworkPackage: WP1\nclaims:\n  - built: true\nartifacts: []\nknowledge: []\nstageReady: false\n```')
+  })
+
+  it('dev 语境无已批准计划：占位行；includeDeps 缺省不产依赖摘要', () => {
+    const target = wp('WP1', { title: '导出队列', dependsOn: ['WP2'], covers: [], status: 'plan-draft' })
+    const text = buildSow({
+      ...baseCtx,
+      purpose: 'dev',
+      record: record({ stage: 'implement', workPackages: [target, wp('WP2', { title: '存储层', order: 2 })] }),
+      workPackage: target,
+    })
+    expect(text).toContain('（尚无已批准计划）')
+    expect(text).not.toContain('依赖工作包摘要')
+    expect(text).toContain('覆盖标准：无')
+  })
+
+  it('PRD 段：文档行 + 章节（preamble 用「开篇」）；无选中章节仅（未选择）', () => {
+    const withPrd = buildSow({
+      ...baseCtx,
+      prdSections: [{ heading: '', text: '开篇正文' }, { heading: '背景', text: 'PRD 背景' }],
+      prdDocumentName: 'prd.md',
+    })
+    expect(withPrd).toContain('[PRD 节选]\n文档：prd.md\n\n## 开篇\n开篇正文\n\n## 背景\nPRD 背景')
+
+    const without = buildSow(baseCtx)
+    expect(without).toContain('[PRD 节选]\n（未选择）')
+    expect(without).not.toContain('文档：')
+  })
+
+  it('知识段：逐条 title/触发/content；空选（无）', () => {
+    const withKnowledge = buildSow({
+      ...baseCtx,
+      knowledgePicks: [
+        knowledge('k1', { trigger: { mode: 'always' } }),
+        knowledge('k2', { trigger: { mode: 'keyword', value: '导出' } }),
+      ],
+    })
+    expect(withKnowledge).toContain('### 知识-k1\n（触发：always）\n内容-k1')
+    expect(withKnowledge).toContain('### 知识-k2\n（触发：keyword）\n内容-k2')
+
+    expect(buildSow(baseCtx)).toContain('[知识注入]\n（无）')
+  })
+
+  it('revision 戳收尾：revision 数 + generatedAt 日期部分', () => {
+    const text = buildSow({ ...baseCtx, revision: 7, generatedAt: '2026-09-29T12:34:56.789Z' })
+    expect(text.endsWith('生成于 revision 7 · 2026-09-29 · 此后账本变更不自动同步')).toBe(true)
+  })
+})

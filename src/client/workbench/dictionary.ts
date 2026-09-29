@@ -187,6 +187,91 @@ interface WorkbenchDictionary {
   readonly 'md.copyCode': string
   readonly 'md.copiedCode': string
   readonly 'md.footnotes': string
+
+  // --- P2: session strip / knowledge base / SOW generation ---
+  readonly 'session.stripLabel': string
+  readonly 'session.stripEmptyHint': string
+  readonly 'session.stateRunning': string
+  readonly 'session.stateIdle': string
+  readonly 'session.stateBlank': string
+  readonly 'session.stateGone': string
+  readonly 'session.purposeAnalysis': string
+  readonly 'session.purposeDev': string
+  readonly 'session.purposeReview': string
+  readonly 'session.bindButton': string
+  readonly 'session.bindTitle': string
+  readonly 'session.pickerHint': string
+  readonly 'session.pickerEmpty': string
+  readonly 'session.pickerPurposeLabel': string
+  readonly 'session.pickerSubmit': string
+  readonly 'session.boundAtPrefix': string
+  readonly 'session.sectionTitle': string
+  readonly 'knowledge.candidatesTitle': string
+  readonly 'knowledge.candidateDraftPrefix': string
+  readonly 'knowledge.proposedSessionPrefix': string
+  readonly 'knowledge.activate': string
+  readonly 'knowledge.edit': string
+  readonly 'knowledge.drop': string
+  readonly 'knowledge.dropTitle': string
+  readonly 'knowledge.dropDescription': string
+  readonly 'knowledge.activateTitle': string
+  readonly 'knowledge.scopeLabel': string
+  readonly 'knowledge.scopeGlobal': string
+  readonly 'knowledge.scopeRequirement': string
+  readonly 'knowledge.typeLabel': string
+  readonly 'knowledge.typeBusiness': string
+  readonly 'knowledge.typeConvention': string
+  readonly 'knowledge.triggerLabel': string
+  readonly 'knowledge.triggerAlways': string
+  readonly 'knowledge.triggerKeyword': string
+  readonly 'knowledge.triggerManual': string
+  readonly 'knowledge.keywordLabel': string
+  readonly 'knowledge.activeTitle': string
+  readonly 'knowledge.metaRequirement': string
+  readonly 'knowledge.metaGlobal': string
+  readonly 'knowledge.activatedAtPrefix': string
+  readonly 'knowledge.archive': string
+  readonly 'knowledge.archiveTitle': string
+  readonly 'knowledge.archiveDescription': string
+  readonly 'knowledge.add': string
+  readonly 'knowledge.formTitleNew': string
+  readonly 'knowledge.formTitleEdit': string
+  readonly 'knowledge.titleLabel': string
+  readonly 'knowledge.contentLabel': string
+  readonly 'knowledge.emptyCandidates': string
+  readonly 'knowledge.emptyActive': string
+  readonly 'knowledge.loadError': string
+  readonly 'knowledge.statSessions': string
+  readonly 'knowledge.statFindings': string
+  readonly 'knowledge.statRework': string
+  readonly 'knowledge.statCycleDays': string
+  readonly 'sow.analysisButton': string
+  readonly 'sow.splitButton': string
+  readonly 'sow.workPackageButton': string
+  readonly 'sow.title': string
+  readonly 'sow.prdGroup': string
+  readonly 'sow.prdEmpty': string
+  readonly 'sow.prdLoadError': string
+  readonly 'sow.prdPreamble': string
+  readonly 'sow.prdDocLabel': string
+  readonly 'sow.knowledgeGroup': string
+  readonly 'sow.knowledgeHit': string
+  readonly 'sow.knowledgeEmpty': string
+  readonly 'sow.knowledgeOverLimit': string
+  readonly 'sow.wpGroup': string
+  readonly 'sow.wpBoundaryPlan': string
+  readonly 'sow.wpDeps': string
+  readonly 'sow.wpNoApprovedPlan': string
+  readonly 'sow.copy': string
+  readonly 'sow.copied': string
+  readonly 'sow.copyFailed': string
+  readonly 'sow.revisionStamp': string
+  readonly 'sow.sectionRequirement': string
+  readonly 'sow.sectionPrd': string
+  readonly 'sow.sectionWorkPackage': string
+  readonly 'sow.sectionKnowledge': string
+  readonly 'sow.sectionOutput': string
+  readonly 'sow.declareIntro': string
   readonly 'detail.dropDescription': string
 }
 
@@ -352,6 +437,89 @@ const zh: WorkbenchDictionary = {
   'md.copiedCode': '已复制',
   'md.footnotes': '脚注',
   'detail.dropDescription': '确定放弃该工作包？已放弃的工作包不再入板，历史保留。',
+  'session.stripLabel': '关联 session（{n}）',
+  'session.stripEmptyHint': '还没有关联 session：生成任务书 → 粘贴到新会话 → 回来在 S3 详情里关联。',
+  'session.stateRunning': '运行中',
+  'session.stateIdle': '空闲',
+  'session.stateBlank': '未开始',
+  'session.stateGone': '会话已不在列表',
+  'session.purposeAnalysis': '分析',
+  'session.purposeDev': '开发',
+  'session.purposeReview': '评审',
+  'session.bindButton': '＋ 关联',
+  'session.bindTitle': '关联 session',
+  'session.pickerHint': '从会话列表选择要绑定的 session（已绑定本工作包的不可重复绑定）。',
+  'session.pickerEmpty': '会话列表为空。',
+  'session.pickerPurposeLabel': '用途',
+  'session.pickerSubmit': '关联',
+  'session.boundAtPrefix': '绑定于',
+  'session.sectionTitle': '关联 session',
+  'knowledge.candidatesTitle': '知识候选',
+  'knowledge.candidateDraftPrefix': 'draft：',
+  'knowledge.proposedSessionPrefix': '提议 session：',
+  'knowledge.activate': '激活',
+  'knowledge.edit': '编辑',
+  'knowledge.drop': '丢弃',
+  'knowledge.dropTitle': '丢弃知识候选',
+  'knowledge.dropDescription': '确定丢弃该候选？丢弃后不再出现在审阅队列。',
+  'knowledge.activateTitle': '激活知识条目',
+  'knowledge.scopeLabel': '作用域',
+  'knowledge.scopeGlobal': '全局（所有需求注入）',
+  'knowledge.scopeRequirement': '仅本需求',
+  'knowledge.typeLabel': '类型',
+  'knowledge.typeBusiness': 'business（业务知识）',
+  'knowledge.typeConvention': 'convention（开发约定）',
+  'knowledge.triggerLabel': '触发',
+  'knowledge.triggerAlways': 'always（总是注入）',
+  'knowledge.triggerKeyword': 'keyword（标题/边界命中）',
+  'knowledge.triggerManual': 'manual（仅显式勾选）',
+  'knowledge.keywordLabel': '关键词（必填）',
+  'knowledge.activeTitle': '已激活知识（本需求相关）',
+  'knowledge.metaRequirement': 'scope 本需求',
+  'knowledge.metaGlobal': 'scope 全局',
+  'knowledge.activatedAtPrefix': '激活',
+  'knowledge.archive': '归档',
+  'knowledge.archiveTitle': '归档知识条目',
+  'knowledge.archiveDescription': '确定归档？归档不可逆（P2 无恢复操作）。',
+  'knowledge.add': '＋ 手动添加',
+  'knowledge.formTitleNew': '新建知识条目',
+  'knowledge.formTitleEdit': '编辑知识条目',
+  'knowledge.titleLabel': '标题',
+  'knowledge.contentLabel': '内容（markdown）',
+  'knowledge.emptyCandidates': '暂无待审阅候选。',
+  'knowledge.emptyActive': '暂无已激活知识。',
+  'knowledge.loadError': '知识库加载失败。',
+  'knowledge.statSessions': '关联 session',
+  'knowledge.statFindings': '发现处置',
+  'knowledge.statRework': '返工次数',
+  'knowledge.statCycleDays': '周期（天）',
+  'sow.analysisButton': '生成分析任务书',
+  'sow.splitButton': '生成拆分任务书',
+  'sow.workPackageButton': '生成工作包任务书',
+  'sow.title': '生成任务书',
+  'sow.prdGroup': 'PRD 节选',
+  'sow.prdEmpty': '该需求没有可用的 PRD 文档（在工作区 tab 上传后可用）。',
+  'sow.prdLoadError': 'PRD 加载失败',
+  'sow.prdPreamble': '（开篇）',
+  'sow.prdDocLabel': '文档',
+  'sow.knowledgeGroup': '知识注入',
+  'sow.knowledgeHit': '命中 {n} · {size} / 上限 {cap}',
+  'sow.knowledgeEmpty': '没有命中的知识条目。',
+  'sow.knowledgeOverLimit': '超出注入上限（{entries} 条 / {size}）：请取消部分勾选。',
+  'sow.wpGroup': '工作包范围',
+  'sow.wpBoundaryPlan': '边界 + 已批准计划',
+  'sow.wpDeps': '依赖工作包摘要',
+  'sow.wpNoApprovedPlan': '（尚无已批准计划，仅注入边界）',
+  'sow.copy': '复制到剪贴板',
+  'sow.copied': '已复制',
+  'sow.copyFailed': '复制失败：请手动选中预览文本复制。',
+  'sow.revisionStamp': '生成于 revision {n} · {date} · 此后账本变更不自动同步',
+  'sow.sectionRequirement': '需求',
+  'sow.sectionPrd': 'PRD 节选',
+  'sow.sectionWorkPackage': '工作包',
+  'sow.sectionKnowledge': '知识注入',
+  'sow.sectionOutput': '输出约定',
+  'sow.declareIntro': '结束时请输出如下机器可读的声明块：',
 }
 
 const en: WorkbenchDictionary = {
@@ -514,6 +682,89 @@ const en: WorkbenchDictionary = {
   'md.copiedCode': 'Copied',
   'md.footnotes': 'Footnotes',
   'detail.dropDescription': 'Drop this work package? Dropped packages leave the board; history is preserved.',
+  'session.stripLabel': 'Linked sessions ({n})',
+  'session.stripEmptyHint': 'No linked sessions yet: generate a statement of work → paste it into a new session → come back and bind it from the S3 detail dialog.',
+  'session.stateRunning': 'running',
+  'session.stateIdle': 'idle',
+  'session.stateBlank': 'not started',
+  'session.stateGone': 'session gone',
+  'session.purposeAnalysis': 'analysis',
+  'session.purposeDev': 'dev',
+  'session.purposeReview': 'review',
+  'session.bindButton': '＋ Bind',
+  'session.bindTitle': 'Bind a session',
+  'session.pickerHint': 'Pick a session to bind (sessions already bound to this work package are disabled).',
+  'session.pickerEmpty': 'The session list is empty.',
+  'session.pickerPurposeLabel': 'Purpose',
+  'session.pickerSubmit': 'Bind',
+  'session.boundAtPrefix': 'bound at',
+  'session.sectionTitle': 'Linked sessions',
+  'knowledge.candidatesTitle': 'Knowledge candidates',
+  'knowledge.candidateDraftPrefix': 'draft:',
+  'knowledge.proposedSessionPrefix': 'proposed session:',
+  'knowledge.activate': 'Activate',
+  'knowledge.edit': 'Edit',
+  'knowledge.drop': 'Drop',
+  'knowledge.dropTitle': 'Drop knowledge candidate',
+  'knowledge.dropDescription': 'Drop this candidate? It leaves the review queue for good.',
+  'knowledge.activateTitle': 'Activate knowledge entry',
+  'knowledge.scopeLabel': 'Scope',
+  'knowledge.scopeGlobal': 'Global (injected everywhere)',
+  'knowledge.scopeRequirement': 'This requirement only',
+  'knowledge.typeLabel': 'Type',
+  'knowledge.typeBusiness': 'business (domain knowledge)',
+  'knowledge.typeConvention': 'convention (engineering convention)',
+  'knowledge.triggerLabel': 'Trigger',
+  'knowledge.triggerAlways': 'always (always injected)',
+  'knowledge.triggerKeyword': 'keyword (title/boundary match)',
+  'knowledge.triggerManual': 'manual (explicit pick only)',
+  'knowledge.keywordLabel': 'Keyword (required)',
+  'knowledge.activeTitle': 'Activated knowledge (relevant here)',
+  'knowledge.metaRequirement': 'scope this requirement',
+  'knowledge.metaGlobal': 'scope global',
+  'knowledge.activatedAtPrefix': 'activated',
+  'knowledge.archive': 'Archive',
+  'knowledge.archiveTitle': 'Archive knowledge entry',
+  'knowledge.archiveDescription': 'Archive? Archiving is irreversible (no restore in P2).',
+  'knowledge.add': '＋ Add entry',
+  'knowledge.formTitleNew': 'New knowledge entry',
+  'knowledge.formTitleEdit': 'Edit knowledge entry',
+  'knowledge.titleLabel': 'Title',
+  'knowledge.contentLabel': 'Content (markdown)',
+  'knowledge.emptyCandidates': 'No candidates awaiting review.',
+  'knowledge.emptyActive': 'No activated knowledge yet.',
+  'knowledge.loadError': 'Failed to load the knowledge base.',
+  'knowledge.statSessions': 'linked sessions',
+  'knowledge.statFindings': 'findings resolved',
+  'knowledge.statRework': 'rework count',
+  'knowledge.statCycleDays': 'cycle (days)',
+  'sow.analysisButton': 'Generate analysis SOW',
+  'sow.splitButton': 'Generate split SOW',
+  'sow.workPackageButton': 'Generate work-package SOW',
+  'sow.title': 'Generate statement of work',
+  'sow.prdGroup': 'PRD sections',
+  'sow.prdEmpty': 'No PRD documents available for this requirement (upload one in the workspace tab).',
+  'sow.prdLoadError': 'Failed to load the PRD',
+  'sow.prdPreamble': '(preamble)',
+  'sow.prdDocLabel': 'Document',
+  'sow.knowledgeGroup': 'Knowledge injection',
+  'sow.knowledgeHit': 'matched {n} · {size} / cap {cap}',
+  'sow.knowledgeEmpty': 'No matching knowledge entries.',
+  'sow.knowledgeOverLimit': 'Over the injection cap ({entries} entries / {size}): uncheck some rows.',
+  'sow.wpGroup': 'Work-package scope',
+  'sow.wpBoundaryPlan': 'Boundary + approved plan',
+  'sow.wpDeps': 'Dependency summaries',
+  'sow.wpNoApprovedPlan': '(no approved plan yet — boundary only)',
+  'sow.copy': 'Copy to clipboard',
+  'sow.copied': 'Copied',
+  'sow.copyFailed': 'Copy refused: select the preview text and copy manually.',
+  'sow.revisionStamp': 'Generated at revision {n} · {date} · later ledger changes do not auto-sync',
+  'sow.sectionRequirement': 'Requirement',
+  'sow.sectionPrd': 'PRD sections',
+  'sow.sectionWorkPackage': 'Work package',
+  'sow.sectionKnowledge': 'Knowledge injection',
+  'sow.sectionOutput': 'Output convention',
+  'sow.declareIntro': 'End your reply with this machine-readable declare block:',
 }
 
 export function registerWorkbenchDictionaries(ctx: Context): void {

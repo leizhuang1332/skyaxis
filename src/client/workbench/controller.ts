@@ -11,13 +11,14 @@
  * overwriting a newer slot snapshot. Write outcomes update the slot in
  * place; conflict/not-found self-heal by re-pulling the slot.
  */
-import type { WorkbenchFinding, WorkbenchRecord } from '../../workbench-shared/protocol.js'
+import type { WorkbenchFinding, WorkbenchKnowledgeRecord, WorkbenchRecord } from '../../workbench-shared/protocol.js'
 import type { WorkbenchStore } from './store.js'
 import type { WorkbenchFailure, WorkbenchFetcher, WorkbenchMutateResult } from './fetcher.js'
 
 export function createWorkbenchController(store: WorkbenchStore, fetcher: WorkbenchFetcher) {
   let disposed = false
   const refreshSeqByRequirement = new Map<string, number>()
+  const knowledgeSeqByRequirement = new Map<string, number>()
   const alive = <T>(value: T | undefined): value is T => value !== undefined && !disposed
 
   function patchSlot(requirementId: string, partial: Partial<Parameters<WorkbenchStore['set']>[0]['byRequirement'][string]>): void {
@@ -32,11 +33,56 @@ export function createWorkbenchController(store: WorkbenchStore, fetcher: Workbe
       busy: false,
     }
     store.set({
+      ...snapshot,
       byRequirement: {
         ...snapshot.byRequirement,
         [requirementId]: { ...current, ...partial },
       },
     })
+  }
+
+  function patchKnowledge(requirementId: string, partial: Partial<Parameters<WorkbenchStore['set']>[0]['knowledgeByRequirement'][string]>): void {
+    if (disposed) return
+    const snapshot = store.getSnapshot()
+    const current = snapshot.knowledgeByRequirement[requirementId] ?? {
+      phase: 'loading' as const,
+      revision: 0,
+      records: [],
+    }
+    store.set({
+      ...snapshot,
+      knowledgeByRequirement: {
+        ...snapshot.knowledgeByRequirement,
+        [requirementId]: { ...current, ...partial },
+      },
+    })
+  }
+
+  /** Knowledge-slice pull (S6 view + SOW modal consumers); mirrors open()'s
+   *  seq-guarded SWR so a late older response can't clobber a newer slice. */
+  async function openKnowledge(requirementId: string, signal?: AbortSignal): Promise<void> {
+    const seq = (knowledgeSeqByRequirement.get(requirementId) ?? 0) + 1
+    knowledgeSeqByRequirement.set(requirementId, seq)
+    if ((store.getSnapshot().knowledgeByRequirement[requirementId]?.phase ?? 'loading') !== 'ready') {
+      patchKnowledge(requirementId, { phase: 'loading' })
+    }
+    const result = await fetcher.knowledgeList(requirementId, signal)
+    if (!alive(result) || knowledgeSeqByRequirement.get(requirementId) !== seq) return
+    if (result.kind === 'ok') {
+      patchKnowledge(requirementId, {
+        phase: 'ready',
+        revision: result.revision,
+        records: result.records,
+        degraded: undefined,
+      })
+      return
+    }
+    if (result.kind === 'degraded') {
+      patchKnowledge(requirementId, { phase: 'degraded', degraded: { reason: result.reason, hasBackup: result.hasBackup }, records: [] })
+      return
+    }
+    const staysReady = store.getSnapshot().knowledgeByRequirement[requirementId]?.phase === 'ready'
+    patchKnowledge(requirementId, { ...(staysReady ? {} : { phase: 'load-error' as const }) })
   }
 
   /** Mount pull / explicit refresh for one requirement's slot. */
@@ -171,11 +217,74 @@ export function createWorkbenchController(store: WorkbenchStore, fetcher: Workbe
       return alive(result) ? result : undefined
     },
 
+    // --- P2: session binding + knowledge candidates (main union mutations) ---
+
+    bindSession: (requirementId: string, id: string, sessionId: string, purpose: 'analysis' | 'dev' | 'review', signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.bindSession(requirementId, slotRevision(requirementId), id, sessionId, purpose, signal), signal),
+
+    editKnowledgeCandidate: (requirementId: string, id: string, candidate: { title: string; draft: string; type: 'business' | 'convention' }, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.editKnowledgeCandidate(requirementId, slotRevision(requirementId), id, candidate, signal), signal),
+
+    dismissKnowledgeCandidate: (requirementId: string, id: string, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.dismissKnowledgeCandidate(requirementId, slotRevision(requirementId), id, signal), signal),
+
+    /** Dual-ledger activate: on success both the main slot AND the knowledge
+     *  slice re-pull (the promote wrote workbench.yaml + a knowledge row). */
+    activateKnowledgeCandidate: async (requirementId: string, id: string, knowledge: { scope: 'global' | 'workspace' | 'requirement'; type: 'business' | 'convention'; trigger: { mode: 'always' | 'keyword' | 'manual'; value?: string }; path?: string }, signal?: AbortSignal): Promise<boolean> => {
+      const ok = await mutate(requirementId, () => fetcher.activateKnowledgeCandidate(requirementId, slotRevision(requirementId), id, knowledge, signal), signal)
+      if (ok) await openKnowledge(requirementId, signal)
+      return ok
+    },
+
+    // --- P2: knowledge.yaml route (its OWN revision lock) ---
+
+    openKnowledge,
+
+    saveKnowledge: async (requirementId: string, knowledge: { id?: string; scope: 'global' | 'workspace' | 'requirement'; type: 'business' | 'convention'; title: string; content: string; path?: string; requirementId?: string; trigger: { mode: 'always' | 'path' | 'keyword' | 'manual'; value?: string } }, signal?: AbortSignal): Promise<boolean> => {
+      patchKnowledge(requirementId, { busy: true })
+      const revision = store.getSnapshot().knowledgeByRequirement[requirementId]?.revision ?? 0
+      const result = await fetcher.saveKnowledge(revision, knowledge, signal)
+      if (!alive(result)) return false
+      if (result.kind === 'ok') {
+        patchKnowledge(requirementId, { busy: false, revision: result.revision, records: replaceKnowledgeRow(store.getSnapshot().knowledgeByRequirement[requirementId]?.records ?? [], result.record) })
+        return true
+      }
+      patchKnowledge(requirementId, { busy: false })
+      patchSlot(requirementId, { banner: failureBanner(result) })
+      if (result.kind === 'http-error' && (result.status === 409 || result.status === 404)) {
+        await openKnowledge(requirementId, signal)
+      }
+      return false
+    },
+
+    archiveKnowledge: async (requirementId: string, id: string, signal?: AbortSignal): Promise<boolean> => {
+      patchKnowledge(requirementId, { busy: true })
+      const revision = store.getSnapshot().knowledgeByRequirement[requirementId]?.revision ?? 0
+      const result = await fetcher.archiveKnowledge(revision, id, signal)
+      if (!alive(result)) return false
+      if (result.kind === 'ok') {
+        patchKnowledge(requirementId, { busy: false, revision: result.revision, records: replaceKnowledgeRow(store.getSnapshot().knowledgeByRequirement[requirementId]?.records ?? [], result.record) })
+        return true
+      }
+      patchKnowledge(requirementId, { busy: false })
+      patchSlot(requirementId, { banner: failureBanner(result) })
+      if (result.kind === 'http-error' && (result.status === 409 || result.status === 404)) {
+        await openKnowledge(requirementId, signal)
+      }
+      return false
+    },
+
     dismissBanner: (requirementId: string) => patchSlot(requirementId, { banner: undefined }),
     dispose: () => {
       disposed = true
     },
   }
+}
+
+/** Records array with `next` replacing its id row (or appended when absent). */
+function replaceKnowledgeRow(records: readonly WorkbenchKnowledgeRecord[], next: WorkbenchKnowledgeRecord): readonly WorkbenchKnowledgeRecord[] {
+  const exists = records.some((row) => row.id === next.id)
+  return exists ? records.map((row) => (row.id === next.id ? next : row)) : [...records, next]
 }
 
 export type WorkbenchController = ReturnType<typeof createWorkbenchController>
