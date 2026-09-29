@@ -12,7 +12,7 @@
  *   - POST artifacts: text/plain + query discrimination, the plan version
  *     lifecycle (approved v1 → v2 opens, tail-draft overwrite stays on the
  *     same version, byte-identical idempotent convergence incl. dangling-file
- *     repair), the 415/400/404/409/413 ladder, and the fully-approved module
+ *     repair), the 415/400/404/409/413 ladder, and the fully-approved work package
  *     opening max+1 (the locked-version 400 fuse is unreachable by
  *     construction through the API — noted inline at that test)
  *   - review writes: a fresh uuid per write, ledger contentHash, title optional
@@ -33,7 +33,7 @@ import type {
   PlanEntry,
   ReviewReportEntry,
   WorkbenchDetailResponseOk,
-  WorkbenchModule,
+  WorkbenchWorkPackage,
   WorkbenchRecord,
   WorkbenchScanResponseOk,
 } from '../../src/workbench-shared/protocol.js'
@@ -104,7 +104,7 @@ function seedRecord(requirementId: string, overrides: Partial<WorkbenchRecord> =
     stageHistory: [{ stage: 'understand', at: NOW }],
     criteria: [],
     findings: [],
-    modules: [],
+    workPackages: [],
     releaseItems: [],
     reviewReports: [],
     knowledgeCandidates: [],
@@ -112,12 +112,12 @@ function seedRecord(requirementId: string, overrides: Partial<WorkbenchRecord> =
   }
 }
 
-function seedModule(id: string, overrides: Partial<WorkbenchModule> = {}): WorkbenchModule {
+function seedWorkPackage(id: string, overrides: Partial<WorkbenchWorkPackage> = {}): WorkbenchWorkPackage {
   return {
     id,
-    title: `模块 ${id}`,
+    title: `工作包 ${id}`,
     boundary: '',
-    order: Number(id.slice(1)),
+    order: Number(id.slice(2)),
     dependsOn: [],
     covers: [],
     status: 'planned',
@@ -145,7 +145,7 @@ const artifactsPost = (h: Harness, query: Record<string, string>, text: string, 
 
 const postPlan = (
   h: Harness,
-  p: { requirementId: string; moduleId: string; expectedRevision: number | string; note?: string },
+  p: { requirementId: string; workPackageId: string; expectedRevision: number | string; note?: string },
   text: string,
   contentType?: string,
 ) =>
@@ -154,7 +154,7 @@ const postPlan = (
     {
       kind: 'plan',
       requirementId: p.requirementId,
-      moduleId: p.moduleId,
+      workPackageId: p.workPackageId,
       expectedRevision: String(p.expectedRevision),
       ...(p.note !== undefined ? { note: p.note } : {}),
     },
@@ -252,14 +252,14 @@ describe('GET /api/skyaxis/workbench?requirementId — detail', () => {
     const h = await harness()
     await h.seed([
       seedRecord(RID, {
-        modules: [seedModule('M1', { plans: [planEntry(1, contentHashOf('v1 body'), { approvedAt: NOW })] })],
+        workPackages: [seedWorkPackage('WP1', { plans: [planEntry(1, contentHashOf('v1 body'), { approvedAt: NOW })] })],
         reviewReports: [reviewEntry('seeded-review')],
       }),
     ])
 
     const detail = (await (await h.get(`${WORKBENCH_PATH}?requirementId=${RID}`)).json()) as WorkbenchDetailResponseOk
     expect(detail.ok).toBe(true)
-    expect(detail.planFileExists).toEqual([{ moduleId: 'M1', version: 1, exists: false }])
+    expect(detail.planFileExists).toEqual([{ workPackageId: 'WP1', version: 1, exists: false }])
     expect(detail.reviewFileExists).toEqual([{ reviewId: 'seeded-review', exists: false }])
   })
 
@@ -267,12 +267,12 @@ describe('GET /api/skyaxis/workbench?requirementId — detail', () => {
     const h = await harness()
     await h.seed([
       seedRecord(RID, {
-        modules: [seedModule('M1', { plans: [planEntry(1, contentHashOf('V1 BODY'))] })],
+        workPackages: [seedWorkPackage('WP1', { plans: [planEntry(1, contentHashOf('V1 BODY'))] })],
         reviewReports: [reviewEntry('r-seed')],
       }),
     ])
     // The byte-identical plan retry repairs the missing v1 file without a save…
-    const write = await postPlan(h, { requirementId: RID, moduleId: 'M1', expectedRevision: 1 }, 'V1 BODY')
+    const write = await postPlan(h, { requirementId: RID, workPackageId: 'WP1', expectedRevision: 1 }, 'V1 BODY')
     expect(write.status).toBe(200)
     // …and the review write mints its document normally (and appends its ledger row).
     const review = await postReview(h, { requirementId: RID, expectedRevision: 1 }, '评审正文')
@@ -280,7 +280,7 @@ describe('GET /api/skyaxis/workbench?requirementId — detail', () => {
     const reviewBody = (await review.json()) as { ok: true; reviewId: string }
 
     const detail = (await (await h.get(`${WORKBENCH_PATH}?requirementId=${RID}`)).json()) as WorkbenchDetailResponseOk
-    expect(detail.planFileExists).toEqual([{ moduleId: 'M1', version: 1, exists: true }])
+    expect(detail.planFileExists).toEqual([{ workPackageId: 'WP1', version: 1, exists: true }])
     expect(detail.reviewFileExists).toEqual([
       { reviewId: 'r-seed', exists: false }, // seeded reference, never written
       { reviewId: reviewBody.reviewId, exists: true }, // minted by the write above
@@ -503,21 +503,21 @@ describe('POST /api/skyaxis/workbench — action union', () => {
 describe('POST /api/skyaxis/workbench/artifacts — plan writes', () => {
   it('rejects non-text/plain bodies with 415 and malformed queries with 400', async () => {
     const h = await harness()
-    await h.seed([seedRecord(RID, { modules: [seedModule('M1')] })])
+    await h.seed([seedRecord(RID, { workPackages: [seedWorkPackage('WP1')] })])
 
-    const wrongType = await postPlan(h, { requirementId: RID, moduleId: 'M1', expectedRevision: 1 }, 'x', 'application/json')
+    const wrongType = await postPlan(h, { requirementId: RID, workPackageId: 'WP1', expectedRevision: 1 }, 'x', 'application/json')
     expect(wrongType.status).toBe(415)
     expect(await errorCode(wrongType)).toBe('bad-content-type')
 
     const bads: Array<Record<string, string>> = [
-      { kind: 'plan', requirementId: RID, moduleId: 'm1', expectedRevision: '1' }, // lowercase module id
-      { kind: 'plan', requirementId: RID, moduleId: 'M0', expectedRevision: '1' }, // leading zero
-      { kind: 'plan', requirementId: RID, moduleId: 'M01', expectedRevision: '1' },
-      { kind: 'plan', requirementId: RID, expectedRevision: '1' }, // moduleId missing
-      { kind: 'plan', requirementId: 'nope', moduleId: 'M1', expectedRevision: '1' }, // not a uuid
-      { kind: 'plan', requirementId: RID_UPPER, moduleId: 'M1', expectedRevision: '1' }, // uppercase uuid
-      { kind: 'plan', requirementId: RID, moduleId: 'M1', expectedRevision: 'abc' },
-      { kind: 'plan', requirementId: RID, moduleId: 'M1', expectedRevision: '-1' },
+      { kind: 'plan', requirementId: RID, workPackageId: 'wp1', expectedRevision: '1' }, // lowercase work package id
+      { kind: 'plan', requirementId: RID, workPackageId: 'WP0', expectedRevision: '1' }, // leading zero
+      { kind: 'plan', requirementId: RID, workPackageId: 'WP01', expectedRevision: '1' },
+      { kind: 'plan', requirementId: RID, expectedRevision: '1' }, // workPackageId missing
+      { kind: 'plan', requirementId: 'nope', workPackageId: 'WP1', expectedRevision: '1' }, // not a uuid
+      { kind: 'plan', requirementId: RID_UPPER, workPackageId: 'WP1', expectedRevision: '1' }, // uppercase uuid
+      { kind: 'plan', requirementId: RID, workPackageId: 'WP1', expectedRevision: 'abc' },
+      { kind: 'plan', requirementId: RID, workPackageId: 'WP1', expectedRevision: '-1' },
     ]
     for (const query of bads) {
       const res = await artifactsPost(h, query, 'x')
@@ -531,23 +531,23 @@ describe('POST /api/skyaxis/workbench/artifacts — plan writes', () => {
 
   it('rejects bodies over the 512K code-unit cap with 413 too-large', async () => {
     const h = await harness()
-    await h.seed([seedRecord(RID, { modules: [seedModule('M1')] })])
+    await h.seed([seedRecord(RID, { workPackages: [seedWorkPackage('WP1')] })])
 
-    const res = await postPlan(h, { requirementId: RID, moduleId: 'M1', expectedRevision: 1 }, '字'.repeat(WORKBENCH_ARTIFACT_MAX_CHARS + 1))
+    const res = await postPlan(h, { requirementId: RID, workPackageId: 'WP1', expectedRevision: 1 }, '字'.repeat(WORKBENCH_ARTIFACT_MAX_CHARS + 1))
     expect(res.status).toBe(413)
     expect(await errorCode(res)).toBe('too-large')
   })
 
-  it('answers 404 for a missing record and a missing module, with zero file side effects', async () => {
+  it('answers 404 for a missing record and a missing work package, with zero file side effects', async () => {
     const h = await harness()
-    await h.seed([seedRecord(RID, { modules: [seedModule('M1')] })])
+    await h.seed([seedRecord(RID, { workPackages: [seedWorkPackage('WP1')] })])
 
-    const ghostRecord = await postPlan(h, { requirementId: GHOST, moduleId: 'M1', expectedRevision: 1 }, 'x')
+    const ghostRecord = await postPlan(h, { requirementId: GHOST, workPackageId: 'WP1', expectedRevision: 1 }, 'x')
     expect(ghostRecord.status).toBe(404)
     expect(await errorCode(ghostRecord)).toBe('not-found')
 
-    const ghostModule = await postPlan(h, { requirementId: RID, moduleId: 'M9', expectedRevision: 1 }, 'x')
-    expect(ghostModule.status).toBe(404)
+    const ghostWorkPackage = await postPlan(h, { requirementId: RID, workPackageId: 'WP9', expectedRevision: 1 }, 'x')
+    expect(ghostWorkPackage.status).toBe(404)
 
     expect(existsSync(join(h.workbenchRoot, GHOST))).toBe(false)
     expect(existsSync(join(h.workbenchRoot, RID, 'plans'))).toBe(false)
@@ -557,43 +557,43 @@ describe('POST /api/skyaxis/workbench/artifacts — plan writes', () => {
     const h = await harness()
     await h.seed([
       seedRecord(RID, {
-        modules: [seedModule('M1', { status: 'plan-approved', plans: [planEntry(1, contentHashOf('v1 body'), { approvedAt: NOW })] })],
+        workPackages: [seedWorkPackage('WP1', { status: 'plan-approved', plans: [planEntry(1, contentHashOf('v1 body'), { approvedAt: NOW })] })],
       }),
     ])
 
-    const first = await postPlan(h, { requirementId: RID, moduleId: 'M1', expectedRevision: 1 }, 'v2 draft a')
+    const first = await postPlan(h, { requirementId: RID, workPackageId: 'WP1', expectedRevision: 1 }, 'v2 draft a')
     expect(first.status).toBe(200)
-    expect(await first.json()).toMatchObject({ ok: true, revision: 2, kind: 'plan', moduleId: 'M1', version: 2 })
+    expect(await first.json()).toMatchObject({ ok: true, revision: 2, kind: 'plan', workPackageId: 'WP1', version: 2 })
 
-    const second = await postPlan(h, { requirementId: RID, moduleId: 'M1', expectedRevision: 2, note: '改稿' }, 'v2 draft b')
+    const second = await postPlan(h, { requirementId: RID, workPackageId: 'WP1', expectedRevision: 2, note: '改稿' }, 'v2 draft b')
     expect(second.status).toBe(200)
     const secondBody = (await second.json()) as { ok: true; revision: number; version: number }
     expect(secondBody.revision).toBe(3)
     expect(secondBody.version).toBe(2) // tail draft: the SAME version is overwritten
 
-    const read = await h.get(`${WORKBENCH_ARTIFACTS_PATH}?${qs({ kind: 'plan', requirementId: RID, moduleId: 'M1', version: 2 })}`)
+    const read = await h.get(`${WORKBENCH_ARTIFACTS_PATH}?${qs({ kind: 'plan', requirementId: RID, workPackageId: 'WP1', version: 2 })}`)
     expect(await read.json()).toEqual({ ok: true, content: 'v2 draft b', contentTampered: false })
 
     const detail = (await (await h.get(`${WORKBENCH_PATH}?requirementId=${RID}`)).json()) as WorkbenchDetailResponseOk
     expect(detail.planFileExists).toEqual([
-      { moduleId: 'M1', version: 1, exists: false }, // seeded reference, file never written
-      { moduleId: 'M1', version: 2, exists: true },
+      { workPackageId: 'WP1', version: 1, exists: false }, // seeded reference, file never written
+      { workPackageId: 'WP1', version: 2, exists: true },
     ])
-    expect(detail.record?.modules[0]?.plans[1]?.note).toBe('改稿')
+    expect(detail.record?.workPackages[0]?.plans[1]?.note).toBe('改稿')
   })
 
   it('converges byte-identical retransmits without a save, repairing a deleted file at the same revision', async () => {
     const h = await harness()
-    await h.seed([seedRecord(RID, { modules: [seedModule('M1', { plans: [planEntry(1, contentHashOf('SAME BODY'))] })] })])
-    const target = planDocPath(h.workbenchRoot, RID, 'M1', 1)
+    await h.seed([seedRecord(RID, { workPackages: [seedWorkPackage('WP1', { plans: [planEntry(1, contentHashOf('SAME BODY'))] })] })])
+    const target = planDocPath(h.workbenchRoot, RID, 'WP1', 1)
 
-    const retry = await postPlan(h, { requirementId: RID, moduleId: 'M1', expectedRevision: 1 }, 'SAME BODY')
+    const retry = await postPlan(h, { requirementId: RID, workPackageId: 'WP1', expectedRevision: 1 }, 'SAME BODY')
     expect(retry.status).toBe(200)
     expect(await retry.json()).toMatchObject({ ok: true, revision: 1, version: 1 }) // no save — revision unchanged
     expect(readFileSync(target, 'utf8')).toBe('SAME BODY') // dangling reference repaired
 
     rmSync(target)
-    const again = await postPlan(h, { requirementId: RID, moduleId: 'M1', expectedRevision: 1 }, 'SAME BODY')
+    const again = await postPlan(h, { requirementId: RID, workPackageId: 'WP1', expectedRevision: 1 }, 'SAME BODY')
     expect(again.status).toBe(200)
     expect(await again.json()).toMatchObject({ ok: true, revision: 1 }) // still no save
     expect(readFileSync(target, 'utf8')).toBe('SAME BODY') // file restored
@@ -605,12 +605,12 @@ describe('POST /api/skyaxis/workbench/artifacts — plan writes', () => {
     // previous bytes under the new ledger hash — identical retries must
     // rewrite, or the divergence survives forever behind 200-ok answers.
     const h = await harness()
-    await h.seed([seedRecord(RID, { modules: [seedModule('M1', { plans: [planEntry(1, contentHashOf('V2 BODY'))] })] })])
-    const target = planDocPath(h.workbenchRoot, RID, 'M1', 1)
+    await h.seed([seedRecord(RID, { workPackages: [seedWorkPackage('WP1', { plans: [planEntry(1, contentHashOf('V2 BODY'))] })] })])
+    const target = planDocPath(h.workbenchRoot, RID, 'WP1', 1)
     mkdirSync(join(target, '..'), { recursive: true })
     writeFileSync(target, 'STALE OLD BYTES', 'utf8') // failed-write residue
 
-    const retry = await postPlan(h, { requirementId: RID, moduleId: 'M1', expectedRevision: 1 }, 'V2 BODY')
+    const retry = await postPlan(h, { requirementId: RID, workPackageId: 'WP1', expectedRevision: 1 }, 'V2 BODY')
     expect(retry.status).toBe(200)
     expect(await retry.json()).toMatchObject({ ok: true, revision: 1 }) // ledger untouched — disk converges to it
     expect(readFileSync(target, 'utf8')).toBe('V2 BODY') // stale bytes repaired
@@ -618,41 +618,41 @@ describe('POST /api/skyaxis/workbench/artifacts — plan writes', () => {
 
   it('persists a note-only edit: byte-identical text with a changed note goes through the save, not the idempotent branch', async () => {
     const h = await harness()
-    await h.seed([seedRecord(RID, { modules: [seedModule('M1', { plans: [planEntry(1, contentHashOf('SAME'), { note: '初稿' })] })] })])
+    await h.seed([seedRecord(RID, { workPackages: [seedWorkPackage('WP1', { plans: [planEntry(1, contentHashOf('SAME'), { note: '初稿' })] })] })])
 
-    const res = await postPlan(h, { requirementId: RID, moduleId: 'M1', expectedRevision: 1, note: '改注' }, 'SAME')
+    const res = await postPlan(h, { requirementId: RID, workPackageId: 'WP1', expectedRevision: 1, note: '改注' }, 'SAME')
     expect(res.status).toBe(200)
     expect(await res.json()).toMatchObject({ ok: true, revision: 2, version: 1 }) // a save DID run
     const detail = await h.get(`${WORKBENCH_PATH}?requirementId=${RID}`)
-    const body = (await detail.json()) as { record: { modules: { plans: { note?: string }[] }[] } }
-    expect(body.record.modules[0]?.plans[0]?.note).toBe('改注')
+    const body = (await detail.json()) as { record: { workPackages: { plans: { note?: string }[] }[] } }
+    expect(body.record.workPackages[0]?.plans[0]?.note).toBe('改注')
   })
 
   it('answers 409 conflict on a stale expectedRevision with zero file side effects', async () => {
     const h = await harness()
-    await h.seed([seedRecord(RID, { modules: [seedModule('M1', { plans: [planEntry(1, contentHashOf('seeded v1'))] })] })])
+    await h.seed([seedRecord(RID, { workPackages: [seedWorkPackage('WP1', { plans: [planEntry(1, contentHashOf('seeded v1'))] })] })])
 
-    const res = await postPlan(h, { requirementId: RID, moduleId: 'M1', expectedRevision: 0 }, 'brand new content')
+    const res = await postPlan(h, { requirementId: RID, workPackageId: 'WP1', expectedRevision: 0 }, 'brand new content')
     expect(res.status).toBe(409)
     const body = (await res.json()) as ErrorResponse
     expect(body.code).toBe('conflict')
     expect(body.currentRevision).toBe(1)
-    expect(existsSync(planDocPath(h.workbenchRoot, RID, 'M1', 1))).toBe(false)
+    expect(existsSync(planDocPath(h.workbenchRoot, RID, 'WP1', 1))).toBe(false)
   })
 
-  it('opens a NEW version (max+1) on a fully-approved module — never 400 locked-version', async () => {
+  it('opens a NEW version (max+1) on a fully-approved work package — never 400 locked-version', async () => {
     // Why the 400 'locked-version' fuse has no API-level test: the tail-draft
     // selection only considers entries with approvedAt === undefined, so the
     // checked condition (draft.approvedAt !== undefined) is unreachable by
     // construction — no wire request can ever name an approved version as an
     // overwrite target. The fuse is defense-in-depth for future refactors;
     // its only observable endpoint consequence is pinned here: a
-    // fully-approved module re-opens at max(existing)+1.
+    // fully-approved work package re-opens at max(existing)+1.
     const h = await harness()
     await h.seed([
       seedRecord(RID, {
-        modules: [
-          seedModule('M1', {
+        workPackages: [
+          seedWorkPackage('WP1', {
             status: 'plan-approved',
             plans: [planEntry(1, contentHashOf('v1'), { approvedAt: NOW }), planEntry(2, contentHashOf('v2'), { approvedAt: NOW })],
           }),
@@ -660,9 +660,9 @@ describe('POST /api/skyaxis/workbench/artifacts — plan writes', () => {
       }),
     ])
 
-    const res = await postPlan(h, { requirementId: RID, moduleId: 'M1', expectedRevision: 1 }, 'v3 content')
+    const res = await postPlan(h, { requirementId: RID, workPackageId: 'WP1', expectedRevision: 1 }, 'v3 content')
     expect(res.status).toBe(200)
-    expect(await res.json()).toMatchObject({ ok: true, revision: 2, kind: 'plan', moduleId: 'M1', version: 3 })
+    expect(await res.json()).toMatchObject({ ok: true, revision: 2, kind: 'plan', workPackageId: 'WP1', version: 3 })
   })
 })
 
@@ -736,23 +736,23 @@ describe('POST /api/skyaxis/workbench/artifacts — review writes', () => {
 // ---------------------------------------------------------------------------
 
 describe('GET /api/skyaxis/workbench/artifacts — content reads', () => {
-  it('plan reads: content + tamper flag flips after a hand edit; 404 for deleted file / unknown version / unknown module / unknown record', async () => {
+  it('plan reads: content + tamper flag flips after a hand edit; 404 for deleted file / unknown version / unknown work package / unknown record', async () => {
     const h = await harness()
     await h.seed([
       seedRecord(RID, {
-        modules: [seedModule('M1', { status: 'plan-approved', plans: [planEntry(1, contentHashOf('v1 body'), { approvedAt: NOW })] })],
+        workPackages: [seedWorkPackage('WP1', { status: 'plan-approved', plans: [planEntry(1, contentHashOf('v1 body'), { approvedAt: NOW })] })],
       }),
     ])
-    const written = await postPlan(h, { requirementId: RID, moduleId: 'M1', expectedRevision: 1 }, 'v2 body')
+    const written = await postPlan(h, { requirementId: RID, workPackageId: 'WP1', expectedRevision: 1 }, 'v2 body')
     expect(written.status).toBe(200)
 
-    const read = (version: number) => h.get(`${WORKBENCH_ARTIFACTS_PATH}?${qs({ kind: 'plan', requirementId: RID, moduleId: 'M1', version })}`)
+    const read = (version: number) => h.get(`${WORKBENCH_ARTIFACTS_PATH}?${qs({ kind: 'plan', requirementId: RID, workPackageId: 'WP1', version })}`)
 
     const ok = await read(2)
     expect(ok.status).toBe(200)
     expect(await ok.json()).toEqual({ ok: true, content: 'v2 body', contentTampered: false })
 
-    const target = planDocPath(h.workbenchRoot, RID, 'M1', 2)
+    const target = planDocPath(h.workbenchRoot, RID, 'WP1', 2)
     writeFileSync(target, 'hand-edited', 'utf8')
     const tampered = await read(2)
     expect(tampered.status).toBe(200)
@@ -761,20 +761,20 @@ describe('GET /api/skyaxis/workbench/artifacts — content reads', () => {
     rmSync(target)
     expect((await read(2)).status).toBe(404) // ledger entry present, file gone
     expect((await read(9)).status).toBe(404) // no ledger entry for that version
-    expect((await h.get(`${WORKBENCH_ARTIFACTS_PATH}?${qs({ kind: 'plan', requirementId: RID, moduleId: 'M9', version: 1 })}`)).status).toBe(404)
-    expect((await h.get(`${WORKBENCH_ARTIFACTS_PATH}?${qs({ kind: 'plan', requirementId: GHOST, moduleId: 'M1', version: 1 })}`)).status).toBe(404)
+    expect((await h.get(`${WORKBENCH_ARTIFACTS_PATH}?${qs({ kind: 'plan', requirementId: RID, workPackageId: 'WP9', version: 1 })}`)).status).toBe(404)
+    expect((await h.get(`${WORKBENCH_ARTIFACTS_PATH}?${qs({ kind: 'plan', requirementId: GHOST, workPackageId: 'WP1', version: 1 })}`)).status).toBe(404)
   })
 
-  it('plan reads: 400 on bad versions (0 / 1.5 / missing) and bad module ids', async () => {
+  it('plan reads: 400 on bad versions (0 / 1.5 / missing) and bad work package ids', async () => {
     const h = await harness()
-    await h.seed([seedRecord(RID, { modules: [seedModule('M1')] })])
+    await h.seed([seedRecord(RID, { workPackages: [seedWorkPackage('WP1')] })])
 
     const readWith = (query: Record<string, string>) => h.get(`${WORKBENCH_ARTIFACTS_PATH}?${new URLSearchParams(query)}`)
     for (const version of ['0', '1.5', '']) {
-      expect((await readWith({ kind: 'plan', requirementId: RID, moduleId: 'M1', version })).status).toBe(400)
+      expect((await readWith({ kind: 'plan', requirementId: RID, workPackageId: 'WP1', version })).status).toBe(400)
     }
-    expect((await readWith({ kind: 'plan', requirementId: RID, moduleId: 'M0', version: '1' })).status).toBe(400)
-    expect((await readWith({ kind: 'plan', requirementId: 'nope', moduleId: 'M1', version: '1' })).status).toBe(400)
+    expect((await readWith({ kind: 'plan', requirementId: RID, workPackageId: 'WP0', version: '1' })).status).toBe(400)
+    expect((await readWith({ kind: 'plan', requirementId: 'nope', workPackageId: 'WP1', version: '1' })).status).toBe(400)
   })
 
   it('review reads mirror the plan face: content, tamper flip, missing file, unknown and malformed ids', async () => {
@@ -802,12 +802,12 @@ describe('GET /api/skyaxis/workbench/artifacts — content reads', () => {
 
   it('answers 413 too-large for an on-disk file over the read cap (constant-relative boundary)', async () => {
     const h = await harness()
-    await h.seed([seedRecord(RID, { modules: [seedModule('M1', { plans: [planEntry(1, 'a'.repeat(64))] })] })])
-    const target = planDocPath(h.workbenchRoot, RID, 'M1', 1)
+    await h.seed([seedRecord(RID, { workPackages: [seedWorkPackage('WP1', { plans: [planEntry(1, 'a'.repeat(64))] })] })])
+    const target = planDocPath(h.workbenchRoot, RID, 'WP1', 1)
     mkdirSync(dirname(target), { recursive: true })
     writeFileSync(target, 'a'.repeat(WORKBENCH_ARTIFACT_MAX_READ_BYTES + 1), 'utf8')
 
-    const res = await h.get(`${WORKBENCH_ARTIFACTS_PATH}?${qs({ kind: 'plan', requirementId: RID, moduleId: 'M1', version: 1 })}`)
+    const res = await h.get(`${WORKBENCH_ARTIFACTS_PATH}?${qs({ kind: 'plan', requirementId: RID, workPackageId: 'WP1', version: 1 })}`)
     expect(res.status).toBe(413)
     expect(await errorCode(res)).toBe('too-large')
   })
@@ -822,16 +822,16 @@ describe('GET /api/skyaxis/workbench/scan — reconciliation', () => {
     const h = await harness()
     await h.seed([
       seedRecord(RID, {
-        modules: [seedModule('M1', { plans: [planEntry(2, contentHashOf('m1v2'))] })],
+        workPackages: [seedWorkPackage('WP1', { plans: [planEntry(2, contentHashOf('m1v2'))] })],
         reviewReports: [reviewEntry('rev-2')],
       }),
-      seedRecord(RID2, { modules: [seedModule('M1', { plans: [planEntry(1, contentHashOf('r2m1v1'))] })] }),
+      seedRecord(RID2, { workPackages: [seedWorkPackage('WP1', { plans: [planEntry(1, contentHashOf('r2m1v1'))] })] }),
     ])
 
     const plansOf = (rid: string) => join(h.workbenchRoot, rid, 'plans')
     const reviewsOf = (rid: string) => join(h.workbenchRoot, rid, 'reviews')
     mkdirSync(plansOf(RID), { recursive: true })
-    writeFileSync(join(plansOf(RID), 'M3-v1.md'), 'orphan plan body', 'utf8') // on disk, not in the ledger
+    writeFileSync(join(plansOf(RID), 'WP3-v1.md'), 'orphan plan body', 'utf8') // on disk, not in the ledger
     writeFileSync(join(plansOf(RID), 'stray.txt'), 'off-convention', 'utf8') // convention-violating file name
     writeFileSync(join(h.workbenchRoot, RID, 'readme.md'), 'off-layout', 'utf8') // directly under <rid>/
     mkdirSync(reviewsOf(RID3), { recursive: true })
@@ -845,7 +845,7 @@ describe('GET /api/skyaxis/workbench/scan — reconciliation', () => {
     const body = (await res.json()) as WorkbenchScanResponseOk
     expect(body.ok).toBe(true)
 
-    expect(body.orphans).toContainEqual({ requirementId: RID, kind: 'plan', moduleId: 'M3', version: 1 })
+    expect(body.orphans).toContainEqual({ requirementId: RID, kind: 'plan', workPackageId: 'WP3', version: 1 })
     expect(body.orphans).toContainEqual({ requirementId: RID, kind: 'unknown', name: 'stray.txt' })
     expect(body.orphans).toContainEqual({ requirementId: RID, kind: 'unknown', name: 'readme.md' })
     expect(body.orphans).toContainEqual({ requirementId: RID3, kind: 'review', reviewId: 'orphan-review' })
@@ -853,9 +853,9 @@ describe('GET /api/skyaxis/workbench/scan — reconciliation', () => {
     // .trash is skipped wholesale — nothing inside it leaks into any face.
     expect(body.orphans.every((row) => row.requirementId !== '.trash')).toBe(true)
 
-    expect(body.missing).toContainEqual({ requirementId: RID, kind: 'plan', moduleId: 'M1', version: 2 })
+    expect(body.missing).toContainEqual({ requirementId: RID, kind: 'plan', workPackageId: 'WP1', version: 2 })
     expect(body.missing).toContainEqual({ requirementId: RID, kind: 'review', reviewId: 'rev-2' })
-    expect(body.missing).toContainEqual({ requirementId: RID2, kind: 'plan', moduleId: 'M1', version: 1 })
+    expect(body.missing).toContainEqual({ requirementId: RID2, kind: 'plan', workPackageId: 'WP1', version: 1 })
     expect(body.missing).toHaveLength(3)
 
     expect(body.trash).toEqual([{ requirementId: RID, deletedAt: '2026-09-29T10-00-00-000Z' }])

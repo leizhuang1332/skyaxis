@@ -21,7 +21,7 @@ const STAGE_OR_CLOSED_VALUES = [...WORKBENCH_STAGES, 'closed'] as const
 const FINDING_CATEGORY_VALUES = ['feasibility', 'conflict', 'compatibility', 'risk', 'capacity', 'other'] as const
 const SEVERITY_VALUES = ['high', 'medium', 'low'] as const
 const FINDING_STATUS_VALUES = ['open', 'resolved', 'wont-fix'] as const
-const MODULE_STATUS_VALUES = ['planned', 'plan-draft', 'plan-approved', 'in-dev', 'built', 'accepted', 'dropped'] as const
+const WORK_PACKAGE_STATUS_VALUES = ['planned', 'plan-draft', 'plan-approved', 'in-dev', 'built', 'accepted', 'dropped'] as const
 const SESSION_PURPOSE_VALUES = ['analysis', 'dev', 'review'] as const
 const RELEASE_TYPE_VALUES = ['sql', 'config', 'flag', 'mq', 'other'] as const
 const RELEASE_STATUS_VALUES = ['pending', 'confirmed', 'applied', 'verified', 'rolled-back'] as const
@@ -37,7 +37,7 @@ const CANDIDATE_STATUS_VALUES = ['pending', 'promoted', 'dismissed'] as const
  * own record. The patterns mirror the wire guards (protocol.ts 细化② layer 1);
  * the host re-asserts them before every artifact path join (layer 2).
  */
-const ModuleIdSchema = z.string().regex(/^M[1-9]\d*$/)
+const WorkPackageIdSchema = z.string().regex(/^WP[1-9]\d*$/)
 const CriterionIdSchema = z.string().regex(/^C[1-9]\d*$/)
 const ReleaseItemIdSchema = z.string().regex(/^R\d{4,}$/)
 /** sha256 hex, lowercase — the only form the host ever writes. */
@@ -71,15 +71,15 @@ const AcceptanceSchema = z.object({
   note: z.string().max(2000).optional(),
 })
 
-export const WorkbenchModuleSchema = z.object({
-  id: ModuleIdSchema,
+export const WorkbenchWorkPackageSchema = z.object({
+  id: WorkPackageIdSchema,
   title: z.string().trim().min(1).max(64),
   boundary: z.string().max(2000),
   order: z.number().int().nonnegative(),
-  dependsOn: z.array(ModuleIdSchema),
+  dependsOn: z.array(WorkPackageIdSchema),
   parallel: z.boolean().optional(),
   covers: z.array(CriterionIdSchema),
-  status: z.enum(MODULE_STATUS_VALUES),
+  status: z.enum(WORK_PACKAGE_STATUS_VALUES),
   plans: z.array(PlanEntrySchema),
   sessions: z.array(SessionBindingSchema),
   commits: z.array(CommitRefSchema),
@@ -130,7 +130,7 @@ export const ReleaseItemSchema = z.object({
   content: z.string().max(WORKBENCH_INLINE_MAX_CHARS),
   contentHash: ContentHashSchema,
   envs: z.array(z.string().min(1).max(64)),
-  moduleId: ModuleIdSchema.optional(),
+  workPackageId: WorkPackageIdSchema.optional(),
   sessionId: SessionIdSchema.optional(),
   status: z.enum(RELEASE_STATUS_VALUES),
   appliedAt: TimestampSchema.optional(),
@@ -159,7 +159,7 @@ export const WorkbenchRecordSchema = z.object({
   stageHistory: z.array(StageChangeSchema),
   criteria: z.array(WorkbenchCriterionSchema),
   findings: z.array(WorkbenchFindingSchema),
-  modules: z.array(WorkbenchModuleSchema),
+  workPackages: z.array(WorkbenchWorkPackageSchema),
   releaseItems: z.array(ReleaseItemSchema),
   reviewReports: z.array(ReviewReportEntrySchema),
   knowledgeCandidates: z.array(KnowledgeCandidateSchema),

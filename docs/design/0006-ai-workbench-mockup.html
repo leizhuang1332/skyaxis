@@ -8,7 +8,7 @@
   静态视觉稿：docs/research/0006-AI工作台调研与设计.md §4 页面规格 v2 的浏览器近似呈现。
   · token 值为占位近似（DSH 真源是宿主的 --dsw-alias-*），实施时全量替换为真 token。
   · 样例数据取自用户工作流示例（报价管理：导入导出与数据校验）。
-  · 可交互：阶段导轨切换 / 发现行展开 / 看板卡片 → 模块详情 Modal / 上下文包 Modal / 主题切换。
+  · 可交互：阶段导轨切换 / 发现行展开 / 看板卡片 → 工作包详情 Modal / 任务书 Modal / 主题切换。
 -->
 <style>
   /* ---- 占位 token（近似 DSH alias 体系；实施时替换） ---- */
@@ -361,13 +361,13 @@
     font-family: Consolas, monospace; font-size: 12px;
   }
 
-  /* 上下文包 Modal 内的勾选与预览 */
+  /* 任务书 Modal 内的勾选与预览 */
   .bundleGrid { display: grid; grid-template-columns: 300px 1fr; gap: 14px; }
   .bundlePick { display: flex; flex-direction: column; gap: 8px; }
   .pickGroup { display: flex; flex-direction: column; gap: 4px; }
   .pickGroupTitle { font-size: 12px; font-weight: 500; color: var(--label-secondary); }
   .pickRow { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--label-secondary); }
-  .bundlePreview {
+  .sowPreview {
     margin: 0; padding: 10px 12px; border: 0.5px solid var(--border-l2); border-radius: 8px;
     background: var(--bg-layer-1); max-height: 320px; overflow: auto;
     font-family: Consolas, monospace; font-size: 12px; line-height: 18px;
@@ -413,7 +413,7 @@
       <div class="stageRail" id="stageRail">
         <button class="stageChip done" data-stage="s1"><span>① 需求理解</span><span class="countBadge warn">2 待处置</span></button>
         <span class="stageConnector"></span>
-        <button class="stageChip done" data-stage="s2"><span>② 探索规划</span><span class="countBadge ok">✓ 已批准 · 6 模块</span></button>
+        <button class="stageChip done" data-stage="s2"><span>② 探索规划</span><span class="countBadge ok">✓ 已批准 · 6 工作包</span></button>
         <span class="stageConnector"></span>
         <button class="stageChip current" data-stage="s3"><span>③ 执行实施</span><span class="countBadge">1/6 · 1 待验收</span></button>
         <span class="stageConnector"></span>
@@ -429,8 +429,8 @@
       <!-- session 条（跨阶段常驻） -->
       <div class="sessionStrip">
         <span class="stripLabel">关联 session（3）</span>
-        <button class="sessionChip"><span class="dot run"></span>M2·导出·开发　运行 12m</button>
-        <button class="sessionChip"><span class="dot wait"></span>M3·导入·开发　待输入</button>
+        <button class="sessionChip"><span class="dot run"></span>WP2·导出·开发　运行 12m</button>
+        <button class="sessionChip"><span class="dot wait"></span>WP3·导入·开发　待输入</button>
         <button class="sessionChip"><span class="dot done"></span>评审·代码评审　已完成</button>
       </div>
 
@@ -439,7 +439,7 @@
         <div class="section">
           <div class="sectionHead">
             <div class="sectionTitle">分析发现</div>
-            <button class="btn sm">生成分析上下文包</button>
+            <button class="btn sm">生成分析任务书</button>
             <button class="btn sm">＋ 手动录入</button>
             <button class="btn outline sm">导出评审会问题单</button>
           </div>
@@ -493,7 +493,7 @@
               <div class="cardTitleLine">
                 <span class="cardTitle">C1　导出支持异步任务与 id 滚动，10w 行 &lt; 30s 出文件</span>
               </div>
-              <div class="coverChips"><span class="coverChip">← M2</span></div>
+              <div class="coverChips"><span class="coverChip">← WP2</span></div>
             </div>
           </div>
           <div class="card">
@@ -501,7 +501,7 @@
               <div class="cardTitleLine">
                 <span class="cardTitle">C2　导入前全量规则校验，非法行全部拦截并出错误报告</span>
               </div>
-              <div class="coverChips"><span class="coverChip">← M4</span><span class="coverChip">← M3</span></div>
+              <div class="coverChips"><span class="coverChip">← WP4</span><span class="coverChip">← WP3</span></div>
             </div>
           </div>
           <div class="card">
@@ -509,7 +509,7 @@
               <div class="cardTitleLine">
                 <span class="cardTitle">C3　导入/导出全部接口有权限校验</span>
               </div>
-              <div class="coverChips"><span class="coverChip hollow">← 空洞：尚无模块覆盖</span></div>
+              <div class="coverChips"><span class="coverChip hollow">← 空洞：尚无工作包覆盖</span></div>
             </div>
           </div>
         </div>
@@ -519,37 +519,37 @@
       <div class="stageView" id="s2">
         <div class="section">
           <div class="sectionHead">
-            <div class="sectionTitle">模块拆分</div>
-            <button class="btn sm">生成拆分上下文包</button>
-            <button class="btn sm">＋ 模块</button>
+            <div class="sectionTitle">工作包拆分</div>
+            <button class="btn sm">生成拆分任务书</button>
+            <button class="btn sm">＋ 工作包</button>
           </div>
           <div class="card"><div class="cardMain">
-            <div class="cardTitleLine"><span class="cardTitle">M1　CRUD 基础功能</span></div>
+            <div class="cardTitleLine"><span class="cardTitle">WP1　CRUD 基础功能</span></div>
             <div class="cardMeta">边界：报价单增删改查、列表筛选 · 依赖 — · 覆盖 —</div>
           </div><button class="menuBtn">⋯</button></div>
           <div class="card"><div class="cardMain">
-            <div class="cardTitleLine"><span class="cardTitle">M2　数据导出</span><span class="tag info">P 并行</span></div>
-            <div class="cardMeta">边界：异步任务 + id 滚动，同步/异步双通道 · 依赖 M1 · 覆盖 C1</div>
+            <div class="cardTitleLine"><span class="cardTitle">WP2　数据导出</span><span class="tag info">P 并行</span></div>
+            <div class="cardMeta">边界：异步任务 + id 滚动，同步/异步双通道 · 依赖 WP1 · 覆盖 C1</div>
           </div><button class="menuBtn">⋯</button></div>
           <div class="card"><div class="cardMain">
-            <div class="cardTitleLine"><span class="cardTitle">M3　数据导入</span></div>
-            <div class="cardMeta">边界：OSS 上传、流式读取、500 行批落库 · 依赖 M1 · 覆盖 C2</div>
+            <div class="cardTitleLine"><span class="cardTitle">WP3　数据导入</span></div>
+            <div class="cardMeta">边界：OSS 上传、流式读取、500 行批落库 · 依赖 WP1 · 覆盖 C2</div>
           </div><button class="menuBtn">⋯</button></div>
           <div class="card"><div class="cardMain">
-            <div class="cardTitleLine"><span class="cardTitle">M4　数据校验</span></div>
-            <div class="cardMeta">边界：规则校验引擎 + 外部数据源查询 · 依赖 M3 · 覆盖 C2</div>
+            <div class="cardTitleLine"><span class="cardTitle">WP4　数据校验</span></div>
+            <div class="cardMeta">边界：规则校验引擎 + 外部数据源查询 · 依赖 WP3 · 覆盖 C2</div>
           </div><button class="menuBtn">⋯</button></div>
           <div class="card"><div class="cardMain">
-            <div class="cardTitleLine"><span class="cardTitle">M5　外部接口封装</span></div>
+            <div class="cardTitleLine"><span class="cardTitle">WP5　外部接口封装</span></div>
             <div class="cardMeta">边界：核价/客户主数据接口 client 封装与降级 · 依赖 — · 覆盖 —</div>
           </div><button class="menuBtn">⋯</button></div>
           <div class="card"><div class="cardMain">
-            <div class="cardTitleLine"><span class="cardTitle">M6　权限模块</span></div>
-            <div class="cardMeta">边界：全部导入导出接口的权限注解与拦截 · 依赖 M1,M2,M3 · 覆盖 C3</div>
+            <div class="cardTitleLine"><span class="cardTitle">WP6　权限工作包</span></div>
+            <div class="cardMeta">边界：全部导入导出接口的权限注解与拦截 · 依赖 WP1,WP2,WP3 · 覆盖 C3</div>
           </div><button class="menuBtn">⋯</button></div>
           <div class="gonogo">
             <span class="tag success">已批准</span>
-            <span>拆分批准于 2026-09-26 · 6 模块 · 覆盖 C1/C2，<b>C3 待补</b>（M6 尚在待计划列）</span>
+            <span>拆分批准于 2026-09-26 · 6 工作包 · 覆盖 C1/C2，<b>C3 待补</b>（WP6 尚在待计划列）</span>
             <span style="flex:1"></span>
             <button class="btn sm danger">撤销批准</button>
           </div>
@@ -565,43 +565,43 @@
           <span class="tag neutral">1 计划已批准</span>
           <span class="tag neutral">2 待计划</span>
           <span style="flex:1"></span>
-          <button class="btn sm">生成模块上下文包</button>
+          <button class="btn sm">生成工作包任务书</button>
           <button class="btn sm">导入声明</button>
         </div>
         <div class="kanban">
           <div class="kbCol">
             <div class="kbHead">待计划 <span class="countBadge">2</span></div>
-            <button class="kbCard" data-module="m5">
-              <span class="kbTitle">M5　外部接口封装</span>
+            <button class="kbCard" data-work-package="wp5">
+              <span class="kbTitle">WP5　外部接口封装</span>
               <span class="kbMeta"><span class="tag neutral">计划草拟中</span></span>
               <span class="kbMeta">会话 1 · commit 0</span>
             </button>
             <button class="kbCard">
-              <span class="kbTitle">M6　权限模块</span>
+              <span class="kbTitle">WP6　权限工作包</span>
               <span class="kbMeta"><span class="tag neutral">未起草</span></span>
             </button>
-            <button class="kbAdd">＋ 模块</button>
+            <button class="kbAdd">＋ 工作包</button>
           </div>
           <div class="kbCol">
             <div class="kbHead">计划已批准 <span class="countBadge">1</span></div>
-            <button class="kbCard" data-module="m4">
-              <span class="kbTitle">M4　数据校验</span>
+            <button class="kbCard" data-work-package="wp4">
+              <span class="kbTitle">WP4　数据校验</span>
               <span class="kbMeta">计划 v1 ✓ 09-26</span>
               <span class="kbMeta">会话 0 · commit 0 · 覆盖 C2</span>
             </button>
           </div>
           <div class="kbCol">
             <div class="kbHead">开发中 <span class="countBadge">1</span></div>
-            <button class="kbCard" data-module="m2">
-              <span class="kbTitle">M2　数据导出</span>
+            <button class="kbCard" data-work-package="wp2">
+              <span class="kbTitle">WP2　数据导出</span>
               <span class="kbMeta">计划 v2 ✓ 09-26</span>
               <span class="kbMeta"><span class="dot run"></span>2 会话 · commit 3</span>
             </button>
           </div>
           <div class="kbCol">
             <div class="kbHead">待验收 <span class="countBadge warn">1</span></div>
-            <button class="kbCard" data-module="m3">
-              <span class="kbTitle">M3　数据导入</span>
+            <button class="kbCard" data-work-package="wp3">
+              <span class="kbTitle">WP3　数据导入</span>
               <span class="kbMeta">built · 计划 v1 ✓</span>
               <span class="kbActions">
                 <button class="btn primary sm">验收通过</button>
@@ -611,8 +611,8 @@
           </div>
           <div class="kbCol">
             <div class="kbHead">已验收 <span class="countBadge ok">1</span></div>
-            <button class="kbCard" data-module="m1">
-              <span class="kbTitle">M1　CRUD 基础功能</span>
+            <button class="kbCard" data-work-package="wp1">
+              <span class="kbTitle">WP1　CRUD 基础功能</span>
               <span class="kbMeta">计划 v1 ✓ · 验收 09-27</span>
               <span class="kbMeta">历史：1 次返工</span>
             </button>
@@ -633,7 +633,7 @@
                 <span class="cardTitle">全量代码评审 · 2026-09-27</span>
                 <span class="tag info">发现 8 · confirmed 6 / rejected 2</span>
               </div>
-              <div class="cardMeta">来源 session：评审·09-27 · 范围：M1/M2/M3 全部 commit</div>
+              <div class="cardMeta">来源 session：评审·09-27 · 范围：WP1/WP2/WP3 全部 commit</div>
             </div>
           </div>
         </div>
@@ -665,11 +665,11 @@
           <div class="sectionTitle">PRD 覆盖矩阵</div>
           <div class="card"><div class="cardMain">
             <div class="cardTitleLine"><span class="cardTitle">C1　导出异步 + id 滚动</span></div>
-            <div class="coverChips"><span class="coverChip">← M2</span></div>
+            <div class="coverChips"><span class="coverChip">← WP2</span></div>
           </div></div>
           <div class="card"><div class="cardMain">
             <div class="cardTitleLine"><span class="cardTitle">C2　导入前全量校验</span></div>
-            <div class="coverChips"><span class="coverChip">← M3 待验收</span><span class="coverChip">← M4</span></div>
+            <div class="coverChips"><span class="coverChip">← WP3 待验收</span><span class="coverChip">← WP4</span></div>
           </div></div>
           <div class="card"><div class="cardMain">
             <div class="cardTitleLine"><span class="cardTitle">C3　权限校验覆盖全部接口</span></div>
@@ -702,14 +702,14 @@
               <span class="tag success">已确认</span>
               <span class="driftNote">⚠ 内容被修改（哈希漂移）</span>
             </div>
-            <div class="cardMeta">来源 M2 · env prod · 登记 09-26 · 内容已锁定只读</div>
+            <div class="cardMeta">来源 WP2 · env prod · 登记 09-26 · 内容已锁定只读</div>
           </div><button class="menuBtn">⋯</button></div>
           <div class="card"><div class="cardMain">
             <div class="cardTitleLine">
               <span class="cardTitle">R0002　t_quote_import_log 建表</span>
               <span class="tag warning">待确认</span>
             </div>
-            <div class="cardMeta">来源 M3 · env prod · 声明导入 09-27 · 待用户确认进清单</div>
+            <div class="cardMeta">来源 WP3 · env prod · 声明导入 09-27 · 待用户确认进清单</div>
           </div><button class="menuBtn">⋯</button></div>
         </div>
         <div class="section">
@@ -719,7 +719,7 @@
               <span class="cardTitle">R0003　export.enabled 开关，默认 false</span>
               <span class="tag success">已确认</span>
             </div>
-            <div class="cardMeta">来源 M2 · env prod,pre · 登记 09-26</div>
+            <div class="cardMeta">来源 WP2 · env prod,pre · 登记 09-26</div>
           </div><button class="menuBtn">⋯</button></div>
         </div>
         <div class="section">
@@ -729,7 +729,7 @@
               <span class="cardTitle">R0004　quote-import 队列并发 4→8</span>
               <span class="tag success">已确认</span>
             </div>
-            <div class="cardMeta">来源 M3 · env prod · 登记 09-27</div>
+            <div class="cardMeta">来源 WP3 · env prod · 登记 09-27</div>
           </div><button class="menuBtn">⋯</button></div>
         </div>
       </div>
@@ -743,7 +743,7 @@
               <span class="tag info">convention</span>
               <span class="cardTitle">导出通用约定：异步 + id 滚动，禁止大表全量导出</span>
             </div>
-            <div class="cardMeta">draft：所有列表类导出一律走异步任务；滚动键必须用唯一索引列（created_at+id）；禁止 offset 深翻页……（提议 session：M2·开发）</div>
+            <div class="cardMeta">draft：所有列表类导出一律走异步任务；滚动键必须用唯一索引列（created_at+id）；禁止 offset 深翻页……（提议 session：WP2·开发）</div>
             <div class="kbActions" style="margin-top:6px">
               <button class="btn primary sm" onclick="openModal('activateModal')">激活</button>
               <button class="btn sm">编辑</button>
@@ -786,25 +786,25 @@
   </div>
 </div>
 
-<!-- ============ 模块详情 Modal（M3 数据导入，built 待验收） ============ -->
-<div class="modalMask" id="moduleModal" onclick="maskClose(event, 'moduleModal')">
+<!-- ============ 工作包详情 Modal（WP3 数据导入，built 待验收） ============ -->
+<div class="modalMask" id="workPackageModal" onclick="maskClose(event, 'workPackageModal')">
   <div class="modal">
     <div class="modalHead">
-      <span>M3　数据导入</span>
+      <span>WP3　数据导入</span>
       <span class="tag warning">待验收（built）</span>
-      <button class="close" onclick="closeModal('moduleModal')">✕</button>
+      <button class="close" onclick="closeModal('workPackageModal')">✕</button>
     </div>
     <div class="modalBody">
       <div class="section">
         <div class="sectionHead">
           <div class="sectionTitle">开发计划 · v1 · 已批准 2026-09-26</div>
-          <button class="btn sm" onclick="closeModal('moduleModal'); openModal('bundleModal')">生成模块上下文包</button>
+          <button class="btn sm" onclick="closeModal('workPackageModal'); openModal('sowModal')">生成工作包任务书</button>
         </div>
         <div class="doc">
           <h4>边界</h4>
           <ul>
             <li>OSS 直传 + 服务端流式读取，批 500 行落库</li>
-            <li>校验钩子调用 M4 校验引擎，非法行跳过并记错误报告</li>
+            <li>校验钩子调用 WP4 校验引擎，非法行跳过并记错误报告</li>
           </ul>
           <h4>改动点</h4>
           <ul>
@@ -825,8 +825,8 @@
       </div>
       <div class="section">
         <div class="sectionHead"><div class="sectionTitle">关联 session（2）</div><button class="btn sm">＋ 关联</button></div>
-        <div class="card"><div class="cardMain"><div class="cardTitleLine"><span class="cardTitle">M3·导入·开发</span><span class="tag warning">待输入</span></div><div class="cardMeta">绑定 09-27</div></div><button class="menuBtn">⋯</button></div>
-        <div class="card"><div class="cardMain"><div class="cardTitleLine"><span class="cardTitle">M3·导入·开发（返工）</span><span class="tag neutral">已结束</span></div><div class="cardMeta">绑定 09-26</div></div><button class="menuBtn">⋯</button></div>
+        <div class="card"><div class="cardMain"><div class="cardTitleLine"><span class="cardTitle">WP3·导入·开发</span><span class="tag warning">待输入</span></div><div class="cardMeta">绑定 09-27</div></div><button class="menuBtn">⋯</button></div>
+        <div class="card"><div class="cardMain"><div class="cardTitleLine"><span class="cardTitle">WP3·导入·开发（返工）</span><span class="tag neutral">已结束</span></div><div class="cardMeta">绑定 09-26</div></div><button class="menuBtn">⋯</button></div>
       </div>
       <div class="section">
         <div class="sectionHead"><div class="sectionTitle">commit（2）</div><button class="btn sm">＋ 记录</button></div>
@@ -837,23 +837,23 @@
         <div class="sectionTitle">验收</div>
         <div class="card"><div class="cardMain">
           <div class="cardTitleLine"><span class="cardTitle">尚无验收记录</span></div>
-          <div class="cardMeta">built 声明来自 session：M3·导入·开发（09-27）——验收权在用户</div>
+          <div class="cardMeta">built 声明来自 session：WP3·导入·开发（09-27）——验收权在用户</div>
         </div></div>
       </div>
     </div>
     <div class="modalFoot">
-      <button class="btn outline" onclick="closeModal('moduleModal')">不通过（记返工原因）</button>
-      <button class="btn primary" onclick="closeModal('moduleModal')">验收通过</button>
+      <button class="btn outline" onclick="closeModal('workPackageModal')">不通过（记返工原因）</button>
+      <button class="btn primary" onclick="closeModal('workPackageModal')">验收通过</button>
     </div>
   </div>
 </div>
 
-<!-- ============ 上下文包 Modal ============ -->
-<div class="modalMask" id="bundleModal" onclick="maskClose(event, 'bundleModal')">
+<!-- ============ 任务书 Modal ============ -->
+<div class="modalMask" id="sowModal" onclick="maskClose(event, 'sowModal')">
   <div class="modal">
     <div class="modalHead">
-      <span>生成上下文包 · M3 数据导入</span>
-      <button class="close" onclick="closeModal('bundleModal')">✕</button>
+      <span>生成任务书 · WP3 数据导入</span>
+      <button class="close" onclick="closeModal('sowModal')">✕</button>
     </div>
     <div class="modalBody">
       <div class="bundleGrid">
@@ -871,14 +871,14 @@
             <label class="pickRow"><input type="checkbox"> [manual] 结算域注意事项</label>
           </div>
           <div class="pickGroup">
-            <div class="pickGroupTitle">模块范围</div>
-            <label class="pickRow"><input type="checkbox" checked> M3 边界 + 已批准计划 v1</label>
-            <label class="pickRow"><input type="checkbox"> 依赖模块（M1）摘要</label>
+            <div class="pickGroupTitle">工作包范围</div>
+            <label class="pickRow"><input type="checkbox" checked> WP3 边界 + 已批准计划 v1</label>
+            <label class="pickRow"><input type="checkbox"> 依赖工作包（WP1）摘要</label>
           </div>
         </div>
-        <pre class="bundlePreview">[需求] 报价管理：导入导出与数据校验（阶段 ③执行实施 · M3 待验收）
+        <pre class="sowPreview">[需求] 报价管理：导入导出与数据校验（阶段 ③执行实施 · WP3 待验收）
 [PRD 节选] §2.1 / §2.3 …
-[模块] M3 数据导入 · 依赖 M1 · 覆盖 C2
+[工作包] WP3 数据导入 · 依赖 WP1 · 覆盖 C2
   边界：OSS 直传 + 流式读取，批 500 行落库…
   计划 v1（已批准 09-26）：…
 [知识] 报价域术语表 / 导出实现规范 …
@@ -888,8 +888,8 @@
       </div>
     </div>
     <div class="modalFoot">
-      <button class="btn" onclick="closeModal('bundleModal')">取消</button>
-      <button class="btn primary" onclick="closeModal('bundleModal')">复制到剪贴板</button>
+      <button class="btn" onclick="closeModal('sowModal')">取消</button>
+      <button class="btn primary" onclick="closeModal('sowModal')">复制到剪贴板</button>
     </div>
   </div>
 </div>
@@ -949,9 +949,9 @@
     row.querySelector('.cardMain').addEventListener('click', () => row.classList.toggle('open'))
   })
 
-  // 看板卡片 → 模块详情 Modal（M2/M4/M1 复用 M3 内容，视觉稿不区分）
+  // 看板卡片 → 工作包详情 Modal（WP2/WP4/WP1 复用 WP3 内容，视觉稿不区分）
   document.querySelectorAll('.kbCard[data-module]').forEach((card) => {
-    card.addEventListener('click', () => openModal('moduleModal'))
+    card.addEventListener('click', () => openModal('workPackageModal'))
   })
 
   function openModal(id) {

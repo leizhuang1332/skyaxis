@@ -46,7 +46,7 @@ function workbenchRecord(overrides: Partial<WorkbenchRecord> = {}): WorkbenchRec
     stageHistory: [{ stage: 'understand', at: AT }],
     criteria: [],
     findings: [],
-    modules: [],
+    workPackages: [],
     releaseItems: [],
     reviewReports: [],
     knowledgeCandidates: [],
@@ -139,7 +139,7 @@ describe('WorkbenchTabBody（六阶段导轨 · 真实数据源）', () => {
     const rail = screen.getByRole('tablist', { name: '工作流阶段' })
     expect(rail.querySelectorAll('button')).toHaveLength(WORKBENCH_STAGES.length)
     expect(rail.querySelectorAll('[aria-hidden="true"]')).toHaveLength(WORKBENCH_STAGES.length - 1)
-    expect(screen.queryByText(/待处置|模块|已验收|待裁决|上线项|待审阅/)).toBeNull()
+    expect(screen.queryByText(/待处置|工作包|已验收|待裁决|上线项|待审阅/)).toBeNull()
     expect(screen.queryByText(/完成本阶段|关闭需求/)).toBeNull()
     // 空态引导在场（① 视角的 firstUseHint）。
     expect(screen.getByText(workbenchZh['empty.firstUseHint'])).toBeTruthy()
@@ -159,7 +159,7 @@ describe('WorkbenchTabBody（六阶段导轨 · 真实数据源）', () => {
       />,
     )
     expect(screen.getByText('2 待处置')).toBeTruthy()
-    expect(screen.queryByText(/1 模块|0 模块/)).toBeNull() // modules 空 ⇒ 无徽章
+    expect(screen.queryByText(/1 工作包|0 工作包/)).toBeNull() // workPackages 空 ⇒ 无徽章
     unmount()
 
     // 全部 resolved ⇒ 零值不渲染（不占位）。

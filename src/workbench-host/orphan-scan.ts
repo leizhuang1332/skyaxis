@@ -32,7 +32,7 @@ const TRASH_DIR_NAME = '.trash'
 const TOMBSTONE_FILE_NAME = 'deleted-record.yaml'
 const PLANS_DIR_NAME = 'plans'
 const REVIEWS_DIR_NAME = 'reviews'
-const PLAN_FILE_RE = /^(M[1-9]\d*)-v([1-9]\d*)\.md$/
+const PLAN_FILE_RE = /^(WP[1-9]\d*)-v([1-9]\d*)\.md$/
 const REVIEW_FILE_RE = /^([A-Za-z0-9-]{1,64})\.md$/
 const REQUIREMENT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
@@ -43,8 +43,8 @@ export interface WorkbenchScanResult {
 }
 
 /** \u0000-joined — no legitimate id character collides with the separator. */
-function planKey(requirementId: string, moduleId: string, version: number): string {
-  return `${requirementId}\u0000${moduleId}\u0000${version}`
+function planKey(requirementId: string, workPackageId: string, version: number): string {
+  return `${requirementId}\u0000${workPackageId}\u0000${version}`
 }
 
 function reviewKey(requirementId: string, reviewId: string): string {
@@ -55,9 +55,9 @@ export function scanWorkbenchArtifacts(root: string, records: readonly Workbench
   const planRefs = new Set<string>()
   const reviewRefs = new Set<string>()
   for (const record of records) {
-    for (const module of record.modules) {
-      for (const plan of module.plans) {
-        planRefs.add(planKey(record.requirementId, module.id, plan.version))
+    for (const workPackage of record.workPackages) {
+      for (const plan of workPackage.plans) {
+        planRefs.add(planKey(record.requirementId, workPackage.id, plan.version))
       }
     }
     for (const report of record.reviewReports) {
@@ -83,7 +83,7 @@ export function scanWorkbenchArtifacts(root: string, records: readonly Workbench
         }
         const key = planKey(requirementId, match[1], Number(match[2]))
         onDiskPlanKeys.add(key)
-        if (!planRefs.has(key)) orphans.push({ requirementId, kind: 'plan', moduleId: match[1], version: Number(match[2]) })
+        if (!planRefs.has(key)) orphans.push({ requirementId, kind: 'plan', workPackageId: match[1], version: Number(match[2]) })
       })
       scanConventionDir(join(dirPath, REVIEWS_DIR_NAME), (name) => {
         const match = REVIEW_FILE_RE.exec(name)
@@ -107,10 +107,10 @@ export function scanWorkbenchArtifacts(root: string, records: readonly Workbench
 
   const missing: WorkbenchScanRow[] = []
   for (const record of records) {
-    for (const module of record.modules) {
-      for (const plan of module.plans) {
-        if (!onDiskPlanKeys.has(planKey(record.requirementId, module.id, plan.version))) {
-          missing.push({ requirementId: record.requirementId, kind: 'plan', moduleId: module.id, version: plan.version })
+    for (const workPackage of record.workPackages) {
+      for (const plan of workPackage.plans) {
+        if (!onDiskPlanKeys.has(planKey(record.requirementId, workPackage.id, plan.version))) {
+          missing.push({ requirementId: record.requirementId, kind: 'plan', workPackageId: workPackage.id, version: plan.version })
         }
       }
     }

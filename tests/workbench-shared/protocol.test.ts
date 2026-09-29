@@ -12,7 +12,7 @@ import type {
   KnowledgeCandidate,
   WorkbenchFinding,
   WorkbenchCriterion,
-  WorkbenchModule,
+  WorkbenchWorkPackage,
   WorkbenchRecord,
 } from '../../src/workbench-shared/protocol.js'
 import {
@@ -21,7 +21,7 @@ import {
   isArtifactContentResponse,
   isArtifactWriteResponseOk,
   isErrorResponse,
-  isModuleId,
+  isWorkPackageId,
   isPlanVersion,
   isReviewId,
   isWorkbenchDetailResponse,
@@ -38,10 +38,10 @@ function planEntry(overrides: Partial<PlanEntry> = {}): PlanEntry {
   return { version: 1, contentHash: 'a'.repeat(64), ...overrides }
 }
 
-function module(overrides: Partial<WorkbenchModule> = {}): WorkbenchModule {
+function workPackage(overrides: Partial<WorkbenchWorkPackage> = {}): WorkbenchWorkPackage {
   return {
-    id: 'M1',
-    title: '订单导出模块',
+    id: 'WP1',
+    title: '订单导出工作包',
     boundary: 't_order 查询与导出',
     order: 0,
     dependsOn: [],
@@ -114,7 +114,7 @@ function record(overrides: Partial<WorkbenchRecord> = {}): WorkbenchRecord {
     stageHistory: [{ stage: 'understand', at: AT }],
     criteria: [criterion()],
     findings: [finding()],
-    modules: [module()],
+    workPackages: [workPackage()],
     releaseItems: [releaseItem()],
     reviewReports: [reviewReport()],
     knowledgeCandidates: [candidate()],
@@ -123,16 +123,16 @@ function record(overrides: Partial<WorkbenchRecord> = {}): WorkbenchRecord {
 }
 
 describe('narrow id predicates (细化② layer 1)', () => {
-  it('isModuleId accepts M-prefixed positive integers only', () => {
-    expect(isModuleId('M1')).toBe(true)
-    expect(isModuleId('M12')).toBe(true)
-    expect(isModuleId('M0')).toBe(false)
-    expect(isModuleId('M01')).toBe(false)
-    expect(isModuleId('M')).toBe(false)
-    expect(isModuleId('m1')).toBe(false)
-    expect(isModuleId('M1a')).toBe(false)
-    expect(isModuleId('')).toBe(false)
-    expect(isModuleId('M1 ')).toBe(false)
+  it('isWorkPackageId accepts M-prefixed positive integers only', () => {
+    expect(isWorkPackageId('WP1')).toBe(true)
+    expect(isWorkPackageId('WP12')).toBe(true)
+    expect(isWorkPackageId('WP0')).toBe(false)
+    expect(isWorkPackageId('WP01')).toBe(false)
+    expect(isWorkPackageId('M')).toBe(false)
+    expect(isWorkPackageId('wp1')).toBe(false)
+    expect(isWorkPackageId('WP1a')).toBe(false)
+    expect(isWorkPackageId('')).toBe(false)
+    expect(isWorkPackageId('WP1 ')).toBe(false)
   })
 
   it('isPlanVersion accepts positive integers only', () => {
@@ -173,7 +173,7 @@ describe('isWorkbenchRecord', () => {
     const minimal = record({
       criteria: [],
       findings: [],
-      modules: [],
+      workPackages: [],
       releaseItems: [],
       reviewReports: [],
       knowledgeCandidates: [],
@@ -184,7 +184,7 @@ describe('isWorkbenchRecord', () => {
 
   it('tolerates absent optional fields (approvedAt/note/contentHash/title)', () => {
     expect(isWorkbenchRecord(record({
-      modules: [module({ plans: [{ version: 2 }] })],
+      workPackages: [workPackage({ plans: [{ version: 2 }] })],
       reviewReports: [reviewReport({ contentHash: undefined, title: undefined })],
     }))).toBe(true)
   })
@@ -199,7 +199,7 @@ describe('isWorkbenchRecord', () => {
       { findings: [finding({ category: 'perf' as never })] },
       { findings: [finding({ severity: 'critical' as never })] },
       { findings: [finding({ status: 'closed' as never })] },
-      { modules: [module({ status: 'done' as never })] },
+      { workPackages: [workPackage({ status: 'done' as never })] },
       { releaseItems: [releaseItem({ type: 'db' as never })] },
       { releaseItems: [releaseItem({ status: 'applied ' as never })] },
       { reviewReports: [reviewReport({ verdicts: [{ title: 't', severity: 'high', verdict: 'maybe' as never }] })] },
@@ -211,11 +211,11 @@ describe('isWorkbenchRecord', () => {
   })
 
   it('rejects narrow-regex violations inside nested rows', () => {
-    expect(isWorkbenchRecord(record({ modules: [module({ id: 'm1' })] }))).toBe(false)
-    expect(isWorkbenchRecord(record({ modules: [module({ dependsOn: ['M0'] })] }))).toBe(false)
-    expect(isWorkbenchRecord(record({ modules: [module({ plans: [planEntry({ version: 0 })] })] }))).toBe(false)
+    expect(isWorkbenchRecord(record({ workPackages: [workPackage({ id: 'wp1' })] }))).toBe(false)
+    expect(isWorkbenchRecord(record({ workPackages: [workPackage({ dependsOn: ['WP0'] })] }))).toBe(false)
+    expect(isWorkbenchRecord(record({ workPackages: [workPackage({ plans: [planEntry({ version: 0 })] })] }))).toBe(false)
     expect(isWorkbenchRecord(record({ reviewReports: [reviewReport({ id: 'bad id' })] }))).toBe(false)
-    expect(isWorkbenchRecord(record({ releaseItems: [releaseItem({ moduleId: 'M01' })] }))).toBe(false)
+    expect(isWorkbenchRecord(record({ releaseItems: [releaseItem({ workPackageId: 'WP01' })] }))).toBe(false)
   })
 
   it('rejects missing required arrays and empty identity fields', () => {
@@ -255,26 +255,26 @@ describe('envelope guards', () => {
       ok: true,
       revision: 1,
       record: record(),
-      planFileExists: [{ moduleId: 'M3', version: 2, exists: false }],
+      planFileExists: [{ workPackageId: 'WP3', version: 2, exists: false }],
       reviewFileExists: [{ reviewId: 'rev-a1', exists: true }],
     })).toBe(true)
     expect(isWorkbenchDetailResponse({
       ok: true,
       revision: 1,
       record: record(),
-      planFileExists: [{ moduleId: 'M3', version: 0, exists: true }],
+      planFileExists: [{ workPackageId: 'WP3', version: 0, exists: true }],
       reviewFileExists: [],
     })).toBe(false)
     expect(isWorkbenchDetailResponse({ ok: true, revision: 1, record: undefined, planFileExists: [], reviewFileExists: [] })).toBe(false)
   })
 
   it('isArtifactWriteResponseOk: kind-specific optional anchors', () => {
-    const plan: ArtifactWriteResponseOk = { ok: true, revision: 5, kind: 'plan', moduleId: 'M3', version: 2 }
+    const plan: ArtifactWriteResponseOk = { ok: true, revision: 5, kind: 'plan', workPackageId: 'WP3', version: 2 }
     const review: ArtifactWriteResponseOk = { ok: true, revision: 5, kind: 'review', reviewId: 'rev-a1' }
     expect(isArtifactWriteResponseOk(plan)).toBe(true)
     expect(isArtifactWriteResponseOk(review)).toBe(true)
     expect(isArtifactWriteResponseOk({ ok: true, revision: 5, kind: 'doc' })).toBe(false)
-    expect(isArtifactWriteResponseOk({ ok: true, revision: 5, kind: 'plan', moduleId: 'm3', version: 2 })).toBe(false)
+    expect(isArtifactWriteResponseOk({ ok: true, revision: 5, kind: 'plan', workPackageId: 'wp3', version: 2 })).toBe(false)
   })
 
   it('isArtifactContentResponse (tamper marker is part of the envelope)', () => {
@@ -293,7 +293,7 @@ describe('envelope guards', () => {
     const scan = {
       ok: true as const,
       orphans: [
-        { requirementId: RID, kind: 'plan' as const, moduleId: 'M1', version: 3 },
+        { requirementId: RID, kind: 'plan' as const, workPackageId: 'WP1', version: 3 },
         { requirementId: RID, kind: 'unknown' as const, name: 'notes.txt' },
       ],
       missing: [{ requirementId: RID, kind: 'review' as const, reviewId: 'rev-gone' }],

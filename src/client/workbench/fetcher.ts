@@ -147,8 +147,8 @@ export function createWorkbenchFetcher() {
       return this.mutate({ expectedRevision, requirementId, action: 'removeFinding', id }, signal)
     },
 
-    async writePlan(requirementId: string, moduleId: string, text: string, expectedRevision: number, note?: string, signal?: AbortSignal): Promise<WorkbenchArtifactWriteResult> {
-      const query = new URLSearchParams({ kind: 'plan', requirementId, moduleId, expectedRevision: String(expectedRevision) })
+    async writePlan(requirementId: string, workPackageId: string, text: string, expectedRevision: number, note?: string, signal?: AbortSignal): Promise<WorkbenchArtifactWriteResult> {
+      const query = new URLSearchParams({ kind: 'plan', requirementId, workPackageId, expectedRevision: String(expectedRevision) })
       if (note !== undefined) query.set('note', note)
       const response = await request(`${WORKBENCH_ARTIFACTS_PATH}?${query.toString()}`, {
         method: 'POST',
@@ -169,8 +169,8 @@ export function createWorkbenchFetcher() {
       return artifactWriteResult(response)
     },
 
-    async planContent(requirementId: string, moduleId: string, version: number, signal?: AbortSignal): Promise<WorkbenchArtifactContentResult> {
-      const query = new URLSearchParams({ kind: 'plan', requirementId, moduleId, version: String(version) })
+    async planContent(requirementId: string, workPackageId: string, version: number, signal?: AbortSignal): Promise<WorkbenchArtifactContentResult> {
+      const query = new URLSearchParams({ kind: 'plan', requirementId, workPackageId, version: String(version) })
       return artifactContentResult(await request(`${WORKBENCH_ARTIFACTS_PATH}?${query.toString()}`, { method: 'GET' }, signal))
     },
 

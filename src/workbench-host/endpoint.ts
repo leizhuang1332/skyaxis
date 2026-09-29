@@ -24,7 +24,7 @@ import {
   WORKBENCH_ARTIFACT_MAX_CHARS,
   WORKBENCH_PATH,
   WORKBENCH_SCAN_PATH,
-  isModuleId,
+  isWorkPackageId,
   isPlanVersion,
   isReviewId,
 } from '../workbench-shared/protocol.js'
@@ -79,7 +79,7 @@ function emptyRecord(requirementId: string): WorkbenchRecord {
     stageHistory: [{ stage: 'understand', at }],
     criteria: [],
     findings: [],
-    modules: [],
+    workPackages: [],
     releaseItems: [],
     reviewReports: [],
     knowledgeCandidates: [],
@@ -136,11 +136,11 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
       ok: true,
       revision: current.value.revision,
       record,
-      planFileExists: record.modules.flatMap((module) =>
-        module.plans.map((plan) => ({
-          moduleId: module.id,
+      planFileExists: record.workPackages.flatMap((workPackage) =>
+        workPackage.plans.map((plan) => ({
+          workPackageId: workPackage.id,
           version: plan.version,
-          exists: existsSync(planDocPath(services.workbenchRoot, requirementId, module.id, plan.version)),
+          exists: existsSync(planDocPath(services.workbenchRoot, requirementId, workPackage.id, plan.version)),
         })),
       ),
       reviewFileExists: record.reviewReports.map((report) => ({
@@ -250,8 +250,8 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     if (requirementId === null || !REQUIREMENT_ID_RE.test(requirementId)) return errorResponse(400, 'bad-request')
     if (!Number.isInteger(expectedRevision) || expectedRevision < 0) return errorResponse(400, 'bad-request')
 
-    const moduleId = kind === 'plan' ? url.searchParams.get('moduleId') : null
-    if (kind === 'plan' && (moduleId === null || !isModuleId(moduleId))) return errorResponse(400, 'bad-request')
+    const workPackageId = kind === 'plan' ? url.searchParams.get('workPackageId') : null
+    if (kind === 'plan' && (workPackageId === null || !isWorkPackageId(workPackageId))) return errorResponse(400, 'bad-request')
     const reviewTitle = kind === 'review' ? url.searchParams.get('title') : null
     if (kind === 'review' && reviewTitle !== null && reviewTitle.length > 128) return errorResponse(400, 'bad-request')
     if (kind !== 'plan' && kind !== 'review') return errorResponse(400, 'bad-request')
@@ -268,7 +268,7 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     if (record === undefined) return errorResponse(404, 'not-found')
 
     if (kind === 'plan') {
-      return planWriteFlow(record, current.value.records, current.value.revision, requirementId, moduleId!, planNote, text, expectedRevision)
+      return planWriteFlow(record, current.value.records, current.value.revision, requirementId, workPackageId!, planNote, text, expectedRevision)
     }
     return reviewWriteFlow(record, current.value.records, current.value.revision, requirementId, reviewTitle, text, expectedRevision)
   }
@@ -282,18 +282,18 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     ledgerRecords: readonly WorkbenchRecord[],
     ledgerRevision: number,
     requirementId: string,
-    moduleId: string,
+    workPackageId: string,
     note: string | null,
     text: string,
     expectedRevision: number,
   ): Promise<Response> {
-    const module = record.modules.find((candidate) => candidate.id === moduleId)
-    if (module === undefined) return errorResponse(404, 'not-found')
+    const workPackage = record.workPackages.find((candidate) => candidate.id === workPackageId)
+    if (workPackage === undefined) return errorResponse(404, 'not-found')
     const hash = contentHashOf(text)
 
     // The tail draft: the LAST unapproved plan entry — draft edits overwrite
     // the same version and re-hash; there is exactly one draft at a time.
-    const draft = [...module.plans].reverse().find((plan) => plan.approvedAt === undefined)
+    const draft = [...workPackage.plans].reverse().find((plan) => plan.approvedAt === undefined)
     // A note-only change still needs the ledger write — the idempotent
     // branch below must not swallow it with a 200.
     const noteUnchanged = draft === undefined
@@ -306,7 +306,7 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
       // STALE file (an overwritten draft whose post-save write failed,
       // leaving the previous bytes on disk) both get repaired here; only a
       // disk that already hashes to the ledger value is left untouched.
-      const target = planDocPath(services.workbenchRoot, requirementId, moduleId, draft.version)
+      const target = planDocPath(services.workbenchRoot, requirementId, workPackageId, draft.version)
       const read = artifacts.read(target)
       if (read.status !== 'ok' || read.sha256 !== hash) {
         try {
@@ -316,25 +316,25 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
           return errorResponse(500, 'internal')
         }
       }
-      return json({ ok: true, revision: ledgerRevision, kind: 'plan', moduleId, version: draft.version })
+      return json({ ok: true, revision: ledgerRevision, kind: 'plan', workPackageId, version: draft.version })
     }
 
     let version: number
-    let nextPlans: WorkbenchRecord['modules'][number]['plans']
+    let nextPlans: WorkbenchRecord['workPackages'][number]['plans']
     if (draft !== undefined) {
       // Fuse (unreachable by construction — the draft selection excludes
       // approved entries): an approved target must never be overwritten;
       // "批准锁定" is an endpoint contract, not a slogan (细化③).
       if (draft.approvedAt !== undefined) return errorResponse(400, 'locked-version')
       version = draft.version
-      nextPlans = module.plans.map((plan) =>
+      nextPlans = workPackage.plans.map((plan) =>
         plan.version === version
           ? { ...plan, contentHash: hash, ...(note !== null ? { note } : {}) }
           : plan,
       )
     } else {
-      version = module.plans.reduce((max, plan) => Math.max(max, plan.version), 0) + 1
-      nextPlans = [...module.plans, { version, contentHash: hash, ...(note !== null ? { note } : {}) }]
+      version = workPackage.plans.reduce((max, plan) => Math.max(max, plan.version), 0) + 1
+      nextPlans = [...workPackage.plans, { version, contentHash: hash, ...(note !== null ? { note } : {}) }]
     }
 
     if (ledgerRevision !== expectedRevision) {
@@ -342,7 +342,7 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     }
     const nextRecord: WorkbenchRecord = {
       ...record,
-      modules: record.modules.map((candidate) => (candidate.id === moduleId ? { ...candidate, plans: nextPlans } : candidate)),
+      workPackages: record.workPackages.map((candidate) => (candidate.id === workPackageId ? { ...candidate, plans: nextPlans } : candidate)),
     }
     try {
       const saved = await file.save(expectedRevision, withRecord(ledgerRecords, requirementId, nextRecord))
@@ -356,12 +356,12 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
       // failure leaves a dangling reference (500) — retry hits the
       // idempotent branch above and converges without another save.
       try {
-        artifacts.write(planDocPath(services.workbenchRoot, requirementId, moduleId, version), text)
+        artifacts.write(planDocPath(services.workbenchRoot, requirementId, workPackageId, version), text)
       } catch (error) {
         log?.(error)
         return errorResponse(500, 'internal')
       }
-      return json({ ok: true, revision: saved.revision, kind: 'plan', moduleId, version })
+      return json({ ok: true, revision: saved.revision, kind: 'plan', workPackageId, version })
     } catch (error) {
       log?.(error)
       return errorResponse(500, 'internal')
@@ -429,14 +429,14 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     let target: string
     let expectedHash: string | undefined
     if (kind === 'plan') {
-      const moduleId = url.searchParams.get('moduleId')
+      const workPackageId = url.searchParams.get('workPackageId')
       const version = Number(url.searchParams.get('version'))
-      if (moduleId === null || !isModuleId(moduleId) || !isPlanVersion(version)) return errorResponse(400, 'bad-request')
-      const module = record.modules.find((candidate) => candidate.id === moduleId)
-      if (module === undefined) return errorResponse(404, 'not-found')
-      const entry = module.plans.find((plan) => plan.version === version)
+      if (workPackageId === null || !isWorkPackageId(workPackageId) || !isPlanVersion(version)) return errorResponse(400, 'bad-request')
+      const workPackage = record.workPackages.find((candidate) => candidate.id === workPackageId)
+      if (workPackage === undefined) return errorResponse(404, 'not-found')
+      const entry = workPackage.plans.find((plan) => plan.version === version)
       if (entry === undefined) return errorResponse(404, 'not-found')
-      target = planDocPath(services.workbenchRoot, requirementId, moduleId, version)
+      target = planDocPath(services.workbenchRoot, requirementId, workPackageId, version)
       expectedHash = entry.contentHash
     } else {
       const reviewId = url.searchParams.get('reviewId')

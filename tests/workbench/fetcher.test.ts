@@ -16,7 +16,7 @@ const RECORD: WorkbenchRecord = {
   stageHistory: [{ stage: 'understand', at: AT }],
   criteria: [],
   findings: [],
-  modules: [],
+  workPackages: [],
   releaseItems: [],
   reviewReports: [],
   knowledgeCandidates: [],
@@ -56,13 +56,13 @@ describe('workbench fetcher', () => {
       ok: true,
       revision: 1,
       record: okRecord(),
-      planFileExists: [{ moduleId: 'M1', version: 1, exists: false }],
+      planFileExists: [{ workPackageId: 'WP1', version: 1, exists: false }],
       reviewFileExists: [],
     })))
     const filled = await createWorkbenchFetcher().detail(RID)
     expect(filled.kind).toBe('ok')
     if (filled.kind !== 'ok') return
-    expect(filled.planFileExists).toEqual([{ moduleId: 'M1', version: 1, exists: false }])
+    expect(filled.planFileExists).toEqual([{ workPackageId: 'WP1', version: 1, exists: false }])
   })
 
   it('mutate parses conflict + currentRevision out of a 409 error body', async () => {
@@ -83,7 +83,7 @@ describe('workbench fetcher', () => {
 
   it('planContent returns the tamper marker verbatim', async () => {
     vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ ok: true, content: '# plan', contentTampered: true })))
-    const result = await createWorkbenchFetcher().planContent(RID, 'M1', 2)
+    const result = await createWorkbenchFetcher().planContent(RID, 'WP1', 2)
     expect(result).toEqual({ kind: 'ok', content: '# plan', contentTampered: true })
   })
 
@@ -91,11 +91,11 @@ describe('workbench fetcher', () => {
     const calls: { url: string; init: RequestInit }[] = []
     vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
       calls.push({ url, init })
-      return new Response(JSON.stringify({ ok: true, revision: 4, kind: 'plan', moduleId: 'M1', version: 2 }))
+      return new Response(JSON.stringify({ ok: true, revision: 4, kind: 'plan', workPackageId: 'WP1', version: 2 }))
     })
-    const result = await createWorkbenchFetcher().writePlan(RID, 'M1', '# plan body', 3, 'second try')
-    expect(result).toEqual({ kind: 'ok', revision: 4, anchor: { ok: true, revision: 4, kind: 'plan', moduleId: 'M1', version: 2 } })
-    expect(calls[0].url).toBe(`/api/skyaxis/workbench/artifacts?kind=plan&requirementId=${RID}&moduleId=M1&expectedRevision=3&note=second+try`)
+    const result = await createWorkbenchFetcher().writePlan(RID, 'WP1', '# plan body', 3, 'second try')
+    expect(result).toEqual({ kind: 'ok', revision: 4, anchor: { ok: true, revision: 4, kind: 'plan', workPackageId: 'WP1', version: 2 } })
+    expect(calls[0].url).toBe(`/api/skyaxis/workbench/artifacts?kind=plan&requirementId=${RID}&workPackageId=WP1&expectedRevision=3&note=second+try`)
     expect(calls[0].init.method).toBe('POST')
     expect(calls[0].init.headers).toEqual({ 'content-type': 'text/plain' })
     expect(calls[0].init.body).toBe('# plan body')

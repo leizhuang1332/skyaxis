@@ -12,7 +12,7 @@
  *
  * Governance anchors (decisions/0005, all user-ratified 2026-09-29):
  * - D4-② conventional references — plan/review document paths are derived by
- *   host-side pure functions from (requirementId, moduleId, version /
+ *   host-side pure functions from (requirementId, workPackageId, version /
  *   reviewId); the ledger and this wire NEVER carry a path. The narrow id
  *   guards below are the wire-side defense layer; the host re-asserts them
  *   before every path join.
@@ -74,9 +74,9 @@ export type WorkbenchStageOrClosed = WorkbenchStage | 'closed'
 // Narrow id predicates (wire defense layer 1 — decisions/0005 细化②)
 // ---------------------------------------------------------------------------
 
-/** moduleId pattern: M followed by a positive integer, no leading zero. */
-export function isModuleId(value: string): boolean {
-  return /^M[1-9]\d*$/.test(value)
+/** workPackageId pattern: WP followed by a positive integer, no leading zero. */
+export function isWorkPackageId(value: string): boolean {
+  return /^WP[1-9]\d*$/.test(value)
 }
 
 /** Plan version: a positive integer (host-assigned, max(existing)+1). */
@@ -95,7 +95,7 @@ export function isReviewId(value: string): boolean {
 
 /**
  * One plan document version. Reference-only metadata: the file path is
- * derived by the host from the convention (plans/<moduleId>-v<version>.md);
+ * derived by the host from the convention (plans/<workPackageId>-v<version>.md);
  * no path ever crosses this wire. contentHash is host sha256 over the UTF-8
  * bytes on disk; legacy entries without it read back untampered-silent
  * (field-evolution discipline).
@@ -127,8 +127,8 @@ export interface WorkbenchAcceptance {
   readonly note?: string
 }
 
-export interface WorkbenchModule {
-  /** 'M1', 'M2', … — host-minted sequence, see isModuleId. */
+export interface WorkbenchWorkPackage {
+  /** 'WP1', 'WP2', … — host-minted sequence, see isWorkPackageId. */
   readonly id: string
   readonly title: string
   readonly boundary: string
@@ -176,7 +176,7 @@ export interface WorkbenchCriterion {
   readonly id: string
   readonly text: string
   readonly sourceSection?: string
-  /** moduleId references (maintained module-side; carried read-only here). */
+  /** workPackageId references (maintained workPackage-side; carried read-only here). */
   readonly coveredBy: readonly string[]
 }
 
@@ -212,7 +212,7 @@ export interface ReleaseItem {
   /** Host sha256 at registration — drift detection (Flyway checksum mode). */
   readonly contentHash: string
   readonly envs: readonly string[]
-  readonly moduleId?: string
+  readonly workPackageId?: string
   readonly sessionId?: string
   readonly status: 'pending' | 'confirmed' | 'applied' | 'verified' | 'rolled-back'
   readonly appliedAt?: string
@@ -247,7 +247,7 @@ export interface WorkbenchRecord {
   readonly stageHistory: readonly WorkbenchStageChange[]
   readonly criteria: readonly WorkbenchCriterion[]
   readonly findings: readonly WorkbenchFinding[]
-  readonly modules: readonly WorkbenchModule[]
+  readonly workPackages: readonly WorkbenchWorkPackage[]
   readonly releaseItems: readonly ReleaseItem[]
   readonly reviewReports: readonly ReviewReportEntry[]
   readonly knowledgeCandidates: readonly KnowledgeCandidate[]
@@ -307,11 +307,11 @@ export type WorkbenchMutateRequestBody =
 // fields under a 32K-code-unit cap and markdown bodies under a 512K cap are
 // two different body semantics and never share an endpoint).
 //
-//   POST ?kind=plan&requirementId=<uuid>&moduleId=<M#>[&note=<urlenc>]&expectedRevision=<n>
+//   POST ?kind=plan&requirementId=<uuid>&workPackageId=<M#>[&note=<urlenc>]&expectedRevision=<n>
 //        body: text/plain markdown → ArtifactWriteResponseOk (version host-assigned)
 //   POST ?kind=review&requirementId=<uuid>[&title=<urlenc>]&expectedRevision=<n>
 //        body: text/plain markdown → ArtifactWriteResponseOk (reviewId host uuid)
-//   GET  ?kind=plan&requirementId=<uuid>&moduleId=<M#>&version=<n>
+//   GET  ?kind=plan&requirementId=<uuid>&workPackageId=<M#>&version=<n>
 //   GET  ?kind=review&requirementId=<uuid>&reviewId=<id>
 //        → ArtifactContentResponseOk (404 when the file is missing; hash
 //          mismatch answers 200 + contentTampered, never silently, never
@@ -349,10 +349,10 @@ export type WorkbenchListResponse = WorkbenchListResponseOk | WorkbenchListRespo
  * Per-requirement file-existence rows — a RESPONSE projection, not ledger
  * fields (the workspace directoryExists/registered precedent,
  * requirements-shared/protocol.ts:293-305). Flat rows keyed by
- * (moduleId, version) / reviewId so the UI joins without pathing.
+ * (workPackageId, version) / reviewId so the UI joins without pathing.
  */
 export interface PlanFileExistsRow {
-  readonly moduleId: string
+  readonly workPackageId: string
   readonly version: number
   readonly exists: boolean
 }
@@ -382,7 +382,7 @@ export interface ArtifactWriteResponseOk {
   readonly revision: number
   readonly kind: 'plan' | 'review'
   /** Plan writes only. */
-  readonly moduleId?: string
+  readonly workPackageId?: string
   readonly version?: number
   /** Review writes only. */
   readonly reviewId?: string
@@ -402,7 +402,7 @@ export interface ArtifactContentResponseOk {
 export interface WorkbenchScanRow {
   readonly requirementId: string
   readonly kind: 'plan' | 'review' | 'unknown'
-  readonly moduleId?: string
+  readonly workPackageId?: string
   readonly version?: number
   readonly reviewId?: string
   readonly name?: string
@@ -447,7 +447,7 @@ function isString(v: unknown): v is string {
 }
 
 const STAGES_OR_CLOSED: readonly string[] = [...WORKBENCH_STAGES, 'closed']
-const MODULE_STATUSES = ['planned', 'plan-draft', 'plan-approved', 'in-dev', 'built', 'accepted', 'dropped']
+const WORK_PACKAGE_STATUSES = ['planned', 'plan-draft', 'plan-approved', 'in-dev', 'built', 'accepted', 'dropped']
 const SESSION_PURPOSES = ['analysis', 'dev', 'review']
 const ACCEPTANCE_RESULTS = ['pass', 'fail']
 const FINDING_CATEGORIES = ['feasibility', 'conflict', 'compatibility', 'risk', 'capacity', 'other']
@@ -502,18 +502,18 @@ function isWorkbenchAcceptance(v: unknown): v is WorkbenchAcceptance {
   )
 }
 
-function isWorkbenchModule(v: unknown): v is WorkbenchModule {
+function isWorkbenchWorkPackage(v: unknown): v is WorkbenchWorkPackage {
   if (typeof v !== 'object' || v === null) return false
   const r = v as Record<string, unknown>
   return (
-    isString(r.id) && r.id.length > 0 && isModuleId(r.id)
+    isString(r.id) && r.id.length > 0 && isWorkPackageId(r.id)
     && isString(r.title) && r.title.length > 0
     && isString(r.boundary)
     && typeof r.order === 'number'
-    && Array.isArray(r.dependsOn) && r.dependsOn.every((d) => isString(d) && isModuleId(d))
+    && Array.isArray(r.dependsOn) && r.dependsOn.every((d) => isString(d) && isWorkPackageId(d))
     && (r.parallel === undefined || typeof r.parallel === 'boolean')
     && Array.isArray(r.covers) && r.covers.every((c) => isString(c) && c.length > 0)
-    && isString(r.status) && MODULE_STATUSES.includes(r.status)
+    && isString(r.status) && WORK_PACKAGE_STATUSES.includes(r.status)
     && Array.isArray(r.plans) && r.plans.every(isPlanEntry)
     && Array.isArray(r.sessions) && r.sessions.every(isWorkbenchSessionBinding)
     && Array.isArray(r.commits) && r.commits.every(isWorkbenchCommitRef)
@@ -582,7 +582,7 @@ function isReleaseItem(v: unknown): v is ReleaseItem {
     && isString(r.content)
     && isString(r.contentHash) && r.contentHash.length > 0
     && Array.isArray(r.envs) && r.envs.every((e) => isString(e))
-    && (r.moduleId === undefined || (isString(r.moduleId) && isModuleId(r.moduleId)))
+    && (r.workPackageId === undefined || (isString(r.workPackageId) && isWorkPackageId(r.workPackageId)))
     && (r.sessionId === undefined || isString(r.sessionId))
     && isString(r.status) && RELEASE_STATUSES.includes(r.status)
     && (r.appliedAt === undefined || isString(r.appliedAt))
@@ -622,7 +622,7 @@ export function isWorkbenchRecord(v: unknown): v is WorkbenchRecord {
     && Array.isArray(r.stageHistory) && r.stageHistory.every(isWorkbenchStageChange)
     && Array.isArray(r.criteria) && r.criteria.every(isWorkbenchCriterion)
     && Array.isArray(r.findings) && r.findings.every(isWorkbenchFinding)
-    && Array.isArray(r.modules) && r.modules.every(isWorkbenchModule)
+    && Array.isArray(r.workPackages) && r.workPackages.every(isWorkbenchWorkPackage)
     && Array.isArray(r.releaseItems) && r.releaseItems.every(isReleaseItem)
     && Array.isArray(r.reviewReports) && r.reviewReports.every(isReviewReportEntry)
     && Array.isArray(r.knowledgeCandidates) && r.knowledgeCandidates.every(isKnowledgeCandidate)
@@ -646,7 +646,7 @@ function isPlanFileExistsRow(v: unknown): v is PlanFileExistsRow {
   if (typeof v !== 'object' || v === null) return false
   const r = v as Record<string, unknown>
   return (
-    isString(r.moduleId) && isModuleId(r.moduleId)
+    isString(r.workPackageId) && isWorkPackageId(r.workPackageId)
     && typeof r.version === 'number' && isPlanVersion(r.version)
     && typeof r.exists === 'boolean'
   )
@@ -683,7 +683,7 @@ export function isArtifactWriteResponseOk(v: unknown): v is ArtifactWriteRespons
     r.ok === true
     && typeof r.revision === 'number'
     && (r.kind === 'plan' || r.kind === 'review')
-    && (r.moduleId === undefined || (isString(r.moduleId) && isModuleId(r.moduleId)))
+    && (r.workPackageId === undefined || (isString(r.workPackageId) && isWorkPackageId(r.workPackageId)))
     && (r.version === undefined || (typeof r.version === 'number' && isPlanVersion(r.version)))
     && (r.reviewId === undefined || (isString(r.reviewId) && isReviewId(r.reviewId)))
   )
@@ -697,7 +697,7 @@ export function isArtifactContentResponse(v: unknown): v is ArtifactContentRespo
 
 /**
  * Kind-coupled rows (the repos-pool addressSlotOk precedent — optional fields
- * are coupled, not independent): plan rows carry exactly (moduleId, version),
+ * are coupled, not independent): plan rows carry exactly (workPackageId, version),
  * review rows exactly reviewId, unknown rows exactly name. A row whose kind
  * and anchors disagree collapses to a guard failure instead of joining
  * halfway in the UI.
@@ -708,7 +708,7 @@ function isWorkbenchScanRow(v: unknown): v is WorkbenchScanRow {
   if (!isString(r.requirementId) || r.requirementId.length === 0) return false
   if (r.kind === 'plan') {
     return (
-      isString(r.moduleId) && isModuleId(r.moduleId)
+      isString(r.workPackageId) && isWorkPackageId(r.workPackageId)
       && typeof r.version === 'number' && isPlanVersion(r.version)
       && r.reviewId === undefined && r.name === undefined
     )
@@ -716,13 +716,13 @@ function isWorkbenchScanRow(v: unknown): v is WorkbenchScanRow {
   if (r.kind === 'review') {
     return (
       isString(r.reviewId) && isReviewId(r.reviewId)
-      && r.moduleId === undefined && r.version === undefined && r.name === undefined
+      && r.workPackageId === undefined && r.version === undefined && r.name === undefined
     )
   }
   if (r.kind === 'unknown') {
     return (
       isString(r.name) && r.name.length > 0
-      && r.moduleId === undefined && r.version === undefined && r.reviewId === undefined
+      && r.workPackageId === undefined && r.version === undefined && r.reviewId === undefined
     )
   }
   return false

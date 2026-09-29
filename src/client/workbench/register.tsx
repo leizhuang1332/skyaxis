@@ -77,7 +77,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       | 'advance.close'
       | 'advance.closed'
       | 'badge.findingsOpen'
-      | 'badge.modules'
+      | 'badge.workPackages'
       | 'badge.progress'
       | 'badge.reviewOpen'
       | 'badge.releaseItems'

@@ -37,8 +37,8 @@ function workbenchRecord(): WorkbenchRecord {
     stageHistory: [{ stage: 'understand', at: AT }, { stage: 'plan', at: AT }],
     criteria: [],
     findings: [],
-    modules: [{
-      id: 'M1', title: 'm', boundary: '', order: 0, dependsOn: [], covers: [], status: 'planned',
+    workPackages: [{
+      id: 'WP1', title: 'm', boundary: '', order: 0, dependsOn: [], covers: [], status: 'planned',
       plans: [{ version: 1, contentHash: 'a'.repeat(64) }], sessions: [], commits: [], acceptances: [],
     }],
     releaseItems: [],
@@ -176,7 +176,7 @@ describe('WorkbenchCascadeService: per-step failure injection', () => {
     const fx = await setup()
     // Pre-existing artifacts on disk (the tombstone write fails, but there
     // IS a directory worth archiving — rename must still run).
-    const planFile = join(fx.root, RID, 'plans', 'M1-v1.md')
+    const planFile = join(fx.root, RID, 'plans', 'WP1-v1.md')
     mkdirSync(join(planFile, '..'), { recursive: true })
     writeFileSync(planFile, '# plan', 'utf8')
     const service = cascade(fx, ioWith({ writeTombstone: () => { throw new Error('disk full') } }))
@@ -187,7 +187,7 @@ describe('WorkbenchCascadeService: per-step failure injection', () => {
     const entries = trashEntries(fx.root)
     expect(entries).toHaveLength(1)
     expect(existsSync(join(fx.root, '.trash', entries[0]!, 'deleted-record.yaml'))).toBe(false)
-    expect(existsSync(join(fx.root, '.trash', entries[0]!, 'plans', 'M1-v1.md'))).toBe(true)
+    expect(existsSync(join(fx.root, '.trash', entries[0]!, 'plans', 'WP1-v1.md'))).toBe(true)
   })
 
   it('stale workbench save does not short-circuit knowledge cleanup or the rename', async () => {

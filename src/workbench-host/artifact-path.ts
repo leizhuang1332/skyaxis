@@ -1,10 +1,10 @@
 /**
  * Workbench artifact document locations (0006 P1b) — the host-side pure
  * functions behind decisions/0005 细化①②: every plan/review file path is
- * DERIVED here from (requirementId, moduleId, version / reviewId), so the
+ * DERIVED here from (requirementId, workPackageId, version / reviewId), so the
  * wire and the ledger never carry a path. Layout template, frozen at v1:
  *
- *   <root>/<requirementId>/plans/<moduleId>-v<version>.md
+ *   <root>/<requirementId>/plans/<workPackageId>-v<version>.md
  *   <root>/<requirementId>/reviews/<reviewId>.md
  *   <root>/<requirementId>/                 (requirementArtifactDir)
  *   trash NAME: <requirementId>-<ISO timestamp, ':' → '-'>   (D6 cascade;
@@ -24,7 +24,7 @@
  * instead of writing outside the workbench root.
  */
 import { join } from 'node:path'
-import { isModuleId, isPlanVersion, isReviewId } from '../workbench-shared/protocol.js'
+import { isWorkPackageId, isPlanVersion, isReviewId } from '../workbench-shared/protocol.js'
 
 /**
  * requirementId gate — host artifact directories are named by uuid only.
@@ -52,9 +52,9 @@ function assertRequirementId(requirementId: string): void {
   }
 }
 
-function assertModuleId(moduleId: string): void {
-  if (!isModuleId(moduleId)) {
-    reject('moduleId', moduleId, 'not an M<positive-integer> id (no leading zero)')
+function assertWorkPackageId(workPackageId: string): void {
+  if (!isWorkPackageId(workPackageId)) {
+    reject('workPackageId', workPackageId, 'not a WP<positive-integer> id (no leading zero)')
   }
 }
 
@@ -70,12 +70,12 @@ function assertReviewId(reviewId: string): void {
   }
 }
 
-/** Plan markdown for one module version — plans/<moduleId>-v<version>.md. */
-export function planDocPath(root: string, requirementId: string, moduleId: string, version: number): string {
+/** Plan markdown for one workPackage version — plans/<workPackageId>-v<version>.md. */
+export function planDocPath(root: string, requirementId: string, workPackageId: string, version: number): string {
   assertRequirementId(requirementId)
-  assertModuleId(moduleId)
+  assertWorkPackageId(workPackageId)
   assertPlanVersion(version)
-  return join(root, requirementId, 'plans', `${moduleId}-v${version}.md`)
+  return join(root, requirementId, 'plans', `${workPackageId}-v${version}.md`)
 }
 
 /** Review report markdown — reviews/<reviewId>.md. */

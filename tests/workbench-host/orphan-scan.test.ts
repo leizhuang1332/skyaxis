@@ -35,8 +35,8 @@ function record(overrides: Partial<WorkbenchRecord> = {}): WorkbenchRecord {
     stageHistory: [{ stage: 'understand', at: AT }],
     criteria: [],
     findings: [],
-    modules: [{
-      id: 'M1',
+    workPackages: [{
+      id: 'WP1',
       title: 'm',
       boundary: '',
       order: 0,
@@ -69,7 +69,7 @@ describe('scanWorkbenchArtifacts', () => {
 
   it('healthy layout: no orphans, no missing', () => {
     const root = tempRoot()
-    put(root, RID, join('plans', 'M1-v1.md'))
+    put(root, RID, join('plans', 'WP1-v1.md'))
     put(root, RID, join('reviews', 'rev-a1.md'))
     const result = scanWorkbenchArtifacts(root, [record()])
     expect(result.orphans).toEqual([])
@@ -79,17 +79,17 @@ describe('scanWorkbenchArtifacts', () => {
 
   it('orphan = on disk, unreferenced (plan version beyond the ledger)', () => {
     const root = tempRoot()
-    put(root, RID, join('plans', 'M1-v1.md'))
-    put(root, RID, join('plans', 'M1-v2.md'))
+    put(root, RID, join('plans', 'WP1-v1.md'))
+    put(root, RID, join('plans', 'WP1-v2.md'))
     put(root, RID, join('reviews', 'rev-a1.md'))
     const result = scanWorkbenchArtifacts(root, [record()])
-    expect(result.orphans).toEqual([{ requirementId: RID, kind: 'plan', moduleId: 'M1', version: 2 }])
+    expect(result.orphans).toEqual([{ requirementId: RID, kind: 'plan', workPackageId: 'WP1', version: 2 }])
     expect(result.missing).toEqual([])
   })
 
   it('missing = in the ledger, absent on disk (dangling references)', () => {
     const root = tempRoot()
-    put(root, RID, join('plans', 'M1-v1.md'))
+    put(root, RID, join('plans', 'WP1-v1.md'))
     const result = scanWorkbenchArtifacts(root, [record()])
     expect(result.orphans).toEqual([])
     expect(result.missing).toEqual([{ requirementId: RID, kind: 'review', reviewId: 'rev-a1' }])
@@ -97,24 +97,24 @@ describe('scanWorkbenchArtifacts', () => {
 
   it('D6 revival window: a whole directory with NO ledger record is all orphans', () => {
     const root = tempRoot()
-    put(root, RID2, join('plans', 'M3-v1.md'))
+    put(root, RID2, join('plans', 'WP3-v1.md'))
     put(root, RID2, join('reviews', 'rev-z9.md'))
     const result = scanWorkbenchArtifacts(root, [record()])
     expect(result.orphans).toEqual([
-      { requirementId: RID2, kind: 'plan', moduleId: 'M3', version: 1 },
+      { requirementId: RID2, kind: 'plan', workPackageId: 'WP3', version: 1 },
       { requirementId: RID2, kind: 'review', reviewId: 'rev-z9' },
     ])
   })
 
   it('convention-violating files report kind unknown with their name', () => {
     const root = tempRoot()
-    put(root, RID, join('plans', 'M1-v1.md'))
+    put(root, RID, join('plans', 'WP1-v1.md'))
     put(root, RID, join('plans', 'notes.txt'))
-    put(root, RID, join('plans', 'M1-v2.md.9f0e0d6c-0000-4000-8000-000000000000.tmp'))
+    put(root, RID, join('plans', 'WP1-v2.md.9f0e0d6c-0000-4000-8000-000000000000.tmp'))
     put(root, RID, 'stray.txt')
     const result = scanWorkbenchArtifacts(root, [record()])
     expect(result.orphans).toEqual([
-      { requirementId: RID, kind: 'unknown', name: 'M1-v2.md.9f0e0d6c-0000-4000-8000-000000000000.tmp' },
+      { requirementId: RID, kind: 'unknown', name: 'WP1-v2.md.9f0e0d6c-0000-4000-8000-000000000000.tmp' },
       { requirementId: RID, kind: 'unknown', name: 'notes.txt' },
       { requirementId: RID, kind: 'unknown', name: 'stray.txt' },
     ])
@@ -122,7 +122,7 @@ describe('scanWorkbenchArtifacts', () => {
 
   it('live-directory deleted-record.yaml is cascade bookkeeping — skipped', () => {
     const root = tempRoot()
-    put(root, RID, join('plans', 'M1-v1.md'))
+    put(root, RID, join('plans', 'WP1-v1.md'))
     put(root, RID, 'deleted-record.yaml', 'version: 1')
     const result = scanWorkbenchArtifacts(root, [record()])
     expect(result.orphans).toEqual([])
@@ -130,7 +130,7 @@ describe('scanWorkbenchArtifacts', () => {
 
   it('.trash listing: convention dirs parsed, junk skipped', () => {
     const root = tempRoot()
-    put(root, RID, join('plans', 'M1-v1.md'))
+    put(root, RID, join('plans', 'WP1-v1.md'))
     const trash = join(root, '.trash')
     mkdirSync(join(trash, `${RID}-2026-09-29T10-00-00.000Z`), { recursive: true })
     mkdirSync(join(trash, 'not-a-uuid'), { recursive: true })
@@ -140,9 +140,9 @@ describe('scanWorkbenchArtifacts', () => {
 
   it('dot-directories under the root are not requirement directories', () => {
     const root = tempRoot()
-    put(root, RID, join('plans', 'M1-v1.md'))
+    put(root, RID, join('plans', 'WP1-v1.md'))
     mkdirSync(join(root, '.staging'), { recursive: true })
-    writeFileSync(join(root, '.staging', 'M1-v9.md'), 'x', 'utf8')
+    writeFileSync(join(root, '.staging', 'WP1-v9.md'), 'x', 'utf8')
     const result = scanWorkbenchArtifacts(root, [record()])
     expect(result.orphans).toEqual([])
   })

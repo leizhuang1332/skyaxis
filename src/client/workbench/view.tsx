@@ -47,7 +47,7 @@ function badgeCounts(slot: RequirementWorkbenchState): Partial<Record<WorkbenchS
   const record = slot.record
   if (record === null) return {}
   const findingsOpen = record.findings.filter((finding) => finding.status === 'open').length
-  const accepted = record.modules.filter((module) => module.status === 'accepted').length
+  const accepted = record.workPackages.filter((workPackage) => workPackage.status === 'accepted').length
   const reviewOpen = record.reviewReports.reduce(
     (sum, report) => sum + report.verdicts.filter((verdict) => verdict.disposition === undefined).length,
     0,
@@ -55,8 +55,8 @@ function badgeCounts(slot: RequirementWorkbenchState): Partial<Record<WorkbenchS
   const candidatesPending = record.knowledgeCandidates.filter((candidate) => candidate.status === 'pending').length
   return {
     understand: findingsOpen > 0 ? String(findingsOpen) : null,
-    plan: record.modules.length > 0 ? String(record.modules.length) : null,
-    implement: record.modules.length > 0 ? `${accepted}/${record.modules.length}` : null,
+    plan: record.workPackages.length > 0 ? String(record.workPackages.length) : null,
+    implement: record.workPackages.length > 0 ? `${accepted}/${record.workPackages.length}` : null,
     review: reviewOpen > 0 ? String(reviewOpen) : null,
     deliver: record.releaseItems.length > 0 ? String(record.releaseItems.length) : null,
     retro: candidatesPending > 0 ? String(candidatesPending) : null,
@@ -65,7 +65,7 @@ function badgeCounts(slot: RequirementWorkbenchState): Partial<Record<WorkbenchS
 
 const BADGE_LABEL_KEY: Record<WorkbenchStage, Parameters<WorkbenchT>[0]> = {
   understand: 'badge.findingsOpen',
-  plan: 'badge.modules',
+  plan: 'badge.workPackages',
   implement: 'badge.progress',
   review: 'badge.reviewOpen',
   deliver: 'badge.releaseItems',

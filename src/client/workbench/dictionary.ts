@@ -42,7 +42,7 @@ interface WorkbenchDictionary {
   // badge.* — rail counts; zero/empty renders nothing (honesty: zero reads
   // as missing, hidden not placeholder).
   readonly 'badge.findingsOpen': string
-  readonly 'badge.modules': string
+  readonly 'badge.workPackages': string
   readonly 'badge.progress': string
   readonly 'badge.reviewOpen': string
   readonly 'badge.releaseItems': string
@@ -85,8 +85,8 @@ const zh: WorkbenchDictionary = {
   'workbench.stage.deliver': '⑤ 交付',
   'workbench.stage.retro': '⑥ 沉淀',
   'workbench.stageHint.understand': '分析发现与验收标准将在此汇总；生成分析上下文包后可带入 session。',
-  'workbench.stageHint.plan': '模块拆分与两道硬门（批准拆分 / 批准计划）将在此落地。',
-  'workbench.stageHint.implement': '模块看板（含验证）与 session 关联将在此呈现。',
+  'workbench.stageHint.plan': '工作包拆分与两道硬门（批准拆分 / 批准计划）将在此落地。',
+  'workbench.stageHint.implement': '工作包看板（含验证）与 session 关联将在此呈现。',
   'workbench.stageHint.review': '评审报告裁决与 PRD 覆盖矩阵将在此收口。',
   'workbench.stageHint.deliver': '上线产物登记（SQL / 配置 / 开关 / MQ）与 go/no-go 结论将在此管理。',
   'workbench.stageHint.retro': '知识候选激活与复盘统计将在此沉淀。',
@@ -99,7 +99,7 @@ const zh: WorkbenchDictionary = {
   'advance.close': '关闭需求 →',
   'advance.closed': '该需求已关闭（阶段推进停止，记录与产物保留可查）。',
   'badge.findingsOpen': '待处置',
-  'badge.modules': '模块',
+  'badge.workPackages': '工作包',
   'badge.progress': '已验收',
   'badge.reviewOpen': '待裁决',
   'badge.releaseItems': '上线项',
@@ -137,9 +137,9 @@ const en: WorkbenchDictionary = {
   'workbench.stage.review': '④ Review',
   'workbench.stage.deliver': '⑤ Deliver',
   'workbench.stage.retro': '⑥ Retro',
-  'workbench.stageHint.understand': 'Analysis findings and acceptance criteria will be gathered here; generate an analysis context bundle to carry into a session.',
-  'workbench.stageHint.plan': 'Module breakdown and the two hard gates (approve breakdown / approve plan) will land here.',
-  'workbench.stageHint.implement': 'The module board (verification included) and linked sessions will appear here.',
+  'workbench.stageHint.understand': 'Analysis findings and acceptance criteria will be gathered here; generate an analysis statement of work to carry into a session.',
+  'workbench.stageHint.plan': 'Work-package breakdown and the two hard gates (approve breakdown / approve plan) will land here.',
+  'workbench.stageHint.implement': 'The workPackage board (verification included) and linked sessions will appear here.',
   'workbench.stageHint.review': 'Review report verdicts and the PRD coverage matrix will be closed out here.',
   'workbench.stageHint.deliver': 'Release artifact registration (SQL / config / flags / MQ) and the go/no-go verdict will be managed here.',
   'workbench.stageHint.retro': 'Knowledge candidate activation and retro statistics will be distilled here.',
@@ -152,7 +152,7 @@ const en: WorkbenchDictionary = {
   'advance.close': 'Close requirement →',
   'advance.closed': 'This requirement is closed (stage advance stopped; the record and artifacts stay readable).',
   'badge.findingsOpen': 'open',
-  'badge.modules': 'modules',
+  'badge.workPackages': 'workPackages',
   'badge.progress': 'accepted',
   'badge.reviewOpen': 'unresolved',
   'badge.releaseItems': 'release items',

@@ -26,8 +26,8 @@ function expectLayer2Throw(run: () => unknown): void {
 
 describe('frozen layout template v1 (joins, expectation computed via path.join — never a hardcoded separator)', () => {
   it('planDocPath → <root>/<req>/plans/<M#>-v<n>.md', () => {
-    const out = planDocPath(ROOT, REQ, 'M3', 12)
-    expect(out).toBe(join(ROOT, REQ, 'plans', 'M3-v12.md'))
+    const out = planDocPath(ROOT, REQ, 'WP3', 12)
+    expect(out).toBe(join(ROOT, REQ, 'plans', 'WP3-v12.md'))
     expect(out.startsWith(join(ROOT, REQ))).toBe(true)
     expectNoDotDot(out)
   })
@@ -44,16 +44,16 @@ describe('frozen layout template v1 (joins, expectation computed via path.join �
     expectNoDotDot(out)
   })
 
-  it('guard-edge boundaries are accepted (M1, version 1, 64-char reviewId)', () => {
+  it('guard-edge boundaries are accepted (WP1, version 1, 64-char reviewId)', () => {
     const edge64 = 'r'.repeat(64)
-    expect(planDocPath(ROOT, REQ, 'M1', 1)).toBe(join(ROOT, REQ, 'plans', 'M1-v1.md'))
+    expect(planDocPath(ROOT, REQ, 'WP1', 1)).toBe(join(ROOT, REQ, 'plans', 'WP1-v1.md'))
     expect(reviewDocPath(ROOT, REQ, edge64)).toBe(join(ROOT, REQ, 'reviews', `${edge64}.md`))
   })
 })
 
-describe('layer-2 gates: bad moduleId (protocol isModuleId re-asserted)', () => {
+describe('layer-2 gates: bad workPackageId (protocol isWorkPackageId re-asserted)', () => {
   it('lowercase, leading zero, zero, bare M and trailing junk all throw', () => {
-    for (const bad of ['m1', 'M0', 'M01', 'M', 'M1x']) {
+    for (const bad of ['wp1', 'WP0', 'WP01', 'WP', 'WP1x']) {
       expectLayer2Throw(() => planDocPath(ROOT, REQ, bad, 1))
     }
   })
@@ -62,7 +62,7 @@ describe('layer-2 gates: bad moduleId (protocol isModuleId re-asserted)', () => 
 describe('layer-2 gates: bad version (protocol isPlanVersion re-asserted)', () => {
   it('zero, negative, fractional, NaN and Infinity all throw', () => {
     for (const bad of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
-      expectLayer2Throw(() => planDocPath(ROOT, REQ, 'M1', bad))
+      expectLayer2Throw(() => planDocPath(ROOT, REQ, 'WP1', bad))
     }
   })
 })
@@ -83,7 +83,7 @@ describe('layer-2 gates: bad requirementId (lowercase uuid, host randomUUID shap
   })
 
   it('the error names the field and the layer-2 rationale', () => {
-    expect(() => planDocPath(ROOT, REQ.toUpperCase(), 'M1', 1))
+    expect(() => planDocPath(ROOT, REQ.toUpperCase(), 'WP1', 1))
       .toThrowError(/^artifact-path: requirementId rejected \(not a lowercase uuid\).*细化②/)
   })
 })
@@ -112,10 +112,10 @@ describe('trashDirName (D6 cascade directory NAME)', () => {
 
 describe('no escape: traversal inputs are intercepted before any join', () => {
   it("'..' and dot-slash segments cannot ride in on any variable segment", () => {
-    expectLayer2Throw(() => planDocPath(ROOT, '..', 'M1', 1)) // requirementId gate
-    expectLayer2Throw(() => planDocPath(ROOT, REQ, '..', 1)) // moduleId gate
-    expectLayer2Throw(() => planDocPath(ROOT, REQ, 'M1/../M2', 1)) // moduleId charset
-    expectLayer2Throw(() => planDocPath(ROOT, '../..', 'M1', 1))
+    expectLayer2Throw(() => planDocPath(ROOT, '..', 'WP1', 1)) // requirementId gate
+    expectLayer2Throw(() => planDocPath(ROOT, REQ, '..', 1)) // workPackageId gate
+    expectLayer2Throw(() => planDocPath(ROOT, REQ, 'WP1/../WP2', 1)) // workPackageId charset
+    expectLayer2Throw(() => planDocPath(ROOT, '../..', 'WP1', 1))
     expectLayer2Throw(() => reviewDocPath(ROOT, REQ, '..')) // reviewId charset (no '.')
     expectLayer2Throw(() => reviewDocPath(ROOT, '..', 'ok-review'))
     expectLayer2Throw(() => requirementArtifactDir(ROOT, '../sibling'))
