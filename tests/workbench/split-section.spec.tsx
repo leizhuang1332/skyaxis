@@ -88,6 +88,7 @@ function fakeController(overrides: Record<string, unknown> = {}): WorkbenchContr
     acceptWorkPackage: vi.fn(async () => true),
     reopenWorkPackage: vi.fn(async () => true),
     dropWorkPackage: vi.fn(async () => true),
+    restoreWorkPackage: vi.fn(async () => true),
     saveCriterion: vi.fn(async () => true),
     removeCriterion: vi.fn(async () => true),
     writePlan: vi.fn(async () => true),
@@ -235,5 +236,46 @@ describe('SplitSection（S2 拆分清单 + 硬门①）', () => {
     fireEvent.click(save)
     expect(within(dialog).getAllByText(workbenchZh['wp.titleLabel'])).toHaveLength(2)
     expect(controller.saveWorkPackage).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('S2 已放弃区（回收站化——验收轮三）', () => {
+  const droppedRecord = () => record({
+    workPackages: [wp('WP1'), wp('WP2', { status: 'dropped' })],
+  })
+
+  it('dropped 只出现在底部已放弃区（活动区与 S3 看板集合恒等），带已放弃 Tag', () => {
+    const controller = fakeController()
+    const rendered = subject(slot({ record: droppedRecord() }), controller)
+    expect(rendered.getByText(workbenchZh['split.droppedSectionTitle'])).toBeTruthy()
+    expect(rendered.getByText(workbenchZh['split.droppedTag'])).toBeTruthy()
+    // WP2 全文只在已放弃区出现一次（行标题 DIV 的 textContent 以 id 开头，
+    // 后随已放弃 Tag 文本）；WP1 在活动区（RTL 将 U+3000 归一为半角空格）
+    const wp2Nodes = rendered.getAllByText((_, element) =>
+      element instanceof HTMLElement && element.className.includes('wpRowTitle') && (element.textContent ?? '').startsWith('WP2'))
+    expect(wp2Nodes).toHaveLength(1)
+    expect(rendered.getByText('WP1 工作包-WP1')).toBeTruthy()
+  })
+
+  it('未批准：已放弃区 Menu〔恢复/删除〕——恢复 → controller.restoreWorkPackage', async () => {
+    const controller = fakeController()
+    const rendered = subject(slot({ record: droppedRecord() }), controller)
+    const menuButtons = rendered.getAllByRole('button', { name: 'WP2' })
+    fireEvent.click(menuButtons[menuButtons.length - 1]!)
+    const item = await rendered.findByRole('menuitem', { name: workbenchZh['split.restore'] })
+    fireEvent.click(item)
+    await waitFor(() => expect(controller.restoreWorkPackage).toHaveBeenCalledWith(RID, 'WP2'))
+  })
+
+  it('已批准：已放弃区只读（无 Menu）', async () => {
+    const controller = fakeController()
+    const approvedRecord = record({
+      splitApprovedAt: '2026-09-29T09:30:00.000Z',
+      workPackages: [wp('WP1'), wp('WP2', { status: 'dropped' })],
+    })
+    const rendered = subject(slot({ record: approvedRecord }), controller)
+    await rendered.findByText(workbenchZh['split.droppedSectionTitle'])
+    expect(rendered.queryAllByRole('menuitem')).toHaveLength(0)
   })
 })

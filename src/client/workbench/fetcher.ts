@@ -191,6 +191,11 @@ export function createWorkbenchFetcher() {
       return this.mutate({ expectedRevision, requirementId, action: 'dropWorkPackage', id }, signal)
     },
 
+    /** Un-drop (pre-approval list edit): the restored status derives from the plan chain. */
+    async restoreWorkPackage(requirementId: string, expectedRevision: number, id: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'restoreWorkPackage', id }, signal)
+    },
+
     // --- Criteria (under the split lock like the list itself) ---
 
     async saveCriterion(requirementId: string, expectedRevision: number, criterion: { id?: string; text: string; sourceSection?: string }, signal?: AbortSignal): Promise<WorkbenchMutateResult> {

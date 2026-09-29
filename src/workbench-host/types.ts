@@ -325,6 +325,7 @@ const StartWorkPackageSchema = WorkPackageActionSchema.extend({ action: z.litera
 const MarkWorkPackageBuiltSchema = WorkPackageActionSchema.extend({ action: z.literal('markWorkPackageBuilt') })
 const ReopenWorkPackageSchema = WorkPackageActionSchema.extend({ action: z.literal('reopenWorkPackage') })
 const DropWorkPackageSchema = WorkPackageActionSchema.extend({ action: z.literal('dropWorkPackage') })
+const RestoreWorkPackageSchema = WorkPackageActionSchema.extend({ action: z.literal('restoreWorkPackage') })
 
 // The fail path's required rework note is enforced in record-actions.ts, not
 // here: a superRefine on a discriminated-union member rides zod v4's refined
@@ -369,6 +370,7 @@ export const WorkbenchMutateSchema = z.discriminatedUnion('action', [
   AcceptWorkPackageSchema,
   ReopenWorkPackageSchema,
   DropWorkPackageSchema,
+  RestoreWorkPackageSchema,
   SaveCriterionSchema,
   RemoveCriterionSchema,
 ])

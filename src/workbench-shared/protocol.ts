@@ -396,6 +396,20 @@ export interface DropWorkPackageRequest {
   readonly id: string
 }
 
+/**
+ * Un-drop, pre-approval only (a list edit — dropping EXCLUDED a package from
+ * the plan, and the plan contract is editable only while unapproved, the
+ * same locked-split rule as saveWorkPackage). The restored status derives
+ * from the surviving plan chain so the package is never stranded between
+ * "cannot start" and "nothing left to approve".
+ */
+export interface RestoreWorkPackageRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'restoreWorkPackage'
+  readonly id: string
+}
+
 // --- Criteria (S1; covered under the split lock like the list itself) ---
 
 export interface SaveCriterionRequest {
@@ -432,6 +446,7 @@ export type WorkbenchMutateRequestBody =
   | AcceptWorkPackageRequest
   | ReopenWorkPackageRequest
   | DropWorkPackageRequest
+  | RestoreWorkPackageRequest
   | SaveCriterionRequest
   | RemoveCriterionRequest
 

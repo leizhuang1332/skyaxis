@@ -41,6 +41,12 @@ export function SplitSection(props: {
   if (record === null) return null
   const approved = record.splitApprovedAt !== undefined
   const sorted = [...record.workPackages].sort((a, b) => a.order - b.order)
+  // The ACTIVE list is exactly the board's set (dropped excluded) — the two
+  // views can never silently disagree; dropped packages live in their own
+  // muted section below with restore/remove (pre-approval only: dropping is
+  // a plan EXCLUSION, editing it rides the same hard-gate-① rule as the list).
+  const active = sorted.filter((workPackage) => workPackage.status !== 'dropped')
+  const droppedList = sorted.filter((workPackage) => workPackage.status === 'dropped')
 
   const covered = record.criteria.filter((criterion) => criterion.coveredBy.length > 0).length
   const holes = record.criteria.length - covered
@@ -61,7 +67,7 @@ export function SplitSection(props: {
           <button type="button" className={styles.ghostButton} onClick={() => { setEditing({ kind: 'create' }) }}>{t('split.add')}</button>
         )}
       </div>
-      {sorted.map((workPackage) => (
+      {active.map((workPackage) => (
         <div key={workPackage.id} className={styles.wpRow}>
           <div className={styles.wpRowMain}>
             <div className={styles.wpRowTitle}>
@@ -94,6 +100,37 @@ export function SplitSection(props: {
           )}
         </div>
       ))}
+      {droppedList.length > 0 ? (
+        <div className={styles.droppedSection}>
+          <div className={styles.droppedSectionHead}>{t('split.droppedSectionTitle')}</div>
+          {droppedList.map((workPackage) => (
+            <div key={workPackage.id} className={`${styles.wpRow} ${styles.wpRowDropped}`}>
+              <div className={styles.wpRowMain}>
+                <div className={styles.wpRowTitle}>
+                  {workPackage.id}　{workPackage.title}
+                  <Tag tone="quiet">{t('split.droppedTag')}</Tag>
+                </div>
+                <div className={styles.wpRowMeta}>
+                  {t('wp.coversLabel')}：{workPackage.covers.length > 0 ? workPackage.covers.join(', ') : t('wp.noneMark')}
+                </div>
+              </div>
+              {approved ? null : (
+                <RowMenu
+                  menuLabel={workPackage.id}
+                  items={[
+                    { id: 'restore', label: t('split.restore') },
+                    { id: 'remove', label: t('menu.remove'), danger: true },
+                  ]}
+                  onSelect={(id) => {
+                    if (id === 'restore') void controller.restoreWorkPackage(requirementId, workPackage.id)
+                    if (id === 'remove') setPendingRemove(workPackage)
+                  }}
+                />
+              )}
+            </div>
+          ))}
+        </div>
+      ) : null}
       {approved ? (
         <div className={styles.gonogo}>
           <Tag tone="success">{t('split.approvedTag')}</Tag>

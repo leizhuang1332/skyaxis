@@ -190,6 +190,24 @@ export function applyRecordAction(base: WorkbenchRecord, body: WorkbenchMutateRe
     })
     return { ok: true, record: { ...base, workPackages } }
   }
+  if (body.action === 'restoreWorkPackage') {
+    // Un-drop is a LIST edit (drop = exclude from the plan), so it rides the
+    // LIST gate: only while the split contract is open for editing. The
+    // restored status DERIVES from the surviving plan chain — restoring a
+    // package whose tail plan is approved lands on plan-approved (ready to
+    // start), a draft tail on plan-draft, none on planned — so a restored
+    // package is never stranded between "cannot start" and "nothing left to
+    // approve".
+    if (splitLocked) return fail(400, 'locked-split')
+    const target = findWorkPackage(body.id)
+    if (target === undefined) return fail(404, 'not-found')
+    if (target.status !== 'dropped') return fail(400, 'bad-request')
+    const tail = [...target.plans].reverse().find((plan) => plan.approvedAt === undefined) ?? [...target.plans].reverse()[0]
+    const restored = tail === undefined
+      ? ('planned' as const)
+      : tail.approvedAt !== undefined ? ('plan-approved' as const) : ('plan-draft' as const)
+    return { ok: true, record: replaceWorkPackage(base, { ...target, status: restored }) }
+  }
   if (body.action === 'approvePlan' || body.action === 'startWorkPackage'
     || body.action === 'markWorkPackageBuilt' || body.action === 'acceptWorkPackage'
     || body.action === 'reopenWorkPackage' || body.action === 'dropWorkPackage') {

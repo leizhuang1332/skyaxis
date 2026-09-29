@@ -134,6 +134,8 @@ export function createWorkbenchController(store: WorkbenchStore, fetcher: Workbe
       mutate(requirementId, () => fetcher.reopenWorkPackage(requirementId, slotRevision(requirementId), id, signal), signal),
     dropWorkPackage: (requirementId: string, id: string, signal?: AbortSignal) =>
       mutate(requirementId, () => fetcher.dropWorkPackage(requirementId, slotRevision(requirementId), id, signal), signal),
+    restoreWorkPackage: (requirementId: string, id: string, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.restoreWorkPackage(requirementId, slotRevision(requirementId), id, signal), signal),
 
     // Criteria.
     saveCriterion: (requirementId: string, criterion: { id?: string; text: string; sourceSection?: string }, signal?: AbortSignal) =>

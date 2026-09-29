@@ -108,6 +108,9 @@ interface WorkbenchDictionary {
   readonly 'split.revokeTitle': string
   readonly 'split.revokeDescription': string
   readonly 'split.revokeConfirm': string
+  readonly 'split.droppedSectionTitle': string
+  readonly 'split.droppedTag': string
+  readonly 'split.restore': string
   // wp.* — work-package form fields
   readonly 'wp.addTitle': string
   readonly 'wp.editTitle': string
@@ -272,6 +275,9 @@ const zh: WorkbenchDictionary = {
   'split.revokeTitle': '撤销拆分批准',
   'split.revokeDescription': '撤销后工作包清单与全部流程动作将重新锁定，直至再次批准；清单本身保留。确定撤销？',
   'split.revokeConfirm': '撤销批准',
+  'split.droppedSectionTitle': '已放弃的工作包',
+  'split.droppedTag': '已放弃',
+  'split.restore': '恢复',
   'wp.addTitle': '新建工作包',
   'wp.editTitle': '编辑工作包',
   'wp.titleLabel': '标题',
@@ -430,6 +436,9 @@ const en: WorkbenchDictionary = {
   'split.revokeTitle': 'Revoke split approval',
   'split.revokeDescription': 'Revoking re-locks the list and every workflow action until the next approval; the list itself is preserved. Revoke now?',
   'split.revokeConfirm': 'Revoke approval',
+  'split.droppedSectionTitle': 'Dropped work packages',
+  'split.droppedTag': 'Dropped',
+  'split.restore': 'Restore',
   'wp.addTitle': 'New work package',
   'wp.editTitle': 'Edit work package',
   'wp.titleLabel': 'Title',

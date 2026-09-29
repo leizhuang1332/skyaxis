@@ -627,3 +627,46 @@ describe('gate error codes exist in the wire vocabulary', () => {
     expect(codes).toContain('locked-version')
   })
 })
+
+describe('restoreWorkPackage（已放弃回收站化——验收轮三）', () => {
+  const restore = (id: string) => ({ expectedRevision: 1, requirementId: RID, action: 'restoreWorkPackage' as const, id })
+
+  it('未批准：dropped → planned（无计划链的最简恢复）', () => {
+    const base = baseRecord({ workPackages: [wp('WP1', { status: 'dropped' })] })
+    const result = applyRecordAction(base, restore('WP1'))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.record.workPackages[0]?.status).toBe('planned')
+  })
+
+  it('恢复状态随计划链推导：尾版已批准 → plan-approved（不会卡死在不能开工又无可批）', () => {
+    const base = baseRecord({ workPackages: [wp('WP1', { status: 'dropped', plans: [{ version: 1, approvedAt: NOW }] })] })
+    const result = applyRecordAction(base, restore('WP1'))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.record.workPackages[0]?.status).toBe('plan-approved')
+  })
+
+  it('恢复状态随计划链推导：尾草稿 → plan-draft', () => {
+    const base = baseRecord({ workPackages: [wp('WP1', { status: 'dropped', plans: [{ version: 1 }] })] })
+    const result = applyRecordAction(base, restore('WP1'))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.record.workPackages[0]?.status).toBe('plan-draft')
+  })
+
+  it('已批准 → 400 locked-split（清单编辑门）；撤销后恢复放行', () => {
+    const approvedBase = baseRecord({ splitApprovedAt: NOW, workPackages: [wp('WP1', { status: 'dropped' })] })
+    expect(applyRecordAction(approvedBase, restore('WP1'))).toEqual({ ok: false, status: 400, code: 'locked-split' })
+    const { splitApprovedAt: _stamp, ...open } = approvedBase
+    const reopened = applyRecordAction(open, restore('WP1'))
+    expect(reopened.ok).toBe(true)
+    if (!reopened.ok) return
+    expect(reopened.record.workPackages[0]?.status).toBe('planned')
+  })
+
+  it('非 dropped 态恢复 → 400 bad-request；未知 id → 404', () => {
+    expect(applyRecordAction(baseRecord({ workPackages: [wp('WP1')] }), restore('WP1'))).toEqual({ ok: false, status: 400, code: 'bad-request' })
+    expect(applyRecordAction(baseRecord({ workPackages: [] }), restore('WP9'))).toEqual({ ok: false, status: 404, code: 'not-found' })
+  })
+})
