@@ -28,7 +28,7 @@ const DICT = {
     'menu.edit': '编辑',
     'menu.remove': '删除',
     'delete.title': '删除需求',
-    'delete.description': '确定要删除该需求吗？此操作仅移除清单记录。',
+    'delete.description': '确定要删除该需求吗？清单记录与 AI 工作台产物（计划文档、评审报告等）将一并归档至 .trash 目录，继续占用磁盘空间，可手动找回。',
     'delete.confirm': '删除',
     'delete.cancel': '取消',
     'detail.back': '返回',
@@ -137,7 +137,7 @@ describe('RequirementsPage (P3: delete confirm, focus refresh, skeleton, banner 
     fireEvent.click(screen.getAllByRole('button', { name: '编辑' })[0])
     await waitFor(() => screen.getByRole('menuitem', { name: '删除' }))
     fireEvent.click(screen.getByRole('menuitem', { name: '删除' }))
-    await waitFor(() => expect(screen.getByText('确定要删除该需求吗？此操作仅移除清单记录。')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('确定要删除该需求吗？清单记录与 AI 工作台产物（计划文档、评审报告等）将一并归档至 .trash 目录，继续占用磁盘空间，可手动找回。')).toBeTruthy())
     expect(fetcher.remove).not.toHaveBeenCalled()
 
     // Cancel: dialog closes, nothing removed.

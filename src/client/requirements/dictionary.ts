@@ -54,7 +54,6 @@ interface RequirementsDictionary {
   readonly 'detail.missing': string
   readonly 'detail.tab.overview': string
   readonly 'detail.tab.workspace': string
-  readonly 'detail.tab.aiWorkbench': string
   readonly 'detail.tab.seat': string
   // workspace.* — workspace binding tab (0003 P3a)
   readonly 'workspace.setUp': string
@@ -152,22 +151,6 @@ interface RequirementsDictionary {
   readonly 'prd.timeNow': string
   readonly 'prd.timeYears': string
   readonly 'prd.upload': string
-  // workbench.* — AI 工作台 tab 骨架（0006）。本轮只有观看、没有账本，故只有
-  // 阶段名与该阶段的空态说明；徽章计数/推进按钮/各阶段正文待 P1 数据面落地后
-  // 随 src/client/workbench/ 迁入 skyaxis.workbench 命名空间。
-  readonly 'workbench.railLabel': string
-  readonly 'workbench.stage.understand': string
-  readonly 'workbench.stage.plan': string
-  readonly 'workbench.stage.implement': string
-  readonly 'workbench.stage.review': string
-  readonly 'workbench.stage.deliver': string
-  readonly 'workbench.stage.retro': string
-  readonly 'workbench.stageHint.understand': string
-  readonly 'workbench.stageHint.plan': string
-  readonly 'workbench.stageHint.implement': string
-  readonly 'workbench.stageHint.review': string
-  readonly 'workbench.stageHint.deliver': string
-  readonly 'workbench.stageHint.retro': string
 }
 
 export type RequirementsT = (key: keyof RequirementsDictionary) => string
@@ -199,7 +182,9 @@ const zh: RequirementsDictionary = {
   'menu.edit': '编辑',
   'menu.remove': '删除',
   'delete.title': '删除需求',
-  'delete.description': '确定要删除该需求吗？此操作仅移除清单记录。',
+  // 归档口径（decisions/0005 D6 连带）：产物在用户不可见的 $DSH_HOME 深处，
+  // 「仅移除记录」的旧句暗示文件还可找到，对 workbench 产物失真。
+  'delete.description': '确定要删除该需求吗？清单记录与 AI 工作台产物（计划文档、评审报告等）将一并归档至 .trash 目录，继续占用磁盘空间，可手动找回。',
   'delete.confirm': '删除',
   'delete.cancel': '取消',
   'detail.back': '返回',
@@ -207,7 +192,6 @@ const zh: RequirementsDictionary = {
   'detail.missing': '该需求已不存在。',
   'detail.tab.overview': '概览',
   'detail.tab.workspace': '工作区',
-  'detail.tab.aiWorkbench': 'AI 工作台',
   'detail.tab.seat': '功能规划中，此页预留。',
   'workspace.setUp': '设置工作区目录',
   'workspace.emptyHint': '为该需求设置一个工作区目录，关联仓库与 PRD 文档将落位其中。',
@@ -299,19 +283,6 @@ const zh: RequirementsDictionary = {
   'prd.timeNow': '刚刚',
   'prd.timeYears': '{n} 年前',
   'prd.upload': '上传文件',
-  'workbench.railLabel': '工作流阶段',
-  'workbench.stage.understand': '① 需求理解',
-  'workbench.stage.plan': '② 探索规划',
-  'workbench.stage.implement': '③ 执行实施',
-  'workbench.stage.review': '④ 评审',
-  'workbench.stage.deliver': '⑤ 交付',
-  'workbench.stage.retro': '⑥ 沉淀',
-  'workbench.stageHint.understand': '分析发现与验收标准将在此汇总；生成分析上下文包后可带入 session。',
-  'workbench.stageHint.plan': '模块拆分与两道硬门（批准拆分 / 批准计划）将在此落地。',
-  'workbench.stageHint.implement': '模块看板（含验证）与 session 关联将在此呈现。',
-  'workbench.stageHint.review': '评审报告裁决与 PRD 覆盖矩阵将在此收口。',
-  'workbench.stageHint.deliver': '上线产物登记（SQL / 配置 / 开关 / MQ）与 go/no-go 结论将在此管理。',
-  'workbench.stageHint.retro': '知识候选激活与复盘统计将在此沉淀。',
 }
 
 const en: RequirementsDictionary = {
@@ -341,7 +312,7 @@ const en: RequirementsDictionary = {
   'menu.edit': 'Edit',
   'menu.remove': 'Remove',
   'delete.title': 'Remove requirement',
-  'delete.description': 'Remove this requirement from the list? Only the list entry is deleted.',
+  'delete.description': 'Remove this requirement? The list entry and its AI workbench artifacts (plan documents, review reports) are archived into the .trash directory together — they keep occupying disk space and can be restored by hand.',
   'delete.confirm': 'Remove',
   'delete.cancel': 'Cancel',
   'detail.back': 'Back',
@@ -349,7 +320,6 @@ const en: RequirementsDictionary = {
   'detail.missing': 'This requirement no longer exists.',
   'detail.tab.overview': 'Overview',
   'detail.tab.workspace': 'Workspace',
-  'detail.tab.aiWorkbench': 'AI Workbench',
   'detail.tab.seat': 'A planned feature will land here.',
   'workspace.setUp': 'Set workspace directory',
   'workspace.emptyHint': 'Set a directory for this requirement; linked repositories and PRD documents will live inside.',
@@ -441,19 +411,6 @@ const en: RequirementsDictionary = {
   'prd.timeNow': 'just now',
   'prd.timeYears': '{n}y ago',
   'prd.upload': 'Upload a file',
-  'workbench.railLabel': 'Workflow stages',
-  'workbench.stage.understand': '① Understand',
-  'workbench.stage.plan': '② Plan',
-  'workbench.stage.implement': '③ Implement',
-  'workbench.stage.review': '④ Review',
-  'workbench.stage.deliver': '⑤ Deliver',
-  'workbench.stage.retro': '⑥ Retro',
-  'workbench.stageHint.understand': 'Analysis findings and acceptance criteria will be gathered here; generate an analysis context bundle to carry into a session.',
-  'workbench.stageHint.plan': 'Module breakdown and the two hard gates (approve breakdown / approve plan) will land here.',
-  'workbench.stageHint.implement': 'The module board (verification included) and linked sessions will appear here.',
-  'workbench.stageHint.review': 'Review report verdicts and the PRD coverage matrix will be closed out here.',
-  'workbench.stageHint.deliver': 'Release artifact registration (SQL / config / flags / MQ) and the go/no-go verdict will be managed here.',
-  'workbench.stageHint.retro': 'Knowledge candidate activation and retro statistics will be distilled here.',
 }
 
 export function registerRequirementsDictionaries(ctx: Context): void {

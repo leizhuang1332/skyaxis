@@ -34,6 +34,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { registerTaskGraphView } from './task-graph/register.jsx'
 import { registerReposPoolView } from './repos-pool/register.jsx'
 import { registerRequirementsView } from './requirements/register.jsx'
+import { registerWorkbenchView } from './workbench/register.jsx'
 
 /**
  * Inject list — cordis reflect 层会在 apply 阶段校验 ctx 属性读取是否在 inject 列表里。
@@ -49,7 +50,12 @@ export function apply(ctx: Context): () => void {
   const disposeTaskGraph = registerTaskGraphView(ctx)
   const disposeReposPool = registerReposPoolView(ctx)
   const disposeRequirements = registerRequirementsView(ctx)
+  // Workbench injects its seat into the requirements detail tab ledger —
+  // registration order against requirements never matters (slot injection
+  // waits for the declaring register).
+  const disposeWorkbench = registerWorkbenchView(ctx)
   return () => {
+    disposeWorkbench()
     disposeRequirements()
     disposeReposPool()
     disposeTaskGraph()

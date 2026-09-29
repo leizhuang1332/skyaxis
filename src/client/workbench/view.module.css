@@ -1,0 +1,322 @@
+/*
+ * AI workbench seat styles (0006). The rail geometry migrated verbatim from
+ * requirements/view.module.css (P1a) — the sticky coupling comments ride
+ * along: the -16px/16px pair is coupled to the detail page .body padding;
+ * changing one without the other breaks the full-bleed rail.
+ * New classes are alias-only (--dsw-alias-*), no raw colors.
+ */
+
+.workbenchTab {
+  display: flex;
+  flex-direction: column;
+}
+
+/*
+ * Full-bleed sticky rail (mockup .stageRail): negative margins cancel the
+ * .body 16px padding so the rail spans the scroll area; top: -16px lands
+ * the sticky position on the border-box top edge. z-index + opaque
+ * background keep content from bleeding through while scrolling under.
+ */
+.stageRail {
+  position: sticky;
+  top: -16px;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: -16px -16px 12px;
+  padding: 12px 16px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-base);
+}
+
+/* Chips are buttons (click switches the viewing stage) — take over font + pointer. */
+.stageChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+  line-height: 16px;
+  font-weight: 500;
+  font-family: var(--dsw-font-family);
+  cursor: pointer;
+}
+
+.stageChip:hover {
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+}
+
+/* Viewing stage = business blue (same token as the detail tab active state). */
+.stageChipCurrent,
+.stageChipCurrent:hover {
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.stageChip:focus-visible {
+  outline: none;
+  border: 0.5px solid var(--dsw-alias-state-business-primary);
+}
+
+/* Badge counts ride inside the chip (mockup .stageBadge); zero/empty never renders. */
+.stageBadge {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 400;
+}
+
+/* Decorative connectors between chips (mockup .stageConnector). */
+.stageConnector {
+  flex: none;
+  width: 14px;
+  height: 0.5px;
+  background: var(--dsw-alias-border-l3);
+}
+
+.stageView {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Guide sections (copied from requirements/view.module.css — shared there
+ * with the workspace tab; this copy owns the workbench module's usage). */
+.guideSection {
+  padding: 10px 12px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-1);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.guideTitle {
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.guideHint {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* Compact alert strip (banner shape copied from requirements view). */
+.banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border: 0.5px solid var(--dsw-alias-state-warn-primary);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.bannerBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.bannerDismiss {
+  flex: none;
+  border: none;
+  padding: 0 2px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+  line-height: 20px;
+  font-family: var(--dsw-font-family);
+  cursor: pointer;
+}
+
+.bannerDismiss:hover {
+  color: var(--dsw-alias-label-primary);
+}
+
+/* Closed-requirement notice: the rail freezes, the record stays readable. */
+.closedNotice {
+  padding: 8px 12px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+/* Stage advance: right-aligned action row under the stage view. */
+.advanceRow {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.advanceButton {
+  padding: 6px 14px;
+  border: 0.5px solid var(--dsw-alias-state-business-primary);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-state-business-primary);
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 500;
+  font-family: var(--dsw-font-family);
+  cursor: pointer;
+}
+
+.advanceButton:hover {
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.advanceButton:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* S1 findings: minimal manual loop. */
+.findingSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.findingRow {
+  padding: 8px 12px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.findingRowMuted {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.findingRowTitle {
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.findingRowMeta {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* Dashed whole-card action (the setupCard shape): adding the first finding. */
+.addCard {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 64px;
+  padding: 16px;
+  border: 0.5px dashed var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  font-family: var(--dsw-font-family);
+  cursor: pointer;
+}
+
+.addCard:hover {
+  border-color: var(--dsw-alias-state-business-primary);
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.findingForm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.findingFormTitle {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.findingField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.findingField input,
+.findingField textarea,
+.findingField select {
+  padding: 6px 8px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  font-family: var(--dsw-font-family);
+}
+
+.findingFieldRow {
+  display: flex;
+  gap: 8px;
+}
+
+.findingFieldRow .findingField {
+  flex: 1;
+}
+
+.findingFormActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.ghostButton {
+  padding: 6px 14px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  font-family: var(--dsw-font-family);
+  cursor: pointer;
+}
+
+.primaryButton {
+  padding: 6px 14px;
+  border: 0.5px solid var(--dsw-alias-state-business-primary);
+  border-radius: 8px;
+  background: var(--dsw-alias-state-business-primary);
+  color: var(--dsw-alias-bg-base);
+  font-size: 13px;
+  font-family: var(--dsw-font-family);
+  cursor: pointer;
+}
+
+.primaryButton:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

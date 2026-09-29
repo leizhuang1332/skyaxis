@@ -1,6 +1,8 @@
 /**
  * Requirement detail tab seats (0003 P2 skeleton, P3a gains the workspace
- * seat; the placeholder seat retired; 0006 adds the AI workbench seat).
+ * seat; the placeholder seat retired; 0006's AI workbench seat lived here
+ * for the P1a skeleton, then migrated to its own module — src/client/
+ * workbench/register.tsx injects it directly since P1b).
  *
  * A tab is a slot entry in 'requirements.detail.view' — its label comes
  * from the registration options (a locale thunk), and the live requirement
@@ -18,7 +20,6 @@ import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { RequirementsController } from './controller.js'
 import type { RequirementsT } from './dictionary.js'
 import { createWorkspaceTabSeat, type WorkspaceCapabilities } from './workspace-tab.js'
-import { createAiWorkbenchTabSeat } from './ai-workbench-tab.js'
 import styles from './view.module.css'
 
 /** Overview seat: still the notice card (future: read-only metadata). */
@@ -33,13 +34,9 @@ export function createRequirementTabSeats(options: {
 }): {
   RequirementOverviewTab: (props: PropsRuntime<'requirements.detail.view'>) => ReactNode
   RequirementWorkspaceTab: (props: PropsRuntime<'requirements.detail.view'>) => ReactNode
-  RequirementAiWorkbenchTab: (props: PropsRuntime<'requirements.detail.view'>) => ReactNode
 } {
   return {
     RequirementOverviewTab: () => seat(options.t),
     RequirementWorkspaceTab: createWorkspaceTabSeat(options),
-    // 工作台骨架只吃 t（无 controller/无 remote capability——见
-    // ai-workbench-tab.tsx 头注的诚实口径），故不传 options 全量。
-    RequirementAiWorkbenchTab: createAiWorkbenchTabSeat({ t: options.t }),
   }
 }
