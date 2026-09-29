@@ -245,6 +245,15 @@ export interface WorkbenchRecord {
   readonly requirementId: string
   readonly stage: WorkbenchStageOrClosed
   readonly stageHistory: readonly WorkbenchStageChange[]
+  /**
+   * Hard gate ① stamp (decisions/0006-era second knife): presence = the work
+   * package list × coverage contract is approved — S2 goes read-only, the
+   * state-machine actions and plan writes unlock; revoke strips the stamp
+   * (the list is preserved) and re-locks everything. Host-set-only, like
+   * plans[].approvedAt; no approval-history array (the "history preserved"
+   * wording refers to the LIST surviving a revoke, not an audit trail).
+   */
+  readonly splitApprovedAt?: string
   readonly criteria: readonly WorkbenchCriterion[]
   readonly findings: readonly WorkbenchFinding[]
   readonly workPackages: readonly WorkbenchWorkPackage[]
@@ -296,10 +305,135 @@ export interface RemoveFindingRequest {
   readonly id: string
 }
 
+// --- Work-package CRUD (hard gate ①: pre-approval only) ---
+
+export interface SaveWorkPackageRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'saveWorkPackage'
+  /** id present = edit (present fields overwrite), absent = create (host mints WP<max+1>). */
+  readonly workPackage: {
+    readonly id?: string
+    readonly title: string
+    readonly boundary: string
+    readonly dependsOn: readonly string[]
+    readonly parallel?: boolean
+    readonly covers: readonly string[]
+  }
+}
+
+export interface RemoveWorkPackageRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'removeWorkPackage'
+  readonly id: string
+}
+
+export interface MoveWorkPackageRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'moveWorkPackage'
+  readonly id: string
+  readonly direction: 'up' | 'down'
+}
+
+// --- Hard gates ① (split) and the work-package state machine ---
+
+export interface ApproveSplitRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'approveSplit'
+}
+
+export interface RevokeSplitApprovalRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'revokeSplitApproval'
+}
+
+export interface ApprovePlanRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'approvePlan'
+  readonly id: string
+}
+
+export interface StartWorkPackageRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'startWorkPackage'
+  readonly id: string
+}
+
+export interface MarkWorkPackageBuiltRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'markWorkPackageBuilt'
+  readonly id: string
+}
+
+export interface AcceptWorkPackageRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'acceptWorkPackage'
+  readonly id: string
+  readonly result: 'pass' | 'fail'
+  /** Required when result is 'fail' — the rework reason enters the acceptance history. */
+  readonly note?: string
+}
+
+export interface ReopenWorkPackageRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'reopenWorkPackage'
+  readonly id: string
+}
+
+export interface DropWorkPackageRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'dropWorkPackage'
+  readonly id: string
+}
+
+// --- Criteria (S1; covered under the split lock like the list itself) ---
+
+export interface SaveCriterionRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'saveCriterion'
+  /** id present = edit, absent = create (host mints C<max+1>). */
+  readonly criterion: {
+    readonly id?: string
+    readonly text: string
+    readonly sourceSection?: string
+  }
+}
+
+export interface RemoveCriterionRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'removeCriterion'
+  readonly id: string
+}
+
 export type WorkbenchMutateRequestBody =
   | AdvanceStageRequest
   | SaveFindingRequest
   | RemoveFindingRequest
+  | SaveWorkPackageRequest
+  | RemoveWorkPackageRequest
+  | MoveWorkPackageRequest
+  | ApproveSplitRequest
+  | RevokeSplitApprovalRequest
+  | ApprovePlanRequest
+  | StartWorkPackageRequest
+  | MarkWorkPackageBuiltRequest
+  | AcceptWorkPackageRequest
+  | ReopenWorkPackageRequest
+  | DropWorkPackageRequest
+  | SaveCriterionRequest
+  | RemoveCriterionRequest
 
 // ---------------------------------------------------------------------------
 // Artifact documents flow — WORKBENCH_ARTIFACTS_PATH, query-discriminated,
@@ -431,6 +565,7 @@ export interface ErrorResponse {
     | 'not-found'
     | 'conflict'
     | 'unreadable-file'
+    | 'locked-split'
     | 'locked-version'
     | 'too-large'
     | 'bad-content-type'
@@ -620,6 +755,7 @@ export function isWorkbenchRecord(v: unknown): v is WorkbenchRecord {
     isString(r.requirementId) && r.requirementId.length > 0
     && isString(r.stage) && STAGES_OR_CLOSED.includes(r.stage)
     && Array.isArray(r.stageHistory) && r.stageHistory.every(isWorkbenchStageChange)
+    && (r.splitApprovedAt === undefined || (isString(r.splitApprovedAt) && r.splitApprovedAt.length > 0))
     && Array.isArray(r.criteria) && r.criteria.every(isWorkbenchCriterion)
     && Array.isArray(r.findings) && r.findings.every(isWorkbenchFinding)
     && Array.isArray(r.workPackages) && r.workPackages.every(isWorkbenchWorkPackage)

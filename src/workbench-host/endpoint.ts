@@ -31,13 +31,13 @@ import {
 import type {
   ErrorResponse,
   WorkbenchDetailResponseOk,
-  WorkbenchFinding,
   WorkbenchListResponse,
   WorkbenchRecord,
 } from '../workbench-shared/protocol.js'
 import { planDocPath, reviewDocPath } from './artifact-path.js'
 import { ArtifactStore, contentHashOf } from './artifact-store.js'
 import { scanWorkbenchArtifacts } from './orphan-scan.js'
+import { applyRecordAction } from './record-actions.js'
 import type { WorkbenchFileStore } from './workbench-file.js'
 import { WorkbenchMutateSchema } from './types.js'
 
@@ -167,40 +167,11 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     const existing = current.value.records.find((candidate) => candidate.requirementId === body.requirementId)
     const base = existing ?? emptyRecord(body.requirementId)
 
-    let next: WorkbenchRecord
-    if (body.action === 'advanceStage') {
-      const at = new Date().toISOString()
-      next = {
-        ...base,
-        stage: body.stage,
-        stageHistory: [
-          ...base.stageHistory,
-          { stage: body.stage, at, ...(body.note !== undefined ? { note: body.note } : {}) },
-        ],
-      }
-    } else if (body.action === 'saveFinding') {
-      if (body.finding.id !== undefined) {
-        const target = base.findings.find((finding) => finding.id === body.finding.id)
-        if (target === undefined) return errorResponse(404, 'not-found')
-        // Edit semantics: present fields overwrite, absent fields carry over
-        // (id and createdAt are host-owned and never overwritten).
-        const { id: _id, ...fields } = body.finding
-        next = {
-          ...base,
-          findings: base.findings.map((finding) => (finding.id === body.finding.id ? { ...finding, ...fields } : finding)),
-        }
-      } else {
-        const created: WorkbenchFinding = {
-          id: randomUUID(),
-          createdAt: new Date().toISOString(),
-          ...body.finding,
-        }
-        next = { ...base, findings: [...base.findings, created] }
-      }
-    } else {
-      if (!base.findings.some((finding) => finding.id === body.id)) return errorResponse(404, 'not-found')
-      next = { ...base, findings: base.findings.filter((finding) => finding.id !== body.id) }
-    }
+    // All business guards (target existence, split lock, state-machine
+    // legality, referential integrity) live in the pure action core.
+    const applied = applyRecordAction(base, body)
+    if (!applied.ok) return errorResponse(applied.status, applied.code)
+    const next = applied.record
 
     const nextRecords = existing === undefined
       ? [...current.value.records, next]
@@ -289,6 +260,11 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
   ): Promise<Response> {
     const workPackage = record.workPackages.find((candidate) => candidate.id === workPackageId)
     if (workPackage === undefined) return errorResponse(404, 'not-found')
+    // Hard gate ① shadows plan writes too: a revoked split re-locks the
+    // whole lifecycle. Checked BEFORE the idempotent branch — after a
+    // revoke, even a byte-identical retry is a locked write (a dangling
+    // file left on disk converges after re-approval or via the scan).
+    if (record.splitApprovedAt === undefined) return errorResponse(400, 'locked-split')
     const hash = contentHashOf(text)
 
     // The tail draft: the LAST unapproved plan entry — draft edits overwrite
@@ -340,9 +316,16 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     if (ledgerRevision !== expectedRevision) {
       return errorResponse(409, 'conflict', { currentRevision: ledgerRevision })
     }
+    // The planned → plan-draft flip rides the SAME ledger save as the first
+    // plan entry (atomic — no "plan exists but status didn't move" middle
+    // state); the idempotent branch skips the save, which by construction
+    // already flipped it. Later writes keep whatever status the lifecycle
+    // holds (approving/re-baselining is approvePlan's business).
     const nextRecord: WorkbenchRecord = {
       ...record,
-      workPackages: record.workPackages.map((candidate) => (candidate.id === workPackageId ? { ...candidate, plans: nextPlans } : candidate)),
+      workPackages: record.workPackages.map((candidate) => (candidate.id === workPackageId
+        ? { ...candidate, plans: nextPlans, ...(candidate.status === 'planned' ? { status: 'plan-draft' as const } : {}) }
+        : candidate)),
     }
     try {
       const saved = await file.save(expectedRevision, withRecord(ledgerRecords, requirementId, nextRecord))

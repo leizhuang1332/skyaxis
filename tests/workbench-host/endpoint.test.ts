@@ -267,6 +267,7 @@ describe('GET /api/skyaxis/workbench?requirementId — detail', () => {
     const h = await harness()
     await h.seed([
       seedRecord(RID, {
+        splitApprovedAt: NOW,
         workPackages: [seedWorkPackage('WP1', { plans: [planEntry(1, contentHashOf('V1 BODY'))] })],
         reviewReports: [reviewEntry('r-seed')],
       }),
@@ -503,7 +504,7 @@ describe('POST /api/skyaxis/workbench — action union', () => {
 describe('POST /api/skyaxis/workbench/artifacts — plan writes', () => {
   it('rejects non-text/plain bodies with 415 and malformed queries with 400', async () => {
     const h = await harness()
-    await h.seed([seedRecord(RID, { workPackages: [seedWorkPackage('WP1')] })])
+    await h.seed([seedRecord(RID, { splitApprovedAt: NOW, workPackages: [seedWorkPackage('WP1')] })])
 
     const wrongType = await postPlan(h, { requirementId: RID, workPackageId: 'WP1', expectedRevision: 1 }, 'x', 'application/json')
     expect(wrongType.status).toBe(415)
@@ -531,7 +532,7 @@ describe('POST /api/skyaxis/workbench/artifacts — plan writes', () => {
 
   it('rejects bodies over the 512K code-unit cap with 413 too-large', async () => {
     const h = await harness()
-    await h.seed([seedRecord(RID, { workPackages: [seedWorkPackage('WP1')] })])
+    await h.seed([seedRecord(RID, { splitApprovedAt: NOW, workPackages: [seedWorkPackage('WP1')] })])
 
     const res = await postPlan(h, { requirementId: RID, workPackageId: 'WP1', expectedRevision: 1 }, '字'.repeat(WORKBENCH_ARTIFACT_MAX_CHARS + 1))
     expect(res.status).toBe(413)
@@ -540,7 +541,7 @@ describe('POST /api/skyaxis/workbench/artifacts — plan writes', () => {
 
   it('answers 404 for a missing record and a missing work package, with zero file side effects', async () => {
     const h = await harness()
-    await h.seed([seedRecord(RID, { workPackages: [seedWorkPackage('WP1')] })])
+    await h.seed([seedRecord(RID, { splitApprovedAt: NOW, workPackages: [seedWorkPackage('WP1')] })])
 
     const ghostRecord = await postPlan(h, { requirementId: GHOST, workPackageId: 'WP1', expectedRevision: 1 }, 'x')
     expect(ghostRecord.status).toBe(404)
@@ -557,6 +558,7 @@ describe('POST /api/skyaxis/workbench/artifacts — plan writes', () => {
     const h = await harness()
     await h.seed([
       seedRecord(RID, {
+        splitApprovedAt: NOW,
         workPackages: [seedWorkPackage('WP1', { status: 'plan-approved', plans: [planEntry(1, contentHashOf('v1 body'), { approvedAt: NOW })] })],
       }),
     ])
@@ -584,7 +586,7 @@ describe('POST /api/skyaxis/workbench/artifacts — plan writes', () => {
 
   it('converges byte-identical retransmits without a save, repairing a deleted file at the same revision', async () => {
     const h = await harness()
-    await h.seed([seedRecord(RID, { workPackages: [seedWorkPackage('WP1', { plans: [planEntry(1, contentHashOf('SAME BODY'))] })] })])
+    await h.seed([seedRecord(RID, { splitApprovedAt: NOW, workPackages: [seedWorkPackage('WP1', { plans: [planEntry(1, contentHashOf('SAME BODY'))] })] })])
     const target = planDocPath(h.workbenchRoot, RID, 'WP1', 1)
 
     const retry = await postPlan(h, { requirementId: RID, workPackageId: 'WP1', expectedRevision: 1 }, 'SAME BODY')
@@ -605,7 +607,7 @@ describe('POST /api/skyaxis/workbench/artifacts — plan writes', () => {
     // previous bytes under the new ledger hash — identical retries must
     // rewrite, or the divergence survives forever behind 200-ok answers.
     const h = await harness()
-    await h.seed([seedRecord(RID, { workPackages: [seedWorkPackage('WP1', { plans: [planEntry(1, contentHashOf('V2 BODY'))] })] })])
+    await h.seed([seedRecord(RID, { splitApprovedAt: NOW, workPackages: [seedWorkPackage('WP1', { plans: [planEntry(1, contentHashOf('V2 BODY'))] })] })])
     const target = planDocPath(h.workbenchRoot, RID, 'WP1', 1)
     mkdirSync(join(target, '..'), { recursive: true })
     writeFileSync(target, 'STALE OLD BYTES', 'utf8') // failed-write residue
@@ -618,7 +620,7 @@ describe('POST /api/skyaxis/workbench/artifacts — plan writes', () => {
 
   it('persists a note-only edit: byte-identical text with a changed note goes through the save, not the idempotent branch', async () => {
     const h = await harness()
-    await h.seed([seedRecord(RID, { workPackages: [seedWorkPackage('WP1', { plans: [planEntry(1, contentHashOf('SAME'), { note: '初稿' })] })] })])
+    await h.seed([seedRecord(RID, { splitApprovedAt: NOW, workPackages: [seedWorkPackage('WP1', { plans: [planEntry(1, contentHashOf('SAME'), { note: '初稿' })] })] })])
 
     const res = await postPlan(h, { requirementId: RID, workPackageId: 'WP1', expectedRevision: 1, note: '改注' }, 'SAME')
     expect(res.status).toBe(200)
@@ -630,7 +632,7 @@ describe('POST /api/skyaxis/workbench/artifacts — plan writes', () => {
 
   it('answers 409 conflict on a stale expectedRevision with zero file side effects', async () => {
     const h = await harness()
-    await h.seed([seedRecord(RID, { workPackages: [seedWorkPackage('WP1', { plans: [planEntry(1, contentHashOf('seeded v1'))] })] })])
+    await h.seed([seedRecord(RID, { splitApprovedAt: NOW, workPackages: [seedWorkPackage('WP1', { plans: [planEntry(1, contentHashOf('seeded v1'))] })] })])
 
     const res = await postPlan(h, { requirementId: RID, workPackageId: 'WP1', expectedRevision: 0 }, 'brand new content')
     expect(res.status).toBe(409)
@@ -651,6 +653,7 @@ describe('POST /api/skyaxis/workbench/artifacts — plan writes', () => {
     const h = await harness()
     await h.seed([
       seedRecord(RID, {
+        splitApprovedAt: NOW,
         workPackages: [
           seedWorkPackage('WP1', {
             status: 'plan-approved',
@@ -740,6 +743,7 @@ describe('GET /api/skyaxis/workbench/artifacts — content reads', () => {
     const h = await harness()
     await h.seed([
       seedRecord(RID, {
+        splitApprovedAt: NOW,
         workPackages: [seedWorkPackage('WP1', { status: 'plan-approved', plans: [planEntry(1, contentHashOf('v1 body'), { approvedAt: NOW })] })],
       }),
     ])
@@ -767,7 +771,7 @@ describe('GET /api/skyaxis/workbench/artifacts — content reads', () => {
 
   it('plan reads: 400 on bad versions (0 / 1.5 / missing) and bad work package ids', async () => {
     const h = await harness()
-    await h.seed([seedRecord(RID, { workPackages: [seedWorkPackage('WP1')] })])
+    await h.seed([seedRecord(RID, { splitApprovedAt: NOW, workPackages: [seedWorkPackage('WP1')] })])
 
     const readWith = (query: Record<string, string>) => h.get(`${WORKBENCH_ARTIFACTS_PATH}?${new URLSearchParams(query)}`)
     for (const version of ['0', '1.5', '']) {
@@ -802,7 +806,7 @@ describe('GET /api/skyaxis/workbench/artifacts — content reads', () => {
 
   it('answers 413 too-large for an on-disk file over the read cap (constant-relative boundary)', async () => {
     const h = await harness()
-    await h.seed([seedRecord(RID, { workPackages: [seedWorkPackage('WP1', { plans: [planEntry(1, 'a'.repeat(64))] })] })])
+    await h.seed([seedRecord(RID, { splitApprovedAt: NOW, workPackages: [seedWorkPackage('WP1', { plans: [planEntry(1, 'a'.repeat(64))] })] })])
     const target = planDocPath(h.workbenchRoot, RID, 'WP1', 1)
     mkdirSync(dirname(target), { recursive: true })
     writeFileSync(target, 'a'.repeat(WORKBENCH_ARTIFACT_MAX_READ_BYTES + 1), 'utf8')
@@ -868,5 +872,88 @@ describe('GET /api/skyaxis/workbench/scan — reconciliation', () => {
     const res = await h.get(WORKBENCH_SCAN_PATH)
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ ok: true, orphans: [], missing: [], trash: [] })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// POST mutate + plan writes — hard-gate and status-machine smoke (second
+// knife): the record-actions guards exercised for real over HTTP. Kept to
+// gate-direction-neutral flows; the full lifecycle matrix lives in
+// record-actions.test.ts against the pure core.
+// ---------------------------------------------------------------------------
+
+describe('POST /api/skyaxis/workbench — gate and status smoke (second knife)', () => {
+  const postAction = (h: Harness, body: Record<string, unknown>) => h.post(WORKBENCH_PATH, body)
+  const detailStatus = async (h: Harness, rid = RID) => {
+    const detail = (await (await h.get(`${WORKBENCH_PATH}?requirementId=${rid}`)).json()) as WorkbenchDetailResponseOk
+    return detail.record?.workPackages[0]?.status
+  }
+
+  it('answers 404 not-found over HTTP for an action naming a missing work package and leaves the ledger untouched', async () => {
+    const h = await harness()
+    const res = await postAction(h, { expectedRevision: 0, requirementId: GHOST, action: 'removeWorkPackage', id: 'WP9' })
+    expect(res.status).toBe(404)
+    expect(await errorCode(res)).toBe('not-found')
+    // The failed action must not persist the implicitly created record.
+    const listed = (await (await h.get(WORKBENCH_PATH)).json()) as { records: unknown[] }
+    expect(listed.records).toHaveLength(0)
+  })
+
+  it('locks list CRUD behind an approved split over HTTP: 400 locked-split, double approve 400, revoke reopens the list', async () => {
+    const h = await harness()
+    await h.seed([seedRecord(RID, { splitApprovedAt: NOW, workPackages: [seedWorkPackage('WP1')] })])
+
+    const lockedRemove = await postAction(h, { expectedRevision: 1, requirementId: RID, action: 'removeWorkPackage', id: 'WP1' })
+    expect(lockedRemove.status).toBe(400)
+    expect(await errorCode(lockedRemove)).toBe('locked-split')
+
+    const twice = await postAction(h, { expectedRevision: 1, requirementId: RID, action: 'approveSplit' })
+    expect(twice.status).toBe(400) // the seeded stamp means this is a second approval
+
+    const revoke = await postAction(h, { expectedRevision: 1, requirementId: RID, action: 'revokeSplitApproval' })
+    expect(revoke.status).toBe(200)
+    const unlockedRemove = await postAction(h, { expectedRevision: 2, requirementId: RID, action: 'removeWorkPackage', id: 'WP1' })
+    expect(unlockedRemove.status).toBe(200)
+  })
+
+  it('plan writes drive the status flips: first draft planned→plan-draft in the same save, rewrites keep it, a plan-approved package keeps its status under new drafts', async () => {
+    const h = await harness()
+    await h.seed([
+      seedRecord(RID, { splitApprovedAt: NOW, workPackages: [seedWorkPackage('WP1')] }),
+      seedRecord(RID2, {
+        splitApprovedAt: NOW,
+        workPackages: [seedWorkPackage('WP1', { status: 'plan-approved', plans: [planEntry(1, contentHashOf('v1 body'), { approvedAt: NOW })] })],
+      }),
+    ])
+
+    const first = await postPlan(h, { requirementId: RID, workPackageId: 'WP1', expectedRevision: 1 }, 'v1 草稿')
+    expect(first.status).toBe(200)
+    expect(await first.json()).toMatchObject({ ok: true, revision: 2, version: 1 })
+    expect(await detailStatus(h)).toBe('plan-draft') // same save flipped it
+
+    const rewrite = await postPlan(h, { requirementId: RID, workPackageId: 'WP1', expectedRevision: 2 }, 'v1 草稿改')
+    expect(rewrite.status).toBe(200)
+    expect(await rewrite.json()).toMatchObject({ version: 1 }) // tail draft, same version
+    expect(await detailStatus(h)).toBe('plan-draft') // no double flip
+
+    const nextOnApproved = await postPlan(h, { requirementId: RID2, workPackageId: 'WP1', expectedRevision: 3 }, 'v2 新稿')
+    expect(nextOnApproved.status).toBe(200)
+    expect(await nextOnApproved.json()).toMatchObject({ version: 2 })
+    expect(await detailStatus(h, RID2)).toBe('plan-approved') // later writes keep the status
+  })
+
+  it('an unapproved split shadows plan writes BEFORE the idempotent branch: even a byte-identical retry is 400 locked-split until approval', async () => {
+    const h = await harness()
+    await h.seed([seedRecord(RID, { workPackages: [seedWorkPackage('WP1', { plans: [planEntry(1, contentHashOf('SAME BODY'))] })] })])
+
+    const locked = await postPlan(h, { requirementId: RID, workPackageId: 'WP1', expectedRevision: 1 }, 'SAME BODY')
+    expect(locked.status).toBe(400)
+    expect(await errorCode(locked)).toBe('locked-split')
+
+    const approve = await postAction(h, { expectedRevision: 1, requirementId: RID, action: 'approveSplit' })
+    expect(approve.status).toBe(200)
+    const retry = await postPlan(h, { requirementId: RID, workPackageId: 'WP1', expectedRevision: 2 }, 'SAME BODY')
+    expect(retry.status).toBe(200)
+    expect(await retry.json()).toMatchObject({ ok: true, revision: 2, version: 1 }) // idempotent — no save
   })
 })

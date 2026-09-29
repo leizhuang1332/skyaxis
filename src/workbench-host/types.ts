@@ -157,6 +157,8 @@ export const WorkbenchRecordSchema = z.object({
   requirementId: z.uuid(),
   stage: z.enum(STAGE_OR_CLOSED_VALUES),
   stageHistory: z.array(StageChangeSchema),
+  /** Hard gate ① stamp — host-set-only (approveSplit / revokeSplitApproval). */
+  splitApprovedAt: TimestampSchema.optional(),
   criteria: z.array(WorkbenchCriterionSchema),
   findings: z.array(WorkbenchFindingSchema),
   workPackages: z.array(WorkbenchWorkPackageSchema),
@@ -266,10 +268,109 @@ const RemoveFindingSchema = z.object({
   id: z.uuid(),
 })
 
+// Work-package CRUD — wire-level shape checks only; referential integrity
+// (dependsOn/covers pointing at existing rows) lives in record-actions.ts
+// where the parsed record is at hand.
+const WorkPackageInputSchema = z.object({
+  id: WorkPackageIdSchema.optional(),
+  title: z.string().trim().min(1).max(64),
+  boundary: z.string().max(2000),
+  dependsOn: z.array(WorkPackageIdSchema),
+  parallel: z.boolean().optional(),
+  covers: z.array(CriterionIdSchema),
+})
+
+const SaveWorkPackageSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  action: z.literal('saveWorkPackage'),
+  workPackage: WorkPackageInputSchema,
+})
+
+const RemoveWorkPackageSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  action: z.literal('removeWorkPackage'),
+  id: WorkPackageIdSchema,
+})
+
+const MoveWorkPackageSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  action: z.literal('moveWorkPackage'),
+  id: WorkPackageIdSchema,
+  direction: z.enum(['up', 'down']),
+})
+
+const ApproveSplitSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  action: z.literal('approveSplit'),
+})
+
+const RevokeSplitApprovalSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  action: z.literal('revokeSplitApproval'),
+})
+
+const WorkPackageActionSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  id: WorkPackageIdSchema,
+})
+
+const ApprovePlanSchema = WorkPackageActionSchema.extend({ action: z.literal('approvePlan') })
+const StartWorkPackageSchema = WorkPackageActionSchema.extend({ action: z.literal('startWorkPackage') })
+const MarkWorkPackageBuiltSchema = WorkPackageActionSchema.extend({ action: z.literal('markWorkPackageBuilt') })
+const ReopenWorkPackageSchema = WorkPackageActionSchema.extend({ action: z.literal('reopenWorkPackage') })
+const DropWorkPackageSchema = WorkPackageActionSchema.extend({ action: z.literal('dropWorkPackage') })
+
+// The fail path's required rework note is enforced in record-actions.ts, not
+// here: a superRefine on a discriminated-union member rides zod v4's refined
+// union typing edge, and existence/state/required-note rules read better in
+// one guard branch anyway.
+const AcceptWorkPackageSchema = WorkPackageActionSchema.extend({
+  action: z.literal('acceptWorkPackage'),
+  result: z.enum(['pass', 'fail']),
+  note: z.string().max(2000).optional(),
+})
+
+const SaveCriterionSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  action: z.literal('saveCriterion'),
+  criterion: z.object({
+    id: CriterionIdSchema.optional(),
+    text: z.string().max(2000),
+    sourceSection: z.string().max(256).optional(),
+  }),
+})
+
+const RemoveCriterionSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  action: z.literal('removeCriterion'),
+  id: CriterionIdSchema,
+})
+
 export const WorkbenchMutateSchema = z.discriminatedUnion('action', [
   AdvanceStageSchema,
   SaveFindingSchema,
   RemoveFindingSchema,
+  SaveWorkPackageSchema,
+  RemoveWorkPackageSchema,
+  MoveWorkPackageSchema,
+  ApproveSplitSchema,
+  RevokeSplitApprovalSchema,
+  ApprovePlanSchema,
+  StartWorkPackageSchema,
+  MarkWorkPackageBuiltSchema,
+  AcceptWorkPackageSchema,
+  ReopenWorkPackageSchema,
+  DropWorkPackageSchema,
+  SaveCriterionSchema,
+  RemoveCriterionSchema,
 ])
 
 // ---------------------------------------------------------------------------
