@@ -71,21 +71,6 @@ export function SessionStrip(props: {
     workPackage.sessions.map((binding) => ({ ...binding, wpId: workPackage.id, wpTitle: workPackage.title })),
   )
 
-  // TODO(P2b 验收期诊断)：有待输入事实却无芯片匹配时，打印两侧 id 集——
-  // 一次定位是「未绑定」还是「id 形态失配」。验收后移除。
-  if (waitingIds.size > 0) {
-    const boundIds = bindings.map((binding) => binding.sessionId)
-    const matched = boundIds.filter((id) => waitingIds.has(id))
-    if (matched.length === 0) {
-      console.info(
-        '[skyaxis strip] waiting facts present but no bound chip matches.',
-        '\n  waiting ids:', [...waitingIds],
-        '\n  bound ids  :', boundIds,
-        '\n  summaries  :', summaries.map((summary) => summary.id),
-      )
-    }
-  }
-
   if (bindings.length === 0) {
     // Honest empty state: one guide line, no zero-count label.
     return (
