@@ -15,7 +15,7 @@ import type { WorkbenchT } from '../../src/client/workbench/dictionary.js'
 import { createWaitingTracker } from '../../src/client/waiting-tracker.js'
 import { createWorkbenchController } from '../../src/client/workbench/controller.js'
 import { createWorkbenchStore } from '../../src/client/workbench/store.js'
-import { WorkbenchTabBody } from '../../src/client/workbench/view.js'
+import { WorkbenchTabBody, createWorkbenchTabSeat } from '../../src/client/workbench/view.js'
 import type { RequirementWorkbenchState } from '../../src/client/workbench/store.js'
 
 const RID = '11111111-1111-4111-8111-111111111111'
@@ -60,6 +60,7 @@ function fakeFace() {
 }
 
 const tick = (): Promise<void> => new Promise((resolve) => { setTimeout(resolve, 30) })
+
 
 afterEach(() => { cleanup() })
 
@@ -113,6 +114,53 @@ describe('P2b 端到端：uiSession 发布 → strip 第四态', () => {
     })
     await waitFor(() => expect(screen.queryByText(workbenchZh['session.stateWaiting'])).toBeNull())
     expect(screen.getByText(workbenchZh['session.stateRunning'])).toBeTruthy()
+
+    tracker.dispose()
+  })
+})
+
+describe('P2b seat 穿线回归（验收缺陷 168e80b 的钉子）', () => {
+  it('waiting face reaches the strip THROUGH the seat wrapper (not only via direct Body render)', async () => {
+    // The acceptance failure was a dropped prop at the seat boundary:
+    // WorkbenchSeat declared waiting but never forwarded it to
+    // WorkbenchTabBody. Rendering Body directly (the test above) could not
+    // catch it — this test goes through createWorkbenchTabSeat.
+    const face = fakeFace()
+    const ctx = new Context()
+    await ctx.plugin((c: Context) => { c.provide('uiSession', { pendingInteractions: face } as never) }).await()
+    const tracker = createWaitingTracker(ctx)
+    await tick()
+
+    const store = createWorkbenchStore()
+    const controller = createWorkbenchController(store, {
+      list: async () => ({ kind: 'ok', revision: 1, records: [record] }),
+      detail: async () => ({ kind: 'ok', revision: 1, record, planFileExists: [], reviewFileExists: [] }),
+      openKnowledge: async () => undefined,
+      knowledgeList: async () => ({ kind: 'ok', revision: 0, records: [] }),
+    } as never)
+    const Seat = createWorkbenchTabSeat({
+      t: bindZh(),
+      store,
+      controller,
+      sessions: {
+        ids: [SID],
+        summariesById: { [SID]: { id: SID, displayTitle: '会话一', running: true, blank: false } },
+        subscribe: () => () => {},
+        navigate: () => {},
+      },
+      waiting: tracker,
+    })
+    render(<Seat requirement={requirement} />)
+    await waitFor(() => expect(screen.getByText(workbenchZh['session.stateRunning'])).toBeTruthy())
+
+    act(() => {
+      face.map.set(SID, { kind: 'question' })
+      for (const listener of [...face.listeners]) listener()
+    })
+    // Through the seat: the chip must flip to 待输入. Before the fix this
+    // stayed 运行中 forever.
+    await waitFor(() => expect(screen.getByText(workbenchZh['session.stateWaiting'])).toBeTruthy())
+    expect(screen.queryByText(workbenchZh['session.stateRunning'])).toBeNull()
 
     tracker.dispose()
   })

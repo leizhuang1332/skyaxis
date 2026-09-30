@@ -333,6 +333,7 @@ function WorkbenchSeat(props: {
       controller={props.controller}
       knowledge={knowledgeFor(state, props.requirement.id)}
       sessions={props.sessions}
+      waiting={props.waiting}
     />
   )
 }
