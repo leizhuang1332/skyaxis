@@ -18,6 +18,7 @@ import { WORKBENCH_STAGES } from '../../workbench-shared/protocol.js'
 import type { RequirementRecord } from '../../requirements-shared/protocol.js'
 import type { WorkbenchT } from './dictionary.js'
 import type { WorkbenchController } from './controller.js'
+import type { WaitingFace } from '../waiting-tracker.js'
 import type { KnowledgeSliceState, RequirementWorkbenchState, WorkbenchStore } from './store.js'
 import { knowledgeFor, slotFor } from './store.js'
 import { FindingsSection } from './findings-section.js'
@@ -107,6 +108,8 @@ export interface WorkbenchSessionsFace {
 
 /** Module-level stable empty face (an inline literal would break getSnapshot identity). */
 const EMPTY_SESSIONS: WorkbenchSessionsFace = { ids: [], summariesById: {}, subscribe: () => () => {}, navigate: () => {} }
+const EMPTY_WAITING: ReadonlySet<string> = new Set<string>()
+const EMPTY_WAITING_SUB = { subscribe: (): (() => void) => () => {} }
 
 export function WorkbenchTabBody(props: {
   t: WorkbenchT
@@ -117,6 +120,8 @@ export function WorkbenchTabBody(props: {
   knowledge: KnowledgeSliceState
   /** Optional live-session face — absent (jsdom / tests) ⇒ strip degrades honestly. */
   sessions?: WorkbenchSessionsFace
+  /** Optional waiting-input face (P2b) — the fourth chip state. */
+  waiting?: WaitingFace
 }): ReactNode {
   const { t, slot, controller, knowledge } = props
   const requirementId = props.requirement.id
@@ -125,6 +130,10 @@ export function WorkbenchTabBody(props: {
   const sessionsFace = useSyncExternalStore(
     (listener) => (props.sessions ?? EMPTY_SESSIONS).subscribe(listener),
     () => props.sessions ?? EMPTY_SESSIONS,
+  )
+  const waitingIds = useSyncExternalStore(
+    (listener) => (props.waiting ?? EMPTY_WAITING_SUB).subscribe(listener),
+    () => props.waiting?.getSnapshot() ?? EMPTY_WAITING,
   )
   const [viewing, setViewing] = useState<WorkbenchStage>('understand')
   // SOW modal state — view-owned so every section entry shares one instance.
@@ -204,6 +213,7 @@ export function WorkbenchTabBody(props: {
                 const summary = sessionsFace.summariesById[id]
                 return summary === undefined ? [] : [summary]
               })}
+              waitingIds={waitingIds}
               navigableIds={sessionsFace.ids}
               onNavigate={(sessionId) => { sessionsFace.navigate(sessionId) }}
             />
@@ -226,7 +236,7 @@ export function WorkbenchTabBody(props: {
               <SplitSection key={`split-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} onOpenSow={() => { setSow({ purpose: 'split' }) }} />
             ) : null}
             {record !== null && viewing === 'implement' ? (
-              <BoardSection key={`board-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} sessions={sessionsFace} onOpenSow={(workPackage) => { setSow({ purpose: 'dev', workPackage }) }} />
+              <BoardSection key={`board-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} sessions={sessionsFace} waitingIds={waitingIds} onOpenSow={(workPackage) => { setSow({ purpose: 'dev', workPackage }) }} />
             ) : null}
             {record !== null && viewing === 'retro' ? (
               <KnowledgeSection
@@ -295,9 +305,11 @@ export function createWorkbenchTabSeat(options: {
   controller: WorkbenchController
   /** Live-session face from register.tsx (optional — absent in jsdom/tests). */
   sessions?: WorkbenchSessionsFace
+  /** Waiting-input face (P2b, optional). */
+  waiting?: WaitingFace
 }): (props: PropsRuntime<'requirements.detail.view'>) => ReactNode {
-  const { t, store, controller, sessions } = options
-  return (props) => <WorkbenchSeat t={t} store={store} controller={controller} requirement={props.requirement} sessions={sessions} />
+  const { t, store, controller, sessions, waiting } = options
+  return (props) => <WorkbenchSeat t={t} store={store} controller={controller} requirement={props.requirement} sessions={sessions} waiting={waiting} />
 }
 
 function WorkbenchSeat(props: {
@@ -306,6 +318,7 @@ function WorkbenchSeat(props: {
   controller: WorkbenchController
   requirement: RequirementRecord
   sessions?: WorkbenchSessionsFace
+  waiting?: WaitingFace
 }): ReactNode {
   const state = useSyncExternalStore(props.store.subscribe, props.store.getSnapshot)
   useEffect(() => {

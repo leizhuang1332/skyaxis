@@ -39,6 +39,7 @@ interface TaskGraphDictionary {
   readonly 'status.done': string
   readonly 'status.failed': string
   readonly 'status.cancelled': string
+  readonly 'status.waiting': string
 }
 
 /** 视图层可用的 t 函数形状（register 绑定后以 prop 传入 TaskGraphView）。 */
@@ -68,6 +69,7 @@ const zh: TaskGraphDictionary = {
   'status.done': '完成',
   'status.failed': '失败',
   'status.cancelled': '已取消',
+  'status.waiting': '待输入',
 }
 
 const en: TaskGraphDictionary = {
@@ -94,6 +96,7 @@ const en: TaskGraphDictionary = {
   'status.done': 'done',
   'status.failed': 'failed',
   'status.cancelled': 'cancelled',
+  'status.waiting': 'waiting for input',
 }
 
 export function registerTaskGraphDictionaries(ctx: Context): void {

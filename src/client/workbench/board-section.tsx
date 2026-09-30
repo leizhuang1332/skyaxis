@@ -37,6 +37,8 @@ export function BoardSection(props: {
   requirementId: string
   /** Live-session face (register-injected; absent in tests ⇒ picker/strip degrade). */
   sessions?: { ids: readonly string[]; summariesById: Readonly<Record<string, { id: string; displayTitle: string; running: boolean; blank: boolean } | undefined>> }
+  /** SessionIds with a pending approval/question (P2b fourth state). */
+  waitingIds?: ReadonlySet<string>
   /** S3 entry: open the work-package SOW modal for the given package. */
   onOpenSow?: (workPackage: WorkbenchWorkPackage) => void
 }): ReactNode {
@@ -158,6 +160,7 @@ export function BoardSection(props: {
           controller={controller}
           requirementId={requirementId}
           sessions={props.sessions}
+          waitingIds={props.waitingIds}
           onOpenSow={props.onOpenSow}
           onClose={() => { setDialogId(null) }}
         />

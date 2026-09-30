@@ -16,6 +16,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { MarkdownText, Modal, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import { SessionPicker } from './session-picker.js'
+import { sessionChipState } from './session-strip.js'
 import { WORKBENCH_ARTIFACT_MAX_CHARS } from '../../workbench-shared/protocol.js'
 import type { WorkbenchWorkPackage } from '../../workbench-shared/protocol.js'
 import type { WorkbenchT } from './dictionary.js'
@@ -56,6 +57,8 @@ export function WorkPackageDialog(props: {
   controller: WorkbenchController
   requirementId: string
   sessions?: { ids: readonly string[]; summariesById: Readonly<Record<string, { id: string; displayTitle: string; running: boolean; blank: boolean } | undefined>> }
+  /** SessionIds with a pending approval/question (P2b fourth state). */
+  waitingIds?: ReadonlySet<string>
   onOpenSow?: (workPackage: WorkbenchWorkPackage) => void
   onClose: () => void
 }): ReactNode {
@@ -277,7 +280,7 @@ export function WorkPackageDialog(props: {
               <div className={styles.findingRowMeta}>
                 {binding.purpose === 'analysis' ? t('session.purposeAnalysis') : binding.purpose === 'dev' ? t('session.purposeDev') : t('session.purposeReview')}
                 {' · '}
-                {summary === undefined ? t('session.stateGone') : summary.running ? t('session.stateRunning') : summary.blank ? t('session.stateBlank') : t('session.stateIdle')}
+                {summary === undefined ? t('session.stateGone') : t(sessionChipState(props.waitingIds?.has(binding.sessionId) ?? false, summary.running, summary.blank).labelKey)}
                 {' · '}
                 {t('session.boundAtPrefix')} {binding.boundAt}
               </div>
@@ -290,7 +293,7 @@ export function WorkPackageDialog(props: {
             open={pickerOpen}
             rows={props.sessions.ids.flatMap((id) => {
               const summary = props.sessions?.summariesById[id]
-              return summary === undefined ? [] : [{ id, displayTitle: summary.displayTitle, running: summary.running }]
+              return summary === undefined ? [] : [{ id, displayTitle: summary.displayTitle, running: summary.running, blank: summary.blank, waiting: props.waitingIds?.has(id) ?? false }]
             })}
             boundSessionIds={workPackage.sessions.map((binding) => binding.sessionId)}
             busy={slot.busy}

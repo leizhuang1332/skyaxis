@@ -33,7 +33,7 @@ export const TASK_GRAPH_VIEW_ID = 'task-graph'
 /** Tab order within the conversation view strip (chats take the leftmost seats). */
 export const TASK_GRAPH_VIEW_ORDER = 30
 
-export function registerTaskGraphView(ctx: Context): () => void {
+export function registerTaskGraphView(ctx: Context, waiting?: import('../waiting-tracker.js').WaitingFace): () => void {
   registerTaskGraphDictionaries(ctx)
   const t = ctx.locale.bind(TASK_GRAPH_LOCALE_NS)
 
@@ -49,6 +49,7 @@ export function registerTaskGraphView(ctx: Context): () => void {
       subagentFallbackLabel: () => t('node.subagent'),
       workflowRunFallbackLabel: () => t('node.workflow'),
       workflowMemberFallbackLabel: () => t('node.workflowMember'),
+      waiting,
     })
 
   // P2a 导航（诚实规则）：优先走 catalog 直系地址 openSubagent；没有地址时
@@ -152,5 +153,6 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       | 'status.done'
       | 'status.failed'
       | 'status.cancelled'
+      | 'status.waiting'
   }
 }

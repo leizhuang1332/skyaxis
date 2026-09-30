@@ -34,6 +34,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { registerTaskGraphView } from './task-graph/register.jsx'
 import { registerReposPoolView } from './repos-pool/register.jsx'
 import { registerRequirementsView } from './requirements/register.jsx'
+import { createWaitingTracker } from './waiting-tracker.js'
 import { registerWorkbenchView } from './workbench/register.jsx'
 
 /**
@@ -47,17 +48,22 @@ import { registerWorkbenchView } from './workbench/register.jsx'
 export const inject: readonly string[] = ['locale', 'slots', 'sessions']
 
 export function apply(ctx: Context): () => void {
-  const disposeTaskGraph = registerTaskGraphView(ctx)
+  // P2b: the waiting-input tracker lives at the composition root — both the
+  // workbench strip and the (lazily started) task-graph connector consume
+  // it; starting it inside either register would miss events for the other.
+  const waitingTracker = createWaitingTracker(ctx)
+  const disposeTaskGraph = registerTaskGraphView(ctx, waitingTracker)
   const disposeReposPool = registerReposPoolView(ctx)
   const disposeRequirements = registerRequirementsView(ctx)
   // Workbench injects its seat into the requirements detail tab ledger —
   // registration order against requirements never matters (slot injection
   // waits for the declaring register).
-  const disposeWorkbench = registerWorkbenchView(ctx)
+  const disposeWorkbench = registerWorkbenchView(ctx, waitingTracker)
   return () => {
     disposeWorkbench()
     disposeRequirements()
     disposeReposPool()
     disposeTaskGraph()
+    waitingTracker.dispose()
   }
 }

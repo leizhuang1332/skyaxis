@@ -191,6 +191,7 @@ interface WorkbenchDictionary {
   // --- P2: session strip / knowledge base / SOW generation ---
   readonly 'session.stripLabel': string
   readonly 'session.stripEmptyHint': string
+  readonly 'session.stateWaiting': string
   readonly 'session.stateRunning': string
   readonly 'session.stateIdle': string
   readonly 'session.stateBlank': string
@@ -439,6 +440,7 @@ const zh: WorkbenchDictionary = {
   'detail.dropDescription': '确定放弃该工作包？已放弃的工作包不再入板，历史保留。',
   'session.stripLabel': '关联 session（{n}）',
   'session.stripEmptyHint': '还没有关联 session：生成任务书 → 粘贴到新会话 → 回来在 S3 详情里关联。',
+  'session.stateWaiting': '待输入',
   'session.stateRunning': '运行中',
   'session.stateIdle': '空闲',
   'session.stateBlank': '未开始',
@@ -684,6 +686,7 @@ const en: WorkbenchDictionary = {
   'detail.dropDescription': 'Drop this work package? Dropped packages leave the board; history is preserved.',
   'session.stripLabel': 'Linked sessions ({n})',
   'session.stripEmptyHint': 'No linked sessions yet: generate a statement of work → paste it into a new session → come back and bind it from the S3 detail dialog.',
+  'session.stateWaiting': 'waiting for input',
   'session.stateRunning': 'running',
   'session.stateIdle': 'idle',
   'session.stateBlank': 'not started',

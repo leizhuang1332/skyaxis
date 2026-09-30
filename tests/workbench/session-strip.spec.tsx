@@ -189,3 +189,42 @@ describe('SessionStrip（P2 session 芯片条）', () => {
     expect(screen.getByText('关联 session（1）')).toBeTruthy()
   })
 })
+
+describe('SessionStrip 第四态（P2b 待输入）', () => {
+  it('waiting 芯片：琥珀点（data-state=warning）+ 待输入文案', () => {
+    const summaries = [summary('s1', { running: true })]
+    render(
+      <SessionStrip
+        t={bindZh()}
+        record={record({ workPackages: [wp('WP1', { sessions: [binding('s1')] })] })}
+        requirement={{ id: 'r1', title: 'R' }}
+        summaries={summaries}
+        waitingIds={new Set(['s1'])}
+        navigableIds={['s1']}
+        onNavigate={() => {}}
+      />,
+    )
+    const chip = screen.getByRole('button', { name: /s1/ })
+    expect(chip.querySelector('[data-state="warning"]')).toBeTruthy()
+    expect(screen.getByText(workbenchZh['session.stateWaiting'])).toBeTruthy()
+  })
+
+  it('waiting 压过 running（approval 等待期间 running 仍 true——更精确事实优先）', () => {
+    // 同一 sessionId running:true + waiting → warning，不是 ongoing
+    const summaries = [summary('s1', { running: true })]
+    const { rerender } = render(
+      <SessionStrip
+        t={bindZh()} record={record({ workPackages: [wp('WP1', { sessions: [binding('s1')] })] })} requirement={{ id: 'r1', title: 'R' }}
+        summaries={summaries} waitingIds={new Set<string>()} navigableIds={['s1']} onNavigate={() => {}}
+      />,
+    )
+    expect(screen.getByRole('button', { name: /s1/ }).querySelector('[data-state="ongoing"]')).toBeTruthy()
+    rerender(
+      <SessionStrip
+        t={bindZh()} record={record({ workPackages: [wp('WP1', { sessions: [binding('s1')] })] })} requirement={{ id: 'r1', title: 'R' }}
+        summaries={summaries} waitingIds={new Set(['s1'])} navigableIds={['s1']} onNavigate={() => {}}
+      />,
+    )
+    expect(screen.getByRole('button', { name: /s1/ }).querySelector('[data-state="warning"]')).toBeTruthy()
+  })
+})

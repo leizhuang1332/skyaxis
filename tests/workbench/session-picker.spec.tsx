@@ -16,8 +16,8 @@ import { SessionPicker } from '../../src/client/workbench/session-picker.js'
 
 const bindZh = (): WorkbenchT => (key) => (workbenchZh as unknown as Record<string, string>)[key] ?? key
 
-function pickerRow(id: string, running = false): { id: string; displayTitle: string; running: boolean } {
-  return { id, displayTitle: `会话-${id}`, running }
+function pickerRow(id: string, running = false, blank = false, waiting = false): { id: string; displayTitle: string; running: boolean; blank: boolean; waiting: boolean } {
+  return { id, displayTitle: `会话-${id}`, running, blank, waiting }
 }
 
 function subject(overrides: Partial<Parameters<typeof SessionPicker>[0]> = {}): {
@@ -60,7 +60,7 @@ describe('SessionPicker（P2 关联 session 弹窗）', () => {
       expect(radio.type).toBe('radio')
       expect(radio.name).toBe('sessionId')
       const dot = (radio.parentElement as HTMLElement).querySelector('[data-state]')
-      expect(dot?.getAttribute('data-state')).toBe(id === 's1' ? 'ongoing' : 'idle')
+      expect(dot?.getAttribute('data-state')).toBe(id === 's1' ? 'ongoing' : 'done')
     }
   })
 

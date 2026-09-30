@@ -58,6 +58,8 @@ export interface TaskGraphConnectorOptions {
   workflowRunFallbackLabel?: () => string
   /** workflow member 节点 label 缺失时的兜底（i18n）。 */
   workflowMemberFallbackLabel?: () => string
+  /** Waiting-input face (P2b) — pending approval/question sessionIds. */
+  waiting?: import('../waiting-tracker.js').WaitingFace
 }
 
 export function startTaskGraphConnector(
@@ -80,15 +82,20 @@ export function startTaskGraphConnector(
       .filter((e): e is Extract<SessionEventLikeEntry, { type: 'event' }> => e.type === 'event')
       .map((e) => e.event)
 
-  /** root 摘要 + 子树签名 + workflow 签名（同 current 时判断是否需要重推）。 */
+  /** root 摘要 + 子树签名 + workflow 签名 + waiting 段（同 current 时判断是否需要重推）。 */
+  const waitingSet = (): ReadonlySet<SessionId> => (options.waiting?.getSnapshot() ?? new Set<string>()) as ReadonlySet<SessionId>
   const signatureFor = (sessionId: SessionId, window: SessionEventWindow): string => {
     const snapshot = sessions.list.getSnapshot()
     const summary = snapshot.byId[sessionId]
     const label = summary?.displayTitle || sessionLabel(sessionId)
-    const rootStatus: TaskStatus = summary ? summaryStatus(summary) : 'running'
+    const waiting = waitingSet()
+    const rootStatus: TaskStatus = summary ? summaryStatus(summary, waiting.has(sessionId)) : 'running'
     return (
       `${label}|${rootStatus}|${subagentSignature(sessionId, snapshot.byId)}`
       + `|${workflowSignature(foldWorkflowRuns(durableEvents(window)))}`
+      // P2b 复合 waiting 段：一处覆盖 root/subagent/member 的 waiting 翻转——
+      // subagentSignature 加 :w: 位覆盖不到 workflow member，三签名各加位成本翻倍。
+      + `|w:${[...waiting].sort().join(',')}`
     )
   }
 
@@ -103,7 +110,7 @@ export function startTaskGraphConnector(
       const snapshot = sessions.list.getSnapshot()
       const summary = snapshot.byId[sessionId]
       const label = summary?.displayTitle || sessionLabel(sessionId)
-      const rootStatus: TaskStatus = summary ? summaryStatus(summary) : 'running'
+      const rootStatus: TaskStatus = summary ? summaryStatus(summary, waitingSet().has(sessionId)) : 'running'
       // P2b：root 的"最近一次请求"路由事实（null → undefined，不挂字段）。
       const rootMetrics = summary?.projectionValues?.skyaxisAgentMetrics ?? undefined
       lastAppliedSignature = signatureFor(sessionId, window)
@@ -124,6 +131,7 @@ export function startTaskGraphConnector(
           run: options.workflowRunFallbackLabel?.() ?? 'Workflow',
           member: options.workflowMemberFallbackLabel?.() ?? 'Workflow member',
         },
+        waiting: waitingSet(),
       })
       // P2d 修正（dist/03 §6 grouped 规则）：workflow 成员的 childId → member
       // 节点 id；subagent 图据此跳过已占用会话、后代再父化到 member 节点。
@@ -140,6 +148,7 @@ export function startTaskGraphConnector(
         ids: snapshot.ids,
         fallbackLabel: options.subagentFallbackLabel?.() ?? 'Subagent',
         grouped,
+        waiting: waitingSet(),
       })
       store.set({
         sessionId,
@@ -217,8 +226,14 @@ export function startTaskGraphConnector(
   const listUnsub = sessions.list.subscribe(() => {
     handleCurrent(sessions.list.getSnapshot().current)
   })
+  // P2b：waiting 面变化 → 同 current 重走签名比对（w 段变化触发重推）。零轮询。
+  const waitingUnsub = options.waiting?.subscribe(() => {
+    const nextId = sessions.list.getSnapshot().current
+    if (nextId !== undefined) handleCurrent(nextId)
+  })
 
   return () => {
+    waitingUnsub?.()
     listUnsub()
     teardownBinding()
     currentSessionId = undefined

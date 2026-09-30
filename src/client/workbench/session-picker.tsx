@@ -9,6 +9,7 @@
  */
 import { useEffect, useState, type ReactNode } from 'react'
 import { Modal, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { sessionChipState } from './session-strip.js'
 import type { WorkbenchSessionBinding } from '../../workbench-shared/protocol.js'
 import type { WorkbenchT } from './dictionary.js'
 import styles from './view.module.css'
@@ -25,7 +26,7 @@ export function SessionPicker(props: {
   t: WorkbenchT
   open: boolean
   /** Parent-projected rows (ids order, blank sessions included). */
-  rows: readonly { id: string; displayTitle: string; running: boolean }[]
+  rows: readonly { id: string; displayTitle: string; running: boolean; blank: boolean; waiting?: boolean }[]
   /** Sessions already bound to this work package — their rows are disabled. */
   boundSessionIds: readonly string[]
   busy: boolean
@@ -87,7 +88,7 @@ export function SessionPicker(props: {
                       disabled={bound}
                       onChange={() => { setSelectedId(row.id) }}
                     />
-                    <StateDot state={row.running ? 'ongoing' : 'idle'} />
+                    <StateDot state={sessionChipState(row.waiting ?? false, row.running, row.blank).dot} />
                     <span className={styles.pickerRowTitle}>{row.displayTitle}</span>
                   </label>
                 )

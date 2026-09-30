@@ -26,6 +26,25 @@ export interface SessionStripSummary {
   blank: boolean
 }
 
+/**
+ * The unified chip-state derivation (P2b): waiting > running > blank > idle.
+ * Waiting outranks running because the waterfall face is the MORE precise
+ * fact — an approval wait keeps running=true (research 0007 §1.1); the
+ * pendingInteractions projection is keyed by exactly the same sessionId.
+ */
+export function sessionChipState(
+  waiting: boolean,
+  running: boolean,
+  blank: boolean,
+): { dot: 'warning' | 'ongoing' | 'idle' | 'done'; labelKey: 'session.stateWaiting' | 'session.stateRunning' | 'session.stateBlank' | 'session.stateIdle' } {
+  if (waiting) return { dot: 'warning', labelKey: 'session.stateWaiting' }
+  if (running) return { dot: 'ongoing', labelKey: 'session.stateRunning' }
+  if (blank) return { dot: 'idle', labelKey: 'session.stateBlank' }
+  return { dot: 'done', labelKey: 'session.stateIdle' }
+}
+
+const EMPTY_WAITING: ReadonlySet<string> = new Set<string>()
+
 const PURPOSE_LABEL_KEY: Record<WorkbenchSessionBinding['purpose'], Parameters<WorkbenchT>[0]> = {
   analysis: 'session.purposeAnalysis',
   dev: 'session.purposeDev',
@@ -39,10 +58,13 @@ export function SessionStrip(props: {
   /** Requirement context for the empty-strip copy (reserved; the hint is self-contained today). */
   requirement: { id: string; title: string }
   summaries: readonly SessionStripSummary[]
+  /** SessionIds with a pending approval/question (P2b fourth state; default empty). */
+  waitingIds?: ReadonlySet<string>
   navigableIds: readonly string[]
   onNavigate: (sessionId: string) => void
 }): ReactNode {
   const { t, record, summaries, navigableIds, onNavigate } = props
+  const waitingIds = props.waitingIds ?? EMPTY_WAITING
   // (wpId, sessionId, purpose) is naturally unique per record — the key and
   // the one-chip-per-binding guarantee are the same fact.
   const bindings = record.workPackages.flatMap((workPackage) =>
@@ -75,13 +97,10 @@ export function SessionStrip(props: {
             </span>
           )
         }
-        // Three honest states (research 0007: the client "completed" bit is a
-        // notification artifact, never trusted here): running / idle / blank.
-        const state = summary.running
-          ? { dot: 'ongoing' as const, label: t('session.stateRunning') }
-          : summary.blank
-            ? { dot: 'idle' as const, label: t('session.stateBlank') }
-            : { dot: 'done' as const, label: t('session.stateIdle') }
+                // Four honest states (P2b): waiting > running > blank > idle — the
+        // waterfall face outranks the running bit (research 0007 + P2b).
+        const chip = sessionChipState(waitingIds.has(binding.sessionId), summary.running, summary.blank)
+        const state = { dot: chip.dot, label: t(chip.labelKey) }
         const navigable = navigableIds.includes(binding.sessionId)
         return (
           <button

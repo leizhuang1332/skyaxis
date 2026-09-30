@@ -11,10 +11,11 @@ import type { WorkflowDefinition } from './workflows.js'
  *   failed     失败
  *   cancelled  被取消（P2d：workflow run/member 的 wire 事实，不映射成 failed）
  *
- * 'waiting' 已移除（P2，research 0007 §1.3）：自画布 MVP 起零生产者的死枚举；
- * P2b 接线 waterfall 待决追踪时带真生产者回引，勿凭空恢复。
+ * 'waiting' 自 P2b 回引：生产者是 waterfall 待决追踪（uiSession.pendingInteractions
+ * 只读订阅——approval/user-questions 待决的 sessionId 集，经 connector 叠加），
+ * 非 infer 产物；待决压过 running（更精确事实，research 0007 §1.1+§1.2）。
  */
-export type TaskStatus = 'pending' | 'running' | 'done' | 'failed' | 'cancelled'
+export type TaskStatus = 'pending' | 'running' | 'done' | 'failed' | 'cancelled' | 'waiting'
 
 /**
  * Task graph 节点类型 — v0.3 修订，P2a 起 subagent 落地，P2d 起 workflow 落地。

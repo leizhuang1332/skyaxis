@@ -99,7 +99,11 @@ export function lineageDepths(
  * 会话观察到 running→idle 边沿时武装、载入时已 idle 的会话永远 false），弃用；
  * `blank`（空日志位）承担「未开始」判别——running / 空闲有史 / 未开始。
  */
-export function summaryStatus(summary: SessionSummary): TaskStatus {
+export function summaryStatus(summary: SessionSummary, waiting = false): TaskStatus {
+  // Waiting outranks running: the waterfall face is the MORE precise fact —
+  // an approval wait keeps running=true (research 0007 §1.1); the tracker
+  // projection is keyed by exactly this session id.
+  if (waiting) return 'waiting'
   if (summary.running) return 'running'
   return summary.blank ? 'pending' : 'done'
 }
@@ -113,6 +117,8 @@ export interface SubagentGraphInput {
   ids: readonly SessionId[]
   /** label 三级回退的最终兜底（i18n 文案）。 */
   fallbackLabel: string
+  /** SessionIds with a pending approval/question (P2b waiting producer)。 */
+  waiting?: ReadonlySet<SessionId>
   /**
    * P2d 修正（dist/03 §6 grouped 规则）：已被 workflow 视图占用的 session
    * （childId → 其 workflow-member 节点 id）。这些 session 不再重复建
@@ -182,7 +188,7 @@ export function buildSubagentGraph(input: SubagentGraphInput): {
       position: { x: 0, y: 0 },
       data: {
         label: labelById.get(id) || summary.displayTitle || fallbackLabel,
-        status: summaryStatus(summary),
+        status: summaryStatus(summary, input.waiting?.has(summary.id) ?? false),
         navigable: idSet.has(id),
         navigationId: String(id),
         ...(metrics === null ? {} : { metrics }),

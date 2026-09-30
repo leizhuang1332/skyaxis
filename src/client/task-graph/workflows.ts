@@ -158,6 +158,8 @@ export interface WorkflowGraphInput {
   /** host 列表顺序的 session id 集合——navigable 门。 */
   ids: readonly SessionId[]
   fallbackLabels: { run: string; member: string }
+  /** SessionIds with a pending approval/question (P2b waiting producer)。 */
+  waiting?: ReadonlySet<SessionId>
 }
 
 /**
@@ -234,7 +236,7 @@ export function buildWorkflowGraph(input: WorkflowGraphInput): {
         outcome !== undefined
           ? outcomeStatus(outcome)
           : childSummary !== undefined
-            ? summaryStatus(childSummary)
+            ? summaryStatus(childSummary, input.waiting?.has(member.childId) ?? false)
             : 'pending'
       const metrics: SkyaxisAgentMetrics | undefined =
         childSummary?.projectionValues?.skyaxisAgentMetrics ?? undefined

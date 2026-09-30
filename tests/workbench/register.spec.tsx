@@ -228,6 +228,7 @@ describe('workbench: dictionaries', () => {
       'session.stateGone',
       'session.stateIdle',
       'session.stateRunning',
+      'session.stateWaiting',
       'session.stripEmptyHint',
       'session.stripLabel',
       'sow.analysisButton',

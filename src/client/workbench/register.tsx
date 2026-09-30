@@ -27,6 +27,7 @@ import { createWorkbenchController } from './controller.js'
 import { createWorkbenchFetcher } from './fetcher.js'
 import { createWorkbenchTabSeat, type WorkbenchSessionsFace } from './view.js'
 import { createWorkbenchStore } from './store.js'
+import type { WaitingFace } from '../waiting-tracker.js'
 
 /** The detail tab seat id/order (D5 naming, unchanged from P1a). */
 export const WORKBENCH_SEAT_ID = 'aiWorkbench'
@@ -58,7 +59,7 @@ function sessionsFace(ctx: Context): SessionsFace | undefined {
   }
 }
 
-export function registerWorkbenchView(ctx: Context): () => void {
+export function registerWorkbenchView(ctx: Context, waiting?: WaitingFace): () => void {
   registerWorkbenchDictionaries(ctx)
   const t = ctx.locale.bind(WORKBENCH_LOCALE_NS)
 
@@ -66,7 +67,7 @@ export function registerWorkbenchView(ctx: Context): () => void {
   const store = createWorkbenchStore()
   const controller = createWorkbenchController(store, fetcher)
   const sessions = sessionsFace(ctx)
-  const seat = createWorkbenchTabSeat({ t: t satisfies WorkbenchT, store, controller, sessions })
+  const seat = createWorkbenchTabSeat({ t: t satisfies WorkbenchT, store, controller, sessions, waiting })
 
   const disposeSeat = ctx.slots.inject('requirements.detail.view', () =>
     ctx.slots.register(
@@ -264,6 +265,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       | 'session.stateIdle'
       | 'session.stateRunning'
       | 'session.stripEmptyHint'
+      | 'session.stateWaiting'
       | 'session.stripLabel'
       | 'sow.analysisButton'
       | 'sow.copied'

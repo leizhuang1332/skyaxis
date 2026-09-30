@@ -14,7 +14,7 @@
 import { describe, expect, it } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
-import { lineageDepths, buildSubagentGraph, subagentSignature } from '../../src/client/task-graph/subagents.js'
+import { lineageDepths, buildSubagentGraph, subagentSignature, summaryStatus } from '../../src/client/task-graph/subagents.js'
 import { inferTaskGraph } from '../../src/client/task-graph/infer.js'
 
 function sid(id: string): SessionId {
@@ -295,5 +295,32 @@ describe('buildSubagentGraph grouped exclusion (P2d fix)', () => {
     expect(pairs).toContainEqual(['workflow-member:r:1', 'subagent:wfgrandchild'])
     expect(pairs).not.toContainEqual(['subagent:wfchild', 'subagent:wfgrandchild'])
     expect(pairs).toContainEqual(['root', 'subagent:plain'])
+  })
+})
+
+describe('P2b waiting（waterfall 待决压过 running）', () => {
+  it('summaryStatus(summary, true) 覆盖 running——更精确事实优先', () => {
+    expect(summaryStatus(summary('root', { running: true }), true)).toBe('waiting')
+    expect(summaryStatus(summary('root', { running: true }), false)).toBe('running')
+    expect(summaryStatus(summary('root'), true)).toBe('waiting')
+  })
+
+  it('buildSubagentGraph 带 waiting 集 → 对应 subagent 节点 waiting', () => {
+    const byId = byIdOf(
+      summary('root'),
+      summary('busy', { parentId: sid('root'), origin: 'subagent', running: true }),
+      summary('calm', { parentId: sid('root'), origin: 'subagent' }),
+    )
+    const waiting = new Set([sid('busy')])
+    const { nodes } = buildSubagentGraph({
+      rootId: sid('root'),
+      byId,
+      subagentsByParent: {},
+      ids: [],
+      fallbackLabel: 'Subagent',
+      waiting,
+    })
+    expect(nodes.find((n) => n.id === 'subagent:busy')!.data.status).toBe('waiting')
+    expect(nodes.find((n) => n.id === 'subagent:calm')!.data.status).toBe('done')
   })
 })
