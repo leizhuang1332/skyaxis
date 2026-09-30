@@ -63,12 +63,26 @@ export function createWaitingTracker(ctx: Context): WaitingTracker {
   }
 
   let unsub: (() => void) | undefined
+  let loggedFirst = false
   const fiber = ctx.inject(['uiSession'], (scope: unknown) => {
     const face = (scope as { uiSession?: { pendingInteractions?: PendingInteractionsLike } }).uiSession?.pendingInteractions
-    if (face === undefined) return () => {}
-    const project = (): void => { replace(face.getSnapshot()) }
-    unsub = face.subscribe(project)
-    project()
+    // TODO(P2b 验收期诊断)：定位 Face U 接线断点，验收后降级为静默降级。
+    if (face === undefined) {
+      console.error('[skyaxis waiting-tracker] uiSession available but pendingInteractions face missing — fourth state degraded')
+      return () => {}
+    }
+    const project = (source: string): void => {
+      replace(face.getSnapshot())
+      // TODO(P2b 验收期诊断)：三向分流——提问卡片弹出时若无此日志 ⇒ face 未通知；
+      // 有日志但 size=0 ⇒ GUI 卡片不经 sessionId 投影；size>0 ⇒ 断点在下游穿线。
+      console.info(`[skyaxis waiting-tracker] project(${source}) size=${current.size} keys=${[...current].join(',')}`)
+    }
+    unsub = face.subscribe(() => { project('notify') })
+    project('initial')
+    if (!loggedFirst) {
+      loggedFirst = true
+      console.info('[skyaxis waiting-tracker] face ready, first snapshot size:', current.size)
+    }
     return () => {
       unsub?.()
       unsub = undefined
