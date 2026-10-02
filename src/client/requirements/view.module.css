@@ -194,13 +194,16 @@
 
 /* ---- list ---- */
 
-/* Two cards per row (the repos-pool acceptance ask); rows keep card scale (r12). */
+/* One card per row (需求列表页迭代: the two-column grid traded row width for
+   density, and a row now carries a creation time that wants the room). Rows
+   keep card scale (r12). The grid stays a grid so the leading add card keeps
+   stretching to the full column exactly as it did at two columns. */
 .list {
   margin: 0;
   padding: 0;
   list-style: none;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
 }
 
@@ -250,6 +253,20 @@
   line-height: 22px;
   font-weight: 500;
   color: var(--dsw-alias-label-primary);
+}
+
+/* Creation time: pinned right on the title line, fixed-shape (the formatter
+   never wraps). flex: none is what keeps it out of a long title's way — the
+   title wraps instead of squeezing it. Caption ladder (12px/18px), tertiary
+   like the description: it is metadata, not the row's subject. */
+.rowTime {
+  flex: none;
+  margin-left: auto;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .rowDesc {
@@ -404,12 +421,47 @@
 
 /* ---- filter bar ---- */
 
+/* Search + sort in one row: the two controls that decide which records you
+   see. Both keep their intrinsic widths (the Input wrap is inline-flex, so
+   centering aligns their box centers) — no flex: 1 on either, or a long
+   direction label and the input would compete for the bar's width. */
 .filterBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin-bottom: 12px;
 }
 
 .filterInput {
   max-width: 360px;
+}
+
+/* Sort trigger: the detailSwitch quiet-button idiom (transparent, tertiary →
+   primary on hover). flex: none keeps the 16px glyphs from being squeezed
+   when the direction label is long. No :disabled rules, unlike detailSwitch:
+   reordering is a pure local projection that touches no endpoint, so there is
+   nothing to wait for — and blocking it during `busy` would lock the user out
+   of the list while an unrelated save is in flight. */
+.sortButton {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 4px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+  line-height: 18px;
+  font-family: var(--dsw-font-family);
+}
+
+.sortButton:hover {
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
 }
 
 /* Quiet icon button, the host workspace-row "New session" idiom

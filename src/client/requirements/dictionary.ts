@@ -22,6 +22,12 @@ interface RequirementsDictionary {
   readonly 'view.addRequirement': string
   readonly 'view.filterPlaceholder': string
   readonly 'view.filterEmpty': string
+  /** Row creation-time prefix; the timestamp itself is not copy. */
+  readonly 'view.createdPrefix': string
+  /** Sort control label and its two directions. */
+  readonly 'view.sort': string
+  readonly 'view.sortCreatedDesc': string
+  readonly 'view.sortCreatedAsc': string
   // form.*
   readonly 'form.titleCreate': string
   readonly 'form.titleEdit': string
@@ -163,6 +169,10 @@ const zh: RequirementsDictionary = {
   'view.addRequirement': '新增需求',
   'view.filterPlaceholder': '按标题 / 描述筛选',
   'view.filterEmpty': '没有匹配的需求。',
+  'view.createdPrefix': '创建于',
+  'view.sort': '排序',
+  'view.sortCreatedDesc': '创建时间倒序',
+  'view.sortCreatedAsc': '创建时间正序',
   'form.titleCreate': '新增需求',
   'form.titleEdit': '编辑需求',
   'form.title': '标题',
@@ -293,6 +303,10 @@ const en: RequirementsDictionary = {
   'view.addRequirement': 'New requirement',
   'view.filterPlaceholder': 'Filter by title / description',
   'view.filterEmpty': 'No matching requirements.',
+  'view.createdPrefix': 'created',
+  'view.sort': 'Sort',
+  'view.sortCreatedDesc': 'Newest first',
+  'view.sortCreatedAsc': 'Oldest first',
   'form.titleCreate': 'New requirement',
   'form.titleEdit': 'Edit requirement',
   'form.title': 'Title',

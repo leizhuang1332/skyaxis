@@ -3,15 +3,18 @@
  * Requirements page view rendering: the real components against jsdom with
  * the real ui-primitives atoms and a fake data layer (fetcher/controller/
  * store wired exactly as register.tsx does). Covers list rows, the add
- * card, banners, degraded state, filtering, and the icon glyph sizes.
+ * card, banners, degraded state, filtering, the icon glyph sizes, and the
+ * list-page iteration (one column, row creation time, sort control).
  */
+import { readFileSync } from 'node:fs'
 import { describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { RequirementRecord } from '../../src/requirements-shared/protocol.js'
 import type { RequirementsT } from '../../src/client/requirements/dictionary.js'
 import { createRequirementsController } from '../../src/client/requirements/controller.js'
 import { createRequirementsStore } from '../../src/client/requirements/store.js'
 import { createDetailTabsStore } from '../../src/client/requirements/register.jsx'
+import { createdAtText } from '../../src/client/requirements/list.js'
 import { RequirementsIcon, RequirementsPage } from '../../src/client/requirements/view.js'
 import type { RequirementsFetcher } from '../../src/client/requirements/fetcher.js'
 
@@ -24,6 +27,10 @@ const DICT = {
     'view.addRequirement': '新增需求',
     'view.filterPlaceholder': '按标题 / 描述筛选',
     'view.filterEmpty': '没有匹配的需求。',
+    'view.createdPrefix': '创建于',
+    'view.sort': '排序',
+    'view.sortCreatedDesc': '创建时间倒序',
+    'view.sortCreatedAsc': '创建时间正序',
     'form.closeLabel': '关闭',
     'menu.edit': '编辑',
     'menu.remove': '删除',
@@ -42,14 +49,14 @@ function bindZh(): RequirementsT {
   return (key) => (DICT.zh as Record<string, string>)[key] ?? key
 }
 
-const record = (id: string): RequirementRecord => ({
+const record = (id: string, createdAt = '2026-09-25T09:30:00.000Z'): RequirementRecord => ({
   id,
   title: `需求-${id}`,
   description: `说明 ${id}`,
   workspacePath: '',
   linkedRepos: [],
-  createdAt: '2026-09-25T09:30:00.000Z',
-  updatedAt: '2026-09-25T09:30:00.000Z',
+  createdAt,
+  updatedAt: createdAt,
 })
 
 function page(fetcherOverrides: Partial<RequirementsFetcher> = {}) {
@@ -396,5 +403,255 @@ describe('RequirementsIcon', () => {
     const { container: c2 } = render(<RequirementsIcon size={18} active />)
     expect(c2.querySelector('svg')?.getAttribute('width')).toBe('18')
     c2.querySelector('svg')?.remove()
+  })
+})
+
+/**
+ * The row time and the sort control (需求列表页迭代). TZ is pinned because
+ * createdAtText reads the LOCAL date fields — an unpinned expectation would
+ * ride the runner's clock. pinTz/restore spans a render (the row formats at
+ * render time); withTz wraps a synchronous call.
+ */
+function pinTz(tz: string): () => void {
+  const previous = process.env.TZ
+  process.env.TZ = tz
+  return () => {
+    if (previous === undefined) delete process.env.TZ
+    else process.env.TZ = previous
+  }
+}
+
+function withTz(tz: string, run: () => void): void {
+  const restore = pinTz(tz)
+  try {
+    run()
+  } finally {
+    restore()
+  }
+}
+
+describe('createdAtText', () => {
+  it('renders the browser-local wall clock, not the stored UTC string', () => {
+    withTz('Asia/Shanghai', () => {
+      expect(createdAtText('2026-09-25T09:30:00.000Z')).toBe('2026-09-25 17:30')
+    })
+    withTz('America/New_York', () => {
+      expect(createdAtText('2026-09-25T09:30:00.000Z')).toBe('2026-09-25 05:30')
+    })
+  })
+
+  it('crosses to the previous local day when UTC is still ahead', () => {
+    // The slice(0, 16) shortcut would print 2026-09-25 here — a day off for
+    // anyone east of Greenwich. This is the regression the formatter exists for.
+    withTz('Asia/Shanghai', () => {
+      expect(createdAtText('2026-09-24T20:00:00.000Z')).toBe('2026-09-25 04:00')
+    })
+    withTz('America/New_York', () => {
+      expect(createdAtText('2026-09-25T02:00:00.000Z')).toBe('2026-09-24 22:00')
+    })
+  })
+
+  it('accepts an offset-bearing timestamp and rejects an unparsable one with ""', () => {
+    withTz('UTC', () => {
+      expect(createdAtText('2026-09-25T17:30:00+08:00')).toBe('2026-09-25 09:30')
+      expect(createdAtText('not-a-time')).toBe('')
+      expect(createdAtText('')).toBe('')
+    })
+  })
+})
+
+describe('RequirementsPage (需求列表页迭代: one column, creation time, sorting)', () => {
+  /** Row ids in DOM order — the list renders exactly what it is handed. */
+  const rowOrder = (container: HTMLElement): string[] =>
+    [...container.querySelectorAll('li button')]
+      .map((el) => (el.textContent ?? '').match(/需求-([a-z]+)/)?.[1] ?? '')
+      .filter((id) => id.length > 0)
+
+  /**
+   * The sort trigger, scoped to this render's container. The anchor is
+   * in-place, so a container-scoped query is both accurate and immune to a
+   * portal leaked by an earlier failing test — without it, one red test turns
+   * the rest into "found multiple 排序 buttons" noise instead of showing the
+   * real failure. The menu LIST still portals, so its items are queried
+   * globally, exactly as the row-menu tests do.
+   */
+  const sortTrigger = (container: HTMLElement): HTMLElement =>
+    within(container).getByRole('button', { name: /排序/ })
+
+  it('shows each record\'s creation time on the title line, with the wire timestamp on hover', async () => {
+    // TZ must be set BEFORE render: the row prints the local clock at render
+    // time, so an unpinned expectation would ride the runner's zone.
+    const restore = pinTz('Asia/Shanghai')
+    try {
+      const { container, unmount } = page({
+        list: vi.fn(async () => ({
+          kind: 'ok' as const,
+          revision: 1,
+          requirements: [record('a', '2026-09-25T09:30:00.000Z')],
+        })),
+      })
+      await waitFor(() => expect(screen.getByText('需求-a')).toBeTruthy())
+      const time = screen.getByText('创建于 2026-09-25 17:30')
+      expect(time.getAttribute('title')).toBe('2026-09-25T09:30:00.000Z')
+      // The time rides the title line inside the row's open button, not a
+      // separate trailing cell (the menu anchor owns that spot).
+      expect(time.closest('button')?.textContent).toContain('需求-a')
+      expect(container.querySelector('ul')).toBeTruthy()
+      unmount()
+    } finally {
+      restore()
+    }
+  })
+
+  it('drops the time cell when the stored timestamp is unparsable', async () => {
+    const { unmount } = page({
+      list: vi.fn(async () => ({
+        kind: 'ok' as const,
+        revision: 1,
+        requirements: [record('a', 'not-a-time')],
+      })),
+    })
+    await waitFor(() => expect(screen.getByText('需求-a')).toBeTruthy())
+    // No "Invalid Date" ever reaches a row — the cell is absent instead.
+    expect(screen.queryByText(/创建于/)).toBeNull()
+    expect(screen.queryByText(/Invalid Date/)).toBeNull()
+    unmount()
+  })
+
+  it('orders newest-first by default and flips from the sort menu', async () => {
+    const { container, unmount } = page({
+      list: vi.fn(async () => ({
+        kind: 'ok' as const,
+        revision: 1,
+        // Ledger (file) order is oldest-first — the default view must NOT match it.
+        requirements: [
+          record('old', '2026-09-10T08:00:00.000Z'),
+          record('new', '2026-09-25T08:00:00.000Z'),
+        ],
+      })),
+    })
+    await waitFor(() => expect(screen.getByText('需求-old')).toBeTruthy())
+    expect(rowOrder(container)).toEqual(['new', 'old'])
+    // The trigger labels the current direction — visibly AND in its accessible
+    // name. A bare aria-label="排序" would override the visible text and leave
+    // a screen-reader user unable to tell which order they are looking at.
+    expect(sortTrigger(container).textContent).toContain('创建时间倒序')
+    expect(sortTrigger(container).getAttribute('aria-label')).toBe('排序: 创建时间倒序')
+
+    fireEvent.click(sortTrigger(container))
+    fireEvent.click(await waitFor(() => screen.getByRole('menuitem', { name: '创建时间正序' })))
+    await waitFor(() => expect(rowOrder(container)).toEqual(['old', 'new']))
+    expect(sortTrigger(container).textContent).toContain('创建时间正序')
+    expect(sortTrigger(container).getAttribute('aria-label')).toBe('排序: 创建时间正序')
+    unmount()
+  })
+
+  it('sorts the filtered subset, keeping the filter\'s own matches', async () => {
+    const { container, unmount } = page({
+      list: vi.fn(async () => ({
+        kind: 'ok' as const,
+        revision: 1,
+        requirements: [
+          record('old', '2026-09-10T08:00:00.000Z'),
+          record('new', '2026-09-25T08:00:00.000Z'),
+          { ...record('other', '2026-09-20T08:00:00.000Z'), title: '别的需求', description: '不匹配' },
+        ],
+      })),
+    })
+    await waitFor(() => expect(screen.getByText('需求-old')).toBeTruthy())
+    fireEvent.change(within(container).getByPlaceholderText('按标题 / 描述筛选'), { target: { value: '需求-' } })
+    await waitFor(() => expect(rowOrder(container)).toEqual(['new', 'old']))
+    fireEvent.click(sortTrigger(container))
+    fireEvent.click(await waitFor(() => screen.getByRole('menuitem', { name: '创建时间正序' })))
+    await waitFor(() => expect(rowOrder(container)).toEqual(['old', 'new']))
+    // The non-matching record stays out under both directions.
+    expect(within(container).queryByText('别的需求')).toBeNull()
+    unmount()
+  })
+
+  it('the chosen direction survives a panel round-trip (unmount + remount on the same store)', async () => {
+    // The host's keyed main slot has no keep-alive: a panel switch unmounts
+    // this component. The direction rides the store, like the filter does.
+    const { container, unmount, store, controller, detailTabs, renderSlot } = page({
+      list: vi.fn(async () => ({
+        kind: 'ok' as const,
+        revision: 1,
+        requirements: [
+          record('old', '2026-09-10T08:00:00.000Z'),
+          record('new', '2026-09-25T08:00:00.000Z'),
+        ],
+      })),
+    })
+    await waitFor(() => expect(within(container).getByText('需求-old')).toBeTruthy())
+    fireEvent.click(sortTrigger(container))
+    fireEvent.click(await waitFor(() => screen.getByRole('menuitem', { name: '创建时间正序' })))
+    await waitFor(() => expect(rowOrder(container)).toEqual(['old', 'new']))
+    unmount()
+
+    const remount = render(
+      <RequirementsPage
+        t={bindZh()}
+        store={store}
+        controller={controller}
+        detailTabs={detailTabs}
+        renderSlot={renderSlot}
+      />,
+    )
+    // Scoped to this render's container on both waits: an earlier test that
+    // failed before its unmount() leaves its rows mounted globally, and a
+    // global getByText then reports "found multiple" instead of showing what
+    // actually broke.
+    await waitFor(() => expect(within(remount.container).getByText('需求-old')).toBeTruthy())
+    expect(rowOrder(remount.container)).toEqual(['old', 'new'])
+    expect(sortTrigger(remount.container).textContent).toContain('创建时间正序')
+    remount.unmount()
+  })
+
+  it('stays reorderable while busy — reordering hits no endpoint, so it waits on nothing', async () => {
+    // Deliberate divergence from the detailSwitch idiom this button copies,
+    // which carries disabled={state.busy}. Pinning it because the regression
+    // would arrive as a plausible-looking copy of the neighbour: a user saving
+    // one requirement would find the whole list's order locked until the
+    // round-trip lands.
+    const { container, unmount, store } = page({
+      list: vi.fn(async () => ({
+        kind: 'ok' as const,
+        revision: 1,
+        requirements: [
+          record('old', '2026-09-10T08:00:00.000Z'),
+          record('new', '2026-09-25T08:00:00.000Z'),
+        ],
+      })),
+    })
+    await waitFor(() => expect(within(container).getByText('需求-old')).toBeTruthy())
+    const rowMenus = (): HTMLButtonElement[] =>
+      [...container.querySelectorAll<HTMLButtonElement>('button[aria-label="编辑"]')]
+    expect(rowMenus()[0].disabled).toBe(false)
+
+    store.set({ ...store.getSnapshot(), busy: true })
+    // The store is raf-flushed, so getSnapshot() already reports busy while the
+    // DOM still shows the previous render — waiting on the snapshot would let
+    // the assertion below read a stale button and pass for nothing. Wait on a
+    // row menu anchor instead: it shares disabled={state.busy}, so its flip
+    // proves React has actually re-rendered with busy=true.
+    await waitFor(() => expect(rowMenus()[0].disabled).toBe(true))
+    expect((sortTrigger(container) as HTMLButtonElement).disabled).toBe(false)
+
+    fireEvent.click(sortTrigger(container))
+    fireEvent.click(await waitFor(() => screen.getByRole('menuitem', { name: '创建时间正序' })))
+    await waitFor(() => expect(rowOrder(container)).toEqual(['old', 'new']))
+    unmount()
+  })
+
+  it('the list container declares a single grid track', () => {
+    // jsdom computes no layout, so the one-column shape is pinned at its only
+    // source of truth: the stylesheet. A repeat(2, …) regression is a silent
+    // visual one — nothing in the DOM changes. Read by cwd-relative path:
+    // under the jsdom environment import.meta.url is not a file: URL.
+    // The assertion carries the property name so `repeat(2, minmax(0, 1fr))`
+    // — which contains the track function — still fails it.
+    const css = readFileSync('src/client/requirements/view.module.css', 'utf8')
+    const listBlock = /\.list\s*\{([^}]*)\}/.exec(css)?.[1] ?? ''
+    expect(listBlock).toContain('grid-template-columns: minmax(0, 1fr)')
   })
 })

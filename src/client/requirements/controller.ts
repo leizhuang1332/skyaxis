@@ -5,7 +5,7 @@
  * so the revision realigns.
  */
 import type { CloneTaskSnapshot, RequirementRecord, ReposMutateRequestBody, SaveRequestBody, WorkspaceSetRequestBody } from '../../requirements-shared/protocol.js'
-import type { RequirementsStore } from './store.js'
+import type { RequirementsStore, RequirementSort } from './store.js'
 import type { RequirementsFetcher, ReposScanResult, ReposTasksResult, WorkspaceStatusResult } from './fetcher.js'
 
 /** Workspace mutation outcome: 'invalid-path' stays inline (no banner). */
@@ -304,6 +304,10 @@ export function createRequirementsController(store: RequirementsStore, fetcher: 
       patch({ detailTabByRequirement: { ...detailTabByRequirement, [selectedId]: tabId } })
     },
     setListFilter: (text: string) => patch({ listFilter: text }),
+    // Ordering is a pure view projection (sortRequirements in store.ts): the
+    // ledger keeps file order as the source of truth, so a refresh or a save
+    // never has to remember the sort — only this field carries it.
+    setListSort: (sort: RequirementSort) => patch({ listSort: sort }),
     dismissBanner: () => patch({ banner: undefined }),
     dispose: () => {
       disposed = true

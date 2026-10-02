@@ -1,20 +1,25 @@
 /**
  * Requirements page: header (title), then ONE of two in-panel views (0003
- * route B): the list view (filter bar, failure banners, skeleton/list with
- * the add card leading the grid) or the detail view (back affordance +
- * requirement switcher + tab strip in the header, active tab panel in the
- * body). Only the body's content swaps —
+ * route B): the list view (filter + sort bar, failure banners, skeleton/list
+ * with the add card leading the one-column list) or the detail view (back
+ * affordance + requirement switcher + tab strip in the header, active tab
+ * panel in the body). Only the body's content swaps —
  * the form/delete dialogs and the scroll container live at this page level
- * and survive view switches. The filter text and the active tab ride the
- * store (0004 P1): the host's keyed main slot has no keep-alive, so a panel
- * switch unmounts this component — store-held view state survives the
- * round-trip, and openDetail resets the tab only when the selection moves
- * to another requirement. Presentation only: data flows in through props
+ * and survive view switches. The filter text, the sort direction and the
+ * active tab ride the store (0004 P1): the host's keyed main slot has no
+ * keep-alive, so a panel switch unmounts this component — store-held view
+ * state survives the round-trip, and openDetail resets the tab only when the
+ * selection moves to another requirement.
+ *
+ * Ordering is a pure view projection: the ledger keeps file order as its
+ * truth, and this page filters then sorts the snapshot for display
+ * (sortRequirements). Presentation only: data flows in through props
  * (store snapshot via useSyncExternalStore, controller actions), no ctx in
  * the view layer.
  */
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { Button, IconChecklistOutline14, IconChevronDownOutline14, IconChevronLeftOutline14, IconCloseOutline16, IconListPenOutline16, IconSearchOutline16, Input, Menu, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconChecklistOutline14, IconChevronDownOutline14, IconChevronLeftOutline14, IconClockOutline16, IconCloseOutline16, IconListPenOutline16, IconSearchOutline16, Input, Menu, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { RequirementRecord } from '../../requirements-shared/protocol.js'
 import type { RequirementsController } from './controller.js'
@@ -23,8 +28,22 @@ import { RequirementDetailPanel, RequirementDetailTabs } from './detail.js'
 import { RequirementsList } from './list.js'
 import { RequirementForm } from './requirement-form.js'
 import type { RequirementDetailTab, RequirementsDetailTabsStore } from './register.js'
-import type { RequirementsStore } from './store.js'
+import type { RequirementsStore, RequirementSort } from './store.js'
+import { sortRequirements } from './store.js'
 import styles from './view.module.css'
+
+/** Sort-direction copy: one entry per RequirementSort, so the union cannot
+ *  grow without this record erroring (the BANNER_KEY discipline). */
+const SORT_KEY = {
+  'created-desc': 'view.sortCreatedDesc',
+  'created-asc': 'view.sortCreatedAsc',
+} as const satisfies Record<RequirementSort, Parameters<RequirementsT>[0]>
+
+/** Menu row order is fixed and independent of the active direction: a menu
+ *  that reordered itself under the pointer would make the second click a
+ *  moving target. Newest-first leads because it is the default. Labels need
+ *  the bound dictionary, so the rows are built in the component. */
+const SORT_IDS: readonly RequirementSort[] = ['created-desc', 'created-asc']
 
 /**
  * Sidebar.panellist glyph: the host shell owns the button chrome (tooltip,
@@ -59,6 +78,9 @@ export function RequirementsPage(props: {
   // Switcher menu open flag: a pure transient (dies with the component on a
   // panel switch) — unlike the tab/filter, nothing is lost by dropping it.
   const [switchOpen, setSwitchOpen] = useState(false)
+  // Sort menu open flag: same class of transient as switchOpen — dropping it
+  // on a panel switch loses nothing (the direction itself is store-held).
+  const [sortOpen, setSortOpen] = useState(false)
   // In-place menus don't reposition on scroll (no portal tracking): close
   // instead — scrolling away is a leave intent. The capture listener hears
   // EVERY scroll (scroll events don't bubble but do capture), so the menu's
@@ -83,12 +105,22 @@ export function RequirementsPage(props: {
   // retired tab id) falls back to the first tab.
   const rememberedTabId = state.selectedId === null ? undefined : state.detailTabByRequirement[state.selectedId]
   const activeTab: RequirementDetailTab | undefined = detailTabs.find((tab) => tab.id === rememberedTabId) ?? detailTabs[0]
+  // Menu rows for the sort control, rebuilt per render so the labels track the
+  // bound dictionary (a locale switch mid-panel changes them with everything
+  // else). Row order stays SORT_IDS — independent of the active direction.
+  const sortItems: readonly MenuEntry[] = SORT_IDS.map((id) => ({ id, label: t(SORT_KEY[id]) }))
   const needle = state.listFilter.trim().toLowerCase()
-  const visibleRequirements = needle.length === 0
-    ? state.requirements
-    : state.requirements.filter((requirement) =>
-        requirement.title.toLowerCase().includes(needle)
-        || requirement.description.toLowerCase().includes(needle))
+  // Filter first, then order: the filter decides WHICH rows exist, the sort
+  // decides the order they read in. Both are pure projections of the store
+  // snapshot — the ledger keeps file order and never hears about either.
+  const visibleRequirements = sortRequirements(
+    needle.length === 0
+      ? state.requirements
+      : state.requirements.filter((requirement) =>
+          requirement.title.toLowerCase().includes(needle)
+          || requirement.description.toLowerCase().includes(needle)),
+    state.listSort,
+  )
 
   // Mount + window focus: pull the list (abort the mount pull on unmount).
   // Focus/visibility covers externally edited requirements.yaml — the
@@ -198,6 +230,50 @@ export function RequirementsPage(props: {
             spellCheck={false}
             aria-label={t('view.filterPlaceholder')}
             onChange={(event) => controller.setListFilter(event.target.value)}
+          />
+          {/* Sort sits with the search field, not at the bar's far end: both
+              shape WHICH rows you see, so they read as one control cluster.
+              The button labels the CURRENT direction (the menu is the affordance
+              to change it), so the order is legible without opening anything.
+              Portal mode, like the row menus: this bar lives inside .body,
+              whose overflow: auto clips an in-place list. (The detail switcher
+              above is in-place for the opposite reason — it sits in the header,
+              outside any clip, and its CSS height cap needs the list reachable
+              by the owner's selector.) */}
+          <Menu
+            open={sortOpen}
+            onClose={() => setSortOpen(false)}
+            items={sortItems}
+            selectedId={state.listSort}
+            onSelect={(id) => {
+              setSortOpen(false)
+              // Narrow through the id list instead of casting: Menu hands back
+              // a bare string, and an unknown id is a no-op, not a write.
+              const next = SORT_IDS.find((candidate) => candidate === id)
+              if (next !== undefined) controller.setListSort(next)
+            }}
+            portal
+            dense
+            autoFocus
+            anchor={(
+              <button
+                type="button"
+                className={styles.sortButton}
+                // Purpose + current direction in one name. A bare
+                // aria-label="排序" would OVERRIDE the button's visible text,
+                // so a screen-reader user could not tell which order they were
+                // looking at; and the direction alone ("创建时间倒序") reads as a
+                // status rather than a control. The composed name also keeps
+                // the visible label inside the accessible name (WCAG 2.5.3).
+                aria-label={`${t('view.sort')}: ${t(SORT_KEY[state.listSort])}`}
+                title={`${t('view.sort')}: ${t(SORT_KEY[state.listSort])}`}
+                onClick={() => setSortOpen(true)}
+              >
+                <IconClockOutline16 size={16} />
+                <span>{t(SORT_KEY[state.listSort])}</span>
+                <IconChevronDownOutline14 />
+              </button>
+            )}
           />
         </div>
         {state.banner ? (

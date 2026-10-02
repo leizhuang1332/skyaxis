@@ -7,7 +7,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { RequirementRecord } from '../../src/requirements-shared/protocol.js'
 import { createRequirementsController } from '../../src/client/requirements/controller.js'
-import { createRequirementsStore } from '../../src/client/requirements/store.js'
+import { createRequirementsStore, sortRequirements } from '../../src/client/requirements/store.js'
 import type { RequirementsFetcher } from '../../src/client/requirements/fetcher.js'
 
 const record = (id: string): RequirementRecord => ({
@@ -198,6 +198,17 @@ describe('requirements controller/store', () => {
     expect(snap().listFilter).toBe('需求-a')
   })
 
+  it('listSort starts newest-first and setListSort writes it; a refresh keeps it', async () => {
+    const { controller, snap } = setup()
+    expect(snap().listSort).toBe('created-desc')
+    await controller.refresh()
+    expect(snap().listSort).toBe('created-desc') // ordering is a view projection, not a pulled fact
+    controller.setListSort('created-asc')
+    expect(snap().listSort).toBe('created-asc')
+    await controller.refresh()
+    expect(snap().listSort).toBe('created-asc')
+  })
+
   it('a refresh that drops the selected record keeps selectedId — the missing branch is the view\'s', async () => {
     const list = vi.fn()
       .mockResolvedValueOnce({ kind: 'ok' as const, revision: 1, requirements: [record('a')] })
@@ -208,5 +219,46 @@ describe('requirements controller/store', () => {
     await new Promise((resolve) => setTimeout(resolve, 0)) // let the ridden refresh land
     expect(snap().selectedId).toBe('a') // the id reference outlived the record on purpose
     expect(snap().requirements.map((r) => r.id)).toEqual(['b'])
+  })
+})
+
+describe('sortRequirements (list ordering projection)', () => {
+  const at = (id: string, iso: string): RequirementRecord => ({ ...record(id), createdAt: iso })
+
+  it('defaults to newest-first and flips to oldest-first on demand', () => {
+    const rows = [
+      at('mid', '2026-09-20T08:00:00.000Z'),
+      at('new', '2026-09-25T08:00:00.000Z'),
+      at('old', '2026-09-10T08:00:00.000Z'),
+    ]
+    expect(sortRequirements(rows, 'created-desc').map((r) => r.id)).toEqual(['new', 'mid', 'old'])
+    expect(sortRequirements(rows, 'created-asc').map((r) => r.id)).toEqual(['old', 'mid', 'new'])
+  })
+
+  it('is pure: the input array keeps ledger (file) order', () => {
+    const rows = [at('b', '2026-09-25T08:00:00.000Z'), at('a', '2026-09-10T08:00:00.000Z')]
+    sortRequirements(rows, 'created-asc')
+    // The ledger's order is the source of truth; the view renders the copy.
+    expect(rows.map((r) => r.id)).toEqual(['b', 'a'])
+  })
+
+  it('breaks an equal-timestamp tie by id, so a refresh cannot reshuffle the list', () => {
+    const same = '2026-09-25T08:00:00.000Z'
+    const rows = [at('c', same), at('a', same), at('b', same)]
+    expect(sortRequirements(rows, 'created-desc').map((r) => r.id)).toEqual(['a', 'b', 'c'])
+    expect(sortRequirements(rows, 'created-asc').map((r) => r.id)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('ranks an unparsable timestamp oldest instead of poisoning the order', () => {
+    // Date.parse('not-a-time') is NaN, and a NaN comparator value is not a
+    // total order — the engine may return any permutation. Pinning it to 0
+    // keeps the two good records in their real relation.
+    const rows = [
+      at('new', '2026-09-25T08:00:00.000Z'),
+      at('bad', 'not-a-time'),
+      at('old', '2026-09-10T08:00:00.000Z'),
+    ]
+    expect(sortRequirements(rows, 'created-desc').map((r) => r.id)).toEqual(['new', 'old', 'bad'])
+    expect(sortRequirements(rows, 'created-asc').map((r) => r.id)).toEqual(['bad', 'old', 'new'])
   })
 })
