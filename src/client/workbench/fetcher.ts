@@ -13,11 +13,15 @@
  */
 import {
   WORKBENCH_ARTIFACTS_PATH,
+  WORKBENCH_DECLARE_PATH,
   WORKBENCH_KNOWLEDGE_PATH,
   WORKBENCH_PATH,
 } from '../../workbench-shared/protocol.js'
 import type {
   ArtifactWriteResponseOk,
+  DeclareCommitResponseOk,
+  DeclareFetchResponse,
+  DeclarePreviewResponseOk,
   ErrorResponse,
   PlanFileExistsRow,
   ReviewFileExistsRow,
@@ -34,6 +38,9 @@ import type {
 import {
   isArtifactContentResponse,
   isArtifactWriteResponseOk,
+  isDeclareCommitResponse,
+  isDeclareFetchResponse,
+  isDeclarePreviewResponse,
   isErrorResponse,
   isWorkbenchDetailResponse,
   isWorkbenchKnowledgeListResponse,
@@ -81,6 +88,18 @@ export type WorkbenchArtifactWriteResult =
 
 export type WorkbenchArtifactContentResult =
   | { readonly kind: 'ok'; readonly content: string; readonly contentTampered: boolean }
+  | WorkbenchFailure
+
+export type DeclareFetchResult =
+  | { readonly kind: 'ok'; readonly response: DeclareFetchResponse }
+  | WorkbenchFailure
+
+export type DeclarePreviewResult =
+  | { readonly kind: 'ok'; readonly preview: DeclarePreviewResponseOk }
+  | WorkbenchFailure
+
+export type DeclareImportResult =
+  | { readonly kind: 'ok'; readonly committed: DeclareCommitResponseOk }
   | WorkbenchFailure
 
 async function request(path: string, init: RequestInit | undefined, signal: AbortSignal | undefined): Promise<Response | WorkbenchFailure> {
@@ -349,6 +368,49 @@ export function createWorkbenchFetcher() {
     async reviewContent(requirementId: string, reviewId: string, signal?: AbortSignal): Promise<WorkbenchArtifactContentResult> {
       const query = new URLSearchParams({ kind: 'review', requirementId, reviewId })
       return artifactContentResult(await request(`${WORKBENCH_ARTIFACTS_PATH}?${query.toString()}`, { method: 'GET' }, signal))
+    },
+
+    // --- P3b: declare-block route (fetch / preview / commit) ---
+
+    async declareFetch(sessionId: string, signal?: AbortSignal): Promise<DeclareFetchResult> {
+      const response = await request(`${WORKBENCH_DECLARE_PATH}?sessionId=${encodeURIComponent(sessionId)}`, { method: 'GET' }, signal)
+      if ('kind' in response) return response
+      if (!response.ok) return parseErrorBody(response)
+      const parsed: unknown = await response.json()
+      if (!isDeclareFetchResponse(parsed)) return { kind: 'http-error', status: response.status }
+      return { kind: 'ok', response: parsed }
+    },
+
+    async declarePreview(requirementId: string, expectedRevision: number, text: string, signal?: AbortSignal): Promise<DeclarePreviewResult> {
+      const response = await request(WORKBENCH_DECLARE_PATH, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ expectedRevision, requirementId, dryRun: true, text }),
+      }, signal)
+      if ('kind' in response) return response
+      if (!response.ok) return parseErrorBody(response)
+      const parsed: unknown = await response.json()
+      if (!isDeclarePreviewResponse(parsed)) return { kind: 'http-error', status: response.status }
+      return { kind: 'ok', preview: parsed }
+    },
+
+    async declareImport(requirementId: string, expectedRevision: number, text: string, selected: readonly string[], sessionId: string | undefined, signal?: AbortSignal): Promise<DeclareImportResult> {
+      const response = await request(WORKBENCH_DECLARE_PATH, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          expectedRevision,
+          requirementId,
+          text,
+          selected: [...selected],
+          ...(sessionId !== undefined ? { sessionId } : {}),
+        }),
+      }, signal)
+      if ('kind' in response) return response
+      if (!response.ok) return parseErrorBody(response)
+      const parsed: unknown = await response.json()
+      if (!isDeclareCommitResponse(parsed)) return { kind: 'http-error', status: response.status }
+      return { kind: 'ok', committed: parsed }
     },
   }
 }

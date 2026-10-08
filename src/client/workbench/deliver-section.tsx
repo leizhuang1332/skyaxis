@@ -31,7 +31,9 @@ import type { RequirementWorkbenchState } from './store.js'
 import { RowMenu, type RowMenuItem } from './row-menu.js'
 import { ReleaseItemFormModal } from './deliver-form-modal.js'
 import { SheetExportModal } from './sheet-export-modal.js'
+import { DeclareImportModal } from './declare-import-modal.js'
 import { buildReleaseSheet } from './release-sheet.js'
+import type { WorkbenchSessionsFace } from './view.js'
 import styles from './view.module.css'
 
 const RELEASE_TYPE_ORDER: readonly ReleaseItem['type'][] = ['sql', 'config', 'flag', 'mq', 'other']
@@ -66,6 +68,8 @@ export function DeliverSection(props: {
   slot: RequirementWorkbenchState
   controller: WorkbenchController
   requirementId: string
+  /** Optional live-session face for the declare-import fetch row (absent ⇒ paste-only). */
+  sessions?: WorkbenchSessionsFace
   /** Injectable clipboard for the export modal (the sow-modal IO contract; tests pass fakes). */
   copy?: (text: string) => Promise<boolean>
 }): ReactNode {
@@ -79,6 +83,7 @@ export function DeliverSection(props: {
   const [planConfirmOpen, setPlanConfirmOpen] = useState(false)
   const [planRevokeOpen, setPlanRevokeOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
   if (record === null) return null
 
   const drifted = new Set(slot.releaseDrifted)
@@ -169,6 +174,7 @@ export function DeliverSection(props: {
       <div className={styles.sectionHead}>
         <div className={styles.sectionTitle}>{t('release.sectionTitle')}</div>
         <button type="button" className={styles.ghostButton} onClick={() => { setFormTarget('new') }}>{t('release.add')}</button>
+        <button type="button" className={styles.ghostButton} onClick={() => { setImportOpen(true) }}>{t('declare.importButton')}</button>
         <button
           type="button"
           className={styles.ghostButton}
@@ -177,7 +183,6 @@ export function DeliverSection(props: {
         >
           {t('release.exportButton')}
         </button>
-        {/* [导入声明] lands in P3b (declare-block import + sessionQuery auto-fetch) — no dead UI until then. */}
       </div>
       {items.length === 0 ? <div className={styles.guideHint}>{t('release.empty')}</div> : null}
 
@@ -333,6 +338,16 @@ export function DeliverSection(props: {
       >
         {t('release.rollbackRevokeDescription')}
       </Modal>
+
+      <DeclareImportModal
+        t={t}
+        open={importOpen}
+        requirementId={requirementId}
+        slot={slot}
+        controller={controller}
+        sessions={props.sessions}
+        onClose={() => { setImportOpen(false) }}
+      />
 
       <SheetExportModal
         t={t}

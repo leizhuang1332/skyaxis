@@ -258,6 +258,7 @@ export function WorkbenchTabBody(props: {
                 slot={slot}
                 controller={controller}
                 requirementId={requirementId}
+                sessions={sessionsFace}
               />
             ) : null}
             {record !== null && viewing === 'review' ? (

@@ -282,3 +282,13 @@ describe('S5 交付节：回滚预案与导出', () => {
     await waitFor(() => expect(within(dialog).getByText(workbenchZh['sheet.copied'])).toBeTruthy())
   })
 })
+
+describe('S5 交付节：导入声明入口（P3b）', () => {
+  it('头行 [导入声明] 打开 Modal（编辑态：文本域在场）', async () => {
+    const rendered = subject(slot())
+    fireEvent.click(rendered.getByRole('button', { name: workbenchZh['declare.importButton'] }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText(workbenchZh['declare.textLabel'])).toBeTruthy()
+    expect(within(dialog).getByRole('button', { name: workbenchZh['declare.parseButton'] })).toBeTruthy()
+  })
+})

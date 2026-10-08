@@ -217,6 +217,37 @@ export function createWorkbenchController(store: WorkbenchStore, fetcher: Workbe
     revokeRollbackPlan: (requirementId: string, signal?: AbortSignal) =>
       mutate(requirementId, () => fetcher.revokeRollbackPlan(requirementId, slotRevision(requirementId), signal), signal),
 
+    // --- P3b: declare-block import (the repos-pool importRepos contract:
+    // failures are RETURNED for the dialog to present, never bannered; the
+    // real import carries the revision the DRY-RUN response returned). ---
+
+    /** Session declare fetch — pure read, no store, no busy. */
+    declareFetch: (sessionId: string, signal?: AbortSignal) =>
+      fetcher.declareFetch(sessionId, signal),
+
+    /** Parse-only preview — dialog-local state, the store is untouched. The
+     *  revision is read internally (the CURRENT slot); the anchor rule applies
+     *  to the REAL import, which must carry the revision the dry-run returned. */
+    declarePreview: (requirementId: string, text: string, signal?: AbortSignal) =>
+      fetcher.declarePreview(requirementId, slotRevision(requirementId), text, signal),
+
+    /**
+     * Real import: patches the slot in place on success (the commit response
+     * carries the record) and hands the report back for the dialog's done
+     * state. conflict/network stay in the RESULT — the dialog owns them.
+     */
+    declareImport: async (requirementId: string, text: string, selected: readonly string[], expectedRevision: number, sessionId: string | undefined, signal?: AbortSignal) => {
+      patchSlot(requirementId, { busy: true })
+      const result = await fetcher.declareImport(requirementId, expectedRevision, text, selected, sessionId, signal)
+      if (!alive(result)) return undefined
+      if (result.kind === 'ok') {
+        patchSlot(requirementId, { busy: false, revision: result.committed.revision, record: result.committed.record, banner: undefined })
+        return result.committed.report
+      }
+      patchSlot(requirementId, { busy: false })
+      return result
+    },
+
     /**
      * Plan draft write: the artifact endpoint answers with the revision but
      * NOT the record (the ledger side-effect runs there — plans append /

@@ -332,6 +332,41 @@ interface WorkbenchDictionary {
   readonly 'sheet.copy': string
   readonly 'sheet.copied': string
   readonly 'sheet.copyFailed': string
+  // declare.* — 声明块导入（P3b：抓取 + 粘贴 + 逐条勾选两段式）
+  readonly 'declare.importButton': string
+  readonly 'declare.title': string
+  readonly 'declare.sessionLabel': string
+  readonly 'declare.sessionPlaceholder': string
+  readonly 'declare.fetchButton': string
+  readonly 'declare.fetchNoService': string
+  readonly 'declare.fetchNotFound': string
+  readonly 'declare.fetchUnreadable': string
+  readonly 'declare.fetchNoBlock': string
+  readonly 'declare.noBoundSessions': string
+  readonly 'declare.textLabel': string
+  readonly 'declare.parseButton': string
+  readonly 'declare.blockNoBlock': string
+  readonly 'declare.blockYamlSyntax': string
+  readonly 'declare.empty': string
+  readonly 'declare.groupBuilt': string
+  readonly 'declare.groupArtifacts': string
+  readonly 'declare.groupKnowledge': string
+  readonly 'declare.stageReadyProposal': string
+  readonly 'declare.duplicateHint': string
+  readonly 'declare.skippedTitle': string
+  readonly 'declare.importSubmit': string
+  readonly 'declare.doneTitle': string
+  readonly 'declare.doneCounts': string
+  readonly 'declare.staleHint': string
+  readonly 'declare.reparseButton': string
+  readonly 'declare.skip.bad-shape': string
+  readonly 'declare.skip.bad-type': string
+  readonly 'declare.skip.bad-title': string
+  readonly 'declare.skip.bad-content': string
+  readonly 'declare.skip.over-cap': string
+  readonly 'declare.skip.bad-envs': string
+  readonly 'declare.skip.wp-not-found': string
+  readonly 'declare.skip.wp-not-in-dev': string
 }
 
 export type WorkbenchT = (key: keyof WorkbenchDictionary) => string
@@ -638,6 +673,41 @@ const zh: WorkbenchDictionary = {
   'sheet.copy': '复制到剪贴板',
   'sheet.copied': '已复制',
   'sheet.copyFailed': '复制失败：请手动选中预览文本复制。',
+  // declare.* — 声明块导入（P3b）
+  'declare.importButton': '导入声明',
+  'declare.title': '导入声明',
+  'declare.sessionLabel': '从绑定会话抓取',
+  'declare.sessionPlaceholder': '选择会话…',
+  'declare.fetchButton': '抓取',
+  'declare.fetchNoService': '宿主未提供会话读取服务——请手动粘贴声明块文本。',
+  'declare.fetchNotFound': '会话不存在或已被清理。',
+  'declare.fetchUnreadable': '会话日志读取失败。',
+  'declare.fetchNoBlock': '该会话的助手消息里没有 # skyaxis-declare 声明块。',
+  'declare.noBoundSessions': '尚无绑定会话——在 S3 工作包详情里关联 session 后可从会话抓取；也可直接粘贴。',
+  'declare.textLabel': '声明块文本（抓取或粘贴）',
+  'declare.parseButton': '解析预览',
+  'declare.blockNoBlock': '文本里没有 # skyaxis-declare 声明块。',
+  'declare.blockYamlSyntax': '声明块 YAML 语法错误（第 {n} 行附近）——请修正后重试。',
+  'declare.empty': '声明块里没有可导入的条目。',
+  'declare.groupBuilt': 'built 声明',
+  'declare.groupArtifacts': '上线项',
+  'declare.groupKnowledge': '知识候选',
+  'declare.stageReadyProposal': 'AI 提议本阶段就绪——推进权在你，工作台不会代为推进。',
+  'declare.duplicateHint': '与已有条目重复——默认不勾选',
+  'declare.skippedTitle': '未纳入导入的行',
+  'declare.importSubmit': '导入',
+  'declare.doneTitle': '导入完成',
+  'declare.doneCounts': 'built {b} · 上线项 {a} · 知识候选 {k} · 跳过 {s}',
+  'declare.staleHint': '预览已过期（账本在预览后发生了变化）——请重新解析。',
+  'declare.reparseButton': '重新解析',
+  'declare.skip.bad-shape': '行结构不合法',
+  'declare.skip.bad-type': 'type 不在允许枚举内',
+  'declare.skip.bad-title': '标题缺失或超过 64 字',
+  'declare.skip.bad-content': '内容缺失',
+  'declare.skip.over-cap': '内容超过 32K 上限',
+  'declare.skip.bad-envs': '环境列表不合法',
+  'declare.skip.wp-not-found': '工作包不存在',
+  'declare.skip.wp-not-in-dev': '不可标记 built（拆分未批准或工作包非开发中）',
 }
 
 const en: WorkbenchDictionary = {
@@ -942,6 +1012,41 @@ const en: WorkbenchDictionary = {
   'sheet.copy': 'Copy to clipboard',
   'sheet.copied': 'Copied',
   'sheet.copyFailed': 'Copy refused: select the preview text and copy manually.',
+  // declare.* — declare-block import (P3b)
+  'declare.importButton': 'Import declare',
+  'declare.title': 'Import declare block',
+  'declare.sessionLabel': 'Fetch from a bound session',
+  'declare.sessionPlaceholder': 'Select a session…',
+  'declare.fetchButton': 'Fetch',
+  'declare.fetchNoService': 'The host does not mount the session-read service — paste the declare text manually.',
+  'declare.fetchNotFound': 'The session does not exist or has been cleaned up.',
+  'declare.fetchUnreadable': 'Failed to read the session log.',
+  'declare.fetchNoBlock': 'No # skyaxis-declare block in this session\'s assistant messages.',
+  'declare.noBoundSessions': 'No bound sessions yet — bind one in the S3 work-package detail to fetch; pasting always works.',
+  'declare.textLabel': 'Declare text (fetched or pasted)',
+  'declare.parseButton': 'Parse preview',
+  'declare.blockNoBlock': 'No # skyaxis-declare block in the text.',
+  'declare.blockYamlSyntax': 'Declare-block YAML syntax error (near line {n}) — fix it and retry.',
+  'declare.empty': 'The declare block carries no importable rows.',
+  'declare.groupBuilt': 'built claims',
+  'declare.groupArtifacts': 'Release items',
+  'declare.groupKnowledge': 'Knowledge candidates',
+  'declare.stageReadyProposal': 'The AI proposes this stage is ready — advancing stays with you; the workbench never advances it.',
+  'declare.duplicateHint': 'Duplicates an existing row — unchecked by default',
+  'declare.skippedTitle': 'Rows not imported',
+  'declare.importSubmit': 'Import',
+  'declare.doneTitle': 'Import complete',
+  'declare.doneCounts': 'built {b} · release items {a} · knowledge {k} · skipped {s}',
+  'declare.staleHint': 'The preview is stale (the ledger changed after it) — re-parse.',
+  'declare.reparseButton': 'Re-parse',
+  'declare.skip.bad-shape': 'malformed row',
+  'declare.skip.bad-type': 'type outside the allowed enum',
+  'declare.skip.bad-title': 'title missing or over 64 chars',
+  'declare.skip.bad-content': 'content missing',
+  'declare.skip.over-cap': 'content over the 32K cap',
+  'declare.skip.bad-envs': 'invalid environment list',
+  'declare.skip.wp-not-found': 'work package not found',
+  'declare.skip.wp-not-in-dev': 'not markable as built (split unapproved or package not in dev)',
 }
 
 export function registerWorkbenchDictionaries(ctx: Context): void {

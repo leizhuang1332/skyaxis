@@ -5,7 +5,7 @@
  * module must appear EXACTLY once per S1 view and never on other stages.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { WorkbenchRecord } from '../../src/workbench-shared/protocol.js'
 import { workbenchZh } from '../../src/client/workbench/dictionary.js'
 import { createWorkbenchController } from '../../src/client/workbench/controller.js'
@@ -137,5 +137,41 @@ describe('seat round-trip: S5 deliver（P3a 穿线钉）', () => {
     expect(screen.getByText(`⚠ ${workbenchZh['release.driftNote']}`)).toBeTruthy()
     // RTL 把 U+3000 归一为半角空格（handoff §5.6）——getByText 用半角。
     expect(screen.getByText('R0001 t_order 加索引')).toBeTruthy()
+  })
+})
+
+describe('seat round-trip: S5 导入声明的 sessions 穿线（P3b 钉）', () => {
+  it('sessions face 经 seat → Body → DeliverSection 到达导入 Modal 的会话下拉（P2b 断裂同款防线）', async () => {
+    const bound: WorkbenchRecord = {
+      ...record,
+      workPackages: [{
+        id: 'WP1', title: 'WP1', boundary: '', order: 1, dependsOn: [], covers: [],
+        status: 'in-dev', plans: [],
+        sessions: [{ sessionId: 'sess-declare', purpose: 'dev', boundAt: AT }],
+        commits: [], acceptances: [],
+      }],
+    }
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      ok: true, revision: 1, record: bound, planFileExists: [], reviewFileExists: [], releaseDrifted: [],
+    }))))
+    const sessions = {
+      ids: ['sess-declare'],
+      summariesById: { 'sess-declare': { id: 'sess-declare', displayTitle: 'WP1·开发 声明会话', running: false, blank: false } },
+      subscribe: (): (() => void) => () => {},
+      navigate: (): void => {},
+    }
+    const store = createWorkbenchStore()
+    const controller = createWorkbenchController(store, createWorkbenchFetcher())
+    const Seat = createWorkbenchTabSeat({ t: (key) => (workbenchZh as unknown as Record<string, string>)[key] ?? key, store, controller, sessions })
+    render(<Seat requirement={requirement} />)
+
+    // 记录到位锚：session 条渲染出绑定会话（本夹具无 releaseItems，无徽章可锚）。
+    await waitFor(() => expect(screen.getByText(/WP1·开发 声明会话/)).toBeTruthy())
+    fireEvent.click(screen.getByRole('tab', { name: /交付/ }))
+    await waitFor(() => expect(screen.getByText(workbenchZh['release.sectionTitle'])).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: workbenchZh['declare.importButton'] }))
+    const dialog = await screen.findByRole('dialog')
+    // 会话标题来自 sessions face —— 断在 seat 边界这里就看不到标题。
+    expect(within(dialog).getByRole('option', { name: /WP1·开发 声明会话/ })).toBeTruthy()
   })
 })
