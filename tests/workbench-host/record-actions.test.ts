@@ -39,11 +39,14 @@
 import { describe, expect, it } from 'vitest'
 import type { KnowledgeRecord } from '../../src/workbench-host/types.js'
 import { applyRecordAction } from '../../src/workbench-host/record-actions.js'
-import { isWorkbenchRecord } from '../../src/workbench-shared/protocol.js'
+import { contentHashOf } from '../../src/workbench-host/artifact-store.js'
+import { isReleaseItemId, isWorkbenchRecord } from '../../src/workbench-shared/protocol.js'
 import type {
   ActivateKnowledgeCandidateRequest,
   ErrorResponse,
   KnowledgeCandidate,
+  ReleaseItem,
+  SaveReleaseItemRequest,
   WorkbenchCriterion,
   WorkbenchFinding,
   WorkbenchMutateRequestBody,
@@ -937,5 +940,204 @@ describe('activateKnowledgeCandidate (P2 双账本推进)', () => {
       .toEqual({ ok: false, status: 400, code: 'bad-request' })
     expect(applyRecordAction(base, activate(CAND_ID, { scope: 'global', type: 'business', trigger: { mode: 'keyword', value: '  ' } })))
       .toEqual({ ok: false, status: 400, code: 'bad-request' })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// P3a: release items（S5 上线清单）——门外 + 严格链 + pending-only 改删
+// ---------------------------------------------------------------------------
+
+function releaseItem(overrides: Partial<ReleaseItem> = {}): ReleaseItem {
+  return {
+    id: 'R0001',
+    type: 'sql',
+    title: 't_order 加索引',
+    content: 'ALTER TABLE t_order ADD INDEX idx_created_at (created_at)',
+    contentHash: contentHashOf('ALTER TABLE t_order ADD INDEX idx_created_at (created_at)'),
+    envs: ['prod'],
+    status: 'pending',
+    ...overrides,
+  }
+}
+
+const saveRelease = (item: SaveReleaseItemRequest['releaseItem'], rid = RID) =>
+  ({ ...mutate(rid), action: 'saveReleaseItem' as const, releaseItem: item })
+const releaseAction = (action: 'removeReleaseItem' | 'confirmReleaseItem' | 'markReleaseItemApplied' | 'markReleaseItemVerified' | 'rollbackReleaseItem', id: string, rid = RID) =>
+  ({ ...mutate(rid), action, id } as WorkbenchMutateRequestBody)
+
+describe('release items (P3a)', () => {
+  describe('saveReleaseItem', () => {
+    it('创建：host 铸四位补零 R 序号 + contentHash + pending 态；序号不回收', () => {
+      const empty = applyOk(baseRecord(), saveRelease({ type: 'sql', title: '建表', content: 'CREATE TABLE x', envs: ['prod'] }))
+      expect(empty.releaseItems).toHaveLength(1)
+      expect(empty.releaseItems[0]?.id).toBe('R0001')
+      expect(empty.releaseItems[0]?.status).toBe('pending')
+      expect(empty.releaseItems[0]?.contentHash).toBe(contentHashOf('CREATE TABLE x'))
+
+      const grown = applyOk(empty, saveRelease({ type: 'config', title: '并发调参', content: 'max=8', envs: [] }))
+      expect(grown.releaseItems[1]?.id).toBe('R0002')
+
+      // 四位边界：R0012 之后是 R0013（不是 R13——毒化事故的回归钉）
+      const ledger12 = baseRecord({ releaseItems: [releaseItem({ id: 'R0012' })] })
+      const next = applyOk(ledger12, saveRelease({ type: 'flag', title: '开关', content: 'enabled=false', envs: ['prod'] }))
+      expect(next.releaseItems[1]?.id).toBe('R0013')
+    })
+
+    it('创建携带可选字段：workPackageId / sessionId / note', () => {
+      const record = applyOk(baseRecord({ workPackages: [wp('WP1')] }), saveRelease({
+        type: 'sql', title: '加列', content: 'ALTER TABLE a ADD b INT', envs: ['prod', 'pre'],
+        workPackageId: 'WP1', sessionId: 'sess-9', note: '随 v1.2 上线',
+      }))
+      const item = record.releaseItems[0]
+      expect(item?.workPackageId).toBe('WP1')
+      expect(item?.sessionId).toBe('sess-9')
+      expect(item?.note).toBe('随 v1.2 上线')
+      expect(item?.envs).toEqual(['prod', 'pre'])
+    })
+
+    it('编辑：仅 pending 可改；用户字段全量替换、sessionId 承载、contentHash 随 content 重算', () => {
+      const target = releaseItem({ sessionId: 'sess-origin', note: '旧备注' })
+      const edited = applyOk(baseRecord({ releaseItems: [target] }), saveRelease({
+        id: 'R0001', type: 'mq', title: '队列扩容', content: 'concurrency=8', envs: ['prod'], note: '新备注',
+      }))
+      const next = edited.releaseItems[0]
+      expect(next?.type).toBe('mq')
+      expect(next?.title).toBe('队列扩容')
+      expect(next?.contentHash).toBe(contentHashOf('concurrency=8'))
+      expect(next?.note).toBe('新备注')
+      expect(next?.workPackageId).toBeUndefined() // 全量替换：清掉归属真能清掉
+      expect(next?.sessionId).toBe('sess-origin') // 声明通道溯源字段承载
+      expect(next?.status).toBe('pending')
+
+      const locked = baseRecord({ releaseItems: [releaseItem({ status: 'confirmed' })] })
+      expect(applyRecordAction(locked, saveRelease({ id: 'R0001', type: 'sql', title: '改不动', content: 'x', envs: [] })))
+        .toEqual({ ok: false, status: 400, code: 'bad-request' })
+    })
+
+    it('编辑幂等：字段未变 → unchanged 且引用即 base（revision 不空转）', () => {
+      const base = baseRecord({ releaseItems: [releaseItem()] })
+      const result = applyRecordAction(base, saveRelease({ id: 'R0001', type: 'sql', title: 't_order 加索引', content: 'ALTER TABLE t_order ADD INDEX idx_created_at (created_at)', envs: ['prod'] }))
+      expect(result).toEqual({ ok: true, record: base, unchanged: true })
+      if (!result.ok) return
+      expect(result.record).toBe(base)
+    })
+
+    it('未知 id 编辑 → 404', () => {
+      expect(applyRecordAction(baseRecord(), saveRelease({ id: 'R0099', type: 'sql', title: 'x', content: 'x', envs: [] })))
+        .toEqual({ ok: false, status: 404, code: 'not-found' })
+    })
+
+    it('不吃 split 门：批准前后都能登记（阶段可跳过 + R5 手动最短路径）', () => {
+      const unapproved = applyOk(baseRecord(), saveRelease({ type: 'other', title: '无门登记', content: 'x', envs: [] }))
+      expect(unapproved.releaseItems).toHaveLength(1)
+      const locked = baseRecord({ splitApprovedAt: NOW })
+      const also = applyOk(locked, saveRelease({ type: 'other', title: '门内也行', content: 'x', envs: [] }))
+      expect(also.releaseItems).toHaveLength(1)
+    })
+  })
+
+  describe('removeReleaseItem', () => {
+    it('仅 pending 可删；confirmed 及之后 → 400（修正走 rolled-back 保审计）', () => {
+      const removed = applyOk(baseRecord({ releaseItems: [releaseItem()] }), releaseAction('removeReleaseItem', 'R0001'))
+      expect(removed.releaseItems).toHaveLength(0)
+      for (const status of ['confirmed', 'applied', 'verified', 'rolled-back'] as const) {
+        const base = baseRecord({ releaseItems: [releaseItem({ status })] })
+        expect(applyRecordAction(base, releaseAction('removeReleaseItem', 'R0001')))
+          .toEqual({ ok: false, status: 400, code: 'bad-request' })
+      }
+    })
+
+    it('未知 id → 404', () => {
+      expect(applyRecordAction(baseRecord(), releaseAction('removeReleaseItem', 'R0099')))
+        .toEqual({ ok: false, status: 404, code: 'not-found' })
+    })
+  })
+
+  describe('状态流：严格链 pending→confirmed→applied→verified；任一活态→rolled-back（终态）', () => {
+    it('confirm：pending→confirmed；已 confirmed 幂等 unchanged；跳链（applied）→ 400', () => {
+      const confirmed = applyOk(baseRecord({ releaseItems: [releaseItem()] }), releaseAction('confirmReleaseItem', 'R0001'))
+      expect(confirmed.releaseItems[0]?.status).toBe('confirmed')
+
+      const again = applyRecordAction(confirmed, releaseAction('confirmReleaseItem', 'R0001'))
+      expect(again).toEqual({ ok: true, record: confirmed, unchanged: true })
+
+      const skip = baseRecord({ releaseItems: [releaseItem({ status: 'applied' })] })
+      expect(applyRecordAction(skip, releaseAction('confirmReleaseItem', 'R0001')))
+        .toEqual({ ok: false, status: 400, code: 'bad-request' })
+    })
+
+    it('markApplied：confirmed→applied 且铸 appliedAt；pending 直接 applied → 400（严格链）', () => {
+      const applied = applyOk(baseRecord({ releaseItems: [releaseItem({ status: 'confirmed' })] }), releaseAction('markReleaseItemApplied', 'R0001'))
+      expect(applied.releaseItems[0]?.status).toBe('applied')
+      expectIso(applied.releaseItems[0]?.appliedAt)
+
+      const skip = baseRecord({ releaseItems: [releaseItem({ status: 'pending' })] })
+      expect(applyRecordAction(skip, releaseAction('markReleaseItemApplied', 'R0001')))
+        .toEqual({ ok: false, status: 400, code: 'bad-request' })
+    })
+
+    it('markVerified：applied→verified；pending/confirmed 直接 verified → 400', () => {
+      const verified = applyOk(baseRecord({ releaseItems: [releaseItem({ status: 'applied', appliedAt: NOW })] }), releaseAction('markReleaseItemVerified', 'R0001'))
+      expect(verified.releaseItems[0]?.status).toBe('verified')
+
+      for (const status of ['pending', 'confirmed'] as const) {
+        const base = baseRecord({ releaseItems: [releaseItem({ status })] })
+        expect(applyRecordAction(base, releaseAction('markReleaseItemVerified', 'R0001')))
+          .toEqual({ ok: false, status: 400, code: 'bad-request' })
+      }
+    })
+
+    it('rollback：四个活态都能滚；已 rolled-back 幂等 unchanged', () => {
+      for (const status of ['pending', 'confirmed', 'applied', 'verified'] as const) {
+        const rolled = applyOk(baseRecord({ releaseItems: [releaseItem({ status })] }), releaseAction('rollbackReleaseItem', 'R0001'))
+        expect(rolled.releaseItems[0]?.status).toBe('rolled-back')
+      }
+      const terminal = baseRecord({ releaseItems: [releaseItem({ status: 'rolled-back' })] })
+      expect(applyRecordAction(terminal, releaseAction('rollbackReleaseItem', 'R0001')))
+        .toEqual({ ok: true, record: terminal, unchanged: true })
+    })
+
+    it('rolled-back 是终态：confirm / applied / verified 全 → 400；未知 id → 404', () => {
+      const dead = baseRecord({ releaseItems: [releaseItem({ status: 'rolled-back' })] })
+      for (const action of ['confirmReleaseItem', 'markReleaseItemApplied', 'markReleaseItemVerified'] as const) {
+        expect(applyRecordAction(dead, releaseAction(action, 'R0001')))
+          .toEqual({ ok: false, status: 400, code: 'bad-request' })
+      }
+      expect(applyRecordAction(baseRecord(), releaseAction('confirmReleaseItem', 'R0099')))
+        .toEqual({ ok: false, status: 404, code: 'not-found' })
+    })
+  })
+
+  describe('rollbackPlan 戳（go/no-go 第三条件，需求级单戳）', () => {
+    const confirmPlan = { ...mutate(), action: 'confirmRollbackPlan' as const }
+    const revokePlan = { ...mutate(), action: 'revokeRollbackPlan' as const }
+
+    it('confirm 铸戳 / revoke 摘戳保其余字段', () => {
+      const stamped = applyOk(baseRecord(), confirmPlan)
+      expectIso(stamped.rollbackPlanConfirmedAt)
+      const unstamped = applyOk(stamped, revokePlan)
+      expect(unstamped.rollbackPlanConfirmedAt).toBeUndefined()
+      expect(unstamped.requirementId).toBe(RID)
+    })
+
+    it('重复 confirm / 未确认先 revoke → 400（对齐 approveSplit 的「重复是客户端 bug」）', () => {
+      expect(applyRecordAction(baseRecord(), revokePlan)).toEqual({ ok: false, status: 400, code: 'bad-request' })
+      const stamped = applyOk(baseRecord(), confirmPlan)
+      expect(applyRecordAction(stamped, confirmPlan)).toEqual({ ok: false, status: 400, code: 'bad-request' })
+    })
+
+    it('不吃 split 门', () => {
+      const locked = baseRecord({ splitApprovedAt: NOW })
+      expect(applyOk(locked, confirmPlan).rollbackPlanConfirmedAt).toBeDefined()
+    })
+  })
+
+  it('wire guard：R1（无补零）整条 releaseItem 被拒——毒化事故回归钉', () => {
+    expect(isReleaseItemId('R0001')).toBe(true)
+    expect(isReleaseItemId('R1')).toBe(false)
+    expect(isReleaseItemId('R001')).toBe(false)
+    expect(isReleaseItemId('R12345')).toBe(true)
+    const withR1 = baseRecord({ releaseItems: [releaseItem({ id: 'R1' })] })
+    expect(isWorkbenchRecord(withR1)).toBe(false)
   })
 })

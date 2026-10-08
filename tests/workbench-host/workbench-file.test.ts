@@ -13,6 +13,7 @@ import { randomUUID } from 'node:crypto'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { KnowledgeRecord } from '../../src/workbench-host/types.js'
 import type { WorkbenchRecord } from '../../src/workbench-shared/protocol.js'
+import { isWorkbenchRecord } from '../../src/workbench-shared/protocol.js'
 import { KnowledgeFileStore } from '../../src/workbench-host/knowledge-file.js'
 import { WorkbenchFileStore, type WorkbenchFileIo } from '../../src/workbench-host/workbench-file.js'
 
@@ -80,6 +81,38 @@ describe('WorkbenchFileStore', () => {
       expect(loaded.ok && loaded.value.revision).toBe(1)
       expect(loaded.ok && loaded.value.records).toHaveLength(2)
       expect(readFileSync(file, 'utf8')).toContain('stage: understand')
+    })
+
+    it('round-trips the P3a optional fields through disk — the zod-mirror drift guard', async () => {
+      // The compile-time assignability aliases in types.ts cannot fire (an
+      // unused `? true : never` alias never errors), so a field present on
+      // the wire but missing from the zod mirror would be SILENTLY STRIPPED
+      // on every load (zod drops unknown keys) — data loss with no error.
+      // This roundtrip is the load-bearing mirror test: drop either field
+      // from WorkbenchRecordSchema/ReleaseItemSchema and this goes red.
+      const { store } = workbenchFixture()
+      const stamped: WorkbenchRecord = {
+        ...record(),
+        rollbackPlanConfirmedAt: NOW,
+        releaseItems: [{
+          id: 'R0001',
+          type: 'sql',
+          title: 't_order 加索引',
+          content: 'ALTER TABLE t_order ADD INDEX idx_created_at (created_at)',
+          contentHash: 'a'.repeat(64),
+          envs: ['prod'],
+          status: 'pending',
+          note: '随 v1.2 上线',
+        }],
+      }
+      await store.save(0, [stamped])
+      const loaded = store.load()
+      expect(loaded.ok).toBe(true)
+      if (!loaded.ok) return
+      expect(loaded.value.records[0]?.rollbackPlanConfirmedAt).toBe(NOW)
+      expect(loaded.value.records[0]?.releaseItems[0]?.note).toBe('随 v1.2 上线')
+      // And the wire guard accepts exactly the same shape (both halves agree).
+      expect(isWorkbenchRecord(loaded.value.records[0])).toBe(true)
     })
 
     it('parses a hand-written legal file (hand-edited yaml stays loadable)', () => {

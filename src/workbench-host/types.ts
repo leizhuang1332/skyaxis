@@ -136,6 +136,7 @@ export const ReleaseItemSchema = z.object({
   sessionId: SessionIdSchema.optional(),
   status: z.enum(RELEASE_STATUS_VALUES),
   appliedAt: TimestampSchema.optional(),
+  note: z.string().max(2000).optional(),
 })
 
 export const KnowledgeCandidateSchema = z.object({
@@ -161,6 +162,8 @@ export const WorkbenchRecordSchema = z.object({
   stageHistory: z.array(StageChangeSchema),
   /** Hard gate ① stamp — host-set-only (approveSplit / revokeSplitApproval). */
   splitApprovedAt: TimestampSchema.optional(),
+  /** S5 go/no-go third condition — host-set-only (confirm/revokeRollbackPlan). */
+  rollbackPlanConfirmedAt: TimestampSchema.optional(),
   criteria: z.array(WorkbenchCriterionSchema),
   findings: z.array(WorkbenchFindingSchema),
   workPackages: z.array(WorkbenchWorkPackageSchema),
@@ -357,6 +360,52 @@ const RemoveCriterionSchema = z.object({
   id: CriterionIdSchema,
 })
 
+// Release items (S5, P3a) — OUTSIDE the split gate (the record-actions.ts
+// note carries the three ratified reasons). The write-side shape omits the
+// three host-owned fields (id on create, contentHash, status, appliedAt):
+// the client never writes them, so the schema never accepts them — a
+// smuggled `status: 'verified'` is a 400 here, not a business-guard trip.
+const SaveReleaseItemSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  action: z.literal('saveReleaseItem'),
+  releaseItem: z.object({
+    id: ReleaseItemIdSchema.optional(),
+    type: z.enum(RELEASE_TYPE_VALUES),
+    title: z.string().trim().min(1).max(64),
+    content: z.string().max(WORKBENCH_INLINE_MAX_CHARS),
+    envs: z.array(z.string().trim().min(1).max(64)),
+    workPackageId: WorkPackageIdSchema.optional(),
+    sessionId: SessionIdSchema.optional(),
+    note: z.string().max(2000).optional(),
+  }),
+})
+
+const ReleaseItemActionSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  id: ReleaseItemIdSchema,
+})
+
+const RemoveReleaseItemSchema = ReleaseItemActionSchema.extend({ action: z.literal('removeReleaseItem') })
+const ConfirmReleaseItemSchema = ReleaseItemActionSchema.extend({ action: z.literal('confirmReleaseItem') })
+const MarkReleaseItemAppliedSchema = ReleaseItemActionSchema.extend({ action: z.literal('markReleaseItemApplied') })
+const MarkReleaseItemVerifiedSchema = ReleaseItemActionSchema.extend({ action: z.literal('markReleaseItemVerified') })
+const RollbackReleaseItemSchema = ReleaseItemActionSchema.extend({ action: z.literal('rollbackReleaseItem') })
+
+// Record-level rollback-plan stamp (the go/no-go third condition) — no id.
+const ConfirmRollbackPlanSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  action: z.literal('confirmRollbackPlan'),
+})
+
+const RevokeRollbackPlanSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  action: z.literal('revokeRollbackPlan'),
+})
+
 // Session binding (P2) — under the lifecycle gate (split approved).
 const BindSessionSchema = z.object({
   expectedRevision: z.number().int().nonnegative(),
@@ -426,6 +475,14 @@ export const WorkbenchMutateSchema = z.discriminatedUnion('action', [
   RestoreWorkPackageSchema,
   SaveCriterionSchema,
   RemoveCriterionSchema,
+  SaveReleaseItemSchema,
+  RemoveReleaseItemSchema,
+  ConfirmReleaseItemSchema,
+  MarkReleaseItemAppliedSchema,
+  MarkReleaseItemVerifiedSchema,
+  RollbackReleaseItemSchema,
+  ConfirmRollbackPlanSchema,
+  RevokeRollbackPlanSchema,
   BindSessionSchema,
   ActivateKnowledgeCandidateSchema,
   EditKnowledgeCandidateSchema,

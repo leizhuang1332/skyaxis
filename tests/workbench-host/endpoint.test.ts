@@ -32,6 +32,7 @@ import type {
   ErrorResponse,
   KnowledgeCandidate,
   PlanEntry,
+  ReleaseItem,
   ReviewReportEntry,
   WorkbenchDetailResponseOk,
   WorkbenchWorkPackage,
@@ -45,6 +46,7 @@ import {
   WORKBENCH_INLINE_MAX_CHARS,
   WORKBENCH_PATH,
   WORKBENCH_SCAN_PATH,
+  isReleaseItemId,
 } from '../../src/workbench-shared/protocol.js'
 import { planDocPath, reviewDocPath } from '../../src/workbench-host/artifact-path.js'
 import { contentHashOf } from '../../src/workbench-host/artifact-store.js'
@@ -138,6 +140,20 @@ function planEntry(version: number, contentHash: string, extra: Partial<PlanEntr
 
 function reviewEntry(id: string, extra: Partial<ReviewReportEntry> = {}): ReviewReportEntry {
   return { id, at: NOW, verdicts: [], ...extra }
+}
+
+function seedReleaseItem(id: string, extra: Partial<ReleaseItem> = {}): ReleaseItem {
+  const content = 'ALTER TABLE t_order ADD INDEX idx_created_at (created_at)'
+  return {
+    id,
+    type: 'sql',
+    title: `上线项 ${id}`,
+    content,
+    contentHash: contentHashOf(content),
+    envs: ['prod'],
+    status: 'pending',
+    ...extra,
+  }
 }
 
 const qs = (params: Record<string, string | number>) =>
@@ -1200,5 +1216,128 @@ describe('POST /api/skyaxis/workbench — P2 knowledge candidates & session bind
     const loaded = h.file.load()
     expect(loaded.ok).toBe(true)
     if (loaded.ok) expect(loaded.value.revision).toBe(1) // 被拒写入零残留
+  })
+})
+
+describe('POST /api/skyaxis/workbench — P3a release items & rollback plan', () => {
+  const saveBody = (rev: number, releaseItem: Record<string, unknown>, requirementId = RID) => ({
+    expectedRevision: rev, requirementId, action: 'saveReleaseItem', releaseItem,
+  })
+
+  it('隐式建账：无记录的需求首次登记 → R0001 落盘且账本可再读（毒化事故的 HTTP 面回归钉）', async () => {
+    const h = await harness()
+    const res = await h.post(WORKBENCH_PATH, saveBody(0, { type: 'sql', title: '建表', content: 'CREATE TABLE x', envs: ['prod'] }))
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { ok: true; revision: number; record: WorkbenchRecord }
+    expect(body.revision).toBe(1)
+    expect(body.record.releaseItems[0]?.id).toBe('R0001')
+
+    // 盘上真源：id 必须是四位补零形态，否则下一次 load 全账本 degrade。
+    const loaded = h.file.load()
+    expect(loaded.ok).toBe(true)
+    if (loaded.ok) {
+      expect(loaded.value.records[0]?.releaseItems[0]?.id).toBe('R0001')
+      expect(isReleaseItemId(loaded.value.records[0]?.releaseItems[0]?.id ?? '')).toBe(true)
+    }
+  })
+
+  it('登记后 detail GET 照常 200（不是 409 unreadable——毒化会在此现形）', async () => {
+    const h = await harness()
+    await h.post(WORKBENCH_PATH, saveBody(0, { type: 'config', title: '参数', content: 'max=8', envs: ['prod'] }))
+    const detail = await h.get(`${WORKBENCH_PATH}?requirementId=${RID}`)
+    expect(detail.status).toBe(200)
+    const detailBody = (await detail.json()) as WorkbenchDetailResponseOk
+    expect(detailBody.ok).toBe(true)
+    expect(detailBody.record?.releaseItems).toHaveLength(1)
+  })
+
+  it('全生命周期链：登记→确认→已执行（带 appliedAt）→已验证，全程落盘', async () => {
+    const h = await harness()
+    await h.seed([seedRecord(RID)]) // revision 1
+    const step = async (rev: number, action: string, extra: Record<string, unknown> = {}): Promise<number> => {
+      const res = await h.post(WORKBENCH_PATH, { expectedRevision: rev, requirementId: RID, action, id: 'R0001', ...extra })
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as { revision: number; record: WorkbenchRecord }
+      expect(body.record.releaseItems[0]?.status).toBeDefined()
+      return body.revision
+    }
+
+    let rev = await (async () => {
+      const res = await h.post(WORKBENCH_PATH, saveBody(1, { type: 'sql', title: '加索引', content: 'ALTER TABLE t ADD i(c)', envs: ['prod'], note: 'v1.2' }))
+      expect(res.status).toBe(200)
+      return ((await res.json()) as { revision: number }).revision
+    })()
+    rev = await step(rev, 'confirmReleaseItem')
+    rev = await step(rev, 'markReleaseItemApplied')
+    rev = await step(rev, 'markReleaseItemVerified')
+
+    const loaded = h.file.load()
+    expect(loaded.ok).toBe(true)
+    if (loaded.ok) {
+      const item = loaded.value.records[0]?.releaseItems[0]
+      expect(item?.status).toBe('verified')
+      expect(item?.appliedAt).toBeDefined()
+      expect(item?.note).toBe('v1.2')
+    }
+  })
+
+  it('严格链 HTTP 面：pending 直接 markApplied → 400 且账本零残留', async () => {
+    const h = await harness()
+    await h.seed([seedRecord(RID, { releaseItems: [seedReleaseItem('R0001')] })]) // revision 1
+
+    const res = await h.post(WORKBENCH_PATH, { expectedRevision: 1, requirementId: RID, action: 'markReleaseItemApplied', id: 'R0001' })
+    expect(res.status).toBe(400)
+    expect(await errorCode(res)).toBe('bad-request')
+
+    const loaded = h.file.load()
+    expect(loaded.ok).toBe(true)
+    if (loaded.ok) {
+      expect(loaded.value.revision).toBe(1)
+      expect(loaded.value.records[0]?.releaseItems[0]?.status).toBe('pending')
+    }
+  })
+
+  it('幂等 HTTP 面：重复 confirm → 200 且 revision 不增', async () => {
+    const h = await harness()
+    await h.seed([seedRecord(RID, { releaseItems: [seedReleaseItem('R0001', { status: 'confirmed' })] })])
+
+    const res = await h.post(WORKBENCH_PATH, { expectedRevision: 1, requirementId: RID, action: 'confirmReleaseItem', id: 'R0001' })
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { revision: number }).revision).toBe(1)
+  })
+
+  it('rollbackPlan 戳：confirm 落盘 → revoke 摘除；stale revision → 409 带 currentRevision', async () => {
+    const h = await harness()
+    await h.seed([seedRecord(RID)]) // revision 1
+
+    const stale = await h.post(WORKBENCH_PATH, { expectedRevision: 0, requirementId: RID, action: 'confirmRollbackPlan' })
+    expect(stale.status).toBe(409)
+    expect(await errorCode(stale)).toBe('conflict')
+
+    const confirm = await h.post(WORKBENCH_PATH, { expectedRevision: 1, requirementId: RID, action: 'confirmRollbackPlan' })
+    expect(confirm.status).toBe(200)
+    expect(((await confirm.json()) as { record: WorkbenchRecord }).record.rollbackPlanConfirmedAt).toBeDefined()
+
+    const revoke = await h.post(WORKBENCH_PATH, { expectedRevision: 2, requirementId: RID, action: 'revokeRollbackPlan' })
+    expect(revoke.status).toBe(200)
+    const loaded = h.file.load()
+    expect(loaded.ok).toBe(true)
+    if (loaded.ok) expect(loaded.value.records[0]?.rollbackPlanConfirmedAt).toBeUndefined()
+  })
+
+  it('门外 HTTP 面：拆分未批准照样登记（阶段可跳过 + R5 手动最短路径）', async () => {
+    const h = await harness()
+    await h.seed([seedRecord(RID, { splitApprovedAt: undefined })]) // 无批准戳
+    const res = await h.post(WORKBENCH_PATH, saveBody(1, { type: 'flag', title: '开关', content: 'enabled=false', envs: ['prod'] }))
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { record: WorkbenchRecord }).record.releaseItems).toHaveLength(1)
+  })
+
+  it('坏 wire 拒形：R1 作为编辑目标 → 400（zod 层拒绝非法 id）', async () => {
+    const h = await harness()
+    await h.seed([seedRecord(RID)])
+    const res = await h.post(WORKBENCH_PATH, saveBody(1, { id: 'R1', type: 'sql', title: 'x', content: 'x', envs: [] }))
+    expect(res.status).toBe(400)
+    expect(await errorCode(res)).toBe('bad-request')
   })
 })

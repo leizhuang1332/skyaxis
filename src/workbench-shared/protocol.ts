@@ -89,6 +89,20 @@ export function isReviewId(value: string): boolean {
   return /^[A-Za-z0-9-]{1,64}$/.test(value)
 }
 
+/**
+ * releaseItemId pattern: R + at least four digits (`R0001`). This is the
+ * third id column and it was the ONE missing from this family — the host
+ * mints zero-padded ids (ReleaseItemIdSchema `/^R\d{4,}$/`), so an unpadded
+ * `R1` is a ledger-poisoning row: `save()` does not re-validate the schema
+ * (only `load()` does), so the illegal id lands on disk and the NEXT load
+ * degrades the whole file to schema-rejected — every requirement's
+ * workbench goes unreadable at once (the P1b round-2 `coveredBy` incident,
+ * milestones/0006). The wire guard is layer 1 against exactly that.
+ */
+export function isReleaseItemId(value: string): boolean {
+  return /^R\d{4,}$/.test(value)
+}
+
 // ---------------------------------------------------------------------------
 // Records (workbench.yaml — one per requirement)
 // ---------------------------------------------------------------------------
@@ -203,7 +217,7 @@ export interface ReviewReportEntry {
 }
 
 export interface ReleaseItem {
-  /** 'R0001', 'R0002', … — host-minted sequence. */
+  /** 'R0001', 'R0002', … — host-minted sequence, see isReleaseItemId. */
   readonly id: string
   readonly type: 'sql' | 'config' | 'flag' | 'mq' | 'other'
   readonly title: string
@@ -216,6 +230,13 @@ export interface ReleaseItem {
   readonly sessionId?: string
   readonly status: 'pending' | 'confirmed' | 'applied' | 'verified' | 'rolled-back'
   readonly appliedAt?: string
+  /**
+   * Free-text remark carried into the release sheet export (research 0006
+   * §7.3「分组清单 + 状态 + 备注 + go/no-go 结论」). Optional per the
+   * field-evolution discipline — the first ledger release had no release
+   * items at all, so nothing to migrate.
+   */
+  readonly note?: string
 }
 
 export interface KnowledgeCandidate {
@@ -254,6 +275,16 @@ export interface WorkbenchRecord {
    * wording refers to the LIST surviving a revoke, not an audit trail).
    */
   readonly splitApprovedAt?: string
+  /**
+   * Rollback-plan acknowledgement stamp (P3a, user-ratified 2026-10-08):
+   * the third go/no-go condition of the S5 release sheet — "全部 confirmed
+   * 以上 + 无漂移告警 + 回滚预案确认" (research 0006 §7.3). A single
+   * record-level stamp, structurally the same shape as splitApprovedAt:
+   * host-set-only (confirmRollbackPlan / revokeRollbackPlan), no audit
+   * array, presence = the user has reviewed the rollback plan. It is NOT a
+   * per-item field — the plan covers the release as a whole.
+   */
+  readonly rollbackPlanConfirmedAt?: string
   readonly criteria: readonly WorkbenchCriterion[]
   readonly findings: readonly WorkbenchFinding[]
   readonly workPackages: readonly WorkbenchWorkPackage[]
@@ -431,6 +462,85 @@ export interface RemoveCriterionRequest {
   readonly id: string
 }
 
+// --- Release items (S5 delivery; OUTSIDE the split gate — see the
+// record-actions.ts note. Registration happens from the implement stage
+// onward and rollback is a safety action: neither may be locked out by a
+// revoked split approval.) ---
+
+/**
+ * Register or edit one release item. `contentHash` is NEVER client-writable
+ * (host sha256 at write, the D4-③ discipline for plans applied here); an
+ * edit re-hashes, so drift can only ever come from outside the endpoint.
+ */
+export interface SaveReleaseItemRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'saveReleaseItem'
+  /** id present = edit (pending items only), absent = create (host mints R####). */
+  readonly releaseItem: {
+    readonly id?: string
+    readonly type: ReleaseItem['type']
+    readonly title: string
+    readonly content: string
+    readonly envs: readonly string[]
+    readonly workPackageId?: string
+    readonly sessionId?: string
+    readonly note?: string
+  }
+}
+
+export interface RemoveReleaseItemRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'removeReleaseItem'
+  readonly id: string
+}
+
+/** pending → confirmed: the user accepts an AI-declared item onto the sheet. */
+export interface ConfirmReleaseItemRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'confirmReleaseItem'
+  readonly id: string
+}
+
+/** confirmed → applied (strict chain; host stamps appliedAt). */
+export interface MarkReleaseItemAppliedRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'markReleaseItemApplied'
+  readonly id: string
+}
+
+/** applied → verified. */
+export interface MarkReleaseItemVerifiedRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'markReleaseItemVerified'
+  readonly id: string
+}
+
+/** Any live status → rolled-back (terminal). */
+export interface RollbackReleaseItemRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'rollbackReleaseItem'
+  readonly id: string
+}
+
+/** The go/no-go third condition — record-level, not per item. */
+export interface ConfirmRollbackPlanRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'confirmRollbackPlan'
+}
+
+export interface RevokeRollbackPlanRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'revokeRollbackPlan'
+}
+
 // --- Session bindings (P2: manual binding from the S3 detail dialog) ---
 
 export interface BindSessionRequest {
@@ -502,6 +612,14 @@ export type WorkbenchMutateRequestBody =
   | RestoreWorkPackageRequest
   | SaveCriterionRequest
   | RemoveCriterionRequest
+  | SaveReleaseItemRequest
+  | RemoveReleaseItemRequest
+  | ConfirmReleaseItemRequest
+  | MarkReleaseItemAppliedRequest
+  | MarkReleaseItemVerifiedRequest
+  | RollbackReleaseItemRequest
+  | ConfirmRollbackPlanRequest
+  | RevokeRollbackPlanRequest
   | BindSessionRequest
   | ActivateKnowledgeCandidateRequest
   | EditKnowledgeCandidateRequest
@@ -871,7 +989,7 @@ function isReleaseItem(v: unknown): v is ReleaseItem {
   if (typeof v !== 'object' || v === null) return false
   const r = v as Record<string, unknown>
   return (
-    isString(r.id) && r.id.length > 0
+    isString(r.id) && isReleaseItemId(r.id)
     && isString(r.type) && RELEASE_TYPES.includes(r.type)
     && isString(r.title) && r.title.length > 0
     && isString(r.content)
@@ -881,6 +999,7 @@ function isReleaseItem(v: unknown): v is ReleaseItem {
     && (r.sessionId === undefined || isString(r.sessionId))
     && isString(r.status) && RELEASE_STATUSES.includes(r.status)
     && (r.appliedAt === undefined || isString(r.appliedAt))
+    && (r.note === undefined || isString(r.note))
   )
 }
 
@@ -916,6 +1035,7 @@ export function isWorkbenchRecord(v: unknown): v is WorkbenchRecord {
     && isString(r.stage) && STAGES_OR_CLOSED.includes(r.stage)
     && Array.isArray(r.stageHistory) && r.stageHistory.every(isWorkbenchStageChange)
     && (r.splitApprovedAt === undefined || (isString(r.splitApprovedAt) && r.splitApprovedAt.length > 0))
+    && (r.rollbackPlanConfirmedAt === undefined || (isString(r.rollbackPlanConfirmedAt) && r.rollbackPlanConfirmedAt.length > 0))
     && Array.isArray(r.criteria) && r.criteria.every(isWorkbenchCriterion)
     && Array.isArray(r.findings) && r.findings.every(isWorkbenchFinding)
     && Array.isArray(r.workPackages) && r.workPackages.every(isWorkbenchWorkPackage)

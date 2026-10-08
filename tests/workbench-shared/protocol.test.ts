@@ -26,6 +26,7 @@ import {
   isErrorResponse,
   isWorkPackageId,
   isPlanVersion,
+  isReleaseItemId,
   isReviewId,
   isWorkbenchDetailResponse,
   isWorkbenchKnowledgeListResponse,
@@ -242,6 +243,20 @@ describe('isWorkbenchRecord', () => {
   it('releaseItems keep contentHash REQUIRED (Flyway checksum mode)', () => {
     const { contentHash: _h, ...noHash } = releaseItem()
     expect(isWorkbenchRecord(record({ releaseItems: [noHash as ReleaseItem] }))).toBe(false)
+  })
+
+  it('isReleaseItemId: R#### only — an unpadded R1 is the ledger-poisoning shape (P3a)', () => {
+    expect(isReleaseItemId('R0001')).toBe(true)
+    expect(isReleaseItemId('R12345')).toBe(true) // 五位也合法（>9999 之后自然增长）
+    expect(isReleaseItemId('R1')).toBe(false)
+    expect(isReleaseItemId('R001')).toBe(false)
+    expect(isReleaseItemId('r0001')).toBe(false)
+    expect(isReleaseItemId('WP0001')).toBe(false)
+    // guard 层联动：无补零 id 的整条记录被拒
+    expect(isWorkbenchRecord(record({ releaseItems: [releaseItem({ id: 'R1' })] }))).toBe(false)
+    // 新 optional 字段的 guard 放宽（note / rollbackPlanConfirmedAt）
+    expect(isWorkbenchRecord(record({ releaseItems: [releaseItem({ note: '随 v1.2 上线' })] }))).toBe(true)
+    expect(isWorkbenchRecord(record({ rollbackPlanConfirmedAt: '2026-10-08T00:00:00.000Z' }))).toBe(true)
   })
 })
 

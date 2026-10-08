@@ -1,6 +1,6 @@
 /**
- * Workbench record actions (second knife): the 16-member mutate union as ONE
- * pure function over the loaded record — all business guards live here
+ * Workbench record actions (second knife): the mutate union as ONE pure
+ * function over the loaded record — all business guards live here
  * (zod only sees the wire shape; referential integrity, state-machine
  * legality and gate locks need the parsed record at hand, which is the
  * "wire validation → … → business guards" ladder's bottom rung).
@@ -20,17 +20,20 @@
  *
  * Host-owned fields are never client-writable: workPackage status/plans/
  * sessions/commits/acceptances/order, criteria.coveredBy (recomputed from
- * covers after every list change), finding id/createdAt, plan approvedAt.
+ * covers after every list change), finding id/createdAt, plan approvedAt,
+ * releaseItem id/contentHash/status/appliedAt, record rollbackPlanConfirmedAt.
  */
 import { randomUUID } from 'node:crypto'
 import type {
   ErrorResponse,
+  ReleaseItem,
   WorkbenchCriterion,
   WorkbenchFinding,
   WorkbenchMutateRequestBody,
   WorkbenchRecord,
   WorkbenchWorkPackage,
 } from '../workbench-shared/protocol.js'
+import { contentHashOf } from './artifact-store.js'
 import type { KnowledgeRecord } from './types.js'
 
 export type RecordActionResult =
@@ -66,6 +69,25 @@ function nextSequenceId(ids: readonly string[], prefix: string): string {
     if (Number.isInteger(parsed) && parsed > max) max = parsed
   }
   return `${prefix}${max + 1}`
+}
+
+/**
+ * R#### release-item minting — deliberately NOT nextSequenceId. Release ids
+ * are zero-padded to four digits (`ReleaseItemIdSchema` = /^R\d{4,}$/), and
+ * nextSequenceId would mint `R1`: `save()` never re-validates the schema
+ * (only `load()` does), so the illegal row lands on disk and the NEXT load
+ * degrades the whole workbench.yaml to schema-rejected — every requirement's
+ * workbench turns unreadable at once and refuses to write. Same failure mode
+ * as the P1b round-2 coveredBy incident (milestones/0006). Padding to four
+ * matches research 0006 §6.1 and the mockup's `R0001`.
+ */
+function nextReleaseItemId(ids: readonly string[]): string {
+  let max = 0
+  for (const id of ids) {
+    const parsed = Number.parseInt(id.slice(1), 10)
+    if (Number.isInteger(parsed) && parsed > max) max = parsed
+  }
+  return `R${String(max + 1).padStart(4, '0')}`
 }
 
 function replaceWorkPackage(record: WorkbenchRecord, next: WorkbenchWorkPackage): WorkbenchRecord {
@@ -422,5 +444,151 @@ export function applyRecordAction(base: WorkbenchRecord, body: WorkbenchMutateRe
       knowledgeRow,
     }
   }
+  // --- P3a: release items (S5 delivery) and the record-level rollback-plan
+  // stamp. BOTH live OUTSIDE the split gate, same side as findings/stage and
+  // the knowledge-candidate queue. Three ratified reasons (user 2026-10-08):
+  //   ① stages are skippable (research 0006 P3 principle) — a user may push
+  //      straight to deliver without ever approving a split, and a gated S5
+  //      would render nothing but lockedHint, breaking R5「所有录入有手动
+  //      最短路径」;
+  //   ② rollback is a SAFETY action; a revoked split approval must not lock
+  //      it down mid-delivery;
+  //   ③ the §5.3 gate matrix marks「登记上线项」✓ for BOTH columns — it is
+  //      not one of the four user-only powers, and the split lock protects
+  //      the「清单 × 覆盖」contract, which release items are not part of.
+  // The status chain is strict (confirmed → applied → verified, the P1b
+  // 「开工严格链」spirit): no skipping rungs, no going back except through
+  // rolled-back, which is terminal. Editing and deleting are pending-only —
+  // once an item is on the sheet its content is locked (修正 = 新登记一条 +
+  // 旧条目 rolled-back, research §7.3), and the S5 row discloses that. ---
+
+  if (body.action === 'saveReleaseItem') {
+    const input = body.releaseItem
+    if (input.id !== undefined) {
+      const target = base.releaseItems.find((item) => item.id === input.id)
+      if (target === undefined) return fail(404, 'not-found')
+      if (target.status !== 'pending') return fail(400, 'bad-request') // content is locked once on the sheet
+      const note = input.note?.trim()
+      // Field semantics differ by ownership, deliberately:
+      //   - the six USER-EDITABLE fields are FULL REPLACE, so the S5 form's
+      //     「无」work-package option and an emptied note actually clear
+      //     (carry-over would make both impossible to undo — the form is the
+      //     only writer of these fields, so absent means "user cleared it");
+      //   - `sessionId` is declare-channel PROVENANCE (P3b writes it, the
+      //     manual form never does) so it carries over untouched.
+      const next: ReleaseItem = {
+        id: target.id,
+        type: input.type,
+        title: input.title.trim(),
+        content: input.content,
+        contentHash: contentHashOf(input.content),
+        envs: [...input.envs],
+        ...(input.workPackageId !== undefined ? { workPackageId: input.workPackageId } : {}),
+        ...(target.sessionId !== undefined ? { sessionId: target.sessionId } : {}),
+        status: target.status,
+        ...(target.appliedAt !== undefined ? { appliedAt: target.appliedAt } : {}),
+        ...(note !== undefined && note.length > 0 ? { note } : {}),
+      }
+      // A no-op edit must not bump the revision (the idempotent-convergence
+      // contract, same as repeat-bind / repeat-dismiss).
+      if (releaseItemEquivalent(target, next)) return { ok: true, record: base, unchanged: true }
+      return {
+        ok: true,
+        record: {
+          ...base,
+          releaseItems: base.releaseItems.map((item) => (item.id === input.id ? next : item)),
+        },
+      }
+    }
+    const created: ReleaseItem = {
+      id: nextReleaseItemId(base.releaseItems.map((item) => item.id)),
+      type: input.type,
+      title: input.title.trim(),
+      content: input.content,
+      // Host-minted, never client-writable (the D4-③ discipline for plans):
+      // registration hashes the content, so any later mismatch means the
+      // ledger was edited OUTSIDE this endpoint.
+      contentHash: contentHashOf(input.content),
+      envs: [...input.envs],
+      ...(input.workPackageId !== undefined ? { workPackageId: input.workPackageId } : {}),
+      ...(input.sessionId !== undefined ? { sessionId: input.sessionId } : {}),
+      ...(input.note !== undefined && input.note.trim().length > 0 ? { note: input.note.trim() } : {}),
+      status: 'pending',
+    }
+    return { ok: true, record: { ...base, releaseItems: [...base.releaseItems, created] } }
+  }
+
+  if (body.action === 'confirmRollbackPlan' || body.action === 'revokeRollbackPlan') {
+    // Record-level stamp, mirroring approveSplit/revokeSplitApproval's
+    // "twice is a client bug, not a state race" stance.
+    if (body.action === 'confirmRollbackPlan') {
+      if (base.rollbackPlanConfirmedAt !== undefined) return fail(400, 'bad-request')
+      return { ok: true, record: { ...base, rollbackPlanConfirmedAt: now() } }
+    }
+    if (base.rollbackPlanConfirmedAt === undefined) return fail(400, 'bad-request')
+    const { rollbackPlanConfirmedAt: _stamp, ...rest } = base
+    return { ok: true, record: rest }
+  }
+
+  if (body.action === 'removeReleaseItem' || body.action === 'confirmReleaseItem'
+    || body.action === 'markReleaseItemApplied' || body.action === 'markReleaseItemVerified'
+    || body.action === 'rollbackReleaseItem') {
+    const target = base.releaseItems.find((item) => item.id === body.id)
+    if (target === undefined) return fail(404, 'not-found')
+
+    if (body.action === 'removeReleaseItem') {
+      // Pending-only: a confirmed item is on the sheet and leaving it must
+      // go through rolled-back (audit trail preserved, research §7.3).
+      if (target.status !== 'pending') return fail(400, 'bad-request')
+      return { ok: true, record: { ...base, releaseItems: base.releaseItems.filter((item) => item.id !== body.id) } }
+    }
+
+    const moveTo = (status: ReleaseItem['status'], extra?: Partial<ReleaseItem>): RecordActionResult => ({
+      ok: true,
+      record: {
+        ...base,
+        releaseItems: base.releaseItems.map((item) => (item.id === body.id ? { ...item, ...extra, status } : item)),
+      },
+    })
+
+    if (body.action === 'confirmReleaseItem') {
+      if (target.status === 'confirmed') return { ok: true, record: base, unchanged: true }
+      if (target.status !== 'pending') return fail(400, 'bad-request')
+      return moveTo('confirmed')
+    }
+    if (body.action === 'markReleaseItemApplied') {
+      if (target.status === 'applied') return { ok: true, record: base, unchanged: true }
+      // Strict chain: pending items must be confirmed first (the user
+      // accepts an AI-declared item onto the sheet before it can be run).
+      if (target.status !== 'confirmed') return fail(400, 'bad-request')
+      return moveTo('applied', { appliedAt: now() })
+    }
+    if (body.action === 'markReleaseItemVerified') {
+      if (target.status === 'verified') return { ok: true, record: base, unchanged: true }
+      if (target.status !== 'applied') return fail(400, 'bad-request')
+      return moveTo('verified')
+    }
+    // rollbackReleaseItem — any live status may be rolled back; the status
+    // is terminal afterwards.
+    if (target.status === 'rolled-back') return { ok: true, record: base, unchanged: true }
+    return moveTo('rolled-back')
+  }
+
   return fail(400, 'bad-request')
+}
+
+/**
+ * Identity-field equivalence for the pending-edit no-op short-circuit —
+ * mirrors knowledgeRowEquivalent: a byte-identical re-save is not a data
+ * change and must not bump the revision. contentHash is derived from
+ * content, so comparing content covers it.
+ */
+function releaseItemEquivalent(a: ReleaseItem, b: ReleaseItem): boolean {
+  return a.type === b.type
+    && a.title === b.title
+    && a.content === b.content
+    && a.envs.length === b.envs.length && a.envs.every((env, index) => env === b.envs[index])
+    && a.workPackageId === b.workPackageId
+    && a.sessionId === b.sessionId
+    && a.note === b.note
 }
