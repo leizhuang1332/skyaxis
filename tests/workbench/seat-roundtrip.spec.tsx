@@ -45,7 +45,7 @@ describe('seat round-trip: no stage-view duplication', () => {
       revision: 1,
       record,
       planFileExists: [],
-      reviewFileExists: [],
+      reviewFileExists: [], releaseDrifted: [],
     }))))
     const store = createWorkbenchStore()
     const controller = createWorkbenchController(store, createWorkbenchFetcher())
@@ -81,7 +81,7 @@ describe('seat round-trip: no stage-view duplication', () => {
       revision: 1,
       record,
       planFileExists: [],
-      reviewFileExists: [],
+      reviewFileExists: [], releaseDrifted: [],
     }))))
     const store = createWorkbenchStore()
     const controller = createWorkbenchController(store, createWorkbenchFetcher())

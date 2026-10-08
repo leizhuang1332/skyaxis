@@ -67,6 +67,7 @@ export type WorkbenchDetailResult =
     readonly record: WorkbenchRecord | null
     readonly planFileExists: readonly PlanFileExistsRow[]
     readonly reviewFileExists: readonly ReviewFileExistsRow[]
+    readonly releaseDrifted: readonly string[]
   }
   | WorkbenchFailure
 
@@ -134,6 +135,7 @@ export function createWorkbenchFetcher() {
         record: parsed.record,
         planFileExists: [...parsed.planFileExists],
         reviewFileExists: [...parsed.reviewFileExists],
+        releaseDrifted: [...parsed.releaseDrifted],
       }
     },
 
@@ -220,6 +222,40 @@ export function createWorkbenchFetcher() {
 
     async removeCriterion(requirementId: string, expectedRevision: number, id: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
       return this.mutate({ expectedRevision, requirementId, action: 'removeCriterion', id }, signal)
+    },
+
+    // --- P3a: release items + rollback-plan stamp (outside the split gate) ---
+
+    async saveReleaseItem(requirementId: string, expectedRevision: number, releaseItem: { id?: string; type: 'sql' | 'config' | 'flag' | 'mq' | 'other'; title: string; content: string; envs: readonly string[]; workPackageId?: string; sessionId?: string; note?: string }, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'saveReleaseItem', releaseItem: { ...releaseItem } }, signal)
+    },
+
+    async removeReleaseItem(requirementId: string, expectedRevision: number, id: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'removeReleaseItem', id }, signal)
+    },
+
+    async confirmReleaseItem(requirementId: string, expectedRevision: number, id: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'confirmReleaseItem', id }, signal)
+    },
+
+    async markReleaseItemApplied(requirementId: string, expectedRevision: number, id: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'markReleaseItemApplied', id }, signal)
+    },
+
+    async markReleaseItemVerified(requirementId: string, expectedRevision: number, id: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'markReleaseItemVerified', id }, signal)
+    },
+
+    async rollbackReleaseItem(requirementId: string, expectedRevision: number, id: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'rollbackReleaseItem', id }, signal)
+    },
+
+    async confirmRollbackPlan(requirementId: string, expectedRevision: number, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'confirmRollbackPlan' }, signal)
+    },
+
+    async revokeRollbackPlan(requirementId: string, expectedRevision: number, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'revokeRollbackPlan' }, signal)
     },
 
     // --- P2: session binding + knowledge candidates (main union) ---

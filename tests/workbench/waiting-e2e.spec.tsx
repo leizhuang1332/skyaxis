@@ -42,7 +42,7 @@ const record: WorkbenchRecord = {
 }
 
 const slot: RequirementWorkbenchState = {
-  phase: 'ready', revision: 1, record, planFileExists: [], reviewFileExists: [], busy: false,
+  phase: 'ready', revision: 1, record, planFileExists: [], reviewFileExists: [], releaseDrifted: [], busy: false,
 }
 
 /** The uiSession.pendingInteractions face, shape-identical to the real one. */
@@ -134,7 +134,7 @@ describe('P2b seat 穿线回归（验收缺陷 168e80b 的钉子）', () => {
     const store = createWorkbenchStore()
     const controller = createWorkbenchController(store, {
       list: async () => ({ kind: 'ok', revision: 1, records: [record] }),
-      detail: async () => ({ kind: 'ok', revision: 1, record, planFileExists: [], reviewFileExists: [] }),
+      detail: async () => ({ kind: 'ok', revision: 1, record, planFileExists: [], reviewFileExists: [], releaseDrifted: [] }),
       openKnowledge: async () => undefined,
       knowledgeList: async () => ({ kind: 'ok', revision: 0, records: [] }),
     } as never)

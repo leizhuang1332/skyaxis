@@ -30,6 +30,7 @@ export function createWorkbenchController(store: WorkbenchStore, fetcher: Workbe
       record: null,
       planFileExists: [],
       reviewFileExists: [],
+      releaseDrifted: [],
       busy: false,
     }
     store.set({
@@ -102,6 +103,7 @@ export function createWorkbenchController(store: WorkbenchStore, fetcher: Workbe
         record: result.record,
         planFileExists: result.planFileExists,
         reviewFileExists: result.reviewFileExists,
+        releaseDrifted: result.releaseDrifted,
         degraded: undefined,
       })
       return
@@ -188,6 +190,32 @@ export function createWorkbenchController(store: WorkbenchStore, fetcher: Workbe
       mutate(requirementId, () => fetcher.saveCriterion(requirementId, slotRevision(requirementId), criterion, signal), signal),
     removeCriterion: (requirementId: string, id: string, signal?: AbortSignal) =>
       mutate(requirementId, () => fetcher.removeCriterion(requirementId, slotRevision(requirementId), id, signal), signal),
+
+    // --- P3a: release items + rollback-plan stamp (outside the split gate) ---
+
+    saveReleaseItem: (requirementId: string, releaseItem: { id?: string; type: 'sql' | 'config' | 'flag' | 'mq' | 'other'; title: string; content: string; envs: readonly string[]; workPackageId?: string; sessionId?: string; note?: string }, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.saveReleaseItem(requirementId, slotRevision(requirementId), releaseItem, signal), signal),
+
+    removeReleaseItem: (requirementId: string, id: string, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.removeReleaseItem(requirementId, slotRevision(requirementId), id, signal), signal),
+
+    confirmReleaseItem: (requirementId: string, id: string, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.confirmReleaseItem(requirementId, slotRevision(requirementId), id, signal), signal),
+
+    markReleaseItemApplied: (requirementId: string, id: string, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.markReleaseItemApplied(requirementId, slotRevision(requirementId), id, signal), signal),
+
+    markReleaseItemVerified: (requirementId: string, id: string, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.markReleaseItemVerified(requirementId, slotRevision(requirementId), id, signal), signal),
+
+    rollbackReleaseItem: (requirementId: string, id: string, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.rollbackReleaseItem(requirementId, slotRevision(requirementId), id, signal), signal),
+
+    confirmRollbackPlan: (requirementId: string, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.confirmRollbackPlan(requirementId, slotRevision(requirementId), signal), signal),
+
+    revokeRollbackPlan: (requirementId: string, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.revokeRollbackPlan(requirementId, slotRevision(requirementId), signal), signal),
 
     /**
      * Plan draft write: the artifact endpoint answers with the revision but

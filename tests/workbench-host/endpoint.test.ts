@@ -243,7 +243,7 @@ describe('GET /api/skyaxis/workbench?requirementId — detail', () => {
     const h = await harness()
     const res = await h.get(`${WORKBENCH_PATH}?requirementId=${RID}`)
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ ok: true, revision: 0, record: null, planFileExists: [], reviewFileExists: [] })
+    expect(await res.json()).toEqual({ ok: true, revision: 0, record: null, planFileExists: [], reviewFileExists: [], releaseDrifted: [] })
     // GET never creates: the ledger is still pristine after the read.
     expect(h.file.load()).toEqual({ ok: true, value: { version: 1, revision: 0, records: [] } })
   })
@@ -1339,5 +1339,41 @@ describe('POST /api/skyaxis/workbench — P3a release items & rollback plan', ()
     const res = await h.post(WORKBENCH_PATH, saveBody(1, { id: 'R1', type: 'sql', title: 'x', content: 'x', envs: [] }))
     expect(res.status).toBe(400)
     expect(await errorCode(res)).toBe('bad-request')
+  })
+
+  it('漂移投影：经端点写入的条目零漂移（写入即重算 hash，自洽）', async () => {
+    const h = await harness()
+    await h.post(WORKBENCH_PATH, saveBody(0, { type: 'sql', title: '自洽', content: 'SELECT 1', envs: ['prod'] }))
+    const detail = (await (await h.get(`${WORKBENCH_PATH}?requirementId=${RID}`)).json()) as WorkbenchDetailResponseOk
+    expect(detail.releaseDrifted).toEqual([])
+  })
+
+  it('漂移投影：手改 yaml 的 content → 该项 id 入 releaseDrifted（读时重算比对，响应面字段不入账本）', async () => {
+    const h = await harness()
+    await h.seed([seedRecord(RID, {
+      releaseItems: [seedReleaseItem('R0001'), seedReleaseItem('R0002', { type: 'config', title: '并发参数', content: 'max=4', contentHash: contentHashOf('max=4') })],
+    })])
+
+    // 外部手改：R0001 的 content 被换掉但登记时的 hash 留在账里。
+    const yamlText = readFileSync(h.file.filePath, 'utf8')
+    writeFileSync(h.file.filePath, yamlText.replace('ALTER TABLE t_order ADD INDEX idx_created_at (created_at)', 'ALTER TABLE t_order DROP INDEX idx_created_at'), 'utf8')
+
+    const detail = (await (await h.get(`${WORKBENCH_PATH}?requirementId=${RID}`)).json()) as WorkbenchDetailResponseOk
+    expect(detail.releaseDrifted).toEqual(['R0001'])
+
+    // 投影绝不回写：账本盘上 contentHash 原样（漂移是读时事实，不是账本状态）。
+    const after = readFileSync(h.file.filePath, 'utf8')
+    expect(after).toContain(contentHashOf('ALTER TABLE t_order ADD INDEX idx_created_at (created_at)'))
+  })
+
+  it('漂移投影：编辑 pending 条目走端点 → hash 随 content 重算，零漂移（编辑不自造漂移的实证）', async () => {
+    const h = await harness()
+    await h.seed([seedRecord(RID, { releaseItems: [seedReleaseItem('R0001')] })]) // revision 1
+    const edit = await h.post(WORKBENCH_PATH, saveBody(1, { id: 'R0001', type: 'sql', title: '上线项 R0001', content: 'ALTER TABLE t_order ADD INDEX idx_created_at (created_at), idx_status (status)', envs: ['prod'] }))
+    expect(edit.status).toBe(200)
+
+    const detail = (await (await h.get(`${WORKBENCH_PATH}?requirementId=${RID}`)).json()) as WorkbenchDetailResponseOk
+    expect(detail.releaseDrifted).toEqual([])
+    expect(detail.record?.releaseItems[0]?.contentHash).toBe(contentHashOf('ALTER TABLE t_order ADD INDEX idx_created_at (created_at), idx_status (status)'))
   })
 })

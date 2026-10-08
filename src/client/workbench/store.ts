@@ -22,6 +22,8 @@ export interface RequirementWorkbenchState {
   /** Response-plane existence rows (never ledger fields — decisions/0005 细化④). */
   planFileExists: readonly PlanFileExistsRow[]
   reviewFileExists: readonly ReviewFileExistsRow[]
+  /** Response-plane drift ids (same projection family): content re-hash mismatch. */
+  releaseDrifted: readonly string[]
   degraded?: { reason: 'parse' | 'schema' | 'io'; hasBackup: boolean }
   busy: boolean
   banner?: {
@@ -54,6 +56,7 @@ export function slotFor(state: WorkbenchState, requirementId: string): Requireme
     record: null,
     planFileExists: [],
     reviewFileExists: [],
+    releaseDrifted: [],
     busy: false,
   }
 }

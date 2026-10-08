@@ -781,6 +781,14 @@ export interface WorkbenchDetailResponseOk {
   readonly record: WorkbenchRecord | null
   readonly planFileExists: readonly PlanFileExistsRow[]
   readonly reviewFileExists: readonly ReviewFileExistsRow[]
+  /**
+   * Ids of release items whose stored contentHash disagrees with a fresh
+   * hash of their content — a READ-TIME projection (never a ledger field,
+   * the fileExists precedent). Content written through the endpoint always
+   * re-hashes in the same write, so drift has exactly one cause: the ledger
+   * yaml was edited outside the endpoint. Warn, don't block (细化④).
+   */
+  readonly releaseDrifted: readonly string[]
 }
 
 export interface WorkbenchSaveResponseOk {
@@ -1083,6 +1091,7 @@ export function isWorkbenchDetailResponse(v: unknown): v is WorkbenchDetailRespo
     && (r.record === null || isWorkbenchRecord(r.record))
     && Array.isArray(r.planFileExists) && r.planFileExists.every(isPlanFileExistsRow)
     && Array.isArray(r.reviewFileExists) && r.reviewFileExists.every(isReviewFileExistsRow)
+    && Array.isArray(r.releaseDrifted) && r.releaseDrifted.every(isString)
   )
 }
 

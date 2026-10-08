@@ -64,7 +64,7 @@ function slot(overrides: Partial<RequirementWorkbenchState> = {}): RequirementWo
     revision: 3,
     record: null,
     planFileExists: [],
-    reviewFileExists: [],
+    reviewFileExists: [], releaseDrifted: [],
     busy: false,
     ...overrides,
   }
@@ -259,7 +259,7 @@ describe('WorkbenchTabBody（六阶段导轨 · 真实数据源）', () => {
       store.set({
         knowledgeByRequirement: {},
         byRequirement: {
-          [RID]: { phase: 'ready', revision: 1, record: workbenchRecord({ findings: [finding('a', 'open')] }), planFileExists: [], reviewFileExists: [], busy: false },
+          [RID]: { phase: 'ready', revision: 1, record: workbenchRecord({ findings: [finding('a', 'open')] }), planFileExists: [], reviewFileExists: [], releaseDrifted: [], busy: false },
         },
       })
     })

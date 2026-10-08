@@ -47,17 +47,17 @@ describe('workbench fetcher', () => {
       revision: 1,
       record: null,
       planFileExists: [],
-      reviewFileExists: [],
+      reviewFileExists: [], releaseDrifted: [],
     })))
     const empty = await createWorkbenchFetcher().detail(RID)
-    expect(empty).toEqual({ kind: 'ok', revision: 1, record: null, planFileExists: [], reviewFileExists: [] })
+    expect(empty).toEqual({ kind: 'ok', revision: 1, record: null, planFileExists: [], reviewFileExists: [], releaseDrifted: [] })
 
     vi.stubGlobal('fetch', async () => new Response(JSON.stringify({
       ok: true,
       revision: 1,
       record: okRecord(),
       planFileExists: [{ workPackageId: 'WP1', version: 1, exists: false }],
-      reviewFileExists: [],
+      reviewFileExists: [], releaseDrifted: [],
     })))
     const filled = await createWorkbenchFetcher().detail(RID)
     expect(filled.kind).toBe('ok')
@@ -172,5 +172,33 @@ describe('workbench fetcher', () => {
     vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ ok: false, code: 'locked-split' }), { status: 400 }))
     const result = await createWorkbenchFetcher().approvePlan(RID, 1, 'WP1')
     expect(result).toEqual({ kind: 'http-error', status: 400, code: 'locked-split' })
+  })
+
+  it('P3a release methods post their discriminated bodies (no contentHash on the wire — host mints it)', async () => {
+    const calls: unknown[] = []
+    vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
+      calls.push(JSON.parse(String(init.body)))
+      return new Response(JSON.stringify({ ok: true, revision: 9, record: okRecord() }))
+    })
+    const fetcher = createWorkbenchFetcher()
+    expect((await fetcher.saveReleaseItem(RID, 4, { type: 'sql', title: '加索引', content: 'ALTER', envs: ['prod'] })).kind).toBe('ok')
+    expect((await fetcher.saveReleaseItem(RID, 4, { id: 'R0001', type: 'sql', title: '改', content: 'ALTER2', envs: [], workPackageId: 'WP1', note: 'n' })).kind).toBe('ok')
+    expect((await fetcher.removeReleaseItem(RID, 4, 'R0001')).kind).toBe('ok')
+    expect((await fetcher.confirmReleaseItem(RID, 4, 'R0001')).kind).toBe('ok')
+    expect((await fetcher.markReleaseItemApplied(RID, 4, 'R0001')).kind).toBe('ok')
+    expect((await fetcher.markReleaseItemVerified(RID, 4, 'R0001')).kind).toBe('ok')
+    expect((await fetcher.rollbackReleaseItem(RID, 4, 'R0001')).kind).toBe('ok')
+    expect((await fetcher.confirmRollbackPlan(RID, 4)).kind).toBe('ok')
+    expect((await fetcher.revokeRollbackPlan(RID, 4)).kind).toBe('ok')
+
+    expect(calls[0]).toEqual({ expectedRevision: 4, requirementId: RID, action: 'saveReleaseItem', releaseItem: { type: 'sql', title: '加索引', content: 'ALTER', envs: ['prod'] } })
+    expect(calls[1]).toEqual({ expectedRevision: 4, requirementId: RID, action: 'saveReleaseItem', releaseItem: { id: 'R0001', type: 'sql', title: '改', content: 'ALTER2', envs: [], workPackageId: 'WP1', note: 'n' } })
+    expect(calls[2]).toEqual({ expectedRevision: 4, requirementId: RID, action: 'removeReleaseItem', id: 'R0001' })
+    expect(calls[3]).toEqual({ expectedRevision: 4, requirementId: RID, action: 'confirmReleaseItem', id: 'R0001' })
+    expect(calls[4]).toEqual({ expectedRevision: 4, requirementId: RID, action: 'markReleaseItemApplied', id: 'R0001' })
+    expect(calls[5]).toEqual({ expectedRevision: 4, requirementId: RID, action: 'markReleaseItemVerified', id: 'R0001' })
+    expect(calls[6]).toEqual({ expectedRevision: 4, requirementId: RID, action: 'rollbackReleaseItem', id: 'R0001' })
+    expect(calls[7]).toEqual({ expectedRevision: 4, requirementId: RID, action: 'confirmRollbackPlan' })
+    expect(calls[8]).toEqual({ expectedRevision: 4, requirementId: RID, action: 'revokeRollbackPlan' })
   })
 })

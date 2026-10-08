@@ -94,7 +94,7 @@ function slot(overrides: Partial<RequirementWorkbenchState> = {}): RequirementWo
     revision: 3,
     record: null,
     planFileExists: [],
-    reviewFileExists: [],
+    reviewFileExists: [], releaseDrifted: [],
     busy: false,
     ...overrides,
   }

@@ -269,13 +269,14 @@ describe('envelope guards', () => {
     expect(isWorkbenchListResponse({ ok: false, degraded: true, hasBackup: false })).toBe(false)
   })
 
-  it('isWorkbenchDetailResponse: record null + fileExists rows', () => {
+  it('isWorkbenchDetailResponse: record null + fileExists rows + releaseDrifted required (P3a)', () => {
     expect(isWorkbenchDetailResponse({
       ok: true,
       revision: 1,
       record: null,
       planFileExists: [],
       reviewFileExists: [],
+      releaseDrifted: [],
     })).toBe(true)
     expect(isWorkbenchDetailResponse({
       ok: true,
@@ -283,6 +284,7 @@ describe('envelope guards', () => {
       record: record(),
       planFileExists: [{ workPackageId: 'WP3', version: 2, exists: false }],
       reviewFileExists: [{ reviewId: 'rev-a1', exists: true }],
+      releaseDrifted: ['R0001', 'R0002'],
     })).toBe(true)
     expect(isWorkbenchDetailResponse({
       ok: true,
@@ -290,8 +292,11 @@ describe('envelope guards', () => {
       record: record(),
       planFileExists: [{ workPackageId: 'WP3', version: 0, exists: true }],
       reviewFileExists: [],
+      releaseDrifted: [],
     })).toBe(false)
-    expect(isWorkbenchDetailResponse({ ok: true, revision: 1, record: undefined, planFileExists: [], reviewFileExists: [] })).toBe(false)
+    expect(isWorkbenchDetailResponse({ ok: true, revision: 1, record: undefined, planFileExists: [], reviewFileExists: [], releaseDrifted: [] })).toBe(false)
+    // releaseDrifted 缺席 = 拒形（响应面字段与 fileExists 同为 required 形态）
+    expect(isWorkbenchDetailResponse({ ok: true, revision: 1, record: null, planFileExists: [], reviewFileExists: [] })).toBe(false)
   })
 
   it('isArtifactWriteResponseOk: kind-specific optional anchors', () => {

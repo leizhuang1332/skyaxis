@@ -131,6 +131,7 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
         record: null,
         planFileExists: [],
         reviewFileExists: [],
+        releaseDrifted: [],
       }
       return json(body)
     }
@@ -151,6 +152,17 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
         reviewId: report.id,
         exists: existsSync(reviewDocPath(services.workbenchRoot, requirementId, report.id)),
       })),
+      // Drift is recomputed at READ time, never stored (细化④②'s projection
+      // discipline applied to inline content): the endpoint re-hashes every
+      // item's content and compares with the registration-time contentHash.
+      // Content written through THIS endpoint always re-hashes in the same
+      // write, so a mismatch has exactly one cause — the ledger file was
+      // edited outside the endpoint (research §7.3's Flyway-checksum story,
+      // corrected for the inline form: the drift channel is external
+      // tampering, not in-product editing).
+      releaseDrifted: record.releaseItems
+        .filter((item) => contentHashOf(item.content) !== item.contentHash)
+        .map((item) => item.id),
     }
     return json(body)
   }
