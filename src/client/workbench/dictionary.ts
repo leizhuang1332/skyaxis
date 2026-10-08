@@ -274,6 +274,64 @@ interface WorkbenchDictionary {
   readonly 'sow.sectionOutput': string
   readonly 'sow.declareIntro': string
   readonly 'detail.dropDescription': string
+  // release.* — S5 上线清单（P3a：手动 CRUD + go/no-go + 漂移披露 + 上线单导出）
+  readonly 'release.sectionTitle': string
+  readonly 'release.add': string
+  readonly 'release.exportButton': string
+  readonly 'release.empty': string
+  readonly 'release.gonogoGo': string
+  readonly 'release.gonogoNoGo': string
+  readonly 'release.gonogoPending': string
+  readonly 'release.gonogoConfirmed': string
+  readonly 'release.gonogoDrift': string
+  readonly 'release.rollbackPlanPrefix': string
+  readonly 'release.rollbackConfirmedShort': string
+  readonly 'release.rollbackMissingShort': string
+  readonly 'release.confirmRollbackPlan': string
+  readonly 'release.revokeRollbackPlan': string
+  readonly 'release.rollbackPlanTitle': string
+  readonly 'release.rollbackPlanDescription': string
+  readonly 'release.rollbackRevokeTitle': string
+  readonly 'release.rollbackRevokeDescription': string
+  readonly 'release.group.sql': string
+  readonly 'release.group.config': string
+  readonly 'release.group.flag': string
+  readonly 'release.group.mq': string
+  readonly 'release.group.other': string
+  readonly 'release.status.pending': string
+  readonly 'release.status.confirmed': string
+  readonly 'release.status.applied': string
+  readonly 'release.status.verified': string
+  readonly 'release.status.rolled-back': string
+  readonly 'release.menuConfirm': string
+  readonly 'release.menuApplied': string
+  readonly 'release.menuVerified': string
+  readonly 'release.menuRollback': string
+  readonly 'release.removeTitle': string
+  readonly 'release.removeDescription': string
+  readonly 'release.rollbackTitle': string
+  readonly 'release.rollbackDescription': string
+  readonly 'release.driftNote': string
+  readonly 'release.lockedHint': string
+  readonly 'release.sourcePrefix': string
+  readonly 'release.appliedAtPrefix': string
+  readonly 'release.formTitleNew': string
+  readonly 'release.formTitleEdit': string
+  readonly 'release.typeLabel': string
+  readonly 'release.titleLabel': string
+  readonly 'release.contentLabel': string
+  readonly 'release.envsLabel': string
+  readonly 'release.envsInvalid': string
+  readonly 'release.workPackageLabel': string
+  readonly 'release.workPackageNone': string
+  readonly 'release.noteLabel': string
+  readonly 'release.titleRequired': string
+  readonly 'release.contentRequired': string
+  // sheet.* — 上线单导出 Modal（剪贴板形态，sow-modal 先例）
+  readonly 'sheet.title': string
+  readonly 'sheet.copy': string
+  readonly 'sheet.copied': string
+  readonly 'sheet.copyFailed': string
 }
 
 export type WorkbenchT = (key: keyof WorkbenchDictionary) => string
@@ -522,6 +580,64 @@ const zh: WorkbenchDictionary = {
   'sow.sectionKnowledge': '知识注入',
   'sow.sectionOutput': '输出约定',
   'sow.declareIntro': '结束时请输出如下机器可读的声明块：',
+  // release.* — S5 上线清单（P3a）
+  'release.sectionTitle': '上线清单',
+  'release.add': '＋ 登记',
+  'release.exportButton': '导出上线单',
+  'release.empty': '尚未登记上线项。开发过程中产生的 SQL / 配置 / 开关 / MQ 变更，在此登记以防上线遗漏。',
+  'release.gonogoGo': 'GO',
+  'release.gonogoNoGo': '前置条件未满足',
+  'release.gonogoPending': '待确认 {n}',
+  'release.gonogoConfirmed': '已确认 {n}',
+  'release.gonogoDrift': '漂移 {n}',
+  'release.rollbackPlanPrefix': '回滚预案',
+  'release.rollbackConfirmedShort': '已确认',
+  'release.rollbackMissingShort': '未确认',
+  'release.confirmRollbackPlan': '确认回滚预案',
+  'release.revokeRollbackPlan': '撤销预案确认',
+  'release.rollbackPlanTitle': '确认回滚预案',
+  'release.rollbackPlanDescription': '确认本次上线全部变更的回滚预案已备妥（回滚脚本 / 回退参数 / 关窗方案）。这是 go/no-go 的第三条件。',
+  'release.rollbackRevokeTitle': '撤销预案确认',
+  'release.rollbackRevokeDescription': '撤销后 go/no-go 将回到「前置条件未满足」。',
+  'release.group.sql': 'SQL',
+  'release.group.config': '配置',
+  'release.group.flag': '开关',
+  'release.group.mq': 'MQ',
+  'release.group.other': '其他',
+  'release.status.pending': '待确认',
+  'release.status.confirmed': '已确认',
+  'release.status.applied': '已执行',
+  'release.status.verified': '已验证',
+  'release.status.rolled-back': '已回滚',
+  'release.menuConfirm': '确认进清单',
+  'release.menuApplied': '标记已执行',
+  'release.menuVerified': '标记已验证',
+  'release.menuRollback': '回滚',
+  'release.removeTitle': '删除上线项',
+  'release.removeDescription': '该条目尚未确认进清单，删除后不可恢复。',
+  'release.rollbackTitle': '回滚上线项',
+  'release.rollbackDescription': '回滚是终态：标记该变更不随本次上线（或已从环境移除），条目保留在清单中作审计轨迹。',
+  'release.driftNote': '内容已被外部修改（与登记时哈希不一致）',
+  'release.lockedHint': '内容已锁定只读 · 修正 = 新登记一条 + 旧条目回滚',
+  'release.sourcePrefix': '来源',
+  'release.appliedAtPrefix': '执行',
+  'release.formTitleNew': '登记上线项',
+  'release.formTitleEdit': '编辑上线项',
+  'release.typeLabel': '类型',
+  'release.titleLabel': '标题',
+  'release.contentLabel': '内容（SQL / 配置值）',
+  'release.envsLabel': '环境（逗号分隔，如 prod,pre）',
+  'release.envsInvalid': '环境名须为 1-64 个字符',
+  'release.workPackageLabel': '归属工作包',
+  'release.workPackageNone': '（无）',
+  'release.noteLabel': '备注',
+  'release.titleRequired': '标题必填',
+  'release.contentRequired': '内容必填',
+  // sheet.* — 上线单导出 Modal
+  'sheet.title': '上线单',
+  'sheet.copy': '复制到剪贴板',
+  'sheet.copied': '已复制',
+  'sheet.copyFailed': '复制失败：请手动选中预览文本复制。',
 }
 
 const en: WorkbenchDictionary = {
@@ -768,6 +884,64 @@ const en: WorkbenchDictionary = {
   'sow.sectionKnowledge': 'Knowledge injection',
   'sow.sectionOutput': 'Output convention',
   'sow.declareIntro': 'End your reply with this machine-readable declare block:',
+  // release.* — S5 delivery sheet (P3a)
+  'release.sectionTitle': 'Release sheet',
+  'release.add': '＋ Register',
+  'release.exportButton': 'Export release sheet',
+  'release.empty': 'No release items yet. Register the SQL / config / flag / MQ changes produced during development here so nothing is missed at release time.',
+  'release.gonogoGo': 'GO',
+  'release.gonogoNoGo': 'Preconditions unmet',
+  'release.gonogoPending': 'Pending {n}',
+  'release.gonogoConfirmed': 'Confirmed {n}',
+  'release.gonogoDrift': 'Drifted {n}',
+  'release.rollbackPlanPrefix': 'Rollback plan',
+  'release.rollbackConfirmedShort': 'confirmed',
+  'release.rollbackMissingShort': 'unconfirmed',
+  'release.confirmRollbackPlan': 'Confirm rollback plan',
+  'release.revokeRollbackPlan': 'Revoke',
+  'release.rollbackPlanTitle': 'Confirm the rollback plan',
+  'release.rollbackPlanDescription': 'Confirm that rollback plans are prepared for every change in this release (rollback scripts / revert parameters / window plans). This is the third go/no-go condition.',
+  'release.rollbackRevokeTitle': 'Revoke the confirmation',
+  'release.rollbackRevokeDescription': 'After revoking, go/no-go falls back to "preconditions unmet".',
+  'release.group.sql': 'SQL',
+  'release.group.config': 'Config',
+  'release.group.flag': 'Feature flag',
+  'release.group.mq': 'MQ',
+  'release.group.other': 'Other',
+  'release.status.pending': 'Pending',
+  'release.status.confirmed': 'Confirmed',
+  'release.status.applied': 'Applied',
+  'release.status.verified': 'Verified',
+  'release.status.rolled-back': 'Rolled back',
+  'release.menuConfirm': 'Confirm onto the sheet',
+  'release.menuApplied': 'Mark applied',
+  'release.menuVerified': 'Mark verified',
+  'release.menuRollback': 'Roll back',
+  'release.removeTitle': 'Remove the release item',
+  'release.removeDescription': 'This item has not been confirmed onto the sheet yet; removal is permanent.',
+  'release.rollbackTitle': 'Roll back the release item',
+  'release.rollbackDescription': 'Rollback is terminal: the change is marked as not shipping with this release (or already removed from the environment); the item stays on the sheet as an audit trail.',
+  'release.driftNote': 'Content edited outside the workbench (hash mismatch)',
+  'release.lockedHint': 'Content locked read-only · to amend: register a new item and roll this one back',
+  'release.sourcePrefix': 'Source',
+  'release.appliedAtPrefix': 'Applied',
+  'release.formTitleNew': 'Register a release item',
+  'release.formTitleEdit': 'Edit the release item',
+  'release.typeLabel': 'Type',
+  'release.titleLabel': 'Title',
+  'release.contentLabel': 'Content (SQL / config value)',
+  'release.envsLabel': 'Environments (comma-separated, e.g. prod,pre)',
+  'release.envsInvalid': 'Environment names must be 1–64 characters',
+  'release.workPackageLabel': 'Owning work package',
+  'release.workPackageNone': '(none)',
+  'release.noteLabel': 'Note',
+  'release.titleRequired': 'Title is required',
+  'release.contentRequired': 'Content is required',
+  // sheet.* — release sheet export modal
+  'sheet.title': 'Release sheet',
+  'sheet.copy': 'Copy to clipboard',
+  'sheet.copied': 'Copied',
+  'sheet.copyFailed': 'Copy refused: select the preview text and copy manually.',
 }
 
 export function registerWorkbenchDictionaries(ctx: Context): void {

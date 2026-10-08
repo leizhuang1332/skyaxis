@@ -137,6 +137,12 @@ describe('WorkbenchTabBody（六阶段导轨 · 真实数据源）', () => {
     fireEvent.click(screen.getByRole('tab', { name: '⑥ 沉淀' }))
     expect(panel().textContent).toContain(workbenchZh['knowledge.candidatesTitle'])
     expect(panel().textContent).not.toContain(workbenchZh['workbench.stageHint.retro'])
+    // deliver（⑤）自 P3a 起是上线清单真内容（登记入口 + 空态引导），
+    // 不再是 stageHint 占位；review（④）仍占位（P4）。
+    fireEvent.click(screen.getByRole('tab', { name: '⑤ 交付' }))
+    expect(panel().textContent).toContain(workbenchZh['release.sectionTitle'])
+    expect(panel().textContent).toContain(workbenchZh['release.empty'])
+    expect(panel().textContent).not.toContain(workbenchZh['workbench.stageHint.deliver'])
   })
 
   // 诚实口径守卫（双向）：无记录 ⇒ 徽章与推进不出现、空态引导在场——但

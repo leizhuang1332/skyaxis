@@ -25,6 +25,7 @@ import { FindingsSection } from './findings-section.js'
 import { CriteriaSection } from './criteria-section.js'
 import { SplitSection } from './split-section.js'
 import { BoardSection } from './board-section.js'
+import { DeliverSection } from './deliver-section.js'
 import { SessionStrip } from './session-strip.js'
 import { KnowledgeSection } from './knowledge-section.js'
 import { SowModal } from './sow-modal.js'
@@ -249,7 +250,17 @@ export function WorkbenchTabBody(props: {
                 requirementId={requirementId}
               />
             ) : null}
-            {record !== null && (viewing === 'review' || viewing === 'deliver') ? (
+            {record !== null && viewing === 'deliver' ? (
+              <DeliverSection
+                key={`deliver-${requirementId}`}
+                t={t}
+                requirement={props.requirement}
+                slot={slot}
+                controller={controller}
+                requirementId={requirementId}
+              />
+            ) : null}
+            {record !== null && viewing === 'review' ? (
               <div className={styles.guideSection}>
                 <div className={styles.guideTitle}>{t(STAGE_LABEL_KEY[viewing])}</div>
                 <div className={styles.guideHint}>{t(STAGE_HINT_KEY[viewing])}</div>
@@ -271,6 +282,7 @@ export function WorkbenchTabBody(props: {
             record={record}
             knowledgeRecords={knowledge.records}
             revision={slot.revision}
+            busy={slot.busy}
             workPackage={sow?.workPackage}
             onClose={() => { setSow(null) }}
           />

@@ -85,6 +85,11 @@ describe('releaseGoNoGo', () => {
     expect(verdict.pending).toBe(0)
     expect(verdict.confirmed).toBe(1)
   })
+
+  it('空集守卫：零条上线项时即使预案已确认也不是 GO（every() 空真防住）', () => {
+    const ctx = { ...baseCtx, record: record({ rollbackPlanConfirmedAt: NOW }) }
+    expect(releaseGoNoGo(ctx).go).toBe(false)
+  })
 })
 
 describe('buildReleaseSheet', () => {

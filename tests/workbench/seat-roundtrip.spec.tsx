@@ -97,3 +97,45 @@ describe('seat round-trip: no stage-view duplication', () => {
     second.unmount()
   })
 })
+
+describe('seat round-trip: S5 deliver（P3a 穿线钉）', () => {
+  it('S5 经 seat 包装渲染上线清单真内容（drift 投影随 slot 到达 gonogo 计数）', async () => {
+    const withRelease: WorkbenchRecord = {
+      ...record,
+      releaseItems: [{
+        id: 'R0001',
+        type: 'sql',
+        title: 't_order 加索引',
+        content: 'ALTER TABLE t_order ADD INDEX i(c)',
+        contentHash: 'a'.repeat(64),
+        envs: ['prod'],
+        status: 'confirmed',
+      }],
+    }
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      revision: 1,
+      record: withRelease,
+      planFileExists: [],
+      reviewFileExists: [],
+      releaseDrifted: ['R0001'],
+    }))))
+    const store = createWorkbenchStore()
+    const controller = createWorkbenchController(store, createWorkbenchFetcher())
+    const Seat = createWorkbenchTabSeat({ t: (key) => (workbenchZh as unknown as Record<string, string>)[key] ?? key, store, controller })
+    render(<Seat requirement={requirement} />)
+
+    // 等 record 真到位（⑤ 徽章来自数据）再点——避开「首次 ready 跟随
+    // record.stage」把 viewing 拉回 understand 的覆盖窗口（seat 首测等
+    // 「发现一」出现后才点 tab 的同款时序）。
+    await waitFor(() => expect(screen.getByText(/上线项/)).toBeTruthy())
+    fireEvent.click(screen.getByRole('tab', { name: /交付/ }))
+    await waitFor(() => expect(screen.getByText(workbenchZh['release.sectionTitle'])).toBeTruthy())
+    // 漂移投影穿到 gonogo 计数与行内披露——releaseDrifted 在 detail 响应里，
+    // 经 store/controller 透传后必须到达视图（P2b seat 穿线断裂的同款防线）。
+    await waitFor(() => expect(screen.getByText(/漂移 1/)).toBeTruthy())
+    expect(screen.getByText(`⚠ ${workbenchZh['release.driftNote']}`)).toBeTruthy()
+    // RTL 把 U+3000 归一为半角空格（handoff §5.6）——getByText 用半角。
+    expect(screen.getByText('R0001 t_order 加索引')).toBeTruthy()
+  })
+})

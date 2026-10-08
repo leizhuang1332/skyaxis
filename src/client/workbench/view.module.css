@@ -547,9 +547,13 @@
   justify-content: flex-end;
 }
 
-/* Approved banner (the mockup .gonogo): approval stamp + stats + revoke. */
+/* Approved banner (the mockup .gonogo): approval stamp + stats + revoke.
+   flex-wrap added in P3a — the S5 release gonogo carries four counts + a
+   trailing button and overflows narrow panels without it; S2's shorter
+   banner never triggers the wrap (mockup has it on .gonogo too). */
 .gonogo {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
@@ -1029,4 +1033,31 @@
 .sowEntryRow {
   display: flex;
   justify-content: flex-end;
+}
+
+/* ---- S5 deliver (P3a): the release sheet section ---- */
+
+/* Per-section root class (the seven-precedent convention — no shared .section). */
+.deliverSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Inline drift note (mockup .driftNote): warn-colored 11px inline-flex, NO
+   border/padding — the existing warn classes (.wpWarnStrip family) are block
+   strips and would inflate the title line they sit in. */
+.driftNote {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--dsw-alias-state-warn-primary);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+/* Release-sheet export modal (the wpDialog/sowDialog !important width
+   precedent — the primitive card defaults to 380px). */
+.sheetDialog {
+  width: min(720px, 100%) !important;
 }

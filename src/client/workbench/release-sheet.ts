@@ -45,7 +45,7 @@ export interface ReleaseSheetContext {
   releaseDrifted: readonly string[]
 }
 
-/** go/no-go 判定（research §7.3 三条件，rolled-back 不入计数——终态已解决）。 */
+/** go/no-go 判定（research §7.3 三条件 + 空集守卫，rolled-back 不入计数——终态已解决）。 */
 export function releaseGoNoGo(ctx: ReleaseSheetContext): {
   go: boolean
   pending: number
@@ -55,7 +55,9 @@ export function releaseGoNoGo(ctx: ReleaseSheetContext): {
 } {
   const live = ctx.record.releaseItems.filter((item) => item.status !== 'rolled-back')
   return {
-    go: live.every((item) => item.status !== 'pending')
+    // 空集守卫：零条上线项时 every() 空真——「无物可上」不是 GO，是没开始。
+    go: live.length > 0
+      && live.every((item) => item.status !== 'pending')
       && ctx.releaseDrifted.length === 0
       && ctx.record.rollbackPlanConfirmedAt !== undefined,
     pending: live.filter((item) => item.status === 'pending').length,
