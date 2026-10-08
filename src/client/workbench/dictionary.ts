@@ -367,6 +367,43 @@ interface WorkbenchDictionary {
   readonly 'declare.skip.bad-envs': string
   readonly 'declare.skip.wp-not-found': string
   readonly 'declare.skip.wp-not-in-dev': string
+  // review.* — S4 评审视图（P4：报告导入 + 手动裁决行 + PRD 覆盖矩阵）
+  readonly 'review.sectionTitle': string
+  readonly 'review.importButton': string
+  readonly 'review.empty': string
+  readonly 'review.counts': string
+  readonly 'review.verdictsTitle': string
+  readonly 'review.verdictsEmpty': string
+  readonly 'review.addVerdict': string
+  readonly 'review.matrixTitle': string
+  readonly 'review.matrixSummary': string
+  readonly 'review.matrixDone': string
+  readonly 'review.matrixUndone': string
+  readonly 'review.holeChip': string
+  readonly 'review.importTitle': string
+  readonly 'review.reportTitleLabel': string
+  readonly 'review.bodyLabel': string
+  readonly 'review.detailTitle': string
+  readonly 'review.verdictAddTitle': string
+  readonly 'review.verdictEditTitle': string
+  readonly 'review.verdictTitleLabel': string
+  readonly 'review.verdictLabel': string
+  readonly 'review.verdictConfirmed': string
+  readonly 'review.verdictRejected': string
+  readonly 'review.dispositionLabel': string
+  readonly 'review.disposition.to-fix': string
+  readonly 'review.disposition.fixed': string
+  readonly 'review.disposition.wont-fix': string
+  readonly 'review.noteLabel': string
+  readonly 'review.noteRequired': string
+  readonly 'review.removeVerdictTitle': string
+  readonly 'review.removeVerdictDescription': string
+  readonly 'review.removeReportTitle': string
+  readonly 'review.removeReportDescription': string
+  readonly 'review.fileMissing': string
+  // knowledge.candidateAdd — S6 手动提炼（P4 §7.4 通道②）
+  readonly 'knowledge.candidateAdd': string
+  readonly 'knowledge.candidateAddTitle': string
 }
 
 export type WorkbenchT = (key: keyof WorkbenchDictionary) => string
@@ -708,6 +745,42 @@ const zh: WorkbenchDictionary = {
   'declare.skip.bad-envs': '环境列表不合法',
   'declare.skip.wp-not-found': '工作包不存在',
   'declare.skip.wp-not-in-dev': '不可标记 built（拆分未批准或工作包非开发中）',
+  // review.* — S4 评审视图（P4）
+  'review.sectionTitle': '评审报告',
+  'review.importButton': '＋ 导入报告',
+  'review.empty': '尚未导入评审报告。让 AI 完成评审后，把报告 markdown 粘贴导入。',
+  'review.counts': '发现 {n} · confirmed {c} / rejected {r}',
+  'review.verdictsTitle': '裁决',
+  'review.verdictsEmpty': '暂无裁决行——导入报告后逐条添加发现并裁决。',
+  'review.addVerdict': '＋ 添加发现',
+  'review.matrixTitle': 'PRD 覆盖矩阵',
+  'review.matrixSummary': '已处置 {n}/{m} · 空洞 {k}',
+  'review.matrixDone': '完成',
+  'review.matrixUndone': '未完成',
+  'review.holeChip': '← 空洞',
+  'review.importTitle': '导入评审报告',
+  'review.reportTitleLabel': '报告标题（可选）',
+  'review.bodyLabel': '报告正文（markdown）',
+  'review.detailTitle': '评审报告',
+  'review.verdictAddTitle': '添加发现',
+  'review.verdictEditTitle': '编辑裁决',
+  'review.verdictTitleLabel': '标题',
+  'review.verdictLabel': '裁决',
+  'review.verdictConfirmed': 'confirmed（成立）',
+  'review.verdictRejected': 'rejected（驳回）',
+  'review.dispositionLabel': '处置（confirmed 时）',
+  'review.disposition.to-fix': '待修复',
+  'review.disposition.fixed': '已修复',
+  'review.disposition.wont-fix': '不修复',
+  'review.noteLabel': '备注（rejected 必填理由）',
+  'review.noteRequired': 'rejected 需填理由',
+  'review.removeVerdictTitle': '删除裁决行',
+  'review.removeVerdictDescription': '该裁决行将从报告中移除。',
+  'review.removeReportTitle': '删除评审报告',
+  'review.removeReportDescription': '报告条目将从清单移除；正文文件保留在产物目录（孤儿，扫描端点可见）。',
+  'review.fileMissing': '报告正文文件缺失（写入中断或被外部删除）。',
+  'knowledge.candidateAdd': '＋ 提炼',
+  'knowledge.candidateAddTitle': '提炼知识候选',
 }
 
 const en: WorkbenchDictionary = {
@@ -1047,6 +1120,42 @@ const en: WorkbenchDictionary = {
   'declare.skip.bad-envs': 'invalid environment list',
   'declare.skip.wp-not-found': 'work package not found',
   'declare.skip.wp-not-in-dev': 'not markable as built (split unapproved or package not in dev)',
+  // review.* — S4 review view (P4)
+  'review.sectionTitle': 'Review reports',
+  'review.importButton': '＋ Import report',
+  'review.empty': 'No review reports yet. Have the AI finish its review, then paste the report markdown here.',
+  'review.counts': 'Findings {n} · confirmed {c} / rejected {r}',
+  'review.verdictsTitle': 'Adjudication',
+  'review.verdictsEmpty': 'No verdict rows yet — import a report, then add findings one by one and adjudicate.',
+  'review.addVerdict': '＋ Add finding',
+  'review.matrixTitle': 'PRD coverage matrix',
+  'review.matrixSummary': 'Disposed {n}/{m} · holes {k}',
+  'review.matrixDone': 'Complete',
+  'review.matrixUndone': 'Incomplete',
+  'review.holeChip': '← hole',
+  'review.importTitle': 'Import a review report',
+  'review.reportTitleLabel': 'Report title (optional)',
+  'review.bodyLabel': 'Report body (markdown)',
+  'review.detailTitle': 'Review report',
+  'review.verdictAddTitle': 'Add a finding',
+  'review.verdictEditTitle': 'Edit the verdict',
+  'review.verdictTitleLabel': 'Title',
+  'review.verdictLabel': 'Verdict',
+  'review.verdictConfirmed': 'confirmed',
+  'review.verdictRejected': 'rejected',
+  'review.dispositionLabel': 'Disposition (confirmed only)',
+  'review.disposition.to-fix': 'To fix',
+  'review.disposition.fixed': 'Fixed',
+  'review.disposition.wont-fix': "Won't fix",
+  'review.noteLabel': 'Note (required when rejected)',
+  'review.noteRequired': 'A rejection requires its reason',
+  'review.removeVerdictTitle': 'Remove the verdict row',
+  'review.removeVerdictDescription': 'The row is removed from its report.',
+  'review.removeReportTitle': 'Remove the review report',
+  'review.removeReportDescription': 'The entry leaves the list; the body file stays in the artifacts directory (a scan-visible orphan).',
+  'review.fileMissing': 'Report body file missing (interrupted write or externally deleted).',
+  'knowledge.candidateAdd': '＋ Distill',
+  'knowledge.candidateAddTitle': 'Distill a knowledge candidate',
 }
 
 export function registerWorkbenchDictionaries(ctx: Context): void {

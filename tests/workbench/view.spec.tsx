@@ -131,7 +131,11 @@ describe('WorkbenchTabBody（六阶段导轨 · 真实数据源）', () => {
     const panel = () => screen.getByRole('tabpanel')
     fireEvent.click(screen.getByRole('tab', { name: '④ 评审' }))
     expect(screen.getByRole('tab', { name: '④ 评审' }).getAttribute('aria-selected')).toBe('true')
-    expect(panel().textContent).toContain(workbenchZh['workbench.stageHint.review'])
+    // review（④）自 P4 起是评审视图真内容（报告节标题 + 导入按钮），
+    // 不再是 stageHint 占位；guide 占位至此全部退役（P2 retro / P3a
+    // deliver / P4 review）。
+    expect(panel().textContent).toContain(workbenchZh['review.sectionTitle'])
+    expect(panel().textContent).not.toContain(workbenchZh['workbench.stageHint.review'])
     // 观看是自由的（§4.1）：可回退、可跳到任意阶段。retro（⑥）自 P2 起是
     // 知识库真内容（候选节标题），不再是 stageHint 占位。
     fireEvent.click(screen.getByRole('tab', { name: '⑥ 沉淀' }))

@@ -217,6 +217,44 @@ export function createWorkbenchController(store: WorkbenchStore, fetcher: Workbe
     revokeRollbackPlan: (requirementId: string, signal?: AbortSignal) =>
       mutate(requirementId, () => fetcher.revokeRollbackPlan(requirementId, slotRevision(requirementId), signal), signal),
 
+    // --- P4: review verdicts + manual candidate distillation (main-union mutations) ---
+
+    saveReviewVerdict: (requirementId: string, reportId: string, verdict: { id?: string; title: string; severity: 'high' | 'medium' | 'low'; verdict: 'confirmed' | 'rejected'; disposition?: 'to-fix' | 'fixed' | 'wont-fix'; note?: string }, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.saveReviewVerdict(requirementId, slotRevision(requirementId), reportId, verdict, signal), signal),
+
+    removeReviewVerdict: (requirementId: string, reportId: string, id: string, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.removeReviewVerdict(requirementId, slotRevision(requirementId), reportId, id, signal), signal),
+
+    removeReviewReport: (requirementId: string, id: string, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.removeReviewReport(requirementId, slotRevision(requirementId), id, signal), signal),
+
+    saveKnowledgeCandidate: (requirementId: string, candidate: { title: string; draft: string; type: 'business' | 'convention' }, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.saveKnowledgeCandidate(requirementId, slotRevision(requirementId), candidate, signal), signal),
+
+    /** Review import: the artifact endpoint answers with the revision but NOT
+     *  the record (the writePlan shape) — patch the revision, then re-pull.
+     *  The byte-identical idempotency anchor makes retries safe. */
+    importReview: async (requirementId: string, title: string | undefined, text: string, signal?: AbortSignal): Promise<boolean> => {
+      patchSlot(requirementId, { busy: true })
+      const result = await fetcher.writeReview(requirementId, text, slotRevision(requirementId), title, signal)
+      if (!alive(result)) return false
+      if (result.kind === 'ok') {
+        patchSlot(requirementId, { busy: false, revision: result.revision, banner: undefined })
+        await open(requirementId, signal)
+        return true
+      }
+      patchSlot(requirementId, { busy: false, banner: failureBanner(result) })
+      if (result.kind === 'http-error' && (result.status === 409 || result.status === 404)) {
+        await open(requirementId, signal)
+      }
+      return false
+    },
+
+    reviewContent: async (requirementId: string, reviewId: string, signal?: AbortSignal) => {
+      const result = await fetcher.reviewContent(requirementId, reviewId, signal)
+      return alive(result) ? result : undefined
+    },
+
     // --- P3b: declare-block import (the repos-pool importRepos contract:
     // failures are RETURNED for the dialog to present, never bannered; the
     // real import carries the revision the DRY-RUN response returned). ---

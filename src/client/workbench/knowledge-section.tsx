@@ -49,7 +49,7 @@ export function KnowledgeSection(props: {
   const knowledgeBusy = knowledge.busy ?? false
 
   const [activateTarget, setActivateTarget] = useState<KnowledgeCandidate | null>(null)
-  const [editTarget, setEditTarget] = useState<KnowledgeCandidate | null>(null)
+  const [editTarget, setEditTarget] = useState<'new' | KnowledgeCandidate | null>(null)
   const [dropTarget, setDropTarget] = useState<KnowledgeCandidate | null>(null)
   const [formTarget, setFormTarget] = useState<'new' | WorkbenchKnowledgeRecord | null>(null)
   const [archiveTarget, setArchiveTarget] = useState<WorkbenchKnowledgeRecord | null>(null)
@@ -59,6 +59,7 @@ export function KnowledgeSection(props: {
       {/* ① 知识候选（pending，来自主账本） */}
       <div className={styles.sectionHead}>
         <div className={styles.sectionTitle}>{t('knowledge.candidatesTitle')}</div>
+        <button type="button" className={styles.ghostButton} disabled={slot.busy} onClick={() => { setEditTarget('new') }}>{t('knowledge.candidateAdd')}</button>
       </div>
       {pending.length === 0 ? (
         <div className={styles.guideHint}>{t('knowledge.emptyCandidates')}</div>
@@ -165,13 +166,19 @@ export function KnowledgeSection(props: {
       ) : null}
       {editTarget !== null ? (
         <CandidateEditModal
-          key={editTarget.id}
+          key={editTarget === 'new' ? 'new' : editTarget.id}
           t={t}
-          candidate={editTarget}
+          candidate={editTarget === 'new' ? undefined : editTarget}
           busy={slot.busy}
           onCancel={() => { setEditTarget(null) }}
           onSubmit={(input) => {
             const target = editTarget
+            if (target === 'new') {
+              void controller.saveKnowledgeCandidate(requirementId, input).then((ok) => {
+                if (ok) setEditTarget(null)
+              })
+              return
+            }
             void controller.editKnowledgeCandidate(requirementId, target.id, input).then((ok) => {
               if (ok) setEditTarget(null)
             })
@@ -289,19 +296,23 @@ function cycleDays(record: WorkbenchRecord | null, createdAt: string): number {
   return Math.ceil((endMs - Date.parse(createdAt)) / DAY_MS)
 }
 
-/** Candidate edit: title/draft/type — draft is candidate-speak for content
- *  (the promote-time scope/trigger choice lives in the activate modal). */
+/** Candidate edit/create: title/draft/type — draft is candidate-speak for
+ *  content (the promote-time scope/trigger choice lives in the activate
+ *  modal). P4: `candidate` absent = manual distillation (§7.4 channel ②,
+ * 复盘时从 findings/裁决中提炼 — the row lands pending and flows into the
+ *  existing activate review queue). */
 function CandidateEditModal(props: {
   t: WorkbenchT
-  candidate: KnowledgeCandidate
+  candidate?: KnowledgeCandidate
   busy: boolean
   onCancel: () => void
   onSubmit: (candidate: { title: string; draft: string; type: 'business' | 'convention' }) => void
 }): ReactNode {
-  const { t, candidate } = props
-  const [title, setTitle] = useState(candidate.title)
-  const [draft, setDraft] = useState(candidate.draft)
-  const [type, setType] = useState<'business' | 'convention'>(candidate.type)
+  const { t } = props
+  const candidate = props.candidate
+  const [title, setTitle] = useState(candidate?.title ?? '')
+  const [draft, setDraft] = useState(candidate?.draft ?? '')
+  const [type, setType] = useState<'business' | 'convention'>(candidate?.type ?? 'business')
   const [fieldError, setFieldError] = useState<string | null>(null)
 
   const submit = (): void => {
@@ -317,7 +328,7 @@ function CandidateEditModal(props: {
       open
       onClose={() => { props.onCancel() }}
       className={styles.knowledgeDialog}
-      title={t('knowledge.edit')}
+      title={t(candidate !== undefined ? 'knowledge.edit' : 'knowledge.candidateAddTitle')}
       closeLabel={t('action.cancel')}
       footer={
         <>

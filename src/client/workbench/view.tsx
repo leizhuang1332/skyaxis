@@ -26,6 +26,7 @@ import { CriteriaSection } from './criteria-section.js'
 import { SplitSection } from './split-section.js'
 import { BoardSection } from './board-section.js'
 import { DeliverSection } from './deliver-section.js'
+import { ReviewSection } from './review-section.js'
 import { SessionStrip } from './session-strip.js'
 import { KnowledgeSection } from './knowledge-section.js'
 import { SowModal } from './sow-modal.js'
@@ -59,8 +60,11 @@ function badgeCounts(slot: RequirementWorkbenchState): Partial<Record<WorkbenchS
   const findingsOpen = record.findings.filter((finding) => finding.status === 'open').length
   const active = record.workPackages.filter((workPackage) => workPackage.status !== 'dropped')
   const accepted = active.filter((workPackage) => workPackage.status === 'accepted').length
+  // P4 semantic fix: "open" = confirmed AND undisposed — a rejected verdict
+  // IS its own resolution (the pre-P4 count included them; zero producers
+  // existed then, so no live behavior changed).
   const reviewOpen = record.reviewReports.reduce(
-    (sum, report) => sum + report.verdicts.filter((verdict) => verdict.disposition === undefined).length,
+    (sum, report) => sum + report.verdicts.filter((verdict) => verdict.verdict === 'confirmed' && verdict.disposition === undefined).length,
     0,
   )
   const candidatesPending = record.knowledgeCandidates.filter((candidate) => candidate.status === 'pending').length
@@ -262,10 +266,13 @@ export function WorkbenchTabBody(props: {
               />
             ) : null}
             {record !== null && viewing === 'review' ? (
-              <div className={styles.guideSection}>
-                <div className={styles.guideTitle}>{t(STAGE_LABEL_KEY[viewing])}</div>
-                <div className={styles.guideHint}>{t(STAGE_HINT_KEY[viewing])}</div>
-              </div>
+              <ReviewSection
+                key={`review-${requirementId}`}
+                t={t}
+                slot={slot}
+                controller={controller}
+                requirementId={requirementId}
+              />
             ) : null}
           </div>
           {nextStage !== null ? (

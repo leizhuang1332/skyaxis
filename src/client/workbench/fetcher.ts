@@ -277,6 +277,24 @@ export function createWorkbenchFetcher() {
       return this.mutate({ expectedRevision, requirementId, action: 'revokeRollbackPlan' }, signal)
     },
 
+    // --- P4: review verdicts + manual candidate distillation ---
+
+    async saveReviewVerdict(requirementId: string, expectedRevision: number, reportId: string, verdict: { id?: string; title: string; severity: 'high' | 'medium' | 'low'; verdict: 'confirmed' | 'rejected'; disposition?: 'to-fix' | 'fixed' | 'wont-fix'; note?: string }, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'saveReviewVerdict', reportId, verdict: { ...verdict } }, signal)
+    },
+
+    async removeReviewVerdict(requirementId: string, expectedRevision: number, reportId: string, id: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'removeReviewVerdict', reportId, id }, signal)
+    },
+
+    async removeReviewReport(requirementId: string, expectedRevision: number, id: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'removeReviewReport', id }, signal)
+    },
+
+    async saveKnowledgeCandidate(requirementId: string, expectedRevision: number, candidate: { title: string; draft: string; type: 'business' | 'convention' }, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'saveKnowledgeCandidate', candidate: { ...candidate } }, signal)
+    },
+
     // --- P2: session binding + knowledge candidates (main union) ---
 
     async bindSession(requirementId: string, expectedRevision: number, id: string, sessionId: string, purpose: 'analysis' | 'dev' | 'review', signal?: AbortSignal): Promise<WorkbenchMutateResult> {

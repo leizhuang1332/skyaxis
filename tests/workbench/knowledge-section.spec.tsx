@@ -305,3 +305,20 @@ describe('KnowledgeSection（S6 知识库三节）', () => {
     expect(screen.queryByText(workbenchZh['knowledge.emptyActive'])).toBeNull()
   })
 })
+
+describe('S6 手动提炼（P4 §7.4 通道②）', () => {
+  it('［＋ 提炼］创建 pending 候选（saveKnowledgeCandidate payload）', async () => {
+    const controller = fakeController({
+      saveKnowledgeCandidate: vi.fn(async () => true),
+    })
+    subject(slot({ record: record({ knowledgeCandidates: [] }) }), knowledge(), controller)
+    fireEvent.click(screen.getByRole('button', { name: workbenchZh['knowledge.candidateAdd'] }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText(workbenchZh['knowledge.candidateAddTitle'])).toBeTruthy()
+    fireEvent.change(within(dialog).getByLabelText(workbenchZh['knowledge.titleLabel']), { target: { value: '导出走异步' } })
+    fireEvent.change(within(dialog).getByLabelText(workbenchZh['knowledge.contentLabel']), { target: { value: '大表导出禁止一次全量拉取' } })
+    fireEvent.click(within(dialog).getByLabelText(workbenchZh['knowledge.typeConvention']))
+    fireEvent.click(within(dialog).getAllByRole('button', { name: workbenchZh['action.save'] }).at(-1)!)
+    await waitFor(() => expect(controller.saveKnowledgeCandidate).toHaveBeenCalledWith(RID, { title: '导出走异步', draft: '大表导出禁止一次全量拉取', type: 'convention' }))
+  })
+})
