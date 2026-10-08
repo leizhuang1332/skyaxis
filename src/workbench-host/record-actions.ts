@@ -26,7 +26,9 @@
 import { randomUUID } from 'node:crypto'
 import type {
   ErrorResponse,
+  KnowledgeCandidate,
   ReleaseItem,
+  ReviewVerdict,
   WorkbenchCriterion,
   WorkbenchFinding,
   WorkbenchMutateRequestBody,
@@ -572,6 +574,89 @@ export function applyRecordAction(base: WorkbenchRecord, body: WorkbenchMutateRe
     // is terminal afterwards.
     if (target.status === 'rolled-back') return { ok: true, record: base, unchanged: true }
     return moveTo('rolled-back')
+  }
+
+  // --- P4: review reports & verdicts (S4) + manual candidate distillation
+  // (S6). ALL outside the split gate — adjudication is the USER's power,
+  // reports are review-stage artifacts, and the manual path is the R5
+  // shortest route (the findings/candidates/releaseItems gate-free family).
+  // Verdict rows enter ONLY by user hand this round: the structured review
+  // convention (AI-proposed verdict rows parsed from the report) is deferred
+  // to P5 by user ruling (2026-10-08). ---
+
+  if (body.action === 'saveReviewVerdict' || body.action === 'removeReviewVerdict') {
+    const report = base.reviewReports.find((entry) => entry.id === body.reportId)
+    if (report === undefined) return fail(404, 'not-found')
+
+    if (body.action === 'removeReviewVerdict') {
+      if (!report.verdicts.some((row) => row.id === body.id)) return fail(404, 'not-found')
+      return {
+        ok: true,
+        record: {
+          ...base,
+          reviewReports: base.reviewReports.map((entry) =>
+            entry.id === body.reportId ? { ...entry, verdicts: entry.verdicts.filter((row) => row.id !== body.id) } : entry),
+        },
+      }
+    }
+
+    const input = body.verdict
+    // A rejected verdict MUST carry its reason — the only trail a future
+    // reader has for why a finding was dismissed (the acceptWorkPackage
+    // fail-note rule, and research「rejected 需填理由，对齐既有对抗校验习惯」).
+    // And a rejected verdict has no disposition to set — rejection IS the
+    // resolution (a smuggled disposition is a client bug, not a state race).
+    const note = input.note?.trim()
+    if (input.verdict === 'rejected' && (note === undefined || note.length === 0)) return fail(400, 'bad-request')
+    if (input.verdict === 'rejected' && input.disposition !== undefined) return fail(400, 'bad-request')
+    const row: ReviewVerdict = {
+      ...(input.id !== undefined ? { id: input.id } : {}),
+      title: input.title.trim(),
+      severity: input.severity,
+      verdict: input.verdict,
+      ...(input.disposition !== undefined ? { disposition: input.disposition } : {}),
+      ...(note !== undefined && note.length > 0 ? { note } : {}),
+    }
+    if (input.id !== undefined) {
+      if (!report.verdicts.some((existing) => existing.id === input.id)) return fail(404, 'not-found')
+      return {
+        ok: true,
+        record: {
+          ...base,
+          reviewReports: base.reviewReports.map((entry) =>
+            entry.id === body.reportId ? { ...entry, verdicts: entry.verdicts.map((existing) => (existing.id === input.id ? row : existing)) } : entry),
+        },
+      }
+    }
+    return {
+      ok: true,
+      record: {
+        ...base,
+        reviewReports: base.reviewReports.map((entry) =>
+          entry.id === body.reportId ? { ...entry, verdicts: [...entry.verdicts, { ...row, id: randomUUID() }] } : entry),
+      },
+    }
+  }
+
+  if (body.action === 'removeReviewReport') {
+    if (!base.reviewReports.some((entry) => entry.id === body.id)) return fail(404, 'not-found')
+    // Entry-only removal: the body file stays on disk as a scan-visible
+    // orphan (the P1b ledger/reference split — dangling reads degrade, the
+    // scan endpoint collects; deleting the file itself is out of scope).
+    return { ok: true, record: { ...base, reviewReports: base.reviewReports.filter((entry) => entry.id !== body.id) } }
+  }
+
+  if (body.action === 'saveKnowledgeCandidate') {
+    const input = body.candidate
+    const created: KnowledgeCandidate = {
+      id: randomUUID(),
+      title: input.title.trim(),
+      draft: input.draft,
+      type: input.type,
+      at: now(),
+      status: 'pending',
+    }
+    return { ok: true, record: { ...base, knowledgeCandidates: [...base.knowledgeCandidates, created] } }
   }
 
   return fail(400, 'bad-request')

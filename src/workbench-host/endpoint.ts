@@ -412,11 +412,29 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     text: string,
     expectedRevision: number,
   ): Promise<Response> {
-    // Reviews have no version anchor this round (each write mints a fresh
-    // uuid); an idempotency key is a P4 concern if import interactions need
-    // retry-without-duplicate semantics (recorded as an open item).
-    const reviewId = randomUUID()
     const hash = contentHashOf(text)
+
+    // Idempotency anchor (P4, the planWriteFlow byte-identical convergence
+    // applied to reviews): a retry carrying the SAME content and title
+    // converges onto the existing report — no second entry, no revision
+    // bump; a missing/stale body file is repaired in passing. The import
+    // modal's retry-after-failure path depends on this (the P1b open item).
+    const existing = record.reviewReports.find((entry) => entry.contentHash === hash && (entry.title ?? '') === (title ?? ''))
+    if (existing !== undefined) {
+      const target = reviewDocPath(services.workbenchRoot, requirementId, existing.id)
+      const read = artifacts.read(target)
+      if (read.status !== 'ok' || read.sha256 !== hash) {
+        try {
+          artifacts.write(target, text)
+        } catch (error) {
+          log?.(error)
+          return errorResponse(500, 'internal')
+        }
+      }
+      return json({ ok: true, revision: ledgerRevision, kind: 'review', reviewId: existing.id })
+    }
+
+    const reviewId = randomUUID()
     if (ledgerRevision !== expectedRevision) {
       return errorResponse(409, 'conflict', { currentRevision: ledgerRevision })
     }

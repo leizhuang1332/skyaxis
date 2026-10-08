@@ -110,6 +110,7 @@ export const WorkbenchCriterionSchema = z.object({
 })
 
 const ReviewVerdictSchema = z.object({
+  id: z.uuid().optional(),
   title: z.string().trim().min(1).max(64),
   severity: z.enum(SEVERITY_VALUES),
   verdict: z.enum(VERDICT_OUTCOME_VALUES),
@@ -407,6 +408,53 @@ const RevokeRollbackPlanSchema = z.object({
   action: z.literal('revokeRollbackPlan'),
 })
 
+// Review reports (S4, P4) — OUTSIDE the split gate (see record-actions.ts).
+// The rejected-note and rejected-no-disposition rules are BUSINESS guards in
+// the pure core (the AcceptWorkPackage note applies: superRefine on a
+// discriminated-union member rides zod v4's typing edge).
+const ReviewVerdictInputSchema = z.object({
+  id: z.uuid().optional(),
+  title: z.string().trim().min(1).max(64),
+  severity: z.enum(SEVERITY_VALUES),
+  verdict: z.enum(VERDICT_OUTCOME_VALUES),
+  disposition: z.enum(DISPOSITION_VALUES).optional(),
+  note: z.string().max(2000).optional(),
+})
+
+export const SaveReviewVerdictSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  action: z.literal('saveReviewVerdict'),
+  reportId: z.string().regex(/^[A-Za-z0-9-]{1,64}$/),
+  verdict: ReviewVerdictInputSchema,
+})
+
+export const RemoveReviewVerdictSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  action: z.literal('removeReviewVerdict'),
+  reportId: z.string().regex(/^[A-Za-z0-9-]{1,64}$/),
+  id: z.uuid(),
+})
+
+export const RemoveReviewReportSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  action: z.literal('removeReviewReport'),
+  id: z.string().regex(/^[A-Za-z0-9-]{1,64}$/),
+})
+
+export const SaveKnowledgeCandidateSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  action: z.literal('saveKnowledgeCandidate'),
+  candidate: z.object({
+    title: z.string().trim().min(1).max(64),
+    draft: z.string().max(WORKBENCH_INLINE_MAX_CHARS),
+    type: z.enum(CANDIDATE_TYPE_VALUES),
+  }),
+})
+
 // Session binding (P2) — under the lifecycle gate (split approved).
 const BindSessionSchema = z.object({
   expectedRevision: z.number().int().nonnegative(),
@@ -484,6 +532,10 @@ export const WorkbenchMutateSchema = z.discriminatedUnion('action', [
   RollbackReleaseItemSchema,
   ConfirmRollbackPlanSchema,
   RevokeRollbackPlanSchema,
+  SaveReviewVerdictSchema,
+  RemoveReviewVerdictSchema,
+  RemoveReviewReportSchema,
+  SaveKnowledgeCandidateSchema,
   BindSessionSchema,
   ActivateKnowledgeCandidateSchema,
   EditKnowledgeCandidateSchema,

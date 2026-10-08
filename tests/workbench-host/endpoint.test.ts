@@ -1526,3 +1526,106 @@ describe('declare route (P3b) — GET fetch + POST two-stage import', () => {
     expect(await errorCode(degraded)).toBe('unreadable-file')
   })
 })
+
+describe('P4: review verdicts + idempotency anchor + candidate distillation', () => {
+  it('幂等锚：同内容同题重试 → 同一 reviewId、revision 不增、不产生第二条；文件缺失随收敛修复', async () => {
+    const h = await harness()
+    await h.seed([seedRecord(RID)]) // revision 1
+    const body = '# 评审报告\n发现两处问题。'
+
+    const first = await postReview(h, { requirementId: RID, expectedRevision: 1, title: '全量评审' }, body)
+    expect(first.status).toBe(200)
+    const firstBody = (await first.json()) as { revision: number; reviewId: string }
+    const seeded = h.file.load()
+    expect(seeded.ok && seeded.value.records[0]?.reviewReports).toHaveLength(1)
+
+    // 收敛分支先于 revision 检查：重试携带过期 expectedRevision 也收敛。
+    const retry = await postReview(h, { requirementId: RID, expectedRevision: 1, title: '全量评审' }, body)
+    expect(retry.status).toBe(200)
+    const retryBody = (await retry.json()) as { revision: number; reviewId: string }
+    expect(retryBody.reviewId).toBe(firstBody.reviewId)
+    expect(retryBody.revision).toBe(firstBody.revision) // 收敛不 bump
+
+    const after = h.file.load()
+    expect(after.ok && after.value.records[0]?.reviewReports).toHaveLength(1)
+
+    // 收敛修复面：删掉正文文件再重试 → 文件回来。
+    rmSync(reviewDocPath(h.workbenchRoot, RID, firstBody.reviewId), { force: true })
+    const repair = await postReview(h, { requirementId: RID, expectedRevision: 1, title: '全量评审' }, body)
+    expect(repair.status).toBe(200)
+    expect(existsSync(reviewDocPath(h.workbenchRoot, RID, firstBody.reviewId))).toBe(true)
+  })
+
+  it('幂等锚分度：同内容不同题 → 新报告；不同内容同题 → 新报告', async () => {
+    const h = await harness()
+    await h.seed([seedRecord(RID)]) // revision 1
+    const a = await postReview(h, { requirementId: RID, expectedRevision: 1, title: 'A' }, '# x')
+    const aBody = (await a.json()) as { revision: number; reviewId: string }
+    const b = await postReview(h, { requirementId: RID, expectedRevision: aBody.revision, title: 'B' }, '# x')
+    const bBody = (await b.json()) as { revision: number; reviewId: string }
+    expect(bBody.reviewId).not.toBe(aBody.reviewId)
+    const c = await postReview(h, { requirementId: RID, expectedRevision: bBody.revision, title: 'A' }, '# y')
+    expect(((await c.json()) as { reviewId: string }).reviewId).not.toBe(aBody.reviewId)
+  })
+
+  it('verdict 动作族 HTTP 面：添加→编辑（置处置）→删除行→删除报告，全程落盘', async () => {
+    const h = await harness()
+    await h.seed([seedRecord(RID)]) // revision 1
+    const imported = await postReview(h, { requirementId: RID, expectedRevision: 1 }, '# 报告')
+    expect(imported.status).toBe(200)
+    const reviewId = ((await imported.json()) as { reviewId: string }).reviewId
+
+    const add = await h.post(WORKBENCH_PATH, {
+      expectedRevision: 2, requirementId: RID, action: 'saveReviewVerdict', reportId: reviewId,
+      verdict: { title: '空指针', severity: 'medium', verdict: 'confirmed', disposition: 'to-fix' },
+    })
+    expect(add.status).toBe(200)
+    const added = ((await add.json()) as { record: WorkbenchRecord }).record
+    const rowId = added.reviewReports[0]?.verdicts[0]?.id
+    expect(rowId).toBeDefined()
+
+    const edit = await h.post(WORKBENCH_PATH, {
+      expectedRevision: 3, requirementId: RID, action: 'saveReviewVerdict', reportId: reviewId,
+      verdict: { id: rowId, title: '空指针', severity: 'medium', verdict: 'confirmed', disposition: 'fixed' },
+    })
+    expect(edit.status).toBe(200)
+    const loaded = h.file.load()
+    expect(loaded.ok && loaded.value.records[0]?.reviewReports[0]?.verdicts[0]?.disposition).toBe('fixed')
+
+    const removeRow = await h.post(WORKBENCH_PATH, { expectedRevision: 4, requirementId: RID, action: 'removeReviewVerdict', reportId: reviewId, id: rowId })
+    expect(removeRow.status).toBe(200)
+    const removeReport = await h.post(WORKBENCH_PATH, { expectedRevision: 5, requirementId: RID, action: 'removeReviewReport', id: reviewId })
+    expect(removeReport.status).toBe(200)
+    const final = h.file.load()
+    expect(final.ok && final.value.records[0]?.reviewReports).toHaveLength(0)
+    // 条目删除后正文文件留盘成孤儿（P1b 账本/引用分离——scan 可见）。
+    expect(existsSync(reviewDocPath(h.workbenchRoot, RID, reviewId))).toBe(true)
+  })
+
+  it('rejected 双守卫 HTTP 面：无 note / 带 disposition → 400 零残留', async () => {
+    const h = await harness()
+    await h.seed([seedRecord(RID, { reviewReports: [reviewEntry('rev-a1')] })])
+    for (const verdict of [
+      { title: 'x', severity: 'low', verdict: 'rejected' as const },
+      { title: 'x', severity: 'low', verdict: 'rejected' as const, note: '理由', disposition: 'fixed' as const },
+    ]) {
+      const res = await h.post(WORKBENCH_PATH, { expectedRevision: 1, requirementId: RID, action: 'saveReviewVerdict', reportId: 'rev-a1', verdict })
+      expect(res.status).toBe(400)
+      expect(await errorCode(res)).toBe('bad-request')
+    }
+    const loaded = h.file.load()
+    expect(loaded.ok && loaded.value.revision).toBe(1)
+  })
+
+  it('saveKnowledgeCandidate HTTP 面：手动提炼落 pending', async () => {
+    const h = await harness()
+    await h.seed([seedRecord(RID)])
+    const res = await h.post(WORKBENCH_PATH, {
+      expectedRevision: 1, requirementId: RID, action: 'saveKnowledgeCandidate',
+      candidate: { title: '导出走异步', draft: '禁止全量拉取', type: 'convention' },
+    })
+    expect(res.status).toBe(200)
+    const loaded = h.file.load()
+    expect(loaded.ok && loaded.value.records[0]?.knowledgeCandidates[0]?.status).toBe('pending')
+  })
+})

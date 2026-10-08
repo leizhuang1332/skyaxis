@@ -195,6 +195,8 @@ export interface WorkbenchCriterion {
 }
 
 export interface ReviewVerdict {
+  /** Host-minted uuid (P4) — the per-row anchor for edit/remove; optional per the field-evolution discipline (pre-P4 rows carry none, addressed by full-row replace). */
+  readonly id?: string
   readonly title: string
   readonly severity: 'high' | 'medium' | 'low'
   readonly verdict: 'confirmed' | 'rejected'
@@ -541,6 +543,61 @@ export interface RevokeRollbackPlanRequest {
   readonly action: 'revokeRollbackPlan'
 }
 
+// --- Review reports (S4; OUTSIDE the split gate — adjudication is the
+// user's power, reports are review-stage artifacts, and the manual path is
+// the R5 shortest route; the findings/candidates/releaseItems family). ---
+
+/**
+ * Add or edit one verdict row on a report (P4, manual entry — the structured
+ * review convention is deferred to P5 by user ruling). id absent = add
+ * (host mints a uuid); present = full-row replace.
+ */
+export interface SaveReviewVerdictRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'saveReviewVerdict'
+  readonly reportId: string
+  readonly verdict: {
+    readonly id?: string
+    readonly title: string
+    readonly severity: 'high' | 'medium' | 'low'
+    readonly verdict: 'confirmed' | 'rejected'
+    readonly disposition?: 'to-fix' | 'fixed' | 'wont-fix'
+    readonly note?: string
+  }
+}
+
+export interface RemoveReviewVerdictRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'removeReviewVerdict'
+  readonly reportId: string
+  readonly id: string
+}
+
+/**
+ * Remove one report ENTRY — the body file stays on disk as a scan-visible
+ * orphan (the P1b ledger/reference split: reads degrade, orphans collect).
+ */
+export interface RemoveReviewReportRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'removeReviewReport'
+  readonly id: string
+}
+
+/** S6 manual distillation of a knowledge candidate (research §7.4 channel ② — 复盘时手动提炼). */
+export interface SaveKnowledgeCandidateRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'saveKnowledgeCandidate'
+  readonly candidate: {
+    readonly title: string
+    readonly draft: string
+    readonly type: 'business' | 'convention'
+  }
+}
+
 // --- Session bindings (P2: manual binding from the S3 detail dialog) ---
 
 export interface BindSessionRequest {
@@ -620,6 +677,10 @@ export type WorkbenchMutateRequestBody =
   | RollbackReleaseItemRequest
   | ConfirmRollbackPlanRequest
   | RevokeRollbackPlanRequest
+  | SaveReviewVerdictRequest
+  | RemoveReviewVerdictRequest
+  | RemoveReviewReportRequest
+  | SaveKnowledgeCandidateRequest
   | BindSessionRequest
   | ActivateKnowledgeCandidateRequest
   | EditKnowledgeCandidateRequest
@@ -1094,7 +1155,8 @@ function isReviewVerdict(v: unknown): v is ReviewVerdict {
   if (typeof v !== 'object' || v === null) return false
   const r = v as Record<string, unknown>
   return (
-    isString(r.title) && r.title.length > 0
+    (r.id === undefined || isString(r.id))
+    && isString(r.title) && r.title.length > 0
     && isString(r.severity) && SEVERITIES.includes(r.severity)
     && isString(r.verdict) && VERDICT_OUTCOMES.includes(r.verdict)
     && (r.disposition === undefined || (isString(r.disposition) && DISPOSITIONS.includes(r.disposition)))

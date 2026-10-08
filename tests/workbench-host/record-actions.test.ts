@@ -46,6 +46,9 @@ import type {
   ErrorResponse,
   KnowledgeCandidate,
   ReleaseItem,
+  ReviewReportEntry,
+  ReviewVerdict,
+  SaveReviewVerdictRequest,
   SaveReleaseItemRequest,
   WorkbenchCriterion,
   WorkbenchFinding,
@@ -1139,5 +1142,74 @@ describe('release items (P3a)', () => {
     expect(isReleaseItemId('R12345')).toBe(true)
     const withR1 = baseRecord({ releaseItems: [releaseItem({ id: 'R1' })] })
     expect(isWorkbenchRecord(withR1)).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// P4: review verdicts + manual candidate distillation（门外 + rejected-note）
+// ---------------------------------------------------------------------------
+
+function reviewReport(id: string, overrides: Partial<ReviewReportEntry> = {}): ReviewReportEntry {
+  return { id, at: NOW, verdicts: [], ...overrides }
+}
+const verdictRow = (id: string, overrides: Partial<ReviewVerdict> = {}): ReviewVerdict =>
+  ({ id, title: '导入与校验不在同一事务', severity: 'high', verdict: 'confirmed', ...overrides })
+
+describe('review verdicts (P4)', () => {
+  const saveVerdict = (verdict: SaveReviewVerdictRequest['verdict'], reportId = 'rev-a1') =>
+    ({ ...mutate(), action: 'saveReviewVerdict' as const, reportId, verdict })
+
+  it('添加：host 铸 uuid；编辑：id 全量替换；均落 reportId 定位的报告', () => {
+    const base = baseRecord({ reviewReports: [reviewReport('rev-a1')] })
+    const added = applyOk(base, saveVerdict({ title: '空指针', severity: 'medium', verdict: 'confirmed', disposition: 'to-fix' }))
+    const row = added.reviewReports[0]?.verdicts[0]
+    expect(row?.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+    expect(row?.title).toBe('空指针')
+
+    const edited = applyOk(added, saveVerdict({ id: row!.id, title: '空指针（改述）', severity: 'medium', verdict: 'confirmed', disposition: 'fixed' }))
+    expect(edited.reviewReports[0]?.verdicts).toHaveLength(1)
+    expect(edited.reviewReports[0]?.verdicts[0]).toEqual({ id: row!.id, title: '空指针（改述）', severity: 'medium', verdict: 'confirmed', disposition: 'fixed' })
+  })
+
+  it('rejected 必填 note（空白也拒）；rejected 带 disposition → 400（驳回即裁决完成）', () => {
+    const base = baseRecord({ reviewReports: [reviewReport('rev-a1')] })
+    expect(applyRecordAction(base, saveVerdict({ title: 'x', severity: 'low', verdict: 'rejected' })))
+      .toEqual({ ok: false, status: 400, code: 'bad-request' })
+    expect(applyRecordAction(base, saveVerdict({ title: 'x', severity: 'low', verdict: 'rejected', note: '   ' })))
+      .toEqual({ ok: false, status: 400, code: 'bad-request' })
+    expect(applyRecordAction(base, saveVerdict({ title: 'x', severity: 'low', verdict: 'rejected', note: '路径不可达', disposition: 'fixed' })))
+      .toEqual({ ok: false, status: 400, code: 'bad-request' })
+    const ok = applyOk(base, saveVerdict({ title: 'x', severity: 'low', verdict: 'rejected', note: '路径不可达' }))
+    expect(ok.reviewReports[0]?.verdicts[0]).toEqual({ id: expect.any(String), title: 'x', severity: 'low', verdict: 'rejected', note: '路径不可达' })
+  })
+
+  it('404 阶梯：报告不存在 / 编辑行不存在 / 删除行不存在', () => {
+    const base = baseRecord({ reviewReports: [reviewReport('rev-a1', { verdicts: [verdictRow('v1')] })] })
+    expect(applyRecordAction(base, saveVerdict({ title: 'x', severity: 'low', verdict: 'confirmed' }, 'rev-ghost')))
+      .toEqual({ ok: false, status: 404, code: 'not-found' })
+    expect(applyRecordAction(base, saveVerdict({ id: 'v-ghost', title: 'x', severity: 'low', verdict: 'confirmed' })))
+      .toEqual({ ok: false, status: 404, code: 'not-found' })
+    expect(applyRecordAction(base, { ...mutate(), action: 'removeReviewVerdict', reportId: 'rev-a1', id: 'v-ghost' }))
+      .toEqual({ ok: false, status: 404, code: 'not-found' })
+  })
+
+  it('removeReviewVerdict / removeReviewReport 落盘面；门外（splitLocked 下照常）', () => {
+    const locked = baseRecord({ splitApprovedAt: NOW, reviewReports: [reviewReport('rev-a1', { verdicts: [verdictRow('v1')] })] })
+    const removed = applyOk(locked, { ...mutate(), action: 'removeReviewVerdict', reportId: 'rev-a1', id: 'v1' })
+    expect(removed.reviewReports[0]?.verdicts).toHaveLength(0)
+    const noReport = applyOk(removed, { ...mutate(), action: 'removeReviewReport', id: 'rev-a1' })
+    expect(noReport.reviewReports).toHaveLength(0)
+  })
+})
+
+describe('saveKnowledgeCandidate (P4 手动提炼)', () => {
+  it('创建 pending 候选（uuid + at host 铸）；门外', () => {
+    const locked = baseRecord({ splitApprovedAt: NOW })
+    const created = applyOk(locked, { ...mutate(), action: 'saveKnowledgeCandidate', candidate: { title: '导出走异步', draft: '禁止全量拉取', type: 'convention' } })
+    const row = created.knowledgeCandidates[0]
+    expect(row?.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+    expectIso(row?.at)
+    expect(row?.status).toBe('pending')
+    expect(row?.title).toBe('导出走异步')
   })
 })

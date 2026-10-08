@@ -245,6 +245,16 @@ describe('isWorkbenchRecord', () => {
     expect(isWorkbenchRecord(record({ releaseItems: [noHash as ReleaseItem] }))).toBe(false)
   })
 
+  it('review verdicts carry an optional host-minted id anchor (P4)', () => {
+    const withId = reviewReport({ verdicts: [{ id: '44444444-4444-4444-8444-444444444444', title: '空指针', severity: 'high', verdict: 'confirmed' }] })
+    expect(isWorkbenchRecord(record({ reviewReports: [withId] }))).toBe(true)
+    // Pre-P4 rows (no id) stay legal — the field-evolution discipline.
+    const legacy = reviewReport({ verdicts: [{ title: '空指针', severity: 'high', verdict: 'confirmed' }] })
+    expect(isWorkbenchRecord(record({ reviewReports: [legacy] }))).toBe(true)
+    const badId = reviewReport({ verdicts: [{ id: 42 as never, title: 'x', severity: 'low', verdict: 'rejected', note: 'r' }] })
+    expect(isWorkbenchRecord(record({ reviewReports: [badId] }))).toBe(false)
+  })
+
   it('isReleaseItemId: R#### only — an unpadded R1 is the ledger-poisoning shape (P3a)', () => {
     expect(isReleaseItemId('R0001')).toBe(true)
     expect(isReleaseItemId('R12345')).toBe(true) // 五位也合法（>9999 之后自然增长）
