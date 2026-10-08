@@ -43,15 +43,18 @@ import {
   WORKBENCH_ARTIFACT_MAX_CHARS,
   WORKBENCH_ARTIFACT_MAX_READ_BYTES,
   WORKBENCH_ARTIFACTS_PATH,
+  WORKBENCH_DECLARE_PATH,
   WORKBENCH_INLINE_MAX_CHARS,
   WORKBENCH_PATH,
   WORKBENCH_SCAN_PATH,
+  DECLARE_MAX_CHARS,
   isReleaseItemId,
 } from '../../src/workbench-shared/protocol.js'
 import { planDocPath, reviewDocPath } from '../../src/workbench-host/artifact-path.js'
 import { contentHashOf } from '../../src/workbench-host/artifact-store.js'
 import { KnowledgeFileStore } from '../../src/workbench-host/knowledge-file.js'
 import { WorkbenchFileStore } from '../../src/workbench-host/workbench-file.js'
+import { SessionDeclareReader } from '../../src/workbench-host/declare-reader.js'
 import { registerWorkbenchEndpoints } from '../../src/workbench-host/endpoint.js'
 
 const dirs: string[] = []
@@ -78,13 +81,14 @@ async function harness() {
   const file = new WorkbenchFileStore(join(dir, 'workbench.yaml'))
   const knowledgeFile = new KnowledgeFileStore(join(dir, 'knowledge.yaml'))
   const workbenchRoot = join(dir, 'workbench')
+  const declareReader = new SessionDeclareReader()
   const ctx = new Context()
   const fiber = ctx.plugin((pluginCtx) => {
     new HostConnectionService(pluginCtx, [], {} as never)
   })
   await fiber.await()
   const connection = ctx.get('connection') as HostConnectionHandle
-  registerWorkbenchEndpoints(connection, { file, knowledgeFile, workbenchRoot })
+  registerWorkbenchEndpoints(connection, { file, knowledgeFile, workbenchRoot, declareReader })
   const shared = connection.createSharedFetchHandler('/api')
   disposables.push(() => fiber.dispose())
   const get = (path: string) => shared.fetch(new Request(BASE + path))
@@ -97,7 +101,7 @@ async function harness() {
     if (!saved.ok) throw new Error(`seed failed: ${JSON.stringify(saved)}`)
     return saved.revision
   }
-  return { file, knowledgeFile, dir, workbenchRoot, get, post, postText, seed }
+  return { file, knowledgeFile, dir, workbenchRoot, declareReader, get, post, postText, seed }
 }
 
 type Harness = Awaited<ReturnType<typeof harness>>
@@ -1375,5 +1379,150 @@ describe('POST /api/skyaxis/workbench — P3a release items & rollback plan', ()
     const detail = (await (await h.get(`${WORKBENCH_PATH}?requirementId=${RID}`)).json()) as WorkbenchDetailResponseOk
     expect(detail.releaseDrifted).toEqual([])
     expect(detail.record?.releaseItems[0]?.contentHash).toBe(contentHashOf('ALTER TABLE t_order ADD INDEX idx_created_at (created_at), idx_status (status)'))
+  })
+})
+
+describe('declare route (P3b) — GET fetch + POST two-stage import', () => {
+  const GOOD = [
+    '# skyaxis-declare',
+    'workPackage: WP1',
+    'claims:',
+    '  - built: true',
+    'artifacts:',
+    '  - type: sql',
+    '    title: t_order 加索引',
+    '    content: ALTER TABLE t_order ADD INDEX i(c)',
+    '    envs: [prod]',
+    'knowledge:',
+    '  - type: convention',
+    '    title: 导出走异步',
+    '    draft: 大表导出禁止一次全量拉取',
+    'stageReady: true',
+  ].join('\n')
+  const assistantDeclare = (body: string) =>
+    ({ type: 'assistant/message', seq: 1, time: 0, data: { message: { content: [{ type: 'text', text: `收尾\n\`\`\`yaml\n${body}\n\`\`\`` }] } } })
+
+  it('GET：无 engine → 200 no-service 信封（读降级不报错）；缺 sessionId → 400', async () => {
+    const h = await harness()
+    const res = await h.get(`${WORKBENCH_DECLARE_PATH}?sessionId=sess-1`)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true, missing: 'no-service' })
+    const noParam = await h.get(WORKBENCH_DECLARE_PATH)
+    expect(noParam.status).toBe(400)
+  })
+
+  it('GET：engine 在场 → 提取 assistant 声明块文本', async () => {
+    const h = await harness()
+    h.declareReader.setEngine({ readSession: async () => ({ events: [assistantDeclare(GOOD) as never] }) })
+    const res = await h.get(`${WORKBENCH_DECLARE_PATH}?sessionId=sess-1`)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { ok: true; text: string }
+    expect(body.text).toContain('workPackage: WP1')
+    expect(body.text).toContain('# skyaxis-declare')
+  })
+
+  it('POST dry-run：预览零写盘（逐字节相等）+ revision 锚定 + stale → 409', async () => {
+    const h = await harness()
+    await h.seed([seedRecord(RID, { splitApprovedAt: NOW, workPackages: [seedWorkPackage('WP1', { status: 'in-dev' })] })]) // revision 1
+    const before = readFileSync(h.file.filePath, 'utf8')
+
+    const stale = await h.post(WORKBENCH_DECLARE_PATH, { expectedRevision: 0, requirementId: RID, dryRun: true, text: `\`\`\`yaml\n${GOOD}\n\`\`\`` })
+    expect(stale.status).toBe(409)
+    expect(await errorCode(stale)).toBe('conflict')
+
+    const res = await h.post(WORKBENCH_DECLARE_PATH, { expectedRevision: 1, requirementId: RID, dryRun: true, text: `\`\`\`yaml\n${GOOD}\n\`\`\`` })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { ok: true; revision: number; entries: Array<{ key: string; kind: string }>; skipped: unknown[]; stageReady: boolean }
+    expect(body.revision).toBe(1)
+    expect(body.entries.map((entry) => entry.key)).toEqual(['built-0', 'artifact-0', 'knowledge-0'])
+    expect(body.skipped).toEqual([])
+    expect(body.stageReady).toBe(true)
+    expect(readFileSync(h.file.filePath, 'utf8')).toBe(before) // 零写
+  })
+
+  it('POST 整块错误走 200 信封：行内逗号形 → blockError yaml-syntax + 行号；无块 → no-declare-block', async () => {
+    const h = await harness()
+    const comma = await h.post(WORKBENCH_DECLARE_PATH, { expectedRevision: 0, requirementId: RID, dryRun: true, text: '```yaml\n# skyaxis-declare\nartifacts:\n  - type: sql, title: x, content: y\n```' })
+    expect(comma.status).toBe(200)
+    expect(await comma.json()).toMatchObject({ ok: true, blockError: 'yaml-syntax', blockErrorLine: 3 })
+
+    const none = await h.post(WORKBENCH_DECLARE_PATH, { expectedRevision: 0, requirementId: RID, dryRun: true, text: '没有声明块的总结' })
+    expect(none.status).toBe(200)
+    expect(await none.json()).toMatchObject({ ok: true, blockError: 'no-declare-block' })
+  })
+
+  it('POST commit：三类折叠一次 save 落盘——built 经真守卫、R 序号、pending、provenance、报告计数', async () => {
+    const h = await harness()
+    await h.seed([seedRecord(RID, { splitApprovedAt: NOW, workPackages: [seedWorkPackage('WP1', { status: 'in-dev' })] })]) // revision 1
+
+    const res = await h.post(WORKBENCH_DECLARE_PATH, {
+      expectedRevision: 1, requirementId: RID, sessionId: 'sess-9',
+      text: `\`\`\`yaml\n${GOOD}\n\`\`\``,
+      selected: ['built-0', 'artifact-0', 'knowledge-0'],
+    })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { ok: true; revision: number; record: WorkbenchRecord; report: { built: number; artifacts: number; knowledge: number } }
+    expect(body.revision).toBe(2) // 一次 save 一个 bump
+    expect(body.report).toEqual({ built: 1, artifacts: 1, knowledge: 1, skipped: [] })
+    expect(body.record.workPackages[0]?.status).toBe('built')
+
+    const loaded = h.file.load()
+    expect(loaded.ok).toBe(true)
+    if (loaded.ok) {
+      const item = loaded.value.records[0]?.releaseItems[0]
+      expect(item?.id).toBe('R0001')
+      expect(item?.status).toBe('pending')
+      expect(item?.contentHash).toBe(contentHashOf('ALTER TABLE t_order ADD INDEX i(c)'))
+      expect(item?.sessionId).toBe('sess-9')
+      expect(item?.workPackageId).toBe('WP1')
+      const candidate = loaded.value.records[0]?.knowledgeCandidates[0]
+      expect(candidate?.status).toBe('pending')
+      expect(candidate?.proposedSessionId).toBe('sess-9')
+    }
+  })
+
+  it('POST commit：split 未批 → built 落 skipped（wp-not-in-dev），artifacts/knowledge 照常导入（门外语义）', async () => {
+    const h = await harness()
+    await h.seed([seedRecord(RID, { workPackages: [seedWorkPackage('WP1', { status: 'in-dev' })] })]) // 无 splitApprovedAt
+
+    const res = await h.post(WORKBENCH_DECLARE_PATH, {
+      expectedRevision: 1, requirementId: RID,
+      text: `\`\`\`yaml\n${GOOD}\n\`\`\``,
+      selected: ['built-0', 'artifact-0', 'knowledge-0'],
+    })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { ok: true; revision: number; record: WorkbenchRecord; report: { built: number; artifacts: number; knowledge: number; skipped: Array<{ key: string; reason: string }> } }
+    expect(body.report.built).toBe(0)
+    expect(body.report.skipped).toEqual([{ key: 'built-0', label: 'WP1', reason: 'wp-not-in-dev' }])
+    expect(body.report.artifacts).toBe(1)
+    expect(body.report.knowledge).toBe(1)
+    expect(body.record.workPackages[0]?.status).toBe('in-dev') // 未动
+  })
+
+  it('POST commit：零选中 → 200 且 revision 不增不写盘（repos-pool 零变更先例）；未知 selected 键忽略', async () => {
+    const h = await harness()
+    await h.seed([seedRecord(RID)])
+    const before = readFileSync(h.file.filePath, 'utf8')
+
+    const res = await h.post(WORKBENCH_DECLARE_PATH, {
+      expectedRevision: 1, requirementId: RID,
+      text: `\`\`\`yaml\n${GOOD}\n\`\`\``,
+      selected: ['ghost-0'],
+    })
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { revision: number }).revision).toBe(1)
+    expect(readFileSync(h.file.filePath, 'utf8')).toBe(before)
+  })
+
+  it('POST 拒形：超 DECLARE_MAX_CHARS → 413；degraded 账本 → 409', async () => {
+    const h = await harness()
+    const tooBig = await h.post(WORKBENCH_DECLARE_PATH, { expectedRevision: 0, requirementId: RID, dryRun: true, text: 'x'.repeat(DECLARE_MAX_CHARS + 1) })
+    expect(tooBig.status).toBe(413)
+
+    await h.seed([seedRecord(RID)])
+    writeFileSync(h.file.filePath, 'broken: [', 'utf8')
+    const degraded = await h.post(WORKBENCH_DECLARE_PATH, { expectedRevision: 0, requirementId: RID, dryRun: true, text: 'x' })
+    expect(degraded.status).toBe(409)
+    expect(await errorCode(degraded)).toBe('unreadable-file')
   })
 })

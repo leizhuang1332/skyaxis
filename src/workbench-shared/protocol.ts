@@ -708,6 +708,127 @@ export interface ArchiveKnowledgeRequest {
 
 export type WorkbenchKnowledgeMutateRequestBody = SaveKnowledgeRequest | ArchiveKnowledgeRequest
 
+// ---------------------------------------------------------------------------
+// Declare-block import (P3b) — a SEPARATE route (like knowledge): its
+// preview/commit response envelopes cannot fit the main union's
+// {ok, revision, record}, the repos-pool import two-stage precedent. It
+// writes the SAME workbench.yaml revision space — the optimistic lock is
+// shared with the main union, so concurrent writers 409 against each other
+// (correct, not a bug).
+// ---------------------------------------------------------------------------
+
+export const WORKBENCH_DECLARE_PATH = '/api/skyaxis/workbench/declare'
+
+/** Cap on declare text (UTF-16 code units) — bounds YAML.parse and transport. */
+export const DECLARE_MAX_CHARS = 128 * 1024
+
+/** GET fetch degradation — read paths degrade in a 200 envelope, never error. */
+export type DeclareFetchMissing = 'no-service' | 'not-found' | 'unreadable' | 'no-declare-block'
+
+export interface DeclareFetchResponseText {
+  readonly ok: true
+  /** The extracted declare-block body (fence markers stripped, marker line kept). */
+  readonly text: string
+}
+
+export interface DeclareFetchResponseMissing {
+  readonly ok: true
+  readonly missing: DeclareFetchMissing
+}
+
+export type DeclareFetchResponse = DeclareFetchResponseText | DeclareFetchResponseMissing
+
+/** Per-row skip reasons — closed enum so the client maps to dictionary keys (the rejection-keys discipline). */
+export type DeclareSkipReason =
+  | 'bad-shape'
+  | 'bad-type'
+  | 'bad-title'
+  | 'bad-content'
+  | 'over-cap'
+  | 'bad-envs'
+  | 'wp-not-found'
+  | 'wp-not-in-dev'
+
+export interface DeclareSkip {
+  /** Stable key within this parse (`built-0`, `artifact-2`, …). */
+  readonly key: string
+  /** Best-effort human label of the raw row (title when readable, else the key). */
+  readonly label: string
+  readonly reason: DeclareSkipReason
+}
+
+export interface DeclareBuiltEntry {
+  readonly kind: 'built'
+  readonly key: string
+  readonly workPackageId: string
+}
+
+export interface DeclareArtifactEntry {
+  readonly kind: 'artifact'
+  readonly key: string
+  readonly type: ReleaseItem['type']
+  readonly title: string
+  readonly content: string
+  readonly envs: readonly string[]
+  /** Block-level workPackage scope, stamped when present AND resolvable. */
+  readonly workPackageId?: string
+  /** Advisory: an existing row has the same (type, title, contentHash). Import stays legal (correction = new item + old rolled-back may be identical). */
+  readonly duplicate: boolean
+}
+
+export interface DeclareKnowledgeEntry {
+  readonly kind: 'knowledge'
+  readonly key: string
+  readonly type: 'business' | 'convention'
+  readonly title: string
+  readonly draft: string
+  readonly duplicate: boolean
+}
+
+export type DeclareEntry = DeclareBuiltEntry | DeclareArtifactEntry | DeclareKnowledgeEntry
+
+export interface DeclarePreviewResponseOk {
+  readonly ok: true
+  /** Anchor: the revision this preview was computed against (the real import must carry it back). */
+  readonly revision: number
+  /** Importable rows (validation failures live in skipped[] — not checkable). */
+  readonly entries: readonly DeclareEntry[]
+  readonly skipped: readonly DeclareSkip[]
+  /** AI proposal only — displayed as an advisory line, NEVER persisted (§5.1 four powers). */
+  readonly stageReady: boolean
+  /** Whole-block rejection: entries/skipped are empty; the client keeps the text editable. */
+  readonly blockError?: 'no-declare-block' | 'yaml-syntax'
+  readonly blockErrorLine?: number
+}
+
+export interface DeclareReport {
+  readonly built: number
+  readonly artifacts: number
+  readonly knowledge: number
+  /** Commit-time guard rejections (races between preview and commit). */
+  readonly skipped: readonly DeclareSkip[]
+}
+
+export interface DeclareCommitResponseOk {
+  readonly ok: true
+  readonly revision: number
+  readonly record: WorkbenchRecord
+  readonly report: DeclareReport
+}
+
+export interface DeclareImportRequestBody {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  /** Present = parse-only preview, nothing is written (repos-pool dryRun semantics). */
+  readonly dryRun?: boolean
+  /** Declare text — a fenced block, a bare block body, or pasted prose containing one. */
+  readonly text: string
+  /** Provenance stamped onto imported rows (releaseItems.sessionId / candidates.proposedSessionId). */
+  readonly sessionId?: string
+  /** Entry keys to import (commit only; unknown keys are ignored). */
+  readonly selected?: readonly string[]
+}
+
 /** SOW knowledge-injection caps (client-side assembly v1; mechanism fixed, values adjustable). */
 export const KNOWLEDGE_INJECTION_MAX_ENTRIES = 8
 export const KNOWLEDGE_INJECTION_MAX_BYTES = 8 * 1024
@@ -1231,4 +1352,75 @@ export function isWorkbenchKnowledgeSaveResponseOk(v: unknown): v is WorkbenchKn
   if (typeof v !== 'object' || v === null) return false
   const r = v as Record<string, unknown>
   return r.ok === true && typeof r.revision === 'number' && isWorkbenchKnowledgeRecord(r.record)
+}
+
+// ---------------------------------------------------------------------------
+// Declare guards (browser side)
+// ---------------------------------------------------------------------------
+
+const DECLARE_FETCH_MISSING = ['no-service', 'not-found', 'unreadable', 'no-declare-block']
+const DECLARE_SKIP_REASONS = ['bad-shape', 'bad-type', 'bad-title', 'bad-content', 'over-cap', 'bad-envs', 'wp-not-found', 'wp-not-in-dev']
+const DECLARE_ENTRY_TYPES = ['sql', 'config', 'flag', 'mq', 'other']
+const DECLARE_KNOWLEDGE_TYPES = ['business', 'convention']
+
+export function isDeclareFetchResponse(v: unknown): v is DeclareFetchResponse {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  if (r.ok !== true) return false
+  if (isString(r.text)) return r.missing === undefined
+  return isString(r.missing) && DECLARE_FETCH_MISSING.includes(r.missing)
+}
+
+function isDeclareSkip(v: unknown): v is DeclareSkip {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  return isString(r.key) && r.key.length > 0
+    && isString(r.label)
+    && isString(r.reason) && DECLARE_SKIP_REASONS.includes(r.reason)
+}
+
+function isDeclareEntry(v: unknown): v is DeclareEntry {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  if (!isString(r.key) || r.key.length === 0) return false
+  if (r.kind === 'built') {
+    return isString(r.workPackageId) && isWorkPackageId(r.workPackageId)
+  }
+  if (r.kind === 'artifact') {
+    return isString(r.type) && DECLARE_ENTRY_TYPES.includes(r.type)
+      && isString(r.title) && r.title.length > 0
+      && isString(r.content)
+      && Array.isArray(r.envs) && r.envs.every((e) => isString(e))
+      && (r.workPackageId === undefined || (isString(r.workPackageId) && isWorkPackageId(r.workPackageId)))
+      && typeof r.duplicate === 'boolean'
+  }
+  if (r.kind === 'knowledge') {
+    return isString(r.type) && DECLARE_KNOWLEDGE_TYPES.includes(r.type)
+      && isString(r.title) && r.title.length > 0
+      && isString(r.draft)
+      && typeof r.duplicate === 'boolean'
+  }
+  return false
+}
+
+export function isDeclarePreviewResponse(v: unknown): v is DeclarePreviewResponseOk {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  if (r.ok !== true || typeof r.revision !== 'number' || typeof r.stageReady !== 'boolean') return false
+  if (!Array.isArray(r.entries) || !r.entries.every(isDeclareEntry)) return false
+  if (!Array.isArray(r.skipped) || !r.skipped.every(isDeclareSkip)) return false
+  if (r.blockError !== undefined && r.blockError !== 'no-declare-block' && r.blockError !== 'yaml-syntax') return false
+  if (r.blockErrorLine !== undefined && typeof r.blockErrorLine !== 'number') return false
+  return true
+}
+
+export function isDeclareCommitResponse(v: unknown): v is DeclareCommitResponseOk {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  if (r.ok !== true || typeof r.revision !== 'number' || !isWorkbenchRecord(r.record)) return false
+  const report = r.report
+  if (typeof report !== 'object' || report === null) return false
+  const p = report as Record<string, unknown>
+  return typeof p.built === 'number' && typeof p.artifacts === 'number' && typeof p.knowledge === 'number'
+    && Array.isArray(p.skipped) && p.skipped.every(isDeclareSkip)
 }

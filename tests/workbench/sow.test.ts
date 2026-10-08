@@ -168,7 +168,7 @@ describe('buildSow', () => {
     expect(text).toContain('（工作台记录未建立）')
     expect(text).not.toContain('当前阶段')
     expect(text).not.toContain('[工作包]')
-    expect(text).toContain('```yaml\n# skyaxis-declare\nknowledge: []\nstageReady: false\n```')
+    expect(text).toContain('```yaml\n# skyaxis-declare\n# knowledge 条目形如（type: business|convention）：\n#   - type: convention\n#     title: 标题\n#     draft: 内容\nknowledge: []\nstageReady: false\n```')
     expect(text).not.toContain('workPackage:')
     expect(text).not.toContain('claims:')
   })
@@ -221,7 +221,7 @@ describe('buildSow', () => {
     expect(text).toContain('依赖工作包摘要：\n- WP2 存储层 · 只做表结构')
     expect(text).toContain('[PRD 节选]\n文档：prd.md\n\n## 背景\nPRD 背景')
     expect(text).toContain('[知识注入]\n### 知识-k1\n（触发：always）\n内容-k1')
-    expect(text).toContain('```yaml\n# skyaxis-declare\nworkPackage: WP1\nclaims:\n  - built: true\nartifacts: []\nknowledge: []\nstageReady: false\n```')
+    expect(text).toContain('```yaml\n# skyaxis-declare\nworkPackage: WP1\nclaims:\n  - built: true\n# artifacts 条目形如（type: sql|config|flag|mq|other）：\n#   - type: sql\n#     title: 标题（64 字内）\n#     content: |\n#       SQL 或配置值（多行用块状写法）\n#     envs: [prod]\nartifacts: []\n# knowledge 条目形如（type: business|convention）：\n#   - type: convention\n#     title: 标题\n#     draft: 内容\nknowledge: []\nstageReady: false\n```')
   })
 
   it('dev 语境无已批准计划：占位行；includeDeps 缺省不产依赖摘要', () => {

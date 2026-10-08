@@ -12,6 +12,10 @@
  *   - `workspaceRegistry`  — requirement workspace binding (P3a); absent ⇒
  *     binds still store the ledger path with registered:false (web profile
  *     compositions always provide the service),
+ *   - `sessionQuery`       — declare-block session fetch (P3b, PURE READ:
+ *     readSession is an exact read that never activates the session —
+ *     observe-only whitelist entry #11); absent ⇒ the fetch GET answers
+ *     no-service and the client degrades to the paste channel,
  *   - `connection`         — the repos-pool /api endpoint family; absent in
  *     compositions without a web carrier (e.g. desktop file:// IPC).
  * Registrations ride the calling fiber and are withdrawn on plugin unload.
@@ -29,6 +33,7 @@ import { RequirementsFileStore } from './requirements-host/requirements-file.js'
 import { CloneTaskRegistry } from './requirements-host/clone.js'
 import { RequirementWorkspaceBinder } from './requirements-host/workspace.js'
 import { WorkbenchCascadeService } from './workbench-host/cascade-service.js'
+import { SessionDeclareReader, type SessionQueryLike } from './workbench-host/declare-reader.js'
 import { registerWorkbenchEndpoints } from './workbench-host/endpoint.js'
 import { registerWorkbenchKnowledgeEndpoints } from './workbench-host/knowledge-endpoint.js'
 import { KnowledgeFileStore } from './workbench-host/knowledge-file.js'
@@ -71,6 +76,16 @@ export function apply(ctx: Context): void {
     workbenchRoot,
     log: (error) => ctx.logger.error(error),
   })
+  const declareReader = new SessionDeclareReader()
+
+  // sessionQuery is NOT a declared dependency (package not resolvable from
+  // this repo) — the structural local face + unknown-narrowing cast is the
+  // waiting-tracker PendingInteractionsLike precedent. Missing service ⇒
+  // fetch degrades to no-service; the paste channel never depends on it.
+  ctx.inject(['sessionQuery'], (scope: unknown) => {
+    declareReader.setEngine((scope as { sessionQuery?: SessionQueryLike }).sessionQuery)
+    return () => declareReader.setEngine(undefined)
+  })
 
   ctx.inject(['workspaceRegistry'], (scope) => {
     workspaceBinder.setRegistry(scope.workspaceRegistry)
@@ -102,6 +117,7 @@ export function apply(ctx: Context): void {
       file: workbenchFile,
       knowledgeFile,
       workbenchRoot,
+      declareReader,
       log: (error) => ctx.logger.error(error),
     })
     registerWorkbenchKnowledgeEndpoints(scope.connection, {

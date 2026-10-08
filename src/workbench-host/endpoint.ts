@@ -22,13 +22,19 @@ import type { HostConnectionHandle } from '@deepseek-ai/dsh-client-connection'
 import {
   WORKBENCH_ARTIFACTS_PATH,
   WORKBENCH_ARTIFACT_MAX_CHARS,
+  WORKBENCH_DECLARE_PATH,
   WORKBENCH_PATH,
   WORKBENCH_SCAN_PATH,
+  DECLARE_MAX_CHARS,
   isWorkPackageId,
   isPlanVersion,
   isReviewId,
 } from '../workbench-shared/protocol.js'
 import type {
+  DeclareCommitResponseOk,
+  DeclareFetchResponse,
+  DeclarePreviewResponseOk,
+  DeclareSkip,
   ErrorResponse,
   WorkbenchDetailResponseOk,
   WorkbenchListResponse,
@@ -37,11 +43,13 @@ import type {
 import { planDocPath, reviewDocPath } from './artifact-path.js'
 import { ArtifactStore, contentHashOf } from './artifact-store.js'
 import { scanWorkbenchArtifacts } from './orphan-scan.js'
-import { applyRecordAction } from './record-actions.js'
+import { applyRecordAction, nextReleaseItemId } from './record-actions.js'
+import { parseDeclare } from './declare-parse.js'
+import type { SessionDeclareReader } from './declare-reader.js'
 import type { KnowledgeFileStore } from './knowledge-file.js'
 import type { KnowledgeRecord } from './types.js'
 import type { WorkbenchFileStore } from './workbench-file.js'
-import { WorkbenchMutateSchema } from './types.js'
+import { DeclareImportSchema, WorkbenchMutateSchema } from './types.js'
 
 export interface WorkbenchEndpointServices {
   readonly file: WorkbenchFileStore
@@ -49,6 +57,8 @@ export interface WorkbenchEndpointServices {
   readonly knowledgeFile: KnowledgeFileStore
   /** $DSH_HOME/skyaxis/workbench — the artifacts root. */
   readonly workbenchRoot: string
+  /** Session-log declare fetch (P3b) — engine optionally injected, absent ⇒ GET degrades to no-service. */
+  readonly declareReader: SessionDeclareReader
   /** Host log face for unexpected handler failures (500s). */
   readonly log?: (error: unknown) => void
 }
@@ -496,6 +506,178 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
       return json({ ok: true, ...scanWorkbenchArtifacts(services.workbenchRoot, current.value.records) })
     },
   })
+
+  // -------------------------------------------------------------------------
+  // Declare-block import (P3b): GET fetches a session's final declare text
+  // (pure read — 200 degrade envelope, never an error status); POST runs the
+  // two-stage import (dryRun preview / commit) over the SAME workbench.yaml
+  // revision space as the main union — the repos-pool import precedent.
+  // -------------------------------------------------------------------------
+
+  connection.fetch.register({
+    path: WORKBENCH_DECLARE_PATH,
+    methods: ['GET', 'POST'],
+    requestBody: 'buffered',
+    fetch: async (request) => {
+      if (request.method === 'GET') return declareFetchFlow(request)
+      return declareImportFlow(request)
+    },
+  })
+
+  async function declareFetchFlow(request: Request): Promise<Response> {
+    const url = new URL(request.url)
+    const sessionId = url.searchParams.get('sessionId')
+    if (sessionId === null || sessionId.length === 0) return errorResponse(400, 'bad-request')
+    const result = await services.declareReader.readDeclareText(sessionId)
+    const body: DeclareFetchResponse = result.status === 'ok'
+      ? { ok: true, text: result.text }
+      : { ok: true, missing: result.reason }
+    return json(body)
+  }
+
+  async function declareImportFlow(request: Request): Promise<Response> {
+    const parsed = DeclareImportSchema.safeParse(await readJsonBody(request))
+    if (!parsed.success) return errorResponse(400, 'bad-request')
+    const body = parsed.data
+    if (!REQUIREMENT_ID_RE.test(body.requirementId)) return errorResponse(400, 'bad-request')
+    if (body.text.length > DECLARE_MAX_CHARS) return errorResponse(413, 'too-large')
+
+    const current = file.load()
+    if (!current.ok) return errorResponse(409, 'unreadable-file')
+    // dry-run checks the revision too: the preview must be anchored to the
+    // same snapshot the follow-up real import would fold onto (repos-pool).
+    if (current.value.revision !== body.expectedRevision) {
+      return errorResponse(409, 'conflict', { currentRevision: current.value.revision })
+    }
+    const existing = current.value.records.find((candidate) => candidate.requirementId === body.requirementId)
+    const base = existing ?? emptyRecord(body.requirementId)
+
+    const parse = parseDeclare({ text: body.text, record: base })
+    if (!parse.ok) {
+      const preview: DeclarePreviewResponseOk = {
+        ok: true,
+        revision: current.value.revision,
+        entries: [],
+        skipped: [],
+        stageReady: false,
+        blockError: parse.blockError,
+        ...(parse.blockErrorLine !== undefined ? { blockErrorLine: parse.blockErrorLine } : {}),
+      }
+      return json(preview)
+    }
+
+    if (body.dryRun === true) {
+      // Preview only — zero writes (byte-identical file asserted in tests).
+      const preview: DeclarePreviewResponseOk = {
+        ok: true,
+        revision: current.value.revision,
+        entries: parse.entries,
+        skipped: parse.skipped,
+        stageReady: parse.stageReady,
+      }
+      return json(preview)
+    }
+
+    // Commit: re-parse verdicts already in hand (same pure function over the
+    // same text); fold ONLY the selected keys through the real guards.
+    const selected = new Set(body.selected ?? [])
+    const skipped: DeclareSkip[] = []
+    let record = base
+    let builtCount = 0
+    let artifactCount = 0
+    let knowledgeCount = 0
+
+    for (const entry of parse.entries) {
+      if (!selected.has(entry.key)) continue
+      if (entry.kind === 'built') {
+        // Reuse the REAL lifecycle guard — a race between preview and commit
+        // (revoke, re-baseline) lands in skipped, not a whole-batch reject.
+        const applied = applyRecordAction(record, {
+          expectedRevision: body.expectedRevision,
+          requirementId: body.requirementId,
+          action: 'markWorkPackageBuilt',
+          id: entry.workPackageId,
+        })
+        if (applied.ok) {
+          record = applied.record
+          builtCount++
+        } else {
+          skipped.push({ key: entry.key, label: entry.workPackageId, reason: applied.status === 404 ? 'wp-not-found' : 'wp-not-in-dev' })
+        }
+        continue
+      }
+      if (entry.kind === 'artifact') {
+        record = {
+          ...record,
+          releaseItems: [
+            ...record.releaseItems,
+            {
+              id: nextReleaseItemId(record.releaseItems.map((item) => item.id)),
+              type: entry.type,
+              title: entry.title,
+              content: entry.content,
+              contentHash: contentHashOf(entry.content),
+              envs: [...entry.envs],
+              ...(entry.workPackageId !== undefined ? { workPackageId: entry.workPackageId } : {}),
+              ...(body.sessionId !== undefined ? { sessionId: body.sessionId } : {}),
+              status: 'pending' as const,
+            },
+          ],
+        }
+        artifactCount++
+        continue
+      }
+      record = {
+        ...record,
+        knowledgeCandidates: [
+          ...record.knowledgeCandidates,
+          {
+            id: randomUUID(),
+            title: entry.title,
+            draft: entry.draft,
+            type: entry.type,
+            ...(body.sessionId !== undefined ? { proposedSessionId: body.sessionId } : {}),
+            at: new Date().toISOString(),
+            status: 'pending' as const,
+          },
+        ],
+      }
+      knowledgeCount++
+    }
+
+    const applied = builtCount + artifactCount + knowledgeCount
+    // The done report carries the COMPLETE outcome: parse-time skips (rows
+    // that never were importable) alongside commit-time guard rejections.
+    const reportSkipped: readonly DeclareSkip[] = [...parse.skipped, ...skipped]
+    if (applied === 0) {
+      // Zero real change (nothing selected / all guard-rejected): skip the
+      // write entirely — no revision bump, no .bak churn (repos-pool).
+      return json({ ok: true, revision: current.value.revision, record, report: { built: 0, artifacts: 0, knowledge: 0, skipped: reportSkipped } })
+    }
+
+    const nextRecords = existing === undefined
+      ? [...current.value.records, record]
+      : current.value.records.map((candidate) => (candidate.requirementId === body.requirementId ? record : candidate))
+    try {
+      const saved = await file.save(body.expectedRevision, nextRecords)
+      if (!saved.ok) {
+        if (saved.rejected === 'stale-revision') {
+          return errorResponse(409, 'conflict', { currentRevision: saved.currentRevision })
+        }
+        return errorResponse(409, 'unreadable-file')
+      }
+      const responseBody: DeclareCommitResponseOk = {
+        ok: true,
+        revision: saved.revision,
+        record,
+        report: { built: builtCount, artifacts: artifactCount, knowledge: knowledgeCount, skipped: reportSkipped },
+      }
+      return json(responseBody)
+    } catch (error) {
+      log?.(error)
+      return errorResponse(500, 'internal')
+    }
+  }
 }
 
 /** The records array with `next` replacing the requirement's row. */

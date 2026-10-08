@@ -242,13 +242,34 @@ function knowledgeBlock(ctx: SowContext): string {
 }
 
 function outputBlock(ctx: SowContext): string {
-  const lines = ['[输出约定]', '结束时请输出如下机器可读的声明块：', '```yaml', '# skyaxis-declare']
+  const lines = ['[输出约定]', '结束时请输出如下机器可读的声明块（条目用缩进键值，勿用行内逗号）：', '```yaml', '# skyaxis-declare']
   if (ctx.purpose === 'dev' && ctx.workPackage !== undefined) {
     // dev 骨架：workPackage 键（决策 0006 连带，旧 module: 键已废）+ built
-    // 声明 + 产物登记；artifacts 仅 dev 语境出现。
-    lines.push(`workPackage: ${ctx.workPackage.id}`, 'claims:', '  - built: true', 'artifacts: []')
+    // 声明 + 产物登记；artifacts 仅 dev 语境出现。条目形状用合法 YAML 注释
+    // 教学（P3b：research §7.1 的行内逗号示例是非法 YAML——BLOCK_AS_
+    // IMPLICIT_KEY 整块抛错，模型照抄会让声明块不可解析）。
+    lines.push(
+      `workPackage: ${ctx.workPackage.id}`,
+      'claims:',
+      '  - built: true',
+      '# artifacts 条目形如（type: sql|config|flag|mq|other）：',
+      '#   - type: sql',
+      '#     title: 标题（64 字内）',
+      '#     content: |',
+      '#       SQL 或配置值（多行用块状写法）',
+      '#     envs: [prod]',
+      'artifacts: []',
+    )
   }
-  lines.push('knowledge: []', 'stageReady: false', '```')
+  lines.push(
+    '# knowledge 条目形如（type: business|convention）：',
+    '#   - type: convention',
+    '#     title: 标题',
+    '#     draft: 内容',
+    'knowledge: []',
+    'stageReady: false',
+    '```',
+  )
   return lines.join('\n')
 }
 

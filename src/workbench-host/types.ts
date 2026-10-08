@@ -12,6 +12,7 @@
  */
 import { z } from 'zod'
 import type {
+  DeclareImportRequestBody,
   WorkbenchMutateRequestBody,
   WorkbenchKnowledgeMutateRequestBody,
   WorkbenchKnowledgeRecord,
@@ -525,11 +526,34 @@ export const WorkbenchKnowledgeMutateSchema = z.discriminatedUnion('action', [
 ])
 
 // ---------------------------------------------------------------------------
+// Declare import route (P3b) — its own body schema (the route is separate
+// from the main union; see protocol.ts).
+// ---------------------------------------------------------------------------
+
+export const DeclareImportSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  dryRun: z.boolean().optional(),
+  text: z.string().min(1),
+  sessionId: SessionIdSchema.optional(),
+  selected: z.array(z.string().min(1).max(64)).optional(),
+})
+
+// ---------------------------------------------------------------------------
 // Compile-time alignment with the shared protocol (drift = type error)
 // ---------------------------------------------------------------------------
 
 /* eslint-disable @typescript-eslint/no-unused-vars */
 type _ProtocolWorkbenchRecordAssignableToSchema = WorkbenchRecord extends z.infer<typeof WorkbenchRecordSchema> ? true : never
+
+// LIVE assertion (P3b): unlike the alias-only forms above — which cannot
+// fail the build (an unused `? true : never` alias never errors; verified by
+// mutation in P3a) — this const assignment errors when the direction flips.
+// Direction chosen readonly-tolerantly (zod infers mutable arrays; the
+// reverse direction fails structurally on every readonly field). Required-
+// field drift trips this; optional-field drift is covered by the declare
+// endpoint round-trip tests instead.
+const _DeclareImportRequestAligned: z.infer<typeof DeclareImportSchema> extends DeclareImportRequestBody ? true : never = true
 type _SchemaWorkbenchRecordAssignableToProtocol = z.infer<typeof WorkbenchRecordSchema> extends WorkbenchRecord ? true : never
 type _MutateRequestAligned = WorkbenchMutateRequestBody extends z.infer<typeof WorkbenchMutateSchema> ? true : never
 type _KnowledgeMutateAligned = WorkbenchKnowledgeMutateRequestBody extends z.infer<typeof WorkbenchKnowledgeMutateSchema> ? true : never

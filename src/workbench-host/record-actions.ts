@@ -81,7 +81,7 @@ function nextSequenceId(ids: readonly string[], prefix: string): string {
  * as the P1b round-2 coveredBy incident (milestones/0006). Padding to four
  * matches research 0006 §6.1 and the mockup's `R0001`.
  */
-function nextReleaseItemId(ids: readonly string[]): string {
+export function nextReleaseItemId(ids: readonly string[]): string {
   let max = 0
   for (const id of ids) {
     const parsed = Number.parseInt(id.slice(1), 10)
