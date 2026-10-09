@@ -298,3 +298,51 @@ describe('SowModal（SOW 生成 Modal）', () => {
     await waitFor(() => expect(previewText(rendered)).toContain('依赖工作包摘要：\n- WP2 存储层 · 只做表结构'))
   })
 })
+
+describe('SowModal 投递 v2（P5a）', () => {
+  const previewOf = (rendered: ReturnType<typeof subject>): string =>
+    rendered.getByTestId('sow-preview').textContent ?? ''
+
+  it('deliver 缺席 ⇒ 投递按钮不渲染（诚实降级，复制为 primary）；在场 ⇒ 投递 primary / 复制降 ghost', async () => {
+    const noFace = subject({})
+    expect(noFace.queryByRole('button', { name: workbenchZh['sow.deliver'] })).toBeNull()
+    expect(noFace.getByRole('button', { name: workbenchZh['sow.copy'] }).className).toContain('primary')
+    cleanup()
+
+    const deliver = vi.fn(async (_text: string, _ws: string | undefined): Promise<{ ok: true; sessionId: string } | { ok: false; reason: 'failed' }> => ({ ok: true, sessionId: 'sess-1' }))
+    const withFace = subject({ deliver })
+    expect(withFace.getByRole('button', { name: workbenchZh['sow.deliver'] }).className).toContain('primary')
+    expect(withFace.getByRole('button', { name: workbenchZh['sow.copy'] }).className).toContain('ghost')
+  })
+
+  it('投递 payload：全文 + requirement.workspacePath 作 cwd；成功关窗', async () => {
+    const deliver = vi.fn(async (_text: string, _ws: string | undefined): Promise<{ ok: true; sessionId: string } | { ok: false; reason: 'failed' }> => ({ ok: true, sessionId: 'sess-1' }))
+    const onClose = vi.fn()
+    const rendered = subject({ deliver, onClose })
+    await waitFor(() => expect(previewOf(rendered)).toContain('[需求]'))
+
+    fireEvent.click(rendered.getByRole('button', { name: workbenchZh['sow.deliver'] }))
+    await waitFor(() => expect(deliver).toHaveBeenCalledTimes(1))
+    expect(deliver.mock.calls[0]?.[0]).toContain('[需求]')
+    expect(deliver.mock.calls[0]?.[0]).toContain('生成于 revision 7 ·')
+    expect(deliver.mock.calls[0]?.[1]).toBe('') // requirement 夹具的 workspacePath（空 ⇒ cwd 省略）
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
+  })
+
+  it('投递失败：警示行（可复制兜底），窗不关；重试成功后关', async () => {
+    const deliver = vi.fn(async (_text: string, _ws: string | undefined): Promise<{ ok: true; sessionId: string } | { ok: false; reason: 'failed' }> => ({ ok: false, reason: 'failed' }))
+    const onClose = vi.fn()
+    const rendered = subject({ deliver, onClose })
+    await waitFor(() => expect(previewOf(rendered)).toContain('[需求]'))
+
+    fireEvent.click(rendered.getByRole('button', { name: workbenchZh['sow.deliver'] }))
+    expect(await rendered.findByRole('alert')).toBeTruthy()
+    expect(rendered.getByRole('alert').textContent).toBe(workbenchZh['sow.deliverFailed'])
+    expect(onClose).not.toHaveBeenCalled()
+    expect(rendered.getByRole('button', { name: workbenchZh['sow.copy'] })).toBeTruthy() // 复制兜底在场
+
+    deliver.mockImplementation(async () => ({ ok: true as const, sessionId: 's' }))
+    fireEvent.click(rendered.getByRole('button', { name: workbenchZh['sow.deliver'] }))
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
+  })
+})

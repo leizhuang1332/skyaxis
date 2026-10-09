@@ -361,6 +361,8 @@ describe('workbench: dictionaries', () => {
       'sow.copy',
       'sow.copyFailed',
       'sow.declareIntro',
+      'sow.deliver',
+      'sow.deliverFailed',
       'sow.knowledgeEmpty',
       'sow.knowledgeGroup',
       'sow.knowledgeHit',

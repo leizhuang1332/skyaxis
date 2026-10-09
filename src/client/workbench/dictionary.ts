@@ -263,6 +263,8 @@ interface WorkbenchDictionary {
   readonly 'sow.wpBoundaryPlan': string
   readonly 'sow.wpDeps': string
   readonly 'sow.wpNoApprovedPlan': string
+  readonly 'sow.deliver': string
+  readonly 'sow.deliverFailed': string
   readonly 'sow.copy': string
   readonly 'sow.copied': string
   readonly 'sow.copyFailed': string
@@ -642,6 +644,8 @@ const zh: WorkbenchDictionary = {
   'sow.wpBoundaryPlan': '边界 + 已批准计划',
   'sow.wpDeps': '依赖工作包摘要',
   'sow.wpNoApprovedPlan': '（尚无已批准计划，仅注入边界）',
+  'sow.deliver': '投递到新会话',
+  'sow.deliverFailed': '投递失败：请复制后手动粘贴。',
   'sow.copy': '复制到剪贴板',
   'sow.copied': '已复制',
   'sow.copyFailed': '复制失败：请手动选中预览文本复制。',
@@ -1017,6 +1021,8 @@ const en: WorkbenchDictionary = {
   'sow.wpBoundaryPlan': 'Boundary + approved plan',
   'sow.wpDeps': 'Dependency summaries',
   'sow.wpNoApprovedPlan': '(no approved plan yet — boundary only)',
+  'sow.deliver': 'Deliver to a new session',
+  'sow.deliverFailed': 'Delivery failed: copy and paste manually.',
   'sow.copy': 'Copy to clipboard',
   'sow.copied': 'Copied',
   'sow.copyFailed': 'Copy refused: select the preview text and copy manually.',

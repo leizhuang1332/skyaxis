@@ -30,6 +30,7 @@ import { ReviewSection } from './review-section.js'
 import { SessionStrip } from './session-strip.js'
 import { KnowledgeSection } from './knowledge-section.js'
 import { SowModal } from './sow-modal.js'
+import type { DeliverFace } from './delivery.js'
 import type { WorkbenchWorkPackage } from '../../workbench-shared/protocol.js'
 import styles from './view.module.css'
 
@@ -127,6 +128,8 @@ export function WorkbenchTabBody(props: {
   sessions?: WorkbenchSessionsFace
   /** Optional waiting-input face (P2b) — the fourth chip state. */
   waiting?: WaitingFace
+  /** Optional SOW delivery face (P5a) — absent ⇒ the modal hides the delivery button. */
+  deliver?: DeliverFace
 }): ReactNode {
   const { t, slot, controller, knowledge } = props
   const requirementId = props.requirement.id
@@ -292,6 +295,7 @@ export function WorkbenchTabBody(props: {
             revision={slot.revision}
             busy={slot.busy}
             workPackage={sow?.workPackage}
+            deliver={props.deliver}
             onClose={() => { setSow(null) }}
           />
         </>
@@ -327,9 +331,11 @@ export function createWorkbenchTabSeat(options: {
   sessions?: WorkbenchSessionsFace
   /** Waiting-input face (P2b, optional). */
   waiting?: WaitingFace
+  /** SOW delivery face (P5a, optional — absent without the conversation shell). */
+  deliver?: DeliverFace
 }): (props: PropsRuntime<'requirements.detail.view'>) => ReactNode {
-  const { t, store, controller, sessions, waiting } = options
-  return (props) => <WorkbenchSeat t={t} store={store} controller={controller} requirement={props.requirement} sessions={sessions} waiting={waiting} />
+  const { t, store, controller, sessions, waiting, deliver } = options
+  return (props) => <WorkbenchSeat t={t} store={store} controller={controller} requirement={props.requirement} sessions={sessions} waiting={waiting} deliver={deliver} />
 }
 
 function WorkbenchSeat(props: {
@@ -339,6 +345,7 @@ function WorkbenchSeat(props: {
   requirement: RequirementRecord
   sessions?: WorkbenchSessionsFace
   waiting?: WaitingFace
+  deliver?: DeliverFace
 }): ReactNode {
   const state = useSyncExternalStore(props.store.subscribe, props.store.getSnapshot)
   useEffect(() => {
@@ -354,6 +361,7 @@ function WorkbenchSeat(props: {
       knowledge={knowledgeFor(state, props.requirement.id)}
       sessions={props.sessions}
       waiting={props.waiting}
+      deliver={props.deliver}
     />
   )
 }

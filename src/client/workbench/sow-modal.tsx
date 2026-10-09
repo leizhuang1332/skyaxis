@@ -78,6 +78,8 @@ export function SowModal(props: {
   /** dev context: approved plan body; undefined when none approved. */
   fetchPlanText?: () => Promise<string | undefined>
   copy?: (text: string) => Promise<boolean>
+  /** P5a delivery face — absent ⇒ no delivery button (copy stays the fallback). */
+  deliver?: (text: string, workspacePath: string | undefined) => Promise<{ ok: boolean; sessionId?: string; reason?: 'no-service' | 'failed' }>
 }): ReactNode {
   const { t, open, purpose, requirement, record, knowledgeRecords, revision, workPackage } = props
   const busy = props.busy === true
@@ -103,6 +105,10 @@ export function SowModal(props: {
   // --- copy feedback (self-implemented, no useCopyFeedback) ---
   const [copyState, setCopyState] = useState<'idle' | 'busy' | 'copied'>('idle')
   const [copyFailed, setCopyFailed] = useState(false)
+  // P5a delivery state — success CLOSES the modal (the session is open with
+  // the draft prefilled; the user reviews and sends). Failure keeps the
+  // modal with an alert; copy remains the manual fallback.
+  const [deliverState, setDeliverState] = useState<'idle' | 'busy' | 'failed'>('idle')
   const copyTimerRef = useRef<number | null>(null)
   useEffect(() => () => {
     if (copyTimerRef.current !== null) window.clearTimeout(copyTimerRef.current)
@@ -252,9 +258,11 @@ export function SowModal(props: {
     ? t('sow.knowledgeOverLimit')
       .replaceAll('{entries}', String(selectedKnowledge.length))
       .replaceAll('{size}', kbLabel(selectedBytes))
-    : copyFailed
-      ? t('sow.copyFailed')
-      : null
+    : deliverState === 'failed'
+      ? t('sow.deliverFailed')
+      : copyFailed
+        ? t('sow.copyFailed')
+        : null
 
   const onCopy = (): void => {
     if (copyState !== 'idle' || busy || overLimit) return
@@ -272,6 +280,21 @@ export function SowModal(props: {
     })
   }
 
+  const onDeliver = (): void => {
+    // Guard busy only — the failed state stays retryable (the alert already
+    // told the user why; a dead retry button would strand them).
+    if (deliverState === 'busy' || busy || overLimit) return
+    setDeliverState('busy')
+    void props.deliver?.(preview, requirement.workspacePath).then((outcome) => {
+      if (outcome.ok) {
+        setDeliverState('idle')
+        props.onClose()
+        return
+      }
+      setDeliverState('failed')
+    })
+  }
+
   return (
     <Modal
       open={open}
@@ -285,10 +308,20 @@ export function SowModal(props: {
           {warnText !== null ? <div className={styles.sowWarn} role="alert">{warnText}</div> : null}
           <div className={styles.wpFooterMain}>
             <button type="button" className={styles.ghostButton} onClick={props.onClose}>{t('action.cancel')}</button>
+            {props.deliver !== undefined ? (
+              <button
+                type="button"
+                className={styles.primaryButton}
+                disabled={busy || overLimit || deliverState === 'busy' || copyState === 'busy'}
+                onClick={onDeliver}
+              >
+                {t('sow.deliver')}
+              </button>
+            ) : null}
             <button
               type="button"
-              className={styles.primaryButton}
-              disabled={busy || overLimit || copyState !== 'idle'}
+              className={props.deliver !== undefined ? styles.ghostButton : styles.primaryButton}
+              disabled={busy || overLimit || copyState !== 'idle' || deliverState === 'busy'}
               onClick={onCopy}
             >
               {copyState === 'copied' ? t('sow.copied') : t('sow.copy')}

@@ -25,6 +25,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { WORKBENCH_LOCALE_NS, registerWorkbenchDictionaries, type WorkbenchT } from './dictionary.js'
 import { createWorkbenchController } from './controller.js'
 import { createWorkbenchFetcher } from './fetcher.js'
+import { createSowDelivery, type DeliverFace } from './delivery.js'
 import { createWorkbenchTabSeat, type WorkbenchSessionsFace } from './view.js'
 import { createWorkbenchStore } from './store.js'
 import type { WaitingFace } from '../waiting-tracker.js'
@@ -67,7 +68,10 @@ export function registerWorkbenchView(ctx: Context, waiting?: WaitingFace): () =
   const store = createWorkbenchStore()
   const controller = createWorkbenchController(store, fetcher)
   const sessions = sessionsFace(ctx)
-  const seat = createWorkbenchTabSeat({ t: t satisfies WorkbenchT, store, controller, sessions, waiting })
+  // P5a delivery face — undefined in jsdom / conversation-less compositions
+  // (honest degrade: the SOW modal then hides its delivery button).
+  const deliver = createSowDelivery(ctx)
+  const seat = createWorkbenchTabSeat({ t: t satisfies WorkbenchT, store, controller, sessions, waiting, deliver })
 
   const disposeSeat = ctx.slots.inject('requirements.detail.view', () =>
     ctx.slots.register(
@@ -397,6 +401,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       | 'sow.copy'
       | 'sow.copyFailed'
       | 'sow.declareIntro'
+      | 'sow.deliver'
+      | 'sow.deliverFailed'
       | 'sow.knowledgeEmpty'
       | 'sow.knowledgeGroup'
       | 'sow.knowledgeHit'
