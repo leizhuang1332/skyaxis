@@ -63,6 +63,7 @@ export function KnowledgeActivateModal(props: {
       open
       onClose={() => { props.onCancel() }}
       className={styles.knowledgeDialog}
+      contentClassName={styles.wpDialogBody}
       title={t('knowledge.activateTitle')}
       closeLabel={t('action.cancel')}
       footer={

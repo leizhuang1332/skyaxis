@@ -80,6 +80,7 @@ export function KnowledgeFormModal(props: {
       open
       onClose={() => { props.onCancel() }}
       className={styles.knowledgeDialog}
+      contentClassName={styles.wpDialogBody}
       title={editing !== null ? t('knowledge.formTitleEdit') : t('knowledge.formTitleNew')}
       closeLabel={t('action.cancel')}
       footer={

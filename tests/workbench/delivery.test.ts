@@ -8,7 +8,15 @@ import type { Context } from '@deepseek-ai/cordis'
 import { createSowDelivery } from '../../src/client/workbench/delivery.js'
 
 const fakeCtx = (services: Record<string, unknown>): Context => {
-  const ctx = { get: (name: string) => services[name] } as unknown as Context
+  const ctx = {
+    get: (name: string) => services[name],
+    inject: (names: readonly string[], callback: (scope: unknown) => (() => void) | void) => {
+      // Fake tracker: arm immediately when the service is present (the real
+      // one fires when the providing fiber activates).
+      if (names.every((name) => services[name] !== undefined)) callback({ ...services })
+      return () => {}
+    },
+  } as unknown as Context
   return ctx
 }
 
@@ -21,11 +29,14 @@ const sessions = (createImpl?: (opts?: { cwd?: string }) => Promise<string>) => 
 const conversation = (setDraft = vi.fn()) => ({ input: { for: (actx: unknown) => ({ setDraft: (text: string) => setDraft(text, actx) }) } })
 
 describe('createSowDelivery', () => {
-  it('任一服务缺席 / 形状不对 ⇒ undefined（诚实不建面）', () => {
+  it('sessions 缺席 / 形状不对 ⇒ undefined（诚实不建面）；conversation 缺席不再是建面条件（验收修复：register 时机 get 对未激活服务答 undefined——改为 inject 反应式布防 + 调用时解析）', async () => {
     expect(createSowDelivery(fakeCtx({}))).toBeUndefined()
-    expect(createSowDelivery(fakeCtx({ sessions: sessions(), conversation: undefined }))).toBeUndefined()
-    expect(createSowDelivery(fakeCtx({ sessions: {}, conversation: conversation() }))).toBeUndefined()
-    expect(createSowDelivery(fakeCtx({ sessions: sessions(), conversation: { input: {} } }))).toBeUndefined()
+    expect(createSowDelivery(fakeCtx({ sessions: {} }))).toBeUndefined()
+    expect(createSowDelivery(fakeCtx({ sessions: { create: async () => 's' } }))).toBeUndefined()
+    // conversation 未起：face 仍在（按钮渲染），调用时诚实答 no-service。
+    const late = createSowDelivery(fakeCtx({ sessions: sessions() }))!
+    expect(late).toBeDefined()
+    await expect(late('t', 'C:/ws')).resolves.toEqual({ ok: false, reason: 'no-service' })
   })
 
   it('官方四步：create 带 cwd（空串省略）→ scope → setDraft → open + selectPanel 尽力而为', async () => {
