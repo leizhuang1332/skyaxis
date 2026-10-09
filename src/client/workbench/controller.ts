@@ -327,7 +327,7 @@ export function createWorkbenchController(store: WorkbenchStore, fetcher: Workbe
 
     /** Dual-ledger activate: on success both the main slot AND the knowledge
      *  slice re-pull (the promote wrote workbench.yaml + a knowledge row). */
-    activateKnowledgeCandidate: async (requirementId: string, id: string, knowledge: { scope: 'global' | 'workspace' | 'requirement'; type: 'business' | 'convention'; trigger: { mode: 'always' | 'keyword' | 'manual'; value?: string }; path?: string }, signal?: AbortSignal): Promise<boolean> => {
+    activateKnowledgeCandidate: async (requirementId: string, id: string, knowledge: { scope: 'global' | 'workspace' | 'requirement'; type: 'business' | 'convention'; trigger: { mode: 'always' | 'keyword' | 'manual' | 'path'; value?: string }; path?: string }, signal?: AbortSignal): Promise<boolean> => {
       const ok = await mutate(requirementId, () => fetcher.activateKnowledgeCandidate(requirementId, slotRevision(requirementId), id, knowledge, signal), signal)
       if (ok) await openKnowledge(requirementId, signal)
       return ok

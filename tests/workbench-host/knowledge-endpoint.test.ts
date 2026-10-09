@@ -37,6 +37,7 @@ const BASE = 'http://127.0.0.1'
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const RID = '11111111-1111-4111-8111-111111111111'
 const RID2 = '22222222-2222-4222-8222-222222222222'
+const RID_CWD = 'C:/ws/quote-export'
 const RID_UPPER = 'AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE'
 const ID_REQ = '33333333-3333-4333-8333-333333333333'
 const ID_GLOBAL = '44444444-4444-4444-8444-444444444444'
@@ -100,7 +101,7 @@ const errorCode = async (res: Response) => ((await res.json()) as ErrorResponse)
 // ---------------------------------------------------------------------------
 
 describe('GET /api/skyaxis/workbench/knowledge', () => {
-  it('过滤三面：requirement 命中 ∪ global；workspace 行与异需求行不返回；archived 也通行（双状态，客户端自滤）', async () => {
+  it('过滤三面：requirement 命中 ∪ global；无 workspacePath 参数时 workspace 行不返回（P5a 向后兼容）；archived 也通行（双状态，客户端自滤）', async () => {
     const h = await harness()
     await h.seed([
       row(ID_REQ, 'requirement'),
@@ -116,6 +117,31 @@ describe('GET /api/skyaxis/workbench/knowledge', () => {
     expect(body.ok).toBe(true)
     expect(body.revision).toBe(1)
     expect(body.records.map((record) => record.id)).toEqual([ID_REQ, ID_GLOBAL, ID_ARCHIVED])
+  })
+
+  it('P5a workspace 过滤：带 workspacePath 参数时，所有权命中（相等/前缀/反斜杠）放行、异工作区与空参数仍隐身；前缀必落分隔符（repo-1 不吞 repo-10）', async () => {
+    const h = await harness()
+    const ID_PARENT = 'aaaaaaaa-0000-4000-8000-000000000001'
+    const ID_BACKSLASH = 'aaaaaaaa-0000-4000-8000-000000000002'
+    const ID_OTHER = 'aaaaaaaa-0000-4000-8000-000000000003'
+    const ID_SIBLING = 'aaaaaaaa-0000-4000-8000-000000000004'
+    await h.seed([
+      row(ID_WS, 'workspace', { path: `${RID_CWD}/project-a` }),
+      row(ID_PARENT, 'workspace', { path: RID_CWD }),
+      row(ID_BACKSLASH, 'workspace', { path: `${RID_CWD}\\project-a\\sub` }),
+      row(ID_OTHER, 'workspace', { path: 'C:/other-workspace/project-a' }),
+      row(ID_SIBLING, 'workspace', { path: `${RID_CWD}-v2/project-a` }),
+    ])
+
+    const res = await h.get(`?requirementId=${RID}&workspacePath=${encodeURIComponent(RID_CWD)}`)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { ok: true; records: WorkbenchKnowledgeRecord[] }
+    expect(body.records.map((record) => record.id).sort()).toEqual([ID_WS, ID_PARENT, ID_BACKSLASH].sort())
+
+    // 空白参数 = 无参数（旧行为）
+    const blank = await h.get(`?requirementId=${RID}&workspacePath=%20`)
+    const blankBody = (await blank.json()) as { ok: true; records: WorkbenchKnowledgeRecord[] }
+    expect(blankBody.records).toEqual([])
   })
 
   it('写入后 GET 反映新行（create → list 往返）', async () => {

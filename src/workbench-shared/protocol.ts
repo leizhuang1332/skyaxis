@@ -622,11 +622,10 @@ export interface ActivateKnowledgeCandidateRequest {
   /** Candidate uuid — becomes the knowledge row's id (the idempotent-promote link). */
   readonly id: string
   readonly knowledge: {
-    /** P2 UI offers global | requirement only (workspace joins path triggering in P5). */
     readonly scope: 'global' | 'workspace' | 'requirement'
     readonly type: 'business' | 'convention'
-    /** mode 'path' is P5 (same deferred face as workspace scope). */
-    readonly trigger: { readonly mode: 'always' | 'keyword' | 'manual'; readonly value?: string }
+    /** P5a: mode 'path' joins (the saveKnowledge channel already carried it). */
+    readonly trigger: { readonly mode: 'always' | 'keyword' | 'manual' | 'path'; readonly value?: string }
     /** workspace scope only — required when scope is 'workspace'. */
     readonly path?: string
   }

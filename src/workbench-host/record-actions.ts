@@ -398,17 +398,20 @@ export function applyRecordAction(base: WorkbenchRecord, body: WorkbenchMutateRe
     if (target === undefined) return fail(404, 'not-found')
     if (target.status === 'dismissed') return fail(400, 'bad-request')
     // Cross-ledger coupling guards (business layer — see the zod note):
-    // workspace ⇒ path, keyword ⇒ non-empty value; value is stripped for
-    // always/manual so no dirty parameter rides into knowledge.yaml.
+    // workspace ⇒ path, keyword/path ⇒ non-empty value; value is stripped
+    // for always/manual so no dirty parameter rides into knowledge.yaml.
+    // (P5a: mode 'path' joins — the saveKnowledge channel's own guard shape,
+    // mirrored here; the path GLOB is the value, the workspace-scope path key
+    // is ownership — two different fields, never conflated.)
     const input = body.knowledge
     if (input.scope === 'workspace' && (input.path === undefined || input.path.trim().length === 0)) {
       return fail(400, 'bad-request')
     }
-    if (input.trigger.mode === 'keyword' && (input.trigger.value === undefined || input.trigger.value.trim().length === 0)) {
+    if ((input.trigger.mode === 'keyword' || input.trigger.mode === 'path') && (input.trigger.value === undefined || input.trigger.value.trim().length === 0)) {
       return fail(400, 'bad-request')
     }
-    const normalizedTrigger = input.trigger.mode === 'keyword'
-      ? { mode: 'keyword' as const, value: input.trigger.value!.trim() }
+    const normalizedTrigger = input.trigger.mode === 'keyword' || input.trigger.mode === 'path'
+      ? { mode: input.trigger.mode, value: input.trigger.value!.trim() }
       : { mode: input.trigger.mode }
     // The knowledge row this promote projects into knowledge.yaml. The
     // candidate id IS the row id — activate is an idempotent upsert on the

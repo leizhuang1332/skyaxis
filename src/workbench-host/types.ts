@@ -470,7 +470,7 @@ const BindSessionSchema = z.object({
 // business guards in record-actions, not superRefine — the discriminated-
 // union member typing edge (the AcceptWorkPackage note applies here too).
 const KnowledgeTriggerInputSchema = z.object({
-  mode: z.enum(['always', 'keyword', 'manual']),
+  mode: z.enum(['always', 'keyword', 'manual', 'path']),
   value: z.string().max(256).optional(),
 })
 

@@ -301,7 +301,7 @@ export function createWorkbenchFetcher() {
       return this.mutate({ expectedRevision, requirementId, action: 'bindSession', id, sessionId, purpose }, signal)
     },
 
-    async activateKnowledgeCandidate(requirementId: string, expectedRevision: number, id: string, knowledge: { scope: 'global' | 'workspace' | 'requirement'; type: 'business' | 'convention'; trigger: { mode: 'always' | 'keyword' | 'manual'; value?: string }; path?: string }, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+    async activateKnowledgeCandidate(requirementId: string, expectedRevision: number, id: string, knowledge: { scope: 'global' | 'workspace' | 'requirement'; type: 'business' | 'convention'; trigger: { mode: 'always' | 'keyword' | 'manual' | 'path'; value?: string }; path?: string }, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
       return this.mutate({ expectedRevision, requirementId, action: 'activateKnowledgeCandidate', id, knowledge: { ...knowledge } }, signal)
     },
 

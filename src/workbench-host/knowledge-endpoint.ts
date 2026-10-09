@@ -47,6 +47,21 @@ function errorResponse(status: number, code: ErrorResponse['code'], extra?: Omit
 
 const REQUIREMENT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
+/**
+ * Workspace-ownership test for the P5a listing filter: does the requirement's
+ * workspace directory own this row's path key? Slash-normalized (both ways —
+ * Windows hosts, web-injected paths) and boundary-safe (a prefix must land
+ * on a separator, so /ws/repo-1 does not own /ws/repo-10). Empty path never
+ * owns anything.
+ */
+function workspacePathOwns(workspacePath: string, rowPath: string): boolean {
+  const normalize = (value: string): string => value.replaceAll('\\', '/').replace(/\/+$/, '')
+  const workspace = normalize(workspacePath)
+  const row = normalize(rowPath)
+  if (workspace === '' || row === '') return false
+  return row === workspace || row.startsWith(`${workspace}/`)
+}
+
 /** Normalized trigger: value kept only where the mode consumes it. */
 function normalizeTrigger(mode: 'always' | 'path' | 'keyword' | 'manual', value?: string): KnowledgeRecord['trigger'] | null {
   if (mode === 'keyword' || mode === 'path') {
@@ -73,13 +88,21 @@ export function registerWorkbenchKnowledgeEndpoints(connection: HostConnectionHa
     const url = new URL(request.url)
     const requirementId = url.searchParams.get('requirementId')
     if (requirementId === null || !REQUIREMENT_ID_RE.test(requirementId)) return errorResponse(400, 'bad-request')
+    // P5a: the user-ratified workspace-visibility ruling — workspace rows join
+    // the listing ONLY when filtered by the requirement's workspace. The
+    // client (which knows requirement.workspacePath) passes it as an optional
+    // query param; absent param keeps the pre-P5 behavior (workspace rows
+    // stay invisible), so the endpoint is backward compatible by default.
+    const workspacePath = url.searchParams.get('workspacePath')?.trim() ?? ''
     const current = file.load()
     const body: WorkbenchKnowledgeListResponse = current.ok
       ? {
         ok: true,
         revision: current.value.revision,
         records: current.value.records.filter((row) =>
-          row.scope === 'global' || (row.scope === 'requirement' && row.requirementId === requirementId)),
+          row.scope === 'global'
+          || (row.scope === 'requirement' && row.requirementId === requirementId)
+          || (row.scope === 'workspace' && workspacePath !== '' && workspacePathOwns(workspacePath, row.path ?? ''))),
       }
       : { ok: false, degraded: true, reason: current.reason, hasBackup: current.hasBackup }
     return json(body)

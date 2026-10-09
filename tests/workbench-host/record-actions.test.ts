@@ -1213,3 +1213,28 @@ describe('saveKnowledgeCandidate (P4 手动提炼)', () => {
     expect(row?.title).toBe('导出走异步')
   })
 })
+
+describe('activateKnowledgeCandidate path mode（P5a 四处放宽的纯函数面）', () => {
+  const activatePath = (trigger: { mode: 'path'; value?: string }, scope: 'workspace' | 'global' = 'workspace', path?: string) =>
+    ({
+      ...mutate(),
+      action: 'activateKnowledgeCandidate' as const,
+      id: CAND_ID,
+      knowledge: { scope, type: 'business' as const, trigger, ...(path !== undefined ? { path } : {}) },
+    })
+
+  it('mode=path 带 value：knowledgeRow 落 trigger={mode:"path", value}（trim 归一）；作用域与触发正交（global 档 + path 也合法）', () => {
+    const ws = applyRecordAction(baseRecord({ knowledgeCandidates: [candidate()] }), activatePath({ mode: 'path', value: '  src/**  ' }, 'workspace', 'C:/ws/main'))
+    expect(ws.ok && ws.knowledgeRow?.trigger).toEqual({ mode: 'path', value: 'src/**' })
+    const globalRow = applyRecordAction(baseRecord({ knowledgeCandidates: [candidate()] }), activatePath({ mode: 'path', value: 'src/**' }, 'global'))
+    expect(globalRow.ok && globalRow.knowledgeRow?.trigger).toEqual({ mode: 'path', value: 'src/**' })
+  })
+
+  it('mode=path 缺 value / 空白 value → 400 bad-request（镜像 keyword 守卫）', () => {
+    const base = baseRecord({ knowledgeCandidates: [candidate()] })
+    expect(applyRecordAction(base, activatePath({ mode: 'path' }, 'workspace', 'C:/ws/main')))
+      .toEqual({ ok: false, status: 400, code: 'bad-request' })
+    expect(applyRecordAction(base, activatePath({ mode: 'path', value: '   ' }, 'workspace', 'C:/ws/main')))
+      .toEqual({ ok: false, status: 400, code: 'bad-request' })
+  })
+})
