@@ -24,7 +24,7 @@
  */
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { MarkdownText, Modal, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { ReviewReportEntry, ReviewVerdict, WorkbenchRecord } from '../../workbench-shared/protocol.js'
+import type { ReviewReportEntry, ReviewVerdict, SaveReviewVerdictRequest, WorkbenchRecord } from '../../workbench-shared/protocol.js'
 import { WORKBENCH_ARTIFACT_MAX_CHARS } from '../../workbench-shared/protocol.js'
 import type { WorkbenchT } from './dictionary.js'
 import type { WorkbenchController } from './controller.js'
@@ -447,14 +447,18 @@ function VerdictFormModal(props: {
   row?: ReviewVerdict
   busy: boolean
   onCancel: () => void
-  onSubmit: (reportId: string, verdict: { id?: string; title: string; severity: ReviewVerdict['severity']; verdict: ReviewVerdict['verdict']; disposition?: ReviewVerdict['disposition']; note?: string }) => void
+  onSubmit: (reportId: string, verdict: SaveReviewVerdictRequest['verdict']) => void
 }): ReactNode {
   const { t } = props
   const row = props.row
   const [reportId, setReportId] = useState(props.report.id)
   const [title, setTitle] = useState(row?.title ?? '')
   const [severity, setSeverity] = useState<ReviewVerdict['severity']>(row?.severity ?? 'medium')
-  const [verdict, setVerdict] = useState<ReviewVerdict['verdict']>(row?.verdict ?? 'confirmed')
+  // Two-valued by design: opening a PROPOSED row is the act of adjudicating
+  // it, so it seeds to 'confirmed' — the form never submits 'proposed' (the
+  // host-minted seed state a client cannot write). The radios offer only the
+  // two real rulings.
+  const [verdict, setVerdict] = useState<'confirmed' | 'rejected'>(row?.verdict === 'rejected' ? 'rejected' : 'confirmed')
   const [disposition, setDisposition] = useState<string>(row?.disposition ?? '')
   const [note, setNote] = useState(row?.note ?? '')
   const [fieldError, setFieldError] = useState<string | null>(null)

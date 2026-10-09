@@ -199,7 +199,17 @@ export interface ReviewVerdict {
   readonly id?: string
   readonly title: string
   readonly severity: 'high' | 'medium' | 'low'
-  readonly verdict: 'confirmed' | 'rejected'
+  /**
+   * 'proposed' (P5b) = an AI-proposed finding awaiting the user's ruling.
+   * HOST-MINTED ONLY — the saveReviewVerdict input schema stays two-valued,
+   * so a client can never write one (the ReleaseItem.status 'pending'
+   * discipline: an AI-writable initial state that only a user action moves
+   * on). Structurally the same shape as §5.3's「AI 提议 / 用户裁决」column
+   * pair, and the epistemic point of decisions/0006 D10: recording an
+   * unexamined finding as 'confirmed' would launder "needs checking" into
+   * "verified".
+   */
+  readonly verdict: 'proposed' | 'confirmed' | 'rejected'
   readonly disposition?: 'to-fix' | 'fixed' | 'wont-fix'
   readonly note?: string
 }
@@ -259,6 +269,31 @@ export interface WorkbenchStageChange {
   readonly note?: string
 }
 
+/**
+ * Snapshot of the upstream facts the approved split was based on (P5b,
+ * research §7.6 stale reconciliation). Minted at approveSplit, refreshed by
+ * confirmSplitStillValid, dropped by reSplit/revoke. PRD rows come from the
+ * CLIENT (it already lists the requirement's prds/ directory — the sow-modal
+ * cross-module fetcher precedent) so the workbench host never reads the
+ * requirements ledger or the workspace filesystem: 0002's「独立文件互不持有
+ * 状态」read-path boundary stays intact.
+ *
+ * `disposedFindings` is a monotone count (findings carry no disposition
+ * timestamp), so growth since the snapshot is the trigger.
+ */
+export interface SplitBaseline {
+  readonly at: string
+  readonly prd: readonly SplitBaselinePrd[]
+  readonly disposedFindings: number
+}
+
+export interface SplitBaselinePrd {
+  readonly name: string
+  readonly size: number
+  /** File mtime, epoch ms (the requirements PrdDocSummary shape, mirrored). */
+  readonly modifiedAt: number
+}
+
 export interface WorkbenchRecord {
   /**
    * Join key against requirements.yaml ids — tolerant join, no foreign key
@@ -287,6 +322,13 @@ export interface WorkbenchRecord {
    * per-item field — the plan covers the release as a whole.
    */
   readonly rollbackPlanConfirmedAt?: string
+  /**
+   * Stale-reconciliation baseline (P5b) — present exactly while the split is
+   * approved. Optional per the field-evolution discipline: records approved
+   * before P5b carry none, and a missing baseline reads as "no comparison
+   * possible" (the badge stays hidden — honest absence, never a false GO).
+   */
+  readonly splitBaseline?: SplitBaseline
   readonly criteria: readonly WorkbenchCriterion[]
   readonly findings: readonly WorkbenchFinding[]
   readonly workPackages: readonly WorkbenchWorkPackage[]
@@ -376,6 +418,44 @@ export interface ApproveSplitRequest {
   readonly expectedRevision: number
   readonly requirementId: string
   readonly action: 'approveSplit'
+  /**
+   * Client-supplied stale baseline (P5b, optional for backward compat): the
+   * PRD listing snapshot + disposed-findings count the approval is based on.
+   * The client owns the PRD read (cross-module fetcher precedent); the host
+   * only stamps `at` and validates the shape. Absent ⇒ no baseline, no stale
+   * detection for this approval.
+   */
+  readonly baseline?: {
+    readonly prd: readonly SplitBaselinePrd[]
+    readonly disposedFindings: number
+  }
+}
+
+/**
+ * Archive the approved split and reopen the list for re-planning (§7.6
+ * 「重新拆分（旧工作包列表归档保留，新列表生成）」). Archiving reuses the
+ * existing dropped state (P1b round-3's ratified「放弃 = 从当前计划中排除，
+ * 可恢复」semantics) rather than adding a second archive mechanism — so it is
+ * only legal while every active package is not-yet-started: an in-dev/built/
+ * accepted package carries plans, sessions and acceptances that a re-split
+ * would silently orphan. The client disables the action and discloses why
+ * (the criteria.lockedHint honesty precedent).
+ */
+export interface ReSplitRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'reSplit'
+}
+
+/** §7.6「确认仍有效」— re-mint the baseline from the client's current snapshot, list untouched. */
+export interface ConfirmSplitStillValidRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'confirmSplitStillValid'
+  readonly baseline: {
+    readonly prd: readonly SplitBaselinePrd[]
+    readonly disposedFindings: number
+  }
 }
 
 export interface RevokeSplitApprovalRequest {
@@ -557,6 +637,11 @@ export interface SaveReviewVerdictRequest {
   readonly requirementId: string
   readonly action: 'saveReviewVerdict'
   readonly reportId: string
+  /**
+   * Deliberately TWO-valued while the stored ReviewVerdict.verdict is three:
+   * 'proposed' is host-minted only (the seed channel), so no client can write
+   * one — editing a proposed row forces the user to land on a real ruling.
+   */
   readonly verdict: {
     readonly id?: string
     readonly title: string
@@ -659,6 +744,8 @@ export type WorkbenchMutateRequestBody =
   | MoveWorkPackageRequest
   | ApproveSplitRequest
   | RevokeSplitApprovalRequest
+  | ReSplitRequest
+  | ConfirmSplitStillValidRequest
   | ApprovePlanRequest
   | StartWorkPackageRequest
   | MarkWorkPackageBuiltRequest
@@ -785,6 +872,15 @@ export const DECLARE_MAX_CHARS = 128 * 1024
 /** GET fetch degradation — read paths degrade in a 200 envelope, never error. */
 export type DeclareFetchMissing = 'no-service' | 'not-found' | 'unreadable' | 'no-declare-block'
 
+/**
+ * P5b review fetch — the same envelope shape, its own closed enum so the
+ * review modal's reason→dictionary map stays exhaustive (the SKIP_REASON_KEY
+ * discipline: a shared enum would leave a hole in one of the two maps).
+ * The route is query-discriminated by `kind=declare|review` (the artifacts
+ * route's precedent), sharing one reader engine.
+ */
+export type ReviewFetchMissing = 'no-service' | 'not-found' | 'unreadable' | 'no-review-block'
+
 export interface DeclareFetchResponseText {
   readonly ok: true
   /** The extracted declare-block body (fence markers stripped, marker line kept). */
@@ -797,6 +893,38 @@ export interface DeclareFetchResponseMissing {
 }
 
 export type DeclareFetchResponse = DeclareFetchResponseText | DeclareFetchResponseMissing
+
+/**
+ * P5b review fetch response. Unlike the declare face (which hands back the
+ * fence BODY), the review face hands back the WHOLE assistant message: a
+ * review report IS free-form markdown and the convention block is part of it,
+ * so the fetched text is exactly what the report body should store (its
+ * contentHash then covers the block and the idempotency anchor works on the
+ * whole document).
+ */
+export interface ReviewFetchResponseText {
+  readonly ok: true
+  readonly text: string
+}
+
+export interface ReviewFetchResponseMissing {
+  readonly ok: true
+  readonly missing: ReviewFetchMissing
+}
+
+export type ReviewFetchResponse = ReviewFetchResponseText | ReviewFetchResponseMissing
+
+/**
+ * Per-row skip reasons for the review convention block (closed enum). Under
+ * 落法 A these never cross the wire as rows — the report is created either
+ * way and only the seeded COUNT plus the advisory blockError travel — but the
+ * host classifies with them and the tests pin the classification.
+ */
+export type ReviewSkipReason =
+  | 'bad-shape'
+  | 'bad-severity'
+  | 'bad-title'
+  | 'over-cap'
 
 /** Per-row skip reasons — closed enum so the client maps to dictionary keys (the rejection-keys discipline). */
 export type DeclareSkipReason =
@@ -987,6 +1115,21 @@ export interface ArtifactWriteResponseOk {
   readonly version?: number
   /** Review writes only. */
   readonly reviewId?: string
+  /**
+   * Review writes only (P5b) — how many `# skyaxis-review` findings were
+   * seeded as proposed verdict rows on a NEWLY created report. Absent on the
+   * idempotent-convergence path (a retry never re-seeds: that would resurrect
+   * rows the user deleted) and on plan writes.
+   */
+  readonly seeded?: number
+  /**
+   * Review writes only, ADVISORY — unlike the declare route's blockError
+   * (where a bad block means nothing imports), a review report is free-form
+   * markdown: a missing or unparseable convention block still creates the
+   * report with zero seeded rows. The client discloses it, never fails.
+   */
+  readonly reviewBlockError?: 'no-review-block' | 'yaml-syntax'
+  readonly reviewBlockErrorLine?: number
 }
 
 export interface ArtifactContentResponseOk {
@@ -1055,7 +1198,13 @@ const ACCEPTANCE_RESULTS = ['pass', 'fail']
 const FINDING_CATEGORIES = ['feasibility', 'conflict', 'compatibility', 'risk', 'capacity', 'other']
 const SEVERITIES = ['high', 'medium', 'low']
 const FINDING_STATUSES = ['open', 'resolved', 'wont-fix']
-const VERDICT_OUTCOMES = ['confirmed', 'rejected']
+/**
+ * Three-valued on the READ side (P5b): the browser guard must accept
+ * host-minted 'proposed' rows or the whole detail response fails its guard
+ * and the client reads a healthy ledger as an http-error. The WRITE side
+ * (SaveReviewVerdictRequest) stays two-valued — see that interface.
+ */
+const VERDICT_OUTCOMES = ['proposed', 'confirmed', 'rejected']
 const DISPOSITIONS = ['to-fix', 'fixed', 'wont-fix']
 const RELEASE_TYPES = ['sql', 'config', 'flag', 'mq', 'other']
 const RELEASE_STATUSES = ['pending', 'confirmed', 'applied', 'verified', 'rolled-back']
@@ -1217,6 +1366,22 @@ function isWorkbenchStageChange(v: unknown): v is WorkbenchStageChange {
   )
 }
 
+function isSplitBaselinePrd(v: unknown): v is SplitBaselinePrd {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  return isString(r.name) && r.name.length > 0
+    && typeof r.size === 'number'
+    && typeof r.modifiedAt === 'number'
+}
+
+function isSplitBaseline(v: unknown): v is SplitBaseline {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  return isString(r.at) && r.at.length > 0
+    && Array.isArray(r.prd) && r.prd.every(isSplitBaselinePrd)
+    && typeof r.disposedFindings === 'number'
+}
+
 export function isWorkbenchRecord(v: unknown): v is WorkbenchRecord {
   if (typeof v !== 'object' || v === null) return false
   const r = v as Record<string, unknown>
@@ -1226,6 +1391,7 @@ export function isWorkbenchRecord(v: unknown): v is WorkbenchRecord {
     && Array.isArray(r.stageHistory) && r.stageHistory.every(isWorkbenchStageChange)
     && (r.splitApprovedAt === undefined || (isString(r.splitApprovedAt) && r.splitApprovedAt.length > 0))
     && (r.rollbackPlanConfirmedAt === undefined || (isString(r.rollbackPlanConfirmedAt) && r.rollbackPlanConfirmedAt.length > 0))
+    && (r.splitBaseline === undefined || isSplitBaseline(r.splitBaseline))
     && Array.isArray(r.criteria) && r.criteria.every(isWorkbenchCriterion)
     && Array.isArray(r.findings) && r.findings.every(isWorkbenchFinding)
     && Array.isArray(r.workPackages) && r.workPackages.every(isWorkbenchWorkPackage)
@@ -1293,6 +1459,9 @@ export function isArtifactWriteResponseOk(v: unknown): v is ArtifactWriteRespons
     && (r.workPackageId === undefined || (isString(r.workPackageId) && isWorkPackageId(r.workPackageId)))
     && (r.version === undefined || (typeof r.version === 'number' && isPlanVersion(r.version)))
     && (r.reviewId === undefined || (isString(r.reviewId) && isReviewId(r.reviewId)))
+    && (r.seeded === undefined || (typeof r.seeded === 'number' && r.seeded >= 0))
+    && (r.reviewBlockError === undefined || r.reviewBlockError === 'no-review-block' || r.reviewBlockError === 'yaml-syntax')
+    && (r.reviewBlockErrorLine === undefined || typeof r.reviewBlockErrorLine === 'number')
   )
 }
 
@@ -1420,6 +1589,7 @@ export function isWorkbenchKnowledgeSaveResponseOk(v: unknown): v is WorkbenchKn
 // ---------------------------------------------------------------------------
 
 const DECLARE_FETCH_MISSING = ['no-service', 'not-found', 'unreadable', 'no-declare-block']
+const REVIEW_FETCH_MISSING = ['no-service', 'not-found', 'unreadable', 'no-review-block']
 const DECLARE_SKIP_REASONS = ['bad-shape', 'bad-type', 'bad-title', 'bad-content', 'over-cap', 'bad-envs', 'wp-not-found', 'wp-not-in-dev']
 const DECLARE_ENTRY_TYPES = ['sql', 'config', 'flag', 'mq', 'other']
 const DECLARE_KNOWLEDGE_TYPES = ['business', 'convention']
@@ -1430,6 +1600,14 @@ export function isDeclareFetchResponse(v: unknown): v is DeclareFetchResponse {
   if (r.ok !== true) return false
   if (isString(r.text)) return r.missing === undefined
   return isString(r.missing) && DECLARE_FETCH_MISSING.includes(r.missing)
+}
+
+export function isReviewFetchResponse(v: unknown): v is ReviewFetchResponse {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  if (r.ok !== true) return false
+  if (isString(r.text)) return r.missing === undefined
+  return isString(r.missing) && REVIEW_FETCH_MISSING.includes(r.missing)
 }
 
 function isDeclareSkip(v: unknown): v is DeclareSkip {

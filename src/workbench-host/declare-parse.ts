@@ -33,6 +33,9 @@ import type {
 } from '../workbench-shared/protocol.js'
 import { WORKBENCH_INLINE_MAX_CHARS } from '../workbench-shared/protocol.js'
 import { contentHashOf } from './artifact-store.js'
+// fence.ts owns the marker-agnostic fence + error helpers (shared with the
+// review parser); this module keeps only the declare-specific vocabulary.
+import { asString, errorLine, findMarkerFence, isRecord, rowLabel } from './fence.js'
 
 const DECLARE_MARKER = '# skyaxis-declare'
 const RELEASE_TYPES: readonly string[] = ['sql', 'config', 'flag', 'mq', 'other']
@@ -53,65 +56,13 @@ export interface DeclareParseBlockError {
 
 export type DeclareParseResult = DeclareParseSuccess | DeclareParseBlockError
 
-/** One closed fenced block: body lines between the opening ``` (± info string) and the closing ```. */
-interface FenceBlock {
-  body: string[]
-}
-
-function collectFences(lines: readonly string[]): FenceBlock[] {
-  const blocks: FenceBlock[] = []
-  let body: string[] | null = null
-  for (const line of lines) {
-    if (body === null) {
-      // Column-0 opening fence, optional info string (```yaml etc.).
-      if (/^```[A-Za-z0-9_-]*\s*$/.test(line)) body = []
-      continue
-    }
-    if (/^```\s*$/.test(line)) {
-      blocks.push({ body })
-      body = null
-      continue
-    }
-    body.push(line)
-  }
-  // An unclosed fence at EOF is truncated output — dropped, not parsed.
-  return blocks
-}
-
-/**
- * The LAST declare-marker fence body in `text`, or null. Bare bodies (the
- * marker line with no surrounding fence — the fetch path hands back exactly
- * that shape) are accepted when the text itself starts with the marker.
- */
+/** The LAST declare-marker fence body in `text`, or null (see findMarkerFence). */
 export function findDeclareFence(text: string): string | null {
-  const blocks = collectFences(text.split(/\r?\n/))
-  for (let index = blocks.length - 1; index >= 0; index--) {
-    const body = blocks[index]!.body
-    const first = body.find((line) => line.trim().length > 0)
-    if (first !== undefined && first.trim() === DECLARE_MARKER) return [...body, ''].join('\n')
-  }
-  const firstLine = text.split(/\r?\n/, 1)[0]?.trim() ?? ''
-  return firstLine === DECLARE_MARKER ? `${text}\n` : null
+  return findMarkerFence(text, DECLARE_MARKER)
 }
-
-/** Yaml errors carry linePos[{line}] — extracted language-neutrally, never the raw message. */
-function errorLine(error: unknown): number | undefined {
-  const linePos = (error as { linePos?: Array<{ line?: unknown }> } | null)?.linePos
-  const line = Array.isArray(linePos) ? linePos[0]?.line : undefined
-  return typeof line === 'number' ? line : undefined
-}
-
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
-const asString = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined)
 
 function skipOf(key: string, label: string, reason: DeclareSkipReason): DeclareSkip {
   return { key, label, reason }
-}
-
-/** Best-effort label for a skipped row: its title when readable, else empty (the key still identifies it). */
-function rowLabel(row: unknown): string {
-  const title = asString(isRecord(row) ? row.title : undefined)?.trim()
-  return title !== undefined && title.length > 0 ? title.slice(0, 64) : ''
 }
 
 export function parseDeclare(input: { text: string; record: WorkbenchRecord }): DeclareParseResult {

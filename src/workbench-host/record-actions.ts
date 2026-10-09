@@ -139,14 +139,67 @@ export function applyRecordAction(base: WorkbenchRecord, body: WorkbenchMutateRe
   if (body.action === 'approveSplit') {
     if (splitLocked) return fail(400, 'bad-request') // approving twice is a client bug, not a state race
     if (base.workPackages.length === 0) return fail(400, 'bad-request') // an empty list × coverage contract approves nothing
-    return { ok: true, record: { ...base, splitApprovedAt: now() } } // stamps ONLY — no work-package status changes (pinned)
+    const at = now()
+    return {
+      ok: true,
+      // stamps ONLY — no work-package status changes (pinned). The P5b
+      // baseline rides along when the client supplies it: `at` is host-minted
+      // (the client cannot set the stamp time), the prd/disposedFindings
+      // snapshot is the client's (it owns the PRD read — see protocol.ts).
+      record: {
+        ...base,
+        splitApprovedAt: at,
+        ...(body.baseline !== undefined
+          ? { splitBaseline: { at, prd: body.baseline.prd, disposedFindings: body.baseline.disposedFindings } }
+          : {}),
+      },
+    }
   }
   if (body.action === 'revokeSplitApproval') {
     if (!splitLocked) return fail(400, 'bad-request')
     // Strip the stamp, keep the list — "history preserved" means the list
     // survives a revoke; revoking re-locks the lifecycle until re-approval.
-    const { splitApprovedAt: _stamp, ...rest } = base
+    // The baseline goes with the stamp (it is only meaningful while approved).
+    const { splitApprovedAt: _stamp, splitBaseline: _baseline, ...rest } = base
     return { ok: true, record: rest }
+  }
+  if (body.action === 'reSplit') {
+    if (!splitLocked) return fail(400, 'bad-request') // re-split only applies to an approved list
+    const active = base.workPackages.filter((workPackage) => workPackage.status !== 'dropped')
+    if (active.length === 0) return fail(400, 'bad-request') // nothing to archive
+    // Archive = reuse the dropped state (P1b round-3's ratified「放弃 = 从当前
+    // 计划中排除，可恢复」semantics — no second archive mechanism). Legal only
+    // while every active package is not-yet-started: an in-dev/built/accepted
+    // package carries plans, sessions and acceptances a re-split would orphan.
+    if (active.some((workPackage) => !NOT_STARTED_STATUSES.includes(workPackage.status as (typeof NOT_STARTED_STATUSES)[number]))) {
+      return fail(400, 'bad-request')
+    }
+    const at = now()
+    // Un-approve (reopen the list for editing) and drop the baseline — both
+    // keys REMOVED, not set to undefined (the revokeSplitApproval pattern, so
+    // `'splitApprovedAt' in record` is false downstream).
+    const { splitApprovedAt: _stamp, splitBaseline: _baseline, ...rest } = base
+    return {
+      ok: true,
+      record: {
+        ...rest,
+        workPackages: base.workPackages.map((workPackage) =>
+          workPackage.status === 'dropped' ? workPackage : { ...workPackage, status: 'dropped' as const }),
+        stageHistory: [...base.stageHistory, { stage: base.stage, at, note: 're-split' }],
+      },
+    }
+  }
+  if (body.action === 'confirmSplitStillValid') {
+    if (!splitLocked) return fail(400, 'bad-request') // §7.6「确认仍有效」presupposes an approval
+    const at = now()
+    return {
+      ok: true,
+      // Re-mint the baseline from the client's current snapshot; list untouched.
+      record: {
+        ...base,
+        splitBaseline: { at, prd: body.baseline.prd, disposedFindings: body.baseline.disposedFindings },
+      },
+    }
   }
 
   // Target existence precedes the lock check (a missing row is 404 whether
@@ -621,13 +674,19 @@ export function applyRecordAction(base: WorkbenchRecord, body: WorkbenchMutateRe
       ...(note !== undefined && note.length > 0 ? { note } : {}),
     }
     if (input.id !== undefined) {
-      if (!report.verdicts.some((existing) => existing.id === input.id)) return fail(404, 'not-found')
+      const existing = report.verdicts.find((row) => row.id === input.id)
+      if (existing === undefined) return fail(404, 'not-found')
+      // Idempotent no-op (P5b — this was the union's ONLY write action with no
+      // unchanged short-circuit, so a repeat submit appended/rewrote for
+      // nothing and bumped the revision). Identity-field compare, mirroring
+      // releaseItemEquivalent.
+      if (reviewVerdictEquivalent(existing, row)) return { ok: true, record: base, unchanged: true }
       return {
         ok: true,
         record: {
           ...base,
           reviewReports: base.reviewReports.map((entry) =>
-            entry.id === body.reportId ? { ...entry, verdicts: entry.verdicts.map((existing) => (existing.id === input.id ? row : existing)) } : entry),
+            entry.id === body.reportId ? { ...entry, verdicts: entry.verdicts.map((candidate) => (candidate.id === input.id ? row : candidate)) } : entry),
         },
       }
     }
@@ -678,5 +737,20 @@ function releaseItemEquivalent(a: ReleaseItem, b: ReleaseItem): boolean {
     && a.envs.length === b.envs.length && a.envs.every((env, index) => env === b.envs[index])
     && a.workPackageId === b.workPackageId
     && a.sessionId === b.sessionId
+    && a.note === b.note
+}
+
+/**
+ * Identity-field equivalence for the saveReviewVerdict no-op short-circuit
+ * (P5b). `a` is the stored row (may carry 'proposed'); `b` is the rebuilt row
+ * from a two-valued input, so `b.verdict` is never 'proposed' — a stored
+ * proposed row therefore never compares equal to an input, which is correct:
+ * adjudicating it is a real change.
+ */
+function reviewVerdictEquivalent(a: ReviewVerdict, b: ReviewVerdict): boolean {
+  return a.title === b.title
+    && a.severity === b.severity
+    && a.verdict === b.verdict
+    && a.disposition === b.disposition
     && a.note === b.note
 }

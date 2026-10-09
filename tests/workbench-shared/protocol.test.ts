@@ -255,6 +255,23 @@ describe('isWorkbenchRecord', () => {
     expect(isWorkbenchRecord(record({ reviewReports: [badId] }))).toBe(false)
   })
 
+  it('P5b: read-side guard accepts the host-minted proposed verdict (three-valued on read, two on write)', () => {
+    const proposed = reviewReport({ verdicts: [{ id: '44444444-4444-4444-8444-444444444444', title: 'AI 报的', severity: 'high', verdict: 'proposed' }] })
+    expect(isWorkbenchRecord(record({ reviewReports: [proposed] }))).toBe(true)
+    // An unknown verdict value is still rejected — the enum is closed, just wider.
+    const bogus = reviewReport({ verdicts: [{ title: 'x', severity: 'low', verdict: 'maybe' as never }] })
+    expect(isWorkbenchRecord(record({ reviewReports: [bogus] }))).toBe(false)
+  })
+
+  it('P5b: splitBaseline is optional and shape-guarded (present ⇒ at/prd/disposedFindings all valid)', () => {
+    expect(isWorkbenchRecord(record({ splitBaseline: { at: '2026-10-09T00:00:00.000Z', prd: [{ name: 'prd.md', size: 10, modifiedAt: 1 }], disposedFindings: 2 } }))).toBe(true)
+    // Absent stays legal (pre-P5b approvals carry none).
+    expect(isWorkbenchRecord(record())).toBe(true)
+    // Malformed rows collapse to a guard failure, not a half-join.
+    expect(isWorkbenchRecord(record({ splitBaseline: { at: '', prd: [], disposedFindings: 0 } }))).toBe(false)
+    expect(isWorkbenchRecord(record({ splitBaseline: { at: '2026-10-09T00:00:00.000Z', prd: [{ name: 'p', size: 'x' as never, modifiedAt: 1 }], disposedFindings: 0 } }))).toBe(false)
+  })
+
   it('isReleaseItemId: R#### only — an unpadded R1 is the ledger-poisoning shape (P3a)', () => {
     expect(isReleaseItemId('R0001')).toBe(true)
     expect(isReleaseItemId('R12345')).toBe(true) // 五位也合法（>9999 之后自然增长）

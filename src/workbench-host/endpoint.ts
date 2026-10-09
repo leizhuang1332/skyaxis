@@ -36,6 +36,8 @@ import type {
   DeclarePreviewResponseOk,
   DeclareSkip,
   ErrorResponse,
+  ReviewFetchResponse,
+  ReviewVerdict,
   WorkbenchDetailResponseOk,
   WorkbenchListResponse,
   WorkbenchRecord,
@@ -45,6 +47,7 @@ import { ArtifactStore, contentHashOf } from './artifact-store.js'
 import { scanWorkbenchArtifacts } from './orphan-scan.js'
 import { applyRecordAction, nextReleaseItemId } from './record-actions.js'
 import { parseDeclare } from './declare-parse.js'
+import { parseReviewFindings } from './review-parse.js'
 import type { SessionDeclareReader } from './declare-reader.js'
 import type { KnowledgeFileStore } from './knowledge-file.js'
 import type { KnowledgeRecord } from './types.js'
@@ -419,6 +422,12 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     // converges onto the existing report — no second entry, no revision
     // bump; a missing/stale body file is repaired in passing. The import
     // modal's retry-after-failure path depends on this (the P1b open item).
+    //
+    // The convergence branch NEVER re-seeds verdicts (P5b): a retry of an
+    // already-imported report must not resurrect rows the user deleted. Only
+    // the NEW-report branch below seeds. So re-importing identical content
+    // after deleting some findings converges without re-adding them — the
+    // correct idempotent behavior (a test pins it).
     const existing = record.reviewReports.find((entry) => entry.contentHash === hash && (entry.title ?? '') === (title ?? ''))
     if (existing !== undefined) {
       const target = reviewDocPath(services.workbenchRoot, requirementId, existing.id)
@@ -434,6 +443,28 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
       return json({ ok: true, revision: ledgerRevision, kind: 'review', reviewId: existing.id })
     }
 
+    // P5b: seed proposed verdict rows from a `# skyaxis-review` block. A
+    // missing/unparseable block is ADVISORY, not blocking — the report is
+    // free-form markdown and imports regardless (verdicts stays empty); the
+    // response carries seeded count + blockError for honest disclosure. Each
+    // finding is host-minted as a 'proposed' verdict (the AI-proposal state a
+    // client can never write); bad rows are skipped, never truncated.
+    const reviewParse = parseReviewFindings(text)
+    const seededVerdicts: ReviewVerdict[] = reviewParse.ok
+      ? reviewParse.findings.map((finding) => ({
+        id: randomUUID(),
+        title: finding.title,
+        severity: finding.severity,
+        verdict: 'proposed',
+      }))
+      : []
+    const reviewAdvisory = reviewParse.ok
+      ? {}
+      : {
+        reviewBlockError: reviewParse.blockError,
+        ...(reviewParse.blockErrorLine !== undefined ? { reviewBlockErrorLine: reviewParse.blockErrorLine } : {}),
+      }
+
     const reviewId = randomUUID()
     if (ledgerRevision !== expectedRevision) {
       return errorResponse(409, 'conflict', { currentRevision: ledgerRevision })
@@ -442,7 +473,7 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
       ...record,
       reviewReports: [
         ...record.reviewReports,
-        { id: reviewId, at: new Date().toISOString(), ...(title !== null ? { title } : {}), contentHash: hash, verdicts: [] },
+        { id: reviewId, at: new Date().toISOString(), ...(title !== null ? { title } : {}), contentHash: hash, verdicts: seededVerdicts },
       ],
     }
     const nextRecords = withRecord(ledgerRecords, requirementId, nextRecord)
@@ -460,7 +491,7 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
         log?.(error)
         return errorResponse(500, 'internal')
       }
-      return json({ ok: true, revision: saved.revision, kind: 'review', reviewId })
+      return json({ ok: true, revision: saved.revision, kind: 'review', reviewId, seeded: seededVerdicts.length, ...reviewAdvisory })
     } catch (error) {
       log?.(error)
       return errorResponse(500, 'internal')
@@ -537,15 +568,29 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     methods: ['GET', 'POST'],
     requestBody: 'buffered',
     fetch: async (request) => {
-      if (request.method === 'GET') return declareFetchFlow(request)
+      if (request.method === 'GET') return blockFetchFlow(request)
       return declareImportFlow(request)
     },
   })
 
-  async function declareFetchFlow(request: Request): Promise<Response> {
+  /**
+   * Session-block fetch, query-discriminated by `kind` (the artifacts route's
+   * precedent — one reader engine, two markers). `kind=review` (P5b) returns
+   * the whole assistant message carrying a `# skyaxis-review` block; the
+   * default returns the declare fence body. Both degrade in a 200 envelope.
+   */
+  async function blockFetchFlow(request: Request): Promise<Response> {
     const url = new URL(request.url)
     const sessionId = url.searchParams.get('sessionId')
     if (sessionId === null || sessionId.length === 0) return errorResponse(400, 'bad-request')
+    const kind = url.searchParams.get('kind')
+    if (kind === 'review') {
+      const result = await services.declareReader.readReviewText(sessionId)
+      const body: ReviewFetchResponse = result.status === 'ok'
+        ? { ok: true, text: result.text }
+        : { ok: true, missing: result.reason }
+      return json(body)
+    }
     const result = await services.declareReader.readDeclareText(sessionId)
     const body: DeclareFetchResponse = result.status === 'ok'
       ? { ok: true, text: result.text }

@@ -115,6 +115,30 @@ describe('WorkbenchFileStore', () => {
       expect(isWorkbenchRecord(loaded.value.records[0])).toBe(true)
     })
 
+    it('round-trips the P5b optional fields through disk — splitBaseline + proposed verdict', async () => {
+      // Same load-bearing mirror guard as the P3a test: drop splitBaseline
+      // from WorkbenchRecordSchema, or 'proposed' from VERDICT_STORAGE_VALUES,
+      // and zod silently strips/degrades on the next load — this goes red.
+      const { store } = workbenchFixture()
+      const stamped: WorkbenchRecord = {
+        ...record(),
+        splitApprovedAt: NOW,
+        splitBaseline: { at: NOW, prd: [{ name: 'prd.md', size: 128, modifiedAt: 1700000000000 }], disposedFindings: 3 },
+        reviewReports: [{
+          id: 'rev-a1',
+          at: NOW,
+          verdicts: [{ id: '44444444-4444-4444-8444-444444444444', title: 'AI 报的发现', severity: 'high', verdict: 'proposed' }],
+        }],
+      }
+      await store.save(0, [stamped])
+      const loaded = store.load()
+      expect(loaded.ok).toBe(true)
+      if (!loaded.ok) return
+      expect(loaded.value.records[0]?.splitBaseline).toEqual({ at: NOW, prd: [{ name: 'prd.md', size: 128, modifiedAt: 1700000000000 }], disposedFindings: 3 })
+      expect(loaded.value.records[0]?.reviewReports[0]?.verdicts[0]?.verdict).toBe('proposed')
+      expect(isWorkbenchRecord(loaded.value.records[0])).toBe(true)
+    })
+
     it('parses a hand-written legal file (hand-edited yaml stays loadable)', () => {
       const { store, file } = workbenchFixture()
       writeFileSync(

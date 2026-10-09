@@ -1238,3 +1238,94 @@ describe('activateKnowledgeCandidate path mode（P5a 四处放宽的纯函数面
       .toEqual({ ok: false, status: 400, code: 'bad-request' })
   })
 })
+
+// ---------------------------------------------------------------------------
+// P5b: split baseline + reSplit + confirmSplitStillValid + proposed verdicts
+// ---------------------------------------------------------------------------
+
+const baselineInput = { prd: [{ name: 'prd.md', size: 100, modifiedAt: 1700000000000 }], disposedFindings: 2 }
+
+describe('P5b split baseline & re-split', () => {
+  it('approveSplit 带 baseline：铸 splitBaseline（at 与 splitApprovedAt 同源），不带动作则无基线', () => {
+    const withBaseline = applyOk(baseRecord({ workPackages: [wp('WP1')] }), { ...mutate(), action: 'approveSplit', baseline: baselineInput })
+    expectIso(withBaseline.splitBaseline?.at)
+    expect(withBaseline.splitBaseline?.at).toBe(withBaseline.splitApprovedAt)
+    expect(withBaseline.splitBaseline?.prd).toEqual(baselineInput.prd)
+    expect(withBaseline.splitBaseline?.disposedFindings).toBe(2)
+
+    const without = applyOk(baseRecord({ workPackages: [wp('WP1')] }), { ...mutate(), action: 'approveSplit' })
+    expect(without.splitBaseline).toBeUndefined()
+  })
+
+  it('revokeSplitApproval 一并摘基线（基线只在批准期有意义）', () => {
+    const approved = baseRecord({ splitApprovedAt: NOW, splitBaseline: { at: NOW, ...baselineInput }, workPackages: [wp('WP1')] })
+    const revoked = applyOk(approved, { ...mutate(), action: 'revokeSplitApproval' })
+    expect('splitBaseline' in revoked).toBe(false)
+    expect('splitApprovedAt' in revoked).toBe(false)
+    expect(revoked.workPackages).toHaveLength(1) // 列表保留
+  })
+
+  it('reSplit：未开工全归档 dropped + 摘批准戳与基线 + stageHistory 留痕；无活动包 → 400', () => {
+    const approved = baseRecord({
+      splitApprovedAt: NOW,
+      splitBaseline: { at: NOW, ...baselineInput },
+      workPackages: [wp('WP1', { status: 'planned' }), wp('WP2', { status: 'plan-approved' }), wp('WP3', { status: 'dropped' })],
+      stageHistory: [{ stage: 'plan', at: NOW }],
+    })
+    const result = applyOk(approved, { ...mutate(), action: 'reSplit' })
+    expect(result.workPackages.map((workPackage) => workPackage.status)).toEqual(['dropped', 'dropped', 'dropped'])
+    expect('splitApprovedAt' in result).toBe(false)
+    expect('splitBaseline' in result).toBe(false)
+    expect(result.stageHistory).toHaveLength(2)
+    expect(result.stageHistory[1]?.note).toBe('re-split')
+
+    // 全 dropped（无活动包）→ 400
+    const allDropped = baseRecord({ splitApprovedAt: NOW, workPackages: [wp('WP1', { status: 'dropped' })] })
+    expect(applyRecordAction(allDropped, { ...mutate(), action: 'reSplit' })).toEqual({ ok: false, status: 400, code: 'bad-request' })
+  })
+
+  it('reSplit 守卫：任一活动包已开工（in-dev/built/accepted）→ 400（重拆会孤儿化计划/会话/验收）；未批准 → 400', () => {
+    for (const status of ['in-dev', 'built', 'accepted'] as const) {
+      const started = baseRecord({ splitApprovedAt: NOW, workPackages: [wp('WP1'), wp('WP2', { status })] })
+      expect(applyRecordAction(started, { ...mutate(), action: 'reSplit' })).toEqual({ ok: false, status: 400, code: 'bad-request' })
+    }
+    const unapproved = baseRecord({ workPackages: [wp('WP1')] })
+    expect(applyRecordAction(unapproved, { ...mutate(), action: 'reSplit' })).toEqual({ ok: false, status: 400, code: 'bad-request' })
+  })
+
+  it('confirmSplitStillValid：换基线（列表与批准戳不动）；未批准 → 400', () => {
+    const approved = baseRecord({ splitApprovedAt: NOW, splitBaseline: { at: NOW, prd: [], disposedFindings: 0 }, workPackages: [wp('WP1')] })
+    const result = applyOk(approved, { ...mutate(), action: 'confirmSplitStillValid', baseline: baselineInput })
+    expect(result.splitBaseline?.prd).toEqual(baselineInput.prd)
+    expect(result.splitBaseline?.disposedFindings).toBe(2)
+    expect(result.splitApprovedAt).toBe(NOW) // 批准戳不动
+    expect(result.workPackages[0]?.status).toBe('planned') // 列表不动
+
+    const unapproved = baseRecord({ workPackages: [wp('WP1')] })
+    expect(applyRecordAction(unapproved, { ...mutate(), action: 'confirmSplitStillValid', baseline: baselineInput }))
+      .toEqual({ ok: false, status: 400, code: 'bad-request' })
+  })
+})
+
+describe('P5b proposed verdicts', () => {
+  const saveVerdict = (verdict: SaveReviewVerdictRequest['verdict'], reportId = 'rev-a1') =>
+    ({ ...mutate(), action: 'saveReviewVerdict' as const, reportId, verdict })
+
+  it('saveReviewVerdict 幂等：同 payload 重提 → unchanged 引用即 base（P5b 补的唯一缺口）', () => {
+    const base = baseRecord({ reviewReports: [reviewReport('rev-a1', { verdicts: [verdictRow('v1', { verdict: 'confirmed' })] })] })
+    const result = applyRecordAction(base, saveVerdict({ id: 'v1', title: verdictRow('v1').title, severity: 'high', verdict: 'confirmed' }))
+    expect(result).toEqual({ ok: true, record: base, unchanged: true })
+    if (!result.ok) return
+    expect(result.record).toBe(base)
+  })
+
+  it('proposed 行不可由客户端写：输入 verdict 枚举无 proposed（typecheck 层已挡）；编辑 proposed 行落终裁', () => {
+    // 种子行是 proposed（host 铸）；用户编辑必须给 confirmed/rejected。
+    const base = baseRecord({ reviewReports: [reviewReport('rev-a1', { verdicts: [{ id: 'v1', title: 'AI 报的', severity: 'high', verdict: 'proposed' }] })] })
+    const adjudicated = applyOk(base, saveVerdict({ id: 'v1', title: 'AI 报的', severity: 'high', verdict: 'confirmed', disposition: 'to-fix' }))
+    expect(adjudicated.reviewReports[0]?.verdicts[0]?.verdict).toBe('confirmed')
+    // proposed → confirmed 是真变更（不 unchanged）
+    const same = applyRecordAction(base, saveVerdict({ id: 'v1', title: 'AI 报的', severity: 'high', verdict: 'confirmed', disposition: 'to-fix' }))
+    expect(same.ok && same.unchanged).toBeUndefined()
+  })
+})

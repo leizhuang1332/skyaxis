@@ -28,7 +28,18 @@ const WORK_PACKAGE_STATUS_VALUES = ['planned', 'plan-draft', 'plan-approved', 'i
 const SESSION_PURPOSE_VALUES = ['analysis', 'dev', 'review'] as const
 const RELEASE_TYPE_VALUES = ['sql', 'config', 'flag', 'mq', 'other'] as const
 const RELEASE_STATUS_VALUES = ['pending', 'confirmed', 'applied', 'verified', 'rolled-back'] as const
-const VERDICT_OUTCOME_VALUES = ['confirmed', 'rejected'] as const
+/**
+ * TWO verdict enums, deliberately (P5b). The STORAGE side accepts 'proposed'
+ * — the host-minted seed state for an AI-proposed finding. The INPUT side
+ * does not: a client must never be able to write one, and editing a proposed
+ * row forces the user to land on a real ruling. These two schemas used to
+ * share one constant; adding the third value without splitting would have
+ * quietly handed the AI-proposal state to the client and undone §5.3's
+ * 「AI 提议 / 用户裁决」separation (the ReleaseItem.status 'pending'
+ * discipline: SaveReleaseItemSchema carries no status field either).
+ */
+const VERDICT_INPUT_VALUES = ['confirmed', 'rejected'] as const
+const VERDICT_STORAGE_VALUES = ['proposed', 'confirmed', 'rejected'] as const
 const DISPOSITION_VALUES = ['to-fix', 'fixed', 'wont-fix'] as const
 const CANDIDATE_TYPE_VALUES = ['business', 'convention'] as const
 const CANDIDATE_STATUS_VALUES = ['pending', 'promoted', 'dismissed'] as const
@@ -113,7 +124,7 @@ const ReviewVerdictSchema = z.object({
   id: z.uuid().optional(),
   title: z.string().trim().min(1).max(64),
   severity: z.enum(SEVERITY_VALUES),
-  verdict: z.enum(VERDICT_OUTCOME_VALUES),
+  verdict: z.enum(VERDICT_STORAGE_VALUES),
   disposition: z.enum(DISPOSITION_VALUES).optional(),
   note: z.string().max(2000).optional(),
 })
@@ -158,6 +169,23 @@ const StageChangeSchema = z.object({
   note: z.string().max(2000).optional(),
 })
 
+const SplitBaselinePrdSchema = z.object({
+  name: z.string().min(1).max(256),
+  size: z.number().int().nonnegative(),
+  modifiedAt: z.number().int().nonnegative(),
+})
+
+/**
+ * Stale-reconciliation baseline (P5b). Sub-fields are REQUIRED (no legacy
+ * data predates the field itself, and a half-populated baseline would make
+ * the comparison lie — the protective stance from the file header).
+ */
+const SplitBaselineSchema = z.object({
+  at: TimestampSchema,
+  prd: z.array(SplitBaselinePrdSchema),
+  disposedFindings: z.number().int().nonnegative(),
+})
+
 export const WorkbenchRecordSchema = z.object({
   requirementId: z.uuid(),
   stage: z.enum(STAGE_OR_CLOSED_VALUES),
@@ -166,6 +194,8 @@ export const WorkbenchRecordSchema = z.object({
   splitApprovedAt: TimestampSchema.optional(),
   /** S5 go/no-go third condition — host-set-only (confirm/revokeRollbackPlan). */
   rollbackPlanConfirmedAt: TimestampSchema.optional(),
+  /** P5b stale baseline — present exactly while the split is approved. */
+  splitBaseline: SplitBaselineSchema.optional(),
   criteria: z.array(WorkbenchCriterionSchema),
   findings: z.array(WorkbenchFindingSchema),
   workPackages: z.array(WorkbenchWorkPackageSchema),
@@ -309,16 +339,38 @@ const MoveWorkPackageSchema = z.object({
   direction: z.enum(['up', 'down']),
 })
 
+/** Client-supplied baseline input: no `at` — the host mints the stamp. */
+const SplitBaselineInputSchema = z.object({
+  prd: z.array(SplitBaselinePrdSchema),
+  disposedFindings: z.number().int().nonnegative(),
+})
+
 const ApproveSplitSchema = z.object({
   expectedRevision: z.number().int().nonnegative(),
   requirementId: z.uuid(),
   action: z.literal('approveSplit'),
+  baseline: SplitBaselineInputSchema.optional(),
 })
 
 const RevokeSplitApprovalSchema = z.object({
   expectedRevision: z.number().int().nonnegative(),
   requirementId: z.uuid(),
   action: z.literal('revokeSplitApproval'),
+})
+
+/** P5b §7.6: archive the active list (all → dropped) and reopen it for re-planning. */
+const ReSplitSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  action: z.literal('reSplit'),
+})
+
+/** P5b §7.6「确认仍有效」: re-mint the baseline, list untouched. */
+const ConfirmSplitStillValidSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  action: z.literal('confirmSplitStillValid'),
+  baseline: SplitBaselineInputSchema,
 })
 
 const WorkPackageActionSchema = z.object({
@@ -416,7 +468,7 @@ const ReviewVerdictInputSchema = z.object({
   id: z.uuid().optional(),
   title: z.string().trim().min(1).max(64),
   severity: z.enum(SEVERITY_VALUES),
-  verdict: z.enum(VERDICT_OUTCOME_VALUES),
+  verdict: z.enum(VERDICT_INPUT_VALUES),
   disposition: z.enum(DISPOSITION_VALUES).optional(),
   note: z.string().max(2000).optional(),
 })
@@ -515,6 +567,8 @@ export const WorkbenchMutateSchema = z.discriminatedUnion('action', [
   MoveWorkPackageSchema,
   ApproveSplitSchema,
   RevokeSplitApprovalSchema,
+  ReSplitSchema,
+  ConfirmSplitStillValidSchema,
   ApprovePlanSchema,
   StartWorkPackageSchema,
   MarkWorkPackageBuiltSchema,

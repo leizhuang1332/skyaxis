@@ -73,7 +73,13 @@ const GHOST = '00000000-0000-4000-8000-000000000000'
 // Letter-bearing so that toUpperCase() actually changes it (a digit-only uuid uppercases to itself).
 const RID_UPPER = 'AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE'
 const FINDING_ID = '44444444-4444-4444-8444-444444444444'
+const VERDICT_ID = '66666666-6666-4666-8666-666666666666'
 const NOW = '2026-09-29T09:30:00.000Z'
+
+const expectIsoString = (value: unknown) => {
+  expect(typeof value).toBe('string')
+  expect(Number.isNaN(Date.parse(value as string))).toBe(false)
+}
 
 async function harness() {
   const dir = mkdtempSync(join(tmpdir(), 'workbench-endpoint-test-'))
@@ -1627,5 +1633,227 @@ describe('P4: review verdicts + idempotency anchor + candidate distillation', ()
     expect(res.status).toBe(200)
     const loaded = h.file.load()
     expect(loaded.ok && loaded.value.records[0]?.knowledgeCandidates[0]?.status).toBe('pending')
+  })
+})
+
+describe('P5b: review seeding + reSplit + confirmSplitStillValid', () => {
+  const REVIEW_BODY = [
+    '# 全量代码评审',
+    '',
+    '## 事务',
+    '导入与校验不在同一事务，失败缺整体回滚。',
+    '',
+    '```yaml',
+    '# skyaxis-review',
+    'findings:',
+    '  - title: 事务缺失',
+    '    severity: high',
+    '  - title: 空指针',
+    '    severity: medium',
+    '```',
+  ].join('\n')
+
+  it('writeReview 种子 proposed 裁决行（host 铸 uuid）+ seeded 计数；无约定块的报告 verdicts 空、blockError 咨询', async () => {
+    const h = await harness()
+    await h.seed([seedRecord(RID)]) // revision 1
+
+    const withBlock = await postReview(h, { requirementId: RID, expectedRevision: 1, title: '全量评审' }, REVIEW_BODY)
+    expect(withBlock.status).toBe(200)
+    const body = (await withBlock.json()) as { revision: number; reviewId: string; seeded: number }
+    expect(body.seeded).toBe(2)
+
+    const loaded = h.file.load()
+    expect(loaded.ok).toBe(true)
+    if (loaded.ok) {
+      const verdicts = loaded.value.records[0]?.reviewReports[0]?.verdicts
+      expect(verdicts).toHaveLength(2)
+      // proposed 是 host 铸的第三态；uuid 齐全；title/severity 来自块。
+      expect(verdicts?.[0]).toEqual({ id: expect.any(String), title: '事务缺失', severity: 'high', verdict: 'proposed' })
+      expect(verdicts?.[1]).toMatchObject({ title: '空指针', severity: 'medium', verdict: 'proposed' })
+    }
+
+    // 无约定块：报告照建，零种子，blockError 咨询位（不阻断）。
+    const plain = await postReview(h, { requirementId: RID, expectedRevision: body.revision }, '# 纯 markdown 报告\n没有约定块。')
+    expect(plain.status).toBe(200)
+    const plainBody = (await plain.json()) as { reviewId: string; seeded: number; reviewBlockError?: string }
+    expect(plainBody.seeded).toBe(0)
+    expect(plainBody.reviewBlockError).toBe('no-review-block')
+  })
+
+  it('坏行走 skipped 不入库：severity 非法与超长 title 不种子（宁缺勿毒化账本）', async () => {
+    const h = await harness()
+    await h.seed([seedRecord(RID)])
+    const mixed = [
+      '```yaml',
+      '# skyaxis-review',
+      'findings:',
+      '  - title: 好行',
+      '    severity: low',
+      '  - title: 坏严重度',
+      '    severity: critical',
+      `  - title: ${'x'.repeat(65)}`,
+      '    severity: low',
+      '```',
+    ].join('\n')
+    const res = await postReview(h, { requirementId: RID, expectedRevision: 1 }, mixed)
+    const body = (await res.json()) as { seeded: number }
+    expect(body.seeded).toBe(1) // 只有好行入库；两条坏行 skip（绝不截断写入）
+    const loaded = h.file.load()
+    if (loaded.ok) {
+      expect(loaded.value.records[0]?.reviewReports[0]?.verdicts).toHaveLength(1)
+      // 账本仍可读 = 没有毒化行落盘
+      expect(loaded.ok).toBe(true)
+    }
+  })
+
+  it('幂等锚收敛**不补种**：删掉种子行后重导同内容 → 同一报告、不复活已删行', async () => {
+    const h = await harness()
+    await h.seed([seedRecord(RID)])
+    const first = await postReview(h, { requirementId: RID, expectedRevision: 1, title: 'R' }, REVIEW_BODY)
+    const firstBody = (await first.json()) as { revision: number; reviewId: string }
+    expect(firstBody.revision).toBe(2)
+
+    // 用户删掉一条种子裁决行（真删）。
+    const loaded = h.file.load()
+    if (!loaded.ok) throw new Error('fixture degraded')
+    const reports = loaded.value.records[0]?.reviewReports ?? []
+    const kept = reports.map((report) => ({ ...report, verdicts: report.verdicts.slice(1) }))
+    await h.file.save(loaded.value.revision, [{ ...loaded.value.records[0]!, reviewReports: kept }])
+
+    // 重导同样内容 → 收敛到同一 reviewId，且不复活被删的行。
+    const retry = await postReview(h, { requirementId: RID, expectedRevision: 1, title: 'R' }, REVIEW_BODY)
+    expect(retry.status).toBe(200)
+    const retryBody = (await retry.json()) as { reviewId: string }
+    expect(retryBody.reviewId).toBe(firstBody.reviewId)
+    const after = h.file.load()
+    expect(after.ok && after.value.records[0]?.reviewReports[0]?.verdicts).toHaveLength(1)
+  })
+
+  it('GET ?kind=review：engine 在场返回整条消息；缺席 → no-service；无块 → no-review-block', async () => {
+    const h = await harness()
+    const noEngine = await h.get(`${WORKBENCH_DECLARE_PATH}?kind=review&sessionId=sess-1`)
+    expect(noEngine.status).toBe(200)
+    expect(await noEngine.json()).toEqual({ ok: true, missing: 'no-service' })
+
+    h.declareReader.setEngine({
+      readSession: async () => ({ events: [{ type: 'assistant/message', seq: 1, time: 0, data: { message: { content: [{ type: 'text', text: REVIEW_BODY }] } } } as never] }),
+    })
+    const ok = await h.get(`${WORKBENCH_DECLARE_PATH}?kind=review&sessionId=sess-1`)
+    const okBody = (await ok.json()) as { ok: true; text: string }
+    expect(okBody.text).toContain('# 全量代码评审')
+    expect(okBody.text).toContain('# skyaxis-review')
+
+    h.declareReader.setEngine({
+      readSession: async () => ({ events: [{ type: 'assistant/message', seq: 1, time: 0, data: { message: { content: [{ type: 'text', text: '没有块的收尾' }] } } } as never] }),
+    })
+    const missing = await h.get(`${WORKBENCH_DECLARE_PATH}?kind=review&sessionId=sess-1`)
+    expect(await missing.json()).toEqual({ ok: true, missing: 'no-review-block' })
+  })
+
+  it('approveSplit 带 baseline：铸 splitBaseline（at 为 host 时间，prd/计数为 client 上送）；不带动作则无基线', async () => {
+    const h = await harness()
+    await h.seed([seedRecord(RID, { workPackages: [seedWorkPackage('WP1')] })])
+    const res = await h.post(WORKBENCH_PATH, {
+      expectedRevision: 1, requirementId: RID, action: 'approveSplit',
+      baseline: { prd: [{ name: 'prd.md', size: 100, modifiedAt: 1700000000000 }], disposedFindings: 2 },
+    })
+    expect(res.status).toBe(200)
+    const record = ((await res.json()) as { record: WorkbenchRecord }).record
+    expect(record.splitBaseline?.prd).toEqual([{ name: 'prd.md', size: 100, modifiedAt: 1700000000000 }])
+    expect(record.splitBaseline?.disposedFindings).toBe(2)
+    expectIsoString(record.splitBaseline?.at)
+    expect(record.splitBaseline?.at).toBe(record.splitApprovedAt)
+
+    const plain = await h.post(WORKBENCH_PATH, { expectedRevision: 2, requirementId: RID, action: 'revokeSplitApproval' })
+    expect(((await plain.json()) as { record: WorkbenchRecord }).record.splitBaseline).toBeUndefined() // revoke 一并摘基线
+  })
+
+  it('reSplit：未开工全归档为 dropped + 摘批准戳与基线；已开工 → 400 零残留；未批准 → 400', async () => {
+    const h = await harness()
+    await h.seed([seedRecord(RID, {
+      splitApprovedAt: NOW,
+      splitBaseline: { at: NOW, prd: [], disposedFindings: 0 },
+      workPackages: [seedWorkPackage('WP1'), seedWorkPackage('WP2', { status: 'plan-approved' })],
+    })])
+
+    const res = await h.post(WORKBENCH_PATH, { expectedRevision: 1, requirementId: RID, action: 'reSplit' })
+    expect(res.status).toBe(200)
+    const record = ((await res.json()) as { record: WorkbenchRecord }).record
+    expect(record.splitApprovedAt).toBeUndefined()
+    expect(record.splitBaseline).toBeUndefined()
+    expect(record.workPackages.map((workPackage) => workPackage.status)).toEqual(['dropped', 'dropped'])
+    // 归档进 stageHistory 留痕（note: re-split）
+    expect(record.stageHistory[record.stageHistory.length - 1]?.note).toBe('re-split')
+
+    // 已开工（in-dev）→ 400 且账本零残留
+    const h2 = await harness()
+    await h2.seed([seedRecord(RID, {
+      splitApprovedAt: NOW,
+      workPackages: [seedWorkPackage('WP1'), seedWorkPackage('WP2', { status: 'in-dev' })],
+    })])
+    const blocked = await h2.post(WORKBENCH_PATH, { expectedRevision: 1, requirementId: RID, action: 'reSplit' })
+    expect(blocked.status).toBe(400)
+    expect(await errorCode(blocked)).toBe('bad-request')
+    const after = h2.file.load()
+    expect(after.ok && after.value.records[0]?.workPackages[1]?.status).toBe('in-dev')
+
+    // 未批准 → 400
+    const h3 = await harness()
+    await h3.seed([seedRecord(RID, { workPackages: [seedWorkPackage('WP1')] })])
+    const unapproved = await h3.post(WORKBENCH_PATH, { expectedRevision: 1, requirementId: RID, action: 'reSplit' })
+    expect(unapproved.status).toBe(400)
+  })
+
+  it('confirmSplitStillValid：换基线（列表与批准戳不动）；未批准 → 400', async () => {
+    const h = await harness()
+    await h.seed([seedRecord(RID, {
+      splitApprovedAt: NOW,
+      splitBaseline: { at: NOW, prd: [{ name: 'prd.md', size: 1, modifiedAt: 1 }], disposedFindings: 0 },
+      workPackages: [seedWorkPackage('WP1')],
+    })])
+
+    const res = await h.post(WORKBENCH_PATH, {
+      expectedRevision: 1, requirementId: RID, action: 'confirmSplitStillValid',
+      baseline: { prd: [{ name: 'prd.md', size: 999, modifiedAt: 2 }], disposedFindings: 3 },
+    })
+    expect(res.status).toBe(200)
+    const record = ((await res.json()) as { record: WorkbenchRecord }).record
+    expect(record.splitBaseline?.prd).toEqual([{ name: 'prd.md', size: 999, modifiedAt: 2 }])
+    expect(record.splitBaseline?.disposedFindings).toBe(3)
+    expect(record.splitApprovedAt).toBe(NOW) // 批准戳不动
+    expect(record.workPackages[0]?.status).toBe('planned') // 列表不动
+
+    const h2 = await harness()
+    await h2.seed([seedRecord(RID, { workPackages: [seedWorkPackage('WP1')] })])
+    const unapproved = await h2.post(WORKBENCH_PATH, {
+      expectedRevision: 1, requirementId: RID, action: 'confirmSplitStillValid',
+      baseline: { prd: [], disposedFindings: 0 },
+    })
+    expect(unapproved.status).toBe(400)
+  })
+
+  it('saveReviewVerdict 幂等：同 payload 重提 → 200 且 revision 不增（P5b 补的唯一缺口）', async () => {
+    const h = await harness()
+    await h.seed([seedRecord(RID, { reviewReports: [reviewEntry('rev-a1', { verdicts: [{ id: VERDICT_ID, title: 'x', severity: 'low', verdict: 'confirmed' }] })] })])
+    const payload = {
+      expectedRevision: 1, requirementId: RID, action: 'saveReviewVerdict', reportId: 'rev-a1',
+      verdict: { id: VERDICT_ID, title: 'x', severity: 'low' as const, verdict: 'confirmed' as const },
+    }
+    const res = await h.post(WORKBENCH_PATH, payload)
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { revision: number }).revision).toBe(1) // 未 bump
+    const loaded = h.file.load()
+    expect(loaded.ok && loaded.value.records[0]?.reviewReports[0]?.verdicts).toHaveLength(1)
+  })
+
+  it('客户端不能写 proposed：saveReviewVerdict 带 verdict:"proposed" → 400（输入 schema 二值，四权防线）', async () => {
+    const h = await harness()
+    await h.seed([seedRecord(RID, { reviewReports: [reviewEntry('rev-a1')] })])
+    const res = await h.post(WORKBENCH_PATH, {
+      expectedRevision: 1, requirementId: RID, action: 'saveReviewVerdict', reportId: 'rev-a1',
+      verdict: { title: 'x', severity: 'low', verdict: 'proposed' },
+    })
+    expect(res.status).toBe(400)
+    expect(await errorCode(res)).toBe('bad-request')
   })
 })

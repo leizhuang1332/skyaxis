@@ -23,6 +23,9 @@
  */
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { findDeclareFence } from './declare-parse.js'
+import { findMarkerFence } from './fence.js'
+
+const REVIEW_MARKER = '# skyaxis-review'
 
 /** Minimal local shape of ctx.sessionQuery (package not in store — see file header). */
 export interface SessionQueryLike {
@@ -32,6 +35,10 @@ export interface SessionQueryLike {
 export type DeclareReadResult =
   | { status: 'ok'; text: string }
   | { status: 'missing'; reason: 'no-service' | 'not-found' | 'unreadable' | 'no-declare-block' }
+
+export type ReviewReadResult =
+  | { status: 'ok'; text: string }
+  | { status: 'missing'; reason: 'no-service' | 'not-found' | 'unreadable' | 'no-review-block' }
 
 /** Text of one assistant/message event — its text content blocks joined (reasoning/tool blocks contribute nothing). */
 function assistantText(event: SessionEvent): string {
@@ -55,7 +62,13 @@ export class SessionDeclareReader {
     this.#engine = engine
   }
 
-  async readDeclareText(sessionId: string): Promise<DeclareReadResult> {
+  /**
+   * Read the session log and walk assistant/message events newest-first,
+   * returning the FIRST whose text satisfies `locate`. Shared by both fetch
+   * faces so the assistant-only scan (the template-misfire defense) and the
+   * duck-typed error taxonomy live in one place.
+   */
+  async #scan(sessionId: string, locate: (text: string) => string | null): Promise<ScanResult> {
     if (this.#engine === undefined) return { status: 'missing', reason: 'no-service' }
     let events: readonly SessionEvent[]
     try {
@@ -68,9 +81,36 @@ export class SessionDeclareReader {
       return { status: 'missing', reason: code === 'SESSION_QUERY_SESSION_NOT_FOUND' ? 'not-found' : 'unreadable' }
     }
     for (let index = events.length - 1; index >= 0; index--) {
-      const fence = findDeclareFence(assistantText(events[index]!))
-      if (fence !== null) return { status: 'ok', text: fence }
+      const located = locate(assistantText(events[index]!))
+      if (located !== null) return { status: 'ok', text: located }
     }
-    return { status: 'missing', reason: 'no-declare-block' }
+    return { status: 'missing', reason: 'none' }
+  }
+
+  /** Declare fetch: hands back the FENCE BODY (the declare block is the payload). */
+  async readDeclareText(sessionId: string): Promise<DeclareReadResult> {
+    const result = await this.#scan(sessionId, (text) => findDeclareFence(text))
+    if (result.status === 'ok') return result
+    return { status: 'missing', reason: result.reason === 'none' ? 'no-declare-block' : result.reason }
+  }
+
+  /**
+   * Review fetch (P5b): hands back the WHOLE assistant message that carries a
+   * `# skyaxis-review` block — a review report IS free-form markdown and the
+   * convention block is part of it, so the stored body should be the entire
+   * message (its contentHash then covers the block and the idempotency anchor
+   * works on the whole document). The marker still LOCATES the message (so the
+   * user/message template skeleton can never be mistaken for a report — the
+   * declare template-misfire defense carries over verbatim).
+   */
+  async readReviewText(sessionId: string): Promise<ReviewReadResult> {
+    const result = await this.#scan(sessionId, (text) => (findMarkerFence(text, REVIEW_MARKER) !== null ? text : null))
+    if (result.status === 'ok') return result
+    return { status: 'missing', reason: result.reason === 'none' ? 'no-review-block' : result.reason }
   }
 }
+
+/** Internal scan outcome — 'none' means "engine read fine, no match". */
+type ScanResult =
+  | { status: 'ok'; text: string }
+  | { status: 'missing'; reason: 'no-service' | 'not-found' | 'unreadable' | 'none' }
