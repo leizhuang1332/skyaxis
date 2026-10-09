@@ -13,7 +13,7 @@ import type {
   WorkbenchWorkPackage,
 } from '../../src/workbench-shared/protocol.js'
 import type { RequirementRecord } from '../../src/requirements-shared/protocol.js'
-import { buildSow, knowledgeBytes, matchKnowledge, splitPrdSections } from '../../src/client/workbench/sow.js'
+import { buildSow, globToRegExp, knowledgeBytes, matchKnowledge, splitPrdSections } from '../../src/client/workbench/sow.js'
 
 const RID = '11111111-1111-4111-8111-111111111111'
 const AT = '2026-09-29T08:00:00.000Z'
@@ -135,7 +135,7 @@ describe('matchKnowledge', () => {
     expect(picks[0].match).toBe('manual')
   })
 
-  it('archived 排除；path（P5）不列', () => {
+  it('archived 排除；path 行无 contextPaths 参数 ⇒ 恒不列（诚实缺席：无工作区无可匹配）', () => {
     const picks = matchKnowledge(
       [
         knowledge('k5', { status: 'archived', trigger: { mode: 'always' } }),
@@ -144,6 +144,39 @@ describe('matchKnowledge', () => {
       '导出',
     )
     expect(picks).toEqual([])
+  })
+
+  it('P5a path 命中：相对 glob = 有上下文即列（v1 确定性口径）；绝对 glob 需前缀命中', () => {
+    const rows = [
+      knowledge('k-src', { trigger: { mode: 'path', value: 'src/**' } }),
+      knowledge('k-repo', { trigger: { mode: 'path', value: 'C:/ws/quote/repos/**' } }),
+      knowledge('k-miss', { trigger: { mode: 'path', value: 'C:/other/**' } }),
+    ]
+    const picks = matchKnowledge(rows, '导出', ['C:/ws/quote', 'C:/ws/quote/repos/repo-alpha-aaaa'])
+    expect(picks.map((pick) => pick.record.id)).toEqual(['k-src', 'k-repo'])
+    expect(picks[0]?.match).toBe('path')
+
+    // 上下文缺席 ⇒ 相对 glob 也不列（诚实缺席）
+    const none = matchKnowledge([rows[0]!], '导出', [])
+    expect(none).toEqual([])
+  })
+
+  it('globToRegExp 矩阵：** 跨段 / * 不跨段 / 斜杠归一 / 锚定全路径 / **/ 可零段 / 元字符转义', () => {
+    expect(globToRegExp('src/**').test('src/a/b/c.ts')).toBe(true)
+    expect(globToRegExp('src/**').test('src/')).toBe(true)
+    expect(globToRegExp('src/**').test('src')).toBe(false)            // 全路径锚定：无斜杠不算 under
+    expect(globToRegExp('src/*').test('src/a.ts')).toBe(true)
+    expect(globToRegExp('src/*').test('src/a/b.ts')).toBe(false)      // 单 * 不跨段
+    expect(globToRegExp('src/**/*.ts').test('src/x.ts')).toBe(true)   // **/ 可零段
+    expect(globToRegExp('src/**/*.ts').test('src/a/b/x.ts')).toBe(true)
+    expect(globToRegExp('C:/ws/q/**').test('C:/ws/q/r')).toBe(true)   // globToRegExp 契约：两侧已归一
+    expect(matchKnowledge(
+      [knowledge('k-abs', { trigger: { mode: 'path', value: 'C:/ws/quote/**' } })],
+      'x',
+      ['C:\\ws\\quote\\repos\\alpha'],                                  // 反斜杠上下文路径在匹配层归一
+    ).map((pick) => pick.record.id)).toEqual(['k-abs'])
+    expect(globToRegExp('a.b').test('axb')).toBe(false)               // 点是字面量
+    expect(globToRegExp('src/**').test('etc/src/a')).toBe(false)      // 锚定全路径
   })
 })
 

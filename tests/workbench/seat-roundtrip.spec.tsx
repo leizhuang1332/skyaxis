@@ -175,3 +175,43 @@ describe('seat round-trip: S5 导入声明的 sessions 穿线（P3b 钉）', () 
     expect(within(dialog).getByRole('option', { name: /WP1·开发 声明会话/ })).toBeTruthy()
   })
 })
+
+describe('seat round-trip: SOW 投递 face 穿线（P5a 钉）', () => {
+  it('deliver face 经 seat → Body 到达 SowModal（缺席 ⇒ 按钮不渲染——P2b 断裂同款防线）', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      ok: true, revision: 1, record, planFileExists: [], reviewFileExists: [], releaseDrifted: [],
+    }))))
+    const store = createWorkbenchStore()
+    const controller = createWorkbenchController(store, {
+      list: async () => ({ kind: 'ok' as const, revision: 1, records: [record] }),
+      detail: async () => ({ kind: 'ok' as const, revision: 1, record, planFileExists: [], reviewFileExists: [], releaseDrifted: [] }),
+      openKnowledge: async () => undefined,
+      knowledgeList: async () => ({ kind: 'ok' as const, revision: 0, records: [] }),
+    } as never)
+    const deliver = vi.fn(async () => ({ ok: true as const, sessionId: 's' }))
+    const Seat = createWorkbenchTabSeat({ t: (key) => (workbenchZh as unknown as Record<string, string>)[key] ?? key, store, controller, deliver })
+    render(<Seat requirement={requirement} />)
+    await waitFor(() => expect(screen.getByText(/发现一/)).toBeTruthy())
+
+    // 打开任一 SOW 入口（S1 的生成分析任务书）——投递按钮只能来自 deliver face。
+    fireEvent.click(screen.getByRole('button', { name: workbenchZh['sow.analysisButton'] }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByRole('button', { name: workbenchZh['sow.deliver'] })).toBeTruthy()
+
+    // 对照：不传 deliver 的 seat（jsdom 天然缺席）——按钮不渲染。
+    cleanup()
+    const store2 = createWorkbenchStore()
+    const controller2 = createWorkbenchController(store2, {
+      list: async () => ({ kind: 'ok' as const, revision: 1, records: [record] }),
+      detail: async () => ({ kind: 'ok' as const, revision: 1, record, planFileExists: [], reviewFileExists: [], releaseDrifted: [] }),
+      openKnowledge: async () => undefined,
+      knowledgeList: async () => ({ kind: 'ok' as const, revision: 0, records: [] }),
+    } as never)
+    const Seat2 = createWorkbenchTabSeat({ t: (key) => (workbenchZh as unknown as Record<string, string>)[key] ?? key, store: store2, controller: controller2 })
+    render(<Seat2 requirement={requirement} />)
+    await waitFor(() => expect(screen.getByText(/发现一/)).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: workbenchZh['sow.analysisButton'] }))
+    const dialog2 = await screen.findByRole('dialog')
+    expect(within(dialog2).queryByRole('button', { name: workbenchZh['sow.deliver'] })).toBeNull()
+  })
+})

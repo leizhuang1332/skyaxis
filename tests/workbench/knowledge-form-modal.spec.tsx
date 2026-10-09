@@ -7,7 +7,7 @@
  * 不传），编辑带 id；keyword 触发的 value 进 payload。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { WorkbenchKnowledgeRecord } from '../../src/workbench-shared/protocol.js'
 import type { WorkbenchT } from '../../src/client/workbench/dictionary.js'
 import { workbenchZh } from '../../src/client/workbench/dictionary.js'
@@ -128,5 +128,29 @@ describe('KnowledgeFormModal（新建/编辑知识条目）', () => {
       content: '全局内容',
       trigger: { mode: 'keyword', value: '导出' },
     })
+  })
+})
+
+describe('P5a：workspace 档 + path 触发（编辑通道同款）', () => {
+  let onSubmit: ReturnType<typeof vi.fn>
+  const subject = (editing: WorkbenchKnowledgeRecord | null): ReturnType<typeof render> => {
+    onSubmit = vi.fn()
+    const rendered = render(<KnowledgeFormModal t={bindZh()} open editing={editing} requirementId={RID} busy={false} onCancel={() => {}} onSubmit={onSubmit as never} />)
+    return rendered
+  }
+  it('三档 scope + 四档 trigger；workspace+path 全必填；编辑 workspace 行播种 path 与 glob', async () => {
+    subject(null)
+    const dialog = screen.getByRole('dialog')
+    fireEvent.click(within(dialog).getByLabelText(workbenchZh['knowledge.scopeWorkspace']))
+    fireEvent.click(within(dialog).getByLabelText(workbenchZh['knowledge.triggerPath']))
+    fireEvent.change(within(dialog).getByLabelText(workbenchZh['knowledge.titleLabel']), { target: { value: '导出规范' } })
+    fireEvent.change(within(dialog).getByLabelText(workbenchZh['knowledge.pathLabel']), { target: { value: 'C:/ws/quote' } })
+    fireEvent.change(within(dialog).getByLabelText(workbenchZh['knowledge.globLabel']), { target: { value: 'src/**' } })
+    fireEvent.click(within(dialog).getAllByRole('button', { name: workbenchZh['action.save'] }).at(-1)!)
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      scope: 'workspace',
+      path: 'C:/ws/quote',
+      trigger: { mode: 'path', value: 'src/**' },
+    })))
   })
 })

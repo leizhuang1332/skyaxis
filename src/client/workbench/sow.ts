@@ -69,7 +69,7 @@ export function splitPrdSections(markdown: string): PrdSection[] {
 // Knowledge matching (research 0006 §7.4 trigger rules, injection face)
 // ---------------------------------------------------------------------------
 
-export type KnowledgeMatchKind = 'always' | 'keyword' | 'manual'
+export type KnowledgeMatchKind = 'always' | 'keyword' | 'manual' | 'path'
 
 export interface KnowledgePick {
   record: WorkbenchKnowledgeRecord
@@ -77,12 +77,61 @@ export interface KnowledgePick {
 }
 
 /**
+ * Glob → RegExp for ABSOLUTE path-trigger matching (P5a): `**` spans any
+ * characters including separators, a single `*` stays within one segment,
+ * both slash kinds normalize to `/`. Anchored to the full path. Escapes
+ * every other metachar so the value is data, never a pattern injection.
+ */
+export function globToRegExp(glob: string): RegExp {
+  const normalized = glob.replaceAll('\\', '/')
+  let pattern = '^'
+  let index = 0
+  while (index < normalized.length) {
+    const char = normalized[index]
+    if (char === '*') {
+      if (normalized[index + 1] === '*') {
+        pattern += '[\\s\\S]*'
+        index += 2
+        // A `**/` or `/**/` sequence: the trailing slash is optional so
+        // `src/**/x` also matches `src/x` (the gitignore convention).
+        if (normalized[index] === '/') {
+          pattern += '(?:/)?'
+          index += 1
+        }
+        continue
+      }
+      pattern += '[^/]*'
+      index += 1
+      continue
+    }
+    pattern += char === '/' ? '/' : char.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    index += 1
+  }
+  return new RegExp(`${pattern}$`)
+}
+
+/** An absolute glob names a concrete location (drive letter or leading slash). */
+function isAbsoluteGlob(glob: string): boolean {
+  return /^([A-Za-z]:|\/)/.test(glob.replaceAll('\\', '/'))
+}
+
+/**
  * Resolve the injection pool for one target text. Only active rows enter;
  * `always` rows always list, `keyword` rows list only on a case-insensitive
  * substring hit of their trimmed value, `manual` rows list unflagged (the
- * modal presents them unchecked), `path` rows wait for P5 and never list.
+ * modal presents them unchecked), and `path` rows (P5a) match the
+ * requirement's CONTEXT PATHS (workspace root + linkedRepo clone dirs):
+ *
+ *  - RELATIVE glob (`src/**`): lists whenever the requirement HAS a context
+ *    path —「this workspace's src/** work」, the v1 deterministic semantics
+ *    (refining to "src/ actually touched" needs file enumeration; v2). No
+ *    context paths ⇒ never listed (the honest absence).
+ *  - ABSOLUTE glob (`C:/ws/q/repos/**`): must prefix-match a context path
+ *    at segment boundaries (globToRegExp).
  */
-export function matchKnowledge(records: readonly WorkbenchKnowledgeRecord[], targetText: string): KnowledgePick[] {
+export function matchKnowledge(records: readonly WorkbenchKnowledgeRecord[], targetText: string, contextPaths?: readonly string[]): KnowledgePick[] {
+  const normalizedPaths = contextPaths?.map((path) => path.replaceAll('\\', '/')) ?? []
+  const hasContext = normalizedPaths.length > 0
   const picks: KnowledgePick[] = []
   for (const record of records) {
     if (record.status !== 'active') continue
@@ -95,6 +144,19 @@ export function matchKnowledge(records: readonly WorkbenchKnowledgeRecord[], tar
       if (value.length > 0 && targetText.toLowerCase().includes(value)) {
         picks.push({ record, match: 'keyword' })
       }
+      continue
+    }
+    if (record.trigger.mode === 'path') {
+      const glob = (record.trigger.value ?? '').trim()
+      if (glob.length === 0 || !hasContext) continue
+      if (isAbsoluteGlob(glob)) {
+        const pattern = globToRegExp(glob)
+        if (normalizedPaths.some((path) => pattern.test(path))) {
+          picks.push({ record, match: 'path' })
+        }
+        continue
+      }
+      picks.push({ record, match: 'path' })
       continue
     }
     if (record.trigger.mode === 'manual') {

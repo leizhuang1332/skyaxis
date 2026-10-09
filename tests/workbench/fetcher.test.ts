@@ -202,3 +202,20 @@ describe('workbench fetcher', () => {
     expect(calls[8]).toEqual({ expectedRevision: 4, requirementId: RID, action: 'revokeRollbackPlan' })
   })
 })
+
+describe('P5a knowledgeList workspacePath 参数', () => {
+  it('带参数上送；空串/undefined 省略参数（旧行为）', async () => {
+    const calls: string[] = []
+    vi.stubGlobal('fetch', async (url: string) => {
+      calls.push(String(url))
+      return new Response(JSON.stringify({ ok: true, revision: 1, records: [] }))
+    })
+    const fetcher = createWorkbenchFetcher()
+    expect((await fetcher.knowledgeList(RID, 'C:/ws/quote')).kind).toBe('ok')
+    expect((await fetcher.knowledgeList(RID, '')).kind).toBe('ok')
+    expect((await fetcher.knowledgeList(RID)).kind).toBe('ok')
+    expect(calls[0]).toContain('workspacePath=C%3A%2Fws%2Fquote')
+    expect(calls[1]).not.toContain('workspacePath')
+    expect(calls[2]).not.toContain('workspacePath')
+  })
+})

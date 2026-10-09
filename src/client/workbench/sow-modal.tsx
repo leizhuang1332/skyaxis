@@ -18,6 +18,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Modal, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 import { createRequirementsFetcher } from '../requirements/fetcher.js'
+import { createReposFetcher } from '../repos-pool/fetcher.js'
+import { repoDirName } from '../../requirements-shared/repo-dir.js'
 import { createWorkbenchFetcher } from './fetcher.js'
 import {
   KNOWLEDGE_INJECTION_MAX_BYTES,
@@ -194,7 +196,10 @@ export function SowModal(props: {
   }, [open])
 
   // --- knowledge matching (target text: requirement title+description, plus
-  // the dev work package's title+boundary) ---
+  // the dev work package's title+boundary; P5a context paths for the path
+  // trigger: workspace root + linkedRepo clone dirs, joined against the pool
+  // list for repo names — the cross-module fetcher precedent this file
+  // already uses for PRDs; failure ⇒ no clone dirs, workspace root alone) ---
   const activeRecords = useMemo(
     () => knowledgeRecords.filter((row) => row.status === 'active'),
     [knowledgeRecords],
@@ -204,7 +209,35 @@ export function SowModal(props: {
     if (purpose === 'dev' && workPackage !== undefined) parts.push(workPackage.title, workPackage.boundary)
     return parts.join('\n')
   }, [purpose, requirement.title, requirement.description, workPackage])
-  const picks = useMemo(() => matchKnowledge(activeRecords, targetText), [activeRecords, targetText])
+  // Clone dirs need pool names — fetched once per open (component state, the
+  // plan-body cache precedent: transient, never the store).
+  const [repoNames, setRepoNames] = useState<Map<string, string>>(new Map())
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    if (requirement.linkedRepos.length === 0) return
+    void createReposFetcher().list().then((result) => {
+      if (cancelled || result.kind !== 'ok') return
+      setRepoNames(new Map(result.repos.map((repo) => [repo.id, repo.name])))
+    })
+    return () => {
+      cancelled = true
+    }
+    // Reopen re-resolves; fetcher identity ignored (the PRD-chain precedent).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, requirement.linkedRepos])
+  const contextPaths = useMemo(() => {
+    const paths: string[] = []
+    if (requirement.workspacePath !== '') paths.push(requirement.workspacePath)
+    for (const linked of requirement.linkedRepos) {
+      const name = repoNames.get(linked.repoId)
+      if (name !== undefined && requirement.workspacePath !== '') {
+        paths.push(`${requirement.workspacePath}/repos/${repoDirName(name, linked.repoId)}`)
+      }
+    }
+    return paths
+  }, [requirement.workspacePath, requirement.linkedRepos, repoNames])
+  const picks = useMemo(() => matchKnowledge(activeRecords, targetText, contextPaths), [activeRecords, targetText, contextPaths])
   const defaultKnowledgeIds = useMemo(
     () => new Set(picks.filter((pick) => pick.match !== 'manual').map((pick) => pick.record.id)),
     [picks],
@@ -381,7 +414,7 @@ export function SowModal(props: {
                   checked={selectedKnowledgeIds.has(pick.record.id)}
                   onChange={() => { toggleKnowledge(pick.record.id) }}
                 />
-                <span>[{pick.record.trigger.mode}] {pick.record.title}</span>
+                <span>[{pick.record.trigger.mode}{pick.record.trigger.value !== undefined && pick.record.trigger.value.length > 0 ? `: ${pick.record.trigger.value}` : ''}] {pick.record.title}</span>
               </label>
             ))}
           </div>

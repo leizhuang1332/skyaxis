@@ -27,6 +27,8 @@ import type { KnowledgeSliceState, RequirementWorkbenchState } from './store.js'
 import { RowMenu } from './row-menu.js'
 import { KnowledgeActivateModal } from './knowledge-activate-modal.js'
 import { KnowledgeFormModal } from './knowledge-form-modal.js'
+import { SheetExportModal } from './sheet-export-modal.js'
+import { buildKnowledgeDoc } from './knowledge-export.js'
 import styles from './view.module.css'
 
 const DAY_MS = 86_400_000
@@ -53,6 +55,7 @@ export function KnowledgeSection(props: {
   const [dropTarget, setDropTarget] = useState<KnowledgeCandidate | null>(null)
   const [formTarget, setFormTarget] = useState<'new' | WorkbenchKnowledgeRecord | null>(null)
   const [archiveTarget, setArchiveTarget] = useState<WorkbenchKnowledgeRecord | null>(null)
+  const [exportRows, setExportRows] = useState<readonly WorkbenchKnowledgeRecord[] | null>(null)
 
   return (
     <div className={styles.criteriaSection}>
@@ -85,10 +88,18 @@ export function KnowledgeSection(props: {
         </div>
       ))}
 
-      {/* ② 已激活知识（requirement ∪ global，独立账本切片） */}
+      {/* ② 已激活知识（requirement ∪ workspace ∪ global，独立账本切片；P5a workspace 行按需求工作区过滤） */}
       <div className={styles.sectionHead}>
         <div className={styles.sectionTitle}>{t('knowledge.activeTitle')}</div>
         <button type="button" className={styles.ghostButton} onClick={() => { setFormTarget('new') }}>{t('knowledge.add')}</button>
+        <button
+          type="button"
+          className={styles.ghostButton}
+          disabled={active.length === 0}
+          onClick={() => { setExportRows(active) }}
+        >
+          {t('knowledge.exportButton')}
+        </button>
       </div>
       {knowledge.phase === 'load-error' ? (
         <div className={styles.guideSection}><div className={styles.guideHint}>{t('knowledge.loadError')}</div></div>
@@ -111,17 +122,21 @@ export function KnowledgeSection(props: {
             <div className={styles.guideHint}>
               {row.scope === 'requirement'
                 ? t('knowledge.metaRequirement')
-                : `${t('knowledge.metaGlobal')} · ${t('knowledge.activatedAtPrefix')} ${row.provenance.at.slice(0, 10)}`}
+                : row.scope === 'workspace'
+                  ? `${t('knowledge.metaWorkspace')} ${row.path ?? ''}`
+                  : `${t('knowledge.metaGlobal')} · ${t('knowledge.activatedAtPrefix')} ${row.provenance.at.slice(0, 10)}`}
             </div>
           </div>
           <RowMenu
             menuLabel={row.title}
             items={[
               { id: 'edit', label: t('menu.edit') },
+              { id: 'export', label: t('knowledge.exportOne') },
               { id: 'archive', label: t('knowledge.archive'), danger: true },
             ]}
             onSelect={(id) => {
               if (id === 'edit') setFormTarget(row)
+              if (id === 'export') setExportRows([row])
               if (id === 'archive') setArchiveTarget(row)
             }}
           />
@@ -254,14 +269,24 @@ export function KnowledgeSection(props: {
       >
         {t('knowledge.archiveDescription')}
       </Modal>
+
+      <SheetExportModal
+        t={t}
+        open={exportRows !== null}
+        sheet={exportRows !== null ? buildKnowledgeDoc(exportRows, new Date().toISOString()) : ''}
+        title={t('knowledge.exportTitle')}
+        onClose={() => { setExportRows(null) }}
+      />
     </div>
   )
 }
 
-/** keyword rows surface their value (the match target is the useful bit);
- *  the other modes read as the bare mode name. */
+/** keyword/path rows surface their value (the match target is the useful
+ *  bit — the glob for path rows since P5a); the other modes read as the
+ *  bare mode name. */
 function triggerTagText(trigger: WorkbenchKnowledgeRecord['trigger']): string {
   if (trigger.mode === 'keyword' && trigger.value !== undefined && trigger.value.length > 0) return `keyword: ${trigger.value}`
+  if (trigger.mode === 'path' && trigger.value !== undefined && trigger.value.length > 0) return `path: ${trigger.value}`
   return trigger.mode
 }
 

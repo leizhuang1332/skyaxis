@@ -173,7 +173,7 @@ describe('SowModal（SOW 生成 Modal）', () => {
 
     expect(await rendered.findByText(/命中 2 · 0\.0 KB \/ 上限 8\.0 KB/)).toBeTruthy()
     expect(rendered.getByLabelText('[always] 知识-k1')).toBeTruthy()
-    expect(rendered.getByLabelText('[keyword] 知识-k2')).toBeTruthy()
+    expect(rendered.getByLabelText('[keyword: 导出] 知识-k2')).toBeTruthy()
     expect(rendered.getByLabelText('[manual] 知识-k4')).toBeTruthy()
     expect(rendered.queryByLabelText('[keyword] 知识-k3')).toBeNull()
     // 默认勾选态：always+keyword 入预览，manual 不入；未命中 k3 全程不入。

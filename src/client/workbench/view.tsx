@@ -350,8 +350,8 @@ function WorkbenchSeat(props: {
   const state = useSyncExternalStore(props.store.subscribe, props.store.getSnapshot)
   useEffect(() => {
     void props.controller.open(props.requirement.id)
-    void props.controller.openKnowledge(props.requirement.id)
-  }, [props.controller, props.requirement.id])
+    void props.controller.openKnowledge(props.requirement.id, props.requirement.workspacePath)
+  }, [props.controller, props.requirement.id, props.requirement.workspacePath])
   return (
     <WorkbenchTabBody
       t={props.t}

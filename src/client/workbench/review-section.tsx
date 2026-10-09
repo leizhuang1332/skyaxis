@@ -30,6 +30,7 @@ import type { WorkbenchT } from './dictionary.js'
 import type { WorkbenchController } from './controller.js'
 import type { RequirementWorkbenchState } from './store.js'
 import { RowMenu } from './row-menu.js'
+import { CopyTextButton } from './copy-text-button.js'
 import styles from './view.module.css'
 
 const SEVERITY_TAG_TONE: Record<ReviewVerdict['severity'], 'danger' | 'warning' | 'info'> = {
@@ -427,6 +428,9 @@ function ReportDetailModal(props: {
       {body.phase === 'ready' ? (
         <>
           {body.tampered ? <div className={styles.wpWarnStrip}>{t('detail.tampered')}</div> : null}
+          <div className={styles.wpDraftActions}>
+            <CopyTextButton t={t} text={body.content} />
+          </div>
           <div className={styles.wpDocBody}>
             <MarkdownText text={body.content} labels={markdownLabels} />
           </div>

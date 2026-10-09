@@ -98,3 +98,42 @@ describe('KnowledgeActivateModal（激活知识条目）', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 })
+
+describe('P5a：workspace 档 + path 触发', () => {
+  let onSubmit: ReturnType<typeof vi.fn>
+  const subject = (candidate: Parameters<typeof KnowledgeActivateModal>[0]['candidate']): ReturnType<typeof render> => {
+    onSubmit = vi.fn()
+    return render(<KnowledgeActivateModal t={bindZh()} open candidate={candidate} busy={false} onCancel={() => {}} onSubmit={onSubmit as never} />)
+  }
+  it('workspace 档浮现 path 所有权键必填；path 触发浮现 glob 必填；payload 带 path + trigger.value', async () => {
+    const rendered = subject(null)
+    fireEvent.click(rendered.getByLabelText(workbenchZh['knowledge.scopeWorkspace']))
+    fireEvent.click(rendered.getByLabelText(workbenchZh['knowledge.triggerPath']))
+    const submit = rendered.getByRole('button', { name: workbenchZh['knowledge.activate'] }) as HTMLButtonElement
+    expect(submit.disabled).toBe(true) // 双必填拦截
+
+    fireEvent.change(rendered.getByLabelText(workbenchZh['knowledge.pathLabel']), { target: { value: '  C:/ws/quote  ' } })
+    expect(submit.disabled).toBe(true) // glob 仍缺
+    fireEvent.change(rendered.getByLabelText(workbenchZh['knowledge.globLabel']), { target: { value: 'src/**' } })
+    expect(submit.disabled).toBe(false)
+    fireEvent.click(submit)
+    expect(onSubmit).toHaveBeenCalledWith({
+      scope: 'workspace',
+      type: 'business',
+      trigger: { mode: 'path', value: 'src/**' },
+      path: 'C:/ws/quote',
+    })
+  })
+
+  it('global 档 + path 触发合法（作用域与触发正交）；value 只留给 keyword/path', async () => {
+    const rendered = subject(null)
+    fireEvent.click(rendered.getByLabelText(workbenchZh['knowledge.triggerPath']))
+    fireEvent.change(rendered.getByLabelText(workbenchZh['knowledge.globLabel']), { target: { value: 'docs/**' } })
+    fireEvent.click(rendered.getByRole('button', { name: workbenchZh['knowledge.activate'] }))
+    expect(onSubmit).toHaveBeenCalledWith({
+      scope: 'requirement',
+      type: 'business',
+      trigger: { mode: 'path', value: 'docs/**' },
+    })
+  })
+})

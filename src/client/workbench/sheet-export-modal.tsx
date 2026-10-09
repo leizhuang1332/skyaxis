@@ -15,8 +15,10 @@ import styles from './view.module.css'
 export function SheetExportModal(props: {
   t: WorkbenchT
   open: boolean
-  /** The assembled release sheet (buildReleaseSheet output). */
+  /** The assembled export text (buildReleaseSheet / buildKnowledgeDoc output). */
   sheet: string
+  /** Optional modal title override (P5a: the knowledge export reuses this shell). */
+  title?: string
   onClose: () => void
   copy?: (text: string) => Promise<boolean>
 }): ReactNode {
@@ -57,7 +59,7 @@ export function SheetExportModal(props: {
     <Modal
       open={props.open}
       onClose={() => { props.onClose() }}
-      title={t('sheet.title')}
+      title={props.title ?? t('sheet.title')}
       closeLabel={t('action.cancel')}
       className={styles.sheetDialog}
       contentClassName={styles.wpDialogBody}

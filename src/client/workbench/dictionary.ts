@@ -122,6 +122,7 @@ interface WorkbenchDictionary {
   readonly 'wp.parallelLabel': string
   readonly 'wp.parallelTag': string
   readonly 'wp.noneMark': string
+  readonly 'wp.copyBody': string
   readonly 'wp.removeTitle': string
   readonly 'wp.removeDescription': string
   // board.* — S3 kanban columns, cards, acceptance queue
@@ -219,6 +220,14 @@ interface WorkbenchDictionary {
   readonly 'knowledge.scopeLabel': string
   readonly 'knowledge.scopeGlobal': string
   readonly 'knowledge.scopeRequirement': string
+  readonly 'knowledge.scopeWorkspace': string
+  readonly 'knowledge.metaWorkspace': string
+  readonly 'knowledge.pathLabel': string
+  readonly 'knowledge.globLabel': string
+  readonly 'knowledge.triggerPath': string
+  readonly 'knowledge.exportButton': string
+  readonly 'knowledge.exportOne': string
+  readonly 'knowledge.exportTitle': string
   readonly 'knowledge.typeLabel': string
   readonly 'knowledge.typeBusiness': string
   readonly 'knowledge.typeConvention': string
@@ -506,6 +515,7 @@ const zh: WorkbenchDictionary = {
   'wp.coversLabel': '覆盖的验收标准',
   'wp.parallelLabel': '可与其他工作包并行',
   'wp.parallelTag': 'P 并行',
+  'wp.copyBody': '复制正文',
   'wp.noneMark': '—',
   'wp.removeTitle': '删除工作包',
   'wp.removeDescription': '确定删除该工作包？兄弟工作包对它的依赖引用将被一并剥离。',
@@ -600,6 +610,14 @@ const zh: WorkbenchDictionary = {
   'knowledge.scopeLabel': '作用域',
   'knowledge.scopeGlobal': '全局（所有需求注入）',
   'knowledge.scopeRequirement': '仅本需求',
+  'knowledge.scopeWorkspace': '工作区（绑定此工作区的需求注入）',
+  'knowledge.metaWorkspace': 'scope 工作区 ·',
+  'knowledge.pathLabel': '工作区路径（所有权键）',
+  'knowledge.globLabel': '路径 glob（如 src/**）',
+  'knowledge.triggerPath': 'path（路径命中注入）',
+  'knowledge.exportButton': '导出',
+  'knowledge.exportOne': '导出此条',
+  'knowledge.exportTitle': '知识导出',
   'knowledge.typeLabel': '类型',
   'knowledge.typeBusiness': 'business（业务知识）',
   'knowledge.typeConvention': 'convention（开发约定）',
@@ -883,6 +901,7 @@ const en: WorkbenchDictionary = {
   'wp.coversLabel': 'Covers criteria',
   'wp.parallelLabel': 'Can run in parallel',
   'wp.parallelTag': 'P parallel',
+  'wp.copyBody': 'Copy body',
   'wp.noneMark': '—',
   'wp.removeTitle': 'Remove work package',
   'wp.removeDescription': 'Remove this work package? Dependent references from sibling packages will be stripped along with it.',
@@ -977,6 +996,14 @@ const en: WorkbenchDictionary = {
   'knowledge.scopeLabel': 'Scope',
   'knowledge.scopeGlobal': 'Global (injected everywhere)',
   'knowledge.scopeRequirement': 'This requirement only',
+  'knowledge.scopeWorkspace': 'Workspace (injected for requirements bound to it)',
+  'knowledge.metaWorkspace': 'scope workspace ·',
+  'knowledge.pathLabel': 'Workspace path (ownership key)',
+  'knowledge.globLabel': 'Path glob (e.g. src/**)',
+  'knowledge.triggerPath': 'path (inject on path hit)',
+  'knowledge.exportButton': 'Export',
+  'knowledge.exportOne': 'Export this row',
+  'knowledge.exportTitle': 'Knowledge export',
   'knowledge.typeLabel': 'Type',
   'knowledge.typeBusiness': 'business (domain knowledge)',
   'knowledge.typeConvention': 'convention (engineering convention)',

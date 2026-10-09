@@ -17,6 +17,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { MarkdownText, Modal, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import { SessionPicker } from './session-picker.js'
 import { sessionChipState } from './session-strip.js'
+import { CopyTextButton } from './copy-text-button.js'
 import { WORKBENCH_ARTIFACT_MAX_CHARS } from '../../workbench-shared/protocol.js'
 import type { WorkbenchWorkPackage } from '../../workbench-shared/protocol.js'
 import type { WorkbenchT } from './dictionary.js'
@@ -240,6 +241,9 @@ export function WorkPackageDialog(props: {
             {selectedBody?.phase === 'ready' ? (
               <>
                 {selectedBody.tampered ? <div className={styles.wpWarnStrip}>{t('detail.tampered')}</div> : null}
+                <div className={styles.wpDraftActions}>
+                  <CopyTextButton t={t} text={selectedBody.content} />
+                </div>
                 <div className={styles.wpDocBody}>
                   <MarkdownText text={selectedBody.content} labels={markdownLabels} />
                 </div>

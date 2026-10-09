@@ -315,9 +315,13 @@ export function createWorkbenchFetcher() {
 
     // --- P2: knowledge.yaml route (its OWN union + optimistic lock) ---
 
-    async knowledgeList(requirementId: string, signal?: AbortSignal): Promise<WorkbenchKnowledgeListResult> {
+    async knowledgeList(requirementId: string, workspacePath?: string, signal?: AbortSignal): Promise<WorkbenchKnowledgeListResult> {
+      const query = new URLSearchParams({ requirementId })
+      // P5a: workspace rows join the listing only when filtered by the
+      // requirement's workspace (the user-ratified visibility ruling).
+      if (workspacePath !== undefined && workspacePath !== '') query.set('workspacePath', workspacePath)
       const response = await request(
-        `${WORKBENCH_KNOWLEDGE_PATH}?requirementId=${encodeURIComponent(requirementId)}`,
+        `${WORKBENCH_KNOWLEDGE_PATH}?${query.toString()}`,
         { method: 'GET' },
         signal,
       )

@@ -322,3 +322,26 @@ describe('S6 手动提炼（P4 §7.4 通道②）', () => {
     await waitFor(() => expect(controller.saveKnowledgeCandidate).toHaveBeenCalledWith(RID, { title: '导出走异步', draft: '大表导出禁止一次全量拉取', type: 'convention' }))
   })
 })
+
+describe('P5a：workspace 行呈现 + path 触发 tag + 知识导出', () => {
+  it('workspace 行 meta 三分支 + path 触发 tag 带 glob', () => {
+    const wsRow = knowledgeRow('k-ws', { scope: 'workspace', path: 'C:/ws/quote', trigger: { mode: 'path', value: 'src/**' } })
+    subject(slot({ record: record() }), knowledge({ records: [wsRow] }))
+    expect(screen.getByText(/scope 工作区 · C:\/ws\/quote/)).toBeTruthy()
+    expect(screen.getByText('path: src/**')).toBeTruthy()
+  })
+
+  it('批量导出：按钮开 SheetExportModal，预览含行节与生成戳；单条 Menu 导出同', async () => {
+    const controller = fakeController()
+    subject(slot({ record: record() }), knowledge({ records: [knowledgeRow('k1')] }), controller)
+    fireEvent.click(screen.getByRole('button', { name: workbenchZh['knowledge.exportButton'] }))
+    const dialog = await screen.findByRole('dialog', { name: workbenchZh['knowledge.exportTitle'] })
+    const preview = within(dialog).getByTestId('sheet-preview').textContent ?? ''
+    expect(preview).toContain('## 知识-k1')
+    expect(preview).toContain('scope 本需求 · type business')
+    expect(preview).toContain('导出于 skyaxis 知识库 ·')
+    const cancelButtons = within(dialog).getAllByRole('button', { name: workbenchZh['action.cancel'] })
+    fireEvent.click(cancelButtons[cancelButtons.length - 1]!)
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: workbenchZh['knowledge.exportTitle'] })).toBeNull())
+  })
+})

@@ -60,14 +60,16 @@ export function createWorkbenchController(store: WorkbenchStore, fetcher: Workbe
   }
 
   /** Knowledge-slice pull (S6 view + SOW modal consumers); mirrors open()'s
-   *  seq-guarded SWR so a late older response can't clobber a newer slice. */
-  async function openKnowledge(requirementId: string, signal?: AbortSignal): Promise<void> {
+   *  seq-guarded SWR so a late older response can't clobber a newer slice.
+   *  workspacePath (P5a) carries the requirement's workspace for the
+   *  user-ratiated workspace-row visibility filter. */
+  async function openKnowledge(requirementId: string, workspacePath?: string, signal?: AbortSignal): Promise<void> {
     const seq = (knowledgeSeqByRequirement.get(requirementId) ?? 0) + 1
     knowledgeSeqByRequirement.set(requirementId, seq)
     if ((store.getSnapshot().knowledgeByRequirement[requirementId]?.phase ?? 'loading') !== 'ready') {
       patchKnowledge(requirementId, { phase: 'loading' })
     }
-    const result = await fetcher.knowledgeList(requirementId, signal)
+    const result = await fetcher.knowledgeList(requirementId, workspacePath, signal)
     if (!alive(result) || knowledgeSeqByRequirement.get(requirementId) !== seq) return
     if (result.kind === 'ok') {
       patchKnowledge(requirementId, {
@@ -329,7 +331,7 @@ export function createWorkbenchController(store: WorkbenchStore, fetcher: Workbe
      *  slice re-pull (the promote wrote workbench.yaml + a knowledge row). */
     activateKnowledgeCandidate: async (requirementId: string, id: string, knowledge: { scope: 'global' | 'workspace' | 'requirement'; type: 'business' | 'convention'; trigger: { mode: 'always' | 'keyword' | 'manual' | 'path'; value?: string }; path?: string }, signal?: AbortSignal): Promise<boolean> => {
       const ok = await mutate(requirementId, () => fetcher.activateKnowledgeCandidate(requirementId, slotRevision(requirementId), id, knowledge, signal), signal)
-      if (ok) await openKnowledge(requirementId, signal)
+      if (ok) await openKnowledge(requirementId, undefined, signal)
       return ok
     },
 
@@ -349,7 +351,7 @@ export function createWorkbenchController(store: WorkbenchStore, fetcher: Workbe
       patchKnowledge(requirementId, { busy: false })
       patchSlot(requirementId, { banner: failureBanner(result) })
       if (result.kind === 'http-error' && (result.status === 409 || result.status === 404)) {
-        await openKnowledge(requirementId, signal)
+        await openKnowledge(requirementId, undefined, signal)
       }
       return false
     },
@@ -366,7 +368,7 @@ export function createWorkbenchController(store: WorkbenchStore, fetcher: Workbe
       patchKnowledge(requirementId, { busy: false })
       patchSlot(requirementId, { banner: failureBanner(result) })
       if (result.kind === 'http-error' && (result.status === 409 || result.status === 404)) {
-        await openKnowledge(requirementId, signal)
+        await openKnowledge(requirementId, undefined, signal)
       }
       return false
     },
