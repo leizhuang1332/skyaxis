@@ -74,23 +74,18 @@ export type DeliverFace = (text: string, workspacePath: string | undefined) => P
  * uiSession pattern) and resolved again at CALL time; a click before the
  * shell is up answers the honest {ok:false, reason:'no-service'}.
  *
- * Temporary acceptance diagnostics (the P2b three-way pattern — remove after
- * 实机验收): register / arm / call-failure each log one console.info line so
- * a missing button is attributable from the host Console.
  */
 export function createSowDelivery(ctx: Context): DeliverFace | undefined {
   // ctx.get: no inject requirement; absent ⇒ undefined (see file header).
   const get = (ctx as unknown as { get?: (name: string) => unknown }).get
   const sessions = get?.('sessions') as SessionsCreateFace | undefined
   if (sessions === undefined || typeof sessions.create !== 'function' || typeof sessions.scope !== 'function' || typeof sessions.open !== 'function') {
-    console.info('[skyaxis] SOW delivery unavailable: sessions face absent or malformed')
     return undefined
   }
 
   let conversation: ConversationFace | undefined = get?.('conversation') as ConversationFace | undefined
   const disposeConversation = ctx.inject(['conversation'], (scope: unknown) => {
     conversation = (scope as { conversation?: ConversationFace }).conversation
-    console.info('[skyaxis] SOW delivery: conversation face armed')
     return () => {
       conversation = undefined
     }
@@ -101,7 +96,6 @@ export function createSowDelivery(ctx: Context): DeliverFace | undefined {
       // Resolve at CALL time (register-time state may be pre-shell).
       const conversationFace = conversation ?? get?.('conversation') as ConversationFace | undefined
       if (conversationFace === undefined || typeof conversationFace.input?.for !== 'function') {
-        console.info('[skyaxis] SOW delivery failed: conversation face not yet available (no-service)')
         return { ok: false, reason: 'no-service' }
       }
       // Official four-step (cwd: the requirement workspace; create = create-or-adopt).
