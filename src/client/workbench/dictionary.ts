@@ -109,6 +109,18 @@ interface WorkbenchDictionary {
   readonly 'split.revokeTitle': string
   readonly 'split.revokeDescription': string
   readonly 'split.revokeConfirm': string
+  // split.stale* — P5b §7.6 变更失效与对账
+  readonly 'split.staleBadge': string
+  readonly 'split.staleReason': string
+  readonly 'split.stalePrd': string
+  readonly 'split.staleFindings': string
+  readonly 'split.stillValid': string
+  readonly 'split.reSplit': string
+  readonly 'split.reSplitBlocked': string
+  readonly 'split.reSplitTitle': string
+  readonly 'split.reSplitCount': string
+  readonly 'split.reSplitAck': string
+  readonly 'split.reSplitConfirm': string
   readonly 'split.droppedSectionTitle': string
   readonly 'split.droppedTag': string
   readonly 'split.restore': string
@@ -401,6 +413,7 @@ interface WorkbenchDictionary {
   readonly 'review.verdictLabel': string
   readonly 'review.verdictConfirmed': string
   readonly 'review.verdictRejected': string
+  readonly 'review.verdictPending': string
   readonly 'review.dispositionLabel': string
   readonly 'review.disposition.to-fix': string
   readonly 'review.disposition.fixed': string
@@ -412,6 +425,19 @@ interface WorkbenchDictionary {
   readonly 'review.removeReportTitle': string
   readonly 'review.removeReportDescription': string
   readonly 'review.fileMissing': string
+  // review.* fetch (P5b structured review convention — session抓取 + 种子披露)
+  readonly 'review.sessionLabel': string
+  readonly 'review.sessionPlaceholder': string
+  readonly 'review.fetchButton': string
+  readonly 'review.fetchNoService': string
+  readonly 'review.fetchNotFound': string
+  readonly 'review.fetchUnreadable': string
+  readonly 'review.fetchNoBlock': string
+  readonly 'review.noBoundSessions': string
+  readonly 'review.seededCount': string
+  readonly 'review.seededWithBlockError': string
+  // sow.reviewButton — S4 评审任务书入口（P5b 第四种 purpose）
+  readonly 'sow.reviewButton': string
   // knowledge.candidateAdd — S6 手动提炼（P4 §7.4 通道②）
   readonly 'knowledge.candidateAdd': string
   readonly 'knowledge.candidateAddTitle': string
@@ -504,6 +530,17 @@ const zh: WorkbenchDictionary = {
   'split.revokeTitle': '撤销拆分批准',
   'split.revokeDescription': '撤销后工作包清单与全部流程动作将重新锁定，直至再次批准；清单本身保留。确定撤销？',
   'split.revokeConfirm': '撤销批准',
+  'split.staleBadge': '上游已变更',
+  'split.staleReason': '拆分批准后上游有变化：{reasons}',
+  'split.stalePrd': 'PRD 文件',
+  'split.staleFindings': '发现处置',
+  'split.stillValid': '确认仍有效',
+  'split.reSplit': '重新拆分',
+  'split.reSplitBlocked': '有工作包已开工（开发中/待验收/已验收），无法重新拆分——请先处理其计划与会话。',
+  'split.reSplitTitle': '重新拆分',
+  'split.reSplitCount': '当前 {n} 个活动工作包将全部归档为「已放弃」，批准戳清除，清单重新可编辑。',
+  'split.reSplitAck': '我确认要归档现有拆分并重新开始。',
+  'split.reSplitConfirm': '归档并重新拆分',
   'split.droppedSectionTitle': '已放弃的工作包',
   'split.droppedTag': '已放弃',
   'split.restore': '恢复',
@@ -647,6 +684,7 @@ const zh: WorkbenchDictionary = {
   'knowledge.statCycleDays': '周期（天）',
   'sow.analysisButton': '生成分析任务书',
   'sow.splitButton': '生成拆分任务书',
+  'sow.reviewButton': '生成评审任务书',
   'sow.workPackageButton': '生成工作包任务书',
   'sow.title': '生成任务书',
   'sow.prdGroup': 'PRD 节选',
@@ -771,7 +809,7 @@ const zh: WorkbenchDictionary = {
   'review.sectionTitle': '评审报告',
   'review.importButton': '＋ 导入报告',
   'review.empty': '尚未导入评审报告。让 AI 完成评审后，把报告 markdown 粘贴导入。',
-  'review.counts': '发现 {n} · confirmed {c} / rejected {r}',
+  'review.counts': '发现 {n} · 待裁决 {p} · confirmed {c} / rejected {r}',
   'review.verdictsTitle': '裁决',
   'review.verdictsEmpty': '暂无裁决行——导入报告后逐条添加发现并裁决。',
   'review.addVerdict': '＋ 添加发现',
@@ -790,6 +828,7 @@ const zh: WorkbenchDictionary = {
   'review.verdictLabel': '裁决',
   'review.verdictConfirmed': 'confirmed（成立）',
   'review.verdictRejected': 'rejected（驳回）',
+  'review.verdictPending': '待裁决（AI 提议）',
   'review.dispositionLabel': '处置（confirmed 时）',
   'review.disposition.to-fix': '待修复',
   'review.disposition.fixed': '已修复',
@@ -801,6 +840,16 @@ const zh: WorkbenchDictionary = {
   'review.removeReportTitle': '删除评审报告',
   'review.removeReportDescription': '报告条目将从清单移除；正文文件保留在产物目录（孤儿，扫描端点可见）。',
   'review.fileMissing': '报告正文文件缺失（写入中断或被外部删除）。',
+  'review.sessionLabel': '从绑定会话抓取',
+  'review.sessionPlaceholder': '选择会话…',
+  'review.fetchButton': '抓取',
+  'review.fetchNoService': '宿主未提供会话读取服务——请手动粘贴报告正文。',
+  'review.fetchNotFound': '会话不存在或已被清理。',
+  'review.fetchUnreadable': '会话日志读取失败。',
+  'review.fetchNoBlock': '该会话的助手消息里没有 # skyaxis-review 约定块（可仍作纯报告导入）。',
+  'review.noBoundSessions': '尚无绑定会话——在 S3 工作包详情里关联 session 后可从会话抓取；也可直接粘贴。',
+  'review.seededCount': '已导入，种子裁决行 {n} 条（待你逐条裁决）。',
+  'review.seededWithBlockError': '已导入报告，但未解析到 # skyaxis-review 约定块或块语法有误——种子裁决行 {n} 条。',
   'knowledge.candidateAdd': '＋ 提炼',
   'knowledge.candidateAddTitle': '提炼知识候选',
 }
@@ -890,6 +939,17 @@ const en: WorkbenchDictionary = {
   'split.revokeTitle': 'Revoke split approval',
   'split.revokeDescription': 'Revoking re-locks the list and every workflow action until the next approval; the list itself is preserved. Revoke now?',
   'split.revokeConfirm': 'Revoke approval',
+  'split.staleBadge': 'Upstream changed',
+  'split.staleReason': 'Upstream changed after the split was approved: {reasons}',
+  'split.stalePrd': 'PRD files',
+  'split.staleFindings': 'finding dispositions',
+  'split.stillValid': 'Confirm still valid',
+  'split.reSplit': 'Re-split',
+  'split.reSplitBlocked': 'A work package has started (in dev / built / accepted) and cannot be re-split — resolve its plans and sessions first.',
+  'split.reSplitTitle': 'Re-split',
+  'split.reSplitCount': 'The {n} active work packages will all be archived as dropped, the approval stamp cleared, and the list reopened for editing.',
+  'split.reSplitAck': 'I confirm I want to archive the current split and start over.',
+  'split.reSplitConfirm': 'Archive and re-split',
   'split.droppedSectionTitle': 'Dropped work packages',
   'split.droppedTag': 'Dropped',
   'split.restore': 'Restore',
@@ -1033,6 +1093,7 @@ const en: WorkbenchDictionary = {
   'knowledge.statCycleDays': 'cycle (days)',
   'sow.analysisButton': 'Generate analysis SOW',
   'sow.splitButton': 'Generate split SOW',
+  'sow.reviewButton': 'Generate review SOW',
   'sow.workPackageButton': 'Generate work-package SOW',
   'sow.title': 'Generate statement of work',
   'sow.prdGroup': 'PRD sections',
@@ -1176,6 +1237,7 @@ const en: WorkbenchDictionary = {
   'review.verdictLabel': 'Verdict',
   'review.verdictConfirmed': 'confirmed',
   'review.verdictRejected': 'rejected',
+  'review.verdictPending': 'Pending (AI proposed)',
   'review.dispositionLabel': 'Disposition (confirmed only)',
   'review.disposition.to-fix': 'To fix',
   'review.disposition.fixed': 'Fixed',
@@ -1187,6 +1249,16 @@ const en: WorkbenchDictionary = {
   'review.removeReportTitle': 'Remove the review report',
   'review.removeReportDescription': 'The entry leaves the list; the body file stays in the artifacts directory (a scan-visible orphan).',
   'review.fileMissing': 'Report body file missing (interrupted write or externally deleted).',
+  'review.sessionLabel': 'Fetch from a bound session',
+  'review.sessionPlaceholder': 'Select a session…',
+  'review.fetchButton': 'Fetch',
+  'review.fetchNoService': 'The host does not mount the session-read service — paste the report body manually.',
+  'review.fetchNotFound': 'The session does not exist or has been cleaned up.',
+  'review.fetchUnreadable': 'Failed to read the session log.',
+  'review.fetchNoBlock': 'No # skyaxis-review block in this session\'s assistant messages (it can still import as a plain report).',
+  'review.noBoundSessions': 'No bound sessions yet — bind one in the S3 work-package detail to fetch; pasting always works.',
+  'review.seededCount': 'Imported — {n} verdict row(s) seeded as proposed (adjudicate each one).',
+  'review.seededWithBlockError': 'Report imported, but no # skyaxis-review block parsed (missing or malformed) — {n} verdict row(s) seeded.',
   'knowledge.candidateAdd': '＋ Distill',
   'knowledge.candidateAddTitle': 'Distill a knowledge candidate',
 }

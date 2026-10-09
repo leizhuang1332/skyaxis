@@ -66,7 +66,7 @@ async function defaultPlanText(requirementId: string, workPackage: WorkbenchWork
 export function SowModal(props: {
   t: WorkbenchT
   open: boolean
-  purpose: 'analysis' | 'split' | 'dev'
+  purpose: 'analysis' | 'split' | 'dev' | 'review'
   requirement: RequirementRecord
   record: WorkbenchRecord | null
   /** Server-filtered requirement ∪ global view (may carry archived rows — filtered active here). */

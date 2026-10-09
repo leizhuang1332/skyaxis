@@ -1,20 +1,26 @@
 /**
- * S4 review section (P4): reports → adjudication → PRD coverage matrix
- * (research §4.2 S4, mockup 623-680). Verdict rows are MANUAL this round
- * (user ruling 2026-10-08 — the structured review convention joins P5):
- * the report imports as markdown (paste; byte-identical retries converge
- * via the writeReview idempotency anchor), findings are added row by row
- * and adjudicated confirmed/rejected with dispositions.
+ * S4 review section (P4 + P5b): reports → adjudication → PRD coverage matrix
+ * (research §4.2 S4, mockup 623-680).
+ *
+ * P4 landed manual verdict entry. P5b adds the structured review convention:
+ * a review statement-of-work (the fourth SOW purpose) briefs the AI to emit a
+ * `# skyaxis-review` block, and the report import (paste, or fetch from a
+ * bound session) seeds each finding as a `proposed` verdict row — the AI
+ * PROPOSES, the user still adjudicates every row to confirmed/rejected. The
+ * report body writes through the same writeReview idempotency anchor, so a
+ * retry converges and never re-seeds (which would resurrect deleted rows).
  *
  * Governance anchors:
- *  - adjudication is the USER's power (§5.3) — rows enter by hand, the
- *    section carries no AI-proposal channel;
+ *  - adjudication stays the USER's power (§5.3): a seeded row is 'proposed'
+ *    (host-minted, never client-writable), never a ruling; the row's Tag and
+ *    the rail badge surface it as awaiting the user, and the edit form offers
+ *    only the two real rulings;
  *  - the coverage matrix is a READ projection of criteria.coveredBy (the
  *    host-recomputed projection — never client-written) with WP status
  *    suffixes on non-accepted packages; hollow rows warn (§7.5);
- *  - 完成口径 = 发现全处置（confirmed 全有处置 ∪ rejected）+ 无空洞, with
- *    the empty-set guard: zero verdict rows is "nothing adjudicated yet",
- *    not complete (the releaseGoNoGo guard, mirrored);
+ *  - 完成口径 = 发现全处置（confirmed 全有处置 ∪ rejected）+ 无 proposed +
+ *    无空洞, with the empty-set guard: zero verdict rows is "nothing
+ *    adjudicated yet", not complete (the releaseGoNoGo guard, mirrored);
  *  - no source-session meta on report cards — ReviewReportEntry carries no
  *    sessionId field and the honesty rule does not render absent data
  *    (mockup-only detail, deviation recorded);
@@ -26,9 +32,11 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { MarkdownText, Modal, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ReviewReportEntry, ReviewVerdict, SaveReviewVerdictRequest, WorkbenchRecord } from '../../workbench-shared/protocol.js'
 import { WORKBENCH_ARTIFACT_MAX_CHARS } from '../../workbench-shared/protocol.js'
+import type { RequirementRecord } from '../../requirements-shared/protocol.js'
 import type { WorkbenchT } from './dictionary.js'
 import type { WorkbenchController } from './controller.js'
 import type { RequirementWorkbenchState } from './store.js'
+import type { WorkbenchSessionsFace } from './view.js'
 import { RowMenu } from './row-menu.js'
 import { CopyTextButton } from './copy-text-button.js'
 import styles from './view.module.css'
@@ -63,9 +71,15 @@ const WP_STATUS_LABEL_KEY: Record<WorkbenchRecord['workPackages'][number]['statu
 
 export function ReviewSection(props: {
   t: WorkbenchT
+  /** Needed for the review-SOW entry (P5b) — the statement of work carries the requirement. */
+  requirement: RequirementRecord
   slot: RequirementWorkbenchState
   controller: WorkbenchController
   requirementId: string
+  /** S4 entry: open the review SOW modal (view-owned instance, P5b). */
+  onOpenSow?: () => void
+  /** Optional live-session face — powers the report-fetch picker; absent ⇒ paste-only. */
+  sessions?: WorkbenchSessionsFace
 }): ReactNode {
   const { t, slot, controller, requirementId } = props
   const record = slot.record
@@ -83,15 +97,32 @@ export function ReviewSection(props: {
 
   const reportCountsTag = (report: ReviewReportEntry): { text: string; tone: 'info' | 'success' | 'warning' } => {
     const total = report.verdicts.length
+    // Count each state DIRECTLY, never by subtraction — with the P5b third
+    // state 'proposed', `total - rejected` would silently report AI-proposed
+    // (unadjudicated) rows as confirmed.
+    const proposed = report.verdicts.filter((row) => row.verdict === 'proposed').length
+    const confirmed = report.verdicts.filter((row) => row.verdict === 'confirmed').length
     const rejected = report.verdicts.filter((row) => row.verdict === 'rejected').length
     const disposed = report.verdicts.filter((row) => row.verdict === 'rejected' || row.disposition !== undefined).length
     return {
-      text: t('review.counts').replaceAll('{n}', String(total)).replaceAll('{c}', String(total - rejected)).replaceAll('{r}', String(rejected)),
-      tone: total === 0 ? 'info' : disposed === total ? 'success' : 'warning',
+      text: t('review.counts')
+        .replaceAll('{n}', String(total))
+        .replaceAll('{p}', String(proposed))
+        .replaceAll('{c}', String(confirmed))
+        .replaceAll('{r}', String(rejected)),
+      // success only when nothing is left proposed or undisposed.
+      tone: total === 0 ? 'info' : (disposed === total && proposed === 0) ? 'success' : 'warning',
     }
   }
 
-  const verdictStateTag = (row: ReviewVerdict): { text: string; tone: 'success' | 'warning' | 'neutral' } => {
+  const verdictStateTag = (row: ReviewVerdict): { text: string; tone: 'success' | 'warning' | 'neutral' | 'outline' } => {
+    // P5b third state: an AI-proposed finding awaiting the user's ruling.
+    // Rendered distinctly (outline, dictionary text) — the pre-P5b code fell
+    // through to a hardcoded 'confirmed' warning tag, which would launder an
+    // unexamined proposal into a user ruling (the decisions/0006 D10 point).
+    if (row.verdict === 'proposed') {
+      return { text: t('review.verdictPending'), tone: 'outline' }
+    }
     if (row.verdict === 'rejected') {
       return { text: row.note !== undefined ? `rejected：${row.note}` : 'rejected', tone: 'neutral' }
     }
@@ -117,6 +148,9 @@ export function ReviewSection(props: {
     <div className={styles.reviewSection}>
       <div className={styles.sectionHead}>
         <div className={styles.sectionTitle}>{t('review.sectionTitle')}</div>
+        {props.onOpenSow !== undefined ? (
+          <button type="button" className={styles.ghostButton} onClick={() => { props.onOpenSow?.() }}>{t('sow.reviewButton')}</button>
+        ) : null}
         <button type="button" className={styles.ghostButton} onClick={() => { setImportOpen(true) }}>{t('review.importButton')}</button>
       </div>
       {reports.length === 0 ? <div className={styles.guideHint}>{t('review.empty')}</div> : null}
@@ -217,11 +251,11 @@ export function ReviewSection(props: {
         t={t}
         open={importOpen}
         busy={slot.busy}
-        onCancel={() => { setImportOpen(false) }}
-        onSubmit={(title, text) => {
-          setImportOpen(false)
-          void controller.importReview(requirementId, title, text)
-        }}
+        record={record}
+        sessions={props.sessions}
+        controller={controller}
+        requirementId={requirementId}
+        onClose={() => { setImportOpen(false) }}
       />
 
       {detailTarget !== null ? (
@@ -311,46 +345,133 @@ export function ReviewSection(props: {
   )
 }
 
+/** Review fetch-error reason → dictionary key (the declare FETCH_ERROR_KEY pattern). */
+const REVIEW_FETCH_ERROR_KEY: Record<string, Parameters<WorkbenchT>[0]> = {
+  'no-service': 'review.fetchNoService',
+  'not-found': 'review.fetchNotFound',
+  'unreadable': 'review.fetchUnreadable',
+  'no-review-block': 'review.fetchNoBlock',
+}
+
 function ReviewImportModal(props: {
   t: WorkbenchT
   open: boolean
   busy: boolean
-  onCancel: () => void
-  onSubmit: (title: string | undefined, text: string) => void
+  record: WorkbenchRecord
+  requirementId: string
+  controller: WorkbenchController
+  /** Optional live-session face — absent (jsdom/tests) ⇒ paste-only. */
+  sessions?: WorkbenchSessionsFace
+  onClose: () => void
 }): ReactNode {
-  const { t } = props
+  const { t, controller, requirementId, record } = props
   const [title, setTitle] = useState('')
   const [text, setText] = useState('')
+  const [sessionId, setSessionId] = useState('')
+  const [fetchBusy, setFetchBusy] = useState(false)
+  const [fetchError, setFetchError] = useState<string | null>(null)
+  // done phase carries the seeded count + advisory blockError for honest
+  // disclosure (a report with no convention block still imports — verdicts 0).
+  const [done, setDone] = useState<{ seeded: number; blockError?: 'no-review-block' | 'yaml-syntax' } | null>(null)
   useEffect(() => {
     if (props.open) {
       setTitle('')
       setText('')
+      setSessionId('')
+      setFetchBusy(false)
+      setFetchError(null)
+      setDone(null)
     }
   }, [props.open])
 
+  const boundSessions = Array.from(new Set(
+    record.workPackages.flatMap((workPackage) => workPackage.sessions.map((binding) => binding.sessionId)),
+  ))
+  const sessionTitle = (id: string): string =>
+    props.sessions?.summariesById[id]?.displayTitle ?? `${id.slice(0, 8)}…`
+
+  const onFetch = (): void => {
+    if (fetchBusy || sessionId === '') return
+    setFetchBusy(true)
+    setFetchError(null)
+    void controller.reviewFetch(sessionId).then((result) => {
+      setFetchBusy(false)
+      if (result === undefined) return
+      if (result.kind !== 'ok') {
+        setFetchError(t('error.network'))
+        return
+      }
+      const response = result.response
+      if ('missing' in response) {
+        // 'no-review-block' is advisory — the message may still be a plain
+        // report; leave the textarea as-is and show the hint (never fatal).
+        setFetchError(t(REVIEW_FETCH_ERROR_KEY[response.missing] ?? 'error.internal'))
+        return
+      }
+      setText(response.text)
+    })
+  }
+
   const submit = (): void => {
     const trimmed = title.trim()
-    props.onSubmit(trimmed.length > 0 ? trimmed : undefined, text)
+    void controller.importReview(requirementId, trimmed.length > 0 ? trimmed : undefined, text).then((outcome) => {
+      if (outcome !== undefined && outcome.ok) setDone({ seeded: outcome.seeded, blockError: outcome.blockError })
+    })
   }
 
   return (
     <Modal
       open={props.open}
-      onClose={() => { props.onCancel() }}
+      onClose={() => {
+        // While the write is in flight the server may have committed — closing
+        // would read as a cancel that isn't one (the declare-import precedent).
+        if (!props.busy) props.onClose()
+      }}
       title={t('review.importTitle')}
       closeLabel={t('action.cancel')}
       className={styles.knowledgeDialog}
+      contentClassName={styles.wpDialogBody}
       footer={
         <>
-          <button type="button" className={styles.ghostButton} onClick={() => { props.onCancel() }}>{t('action.cancel')}</button>
-          <button type="button" className={styles.primaryButton} disabled={props.busy || text.trim().length === 0} onClick={submit}>{t('action.save')}</button>
+          {done !== null ? (
+            <div className={styles.sowWarn} role="status">
+              {done.blockError !== undefined
+                ? t('review.seededWithBlockError').replaceAll('{n}', String(done.seeded))
+                : t('review.seededCount').replaceAll('{n}', String(done.seeded))}
+            </div>
+          ) : null}
+          <div className={styles.wpFooterMain}>
+            <button type="button" className={styles.ghostButton} disabled={props.busy} onClick={() => { props.onClose() }}>{t('action.cancel')}</button>
+            <button type="button" className={styles.primaryButton} disabled={props.busy || text.trim().length === 0} onClick={submit}>{t('action.save')}</button>
+          </div>
         </>
       }
     >
       <div className={styles.modalForm}>
+        {props.sessions !== undefined ? (
+          <div className={styles.formField}>
+            <span>{t('review.sessionLabel')}</span>
+            {boundSessions.length === 0 ? (
+              <div className={styles.formHint}>{t('review.noBoundSessions')}</div>
+            ) : (
+              <div className={styles.findingFieldRow}>
+                <select value={sessionId} onChange={(event) => { setSessionId(event.target.value) }}>
+                  <option value="">{t('review.sessionPlaceholder')}</option>
+                  {boundSessions.map((id) => (
+                    <option key={id} value={id}>{sessionTitle(id)}</option>
+                  ))}
+                </select>
+                <button type="button" className={styles.ghostButton} disabled={fetchBusy || sessionId === ''} onClick={onFetch}>
+                  {t('review.fetchButton')}
+                </button>
+              </div>
+            )}
+            {fetchError !== null ? <div className={styles.fieldError}>{fetchError}</div> : null}
+          </div>
+        ) : null}
         <label className={styles.formField}>
           <span>{t('review.reportTitleLabel')}</span>
-          <input value={title} maxLength={128} onChange={(event) => { setTitle(event.target.value) }} />
+          <input value={title} maxLength={128} onChange={(event) => { setTitle(event.target.value); setDone(null) }} />
         </label>
         <label className={styles.formField}>
           <span>{t('review.bodyLabel')}</span>
@@ -359,7 +480,7 @@ function ReviewImportModal(props: {
             className={styles.wpDraftTextarea}
             value={text}
             maxLength={WORKBENCH_ARTIFACT_MAX_CHARS}
-            onChange={(event) => { setText(event.target.value) }}
+            onChange={(event) => { setText(event.target.value); setDone(null) }}
           />
         </label>
       </div>

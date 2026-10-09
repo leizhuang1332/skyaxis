@@ -215,3 +215,55 @@ describe('seat round-trip: SOW 投递 face 穿线（P5a 钉）', () => {
     expect(within(dialog2).queryByRole('button', { name: workbenchZh['sow.deliver'] })).toBeNull()
   })
 })
+
+describe('seat round-trip: S4 评审节穿线（P5b 钉）', () => {
+  it('requirement/onOpenSow/sessions 三 prop 经 seat → Body 到达 ReviewSection（P2b 断裂同款防线）', async () => {
+    const reviewRecord: WorkbenchRecord = {
+      ...record,
+      stage: 'review',
+      stageHistory: [{ stage: 'review', at: AT }],
+      workPackages: [{
+        id: 'WP1', title: 'WP1', boundary: '', order: 1, dependsOn: [], covers: [],
+        status: 'in-dev', plans: [],
+        sessions: [{ sessionId: 'sess-review', purpose: 'review', boundAt: AT }],
+        commits: [], acceptances: [],
+      }],
+    }
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      ok: true, revision: 1, record: reviewRecord, planFileExists: [], reviewFileExists: [], releaseDrifted: [],
+    }))))
+    const sessions = {
+      ids: ['sess-review'],
+      summariesById: { 'sess-review': { id: 'sess-review', displayTitle: '评审·09-27', running: false, blank: false } },
+      subscribe: (): (() => void) => () => {},
+      navigate: (): void => {},
+    }
+    const store = createWorkbenchStore()
+    const controller = createWorkbenchController(store, createWorkbenchFetcher())
+    const Seat = createWorkbenchTabSeat({ t: (key) => (workbenchZh as unknown as Record<string, string>)[key] ?? key, store, controller, sessions })
+    render(<Seat requirement={requirement} />)
+
+    // 记录到位锚：session 条渲染出绑定会话。
+    await waitFor(() => expect(screen.getByText(/评审·09-27/)).toBeTruthy())
+    fireEvent.click(screen.getByRole('tab', { name: /评审/ }))
+    await waitFor(() => expect(screen.getByText(workbenchZh['review.sectionTitle'])).toBeTruthy())
+
+    // onOpenSow 穿线见证：评审任务书入口按钮在场（缺席则该按钮不渲染）。
+    expect(screen.getByRole('button', { name: workbenchZh['sow.reviewButton'] })).toBeTruthy()
+    // 点开任务书 → 预览出现 review 约定骨架（requirement 穿线见证：标题进 [需求] 段）。
+    fireEvent.click(screen.getByRole('button', { name: workbenchZh['sow.reviewButton'] }))
+    const sowDialog = await screen.findByRole('dialog', { name: workbenchZh['sow.title'] })
+    await waitFor(() => expect((within(sowDialog).getByTestId('sow-preview').textContent ?? '')).toContain('# skyaxis-review'))
+    // requirement 穿线见证：需求标题进 [需求] 段（seat 传的是 requirement={requirement}，title='R'）。
+    expect(within(sowDialog).getByTestId('sow-preview').textContent).toContain('标题：R')
+    // 关闭任务书 Modal。
+    fireEvent.click(within(sowDialog).getAllByRole('button', { name: workbenchZh['action.cancel'] }).at(-1)!)
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: workbenchZh['sow.title'] })).toBeNull())
+
+    // sessions 穿线见证：导入报告 Modal 的会话下拉列出绑定会话标题（缺席则整块不渲染）。
+    fireEvent.click(screen.getByRole('button', { name: workbenchZh['review.importButton'] }))
+    const importDialog = await screen.findByRole('dialog', { name: workbenchZh['review.importTitle'] })
+    expect(within(importDialog).getByText(workbenchZh['review.sessionLabel'])).toBeTruthy()
+    expect(within(importDialog).getByRole('option', { name: /评审·09-27/ })).toBeTruthy()
+  })
+})

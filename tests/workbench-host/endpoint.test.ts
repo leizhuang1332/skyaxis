@@ -1750,17 +1750,23 @@ describe('P5b: review seeding + reSplit + confirmSplitStillValid', () => {
     expect(await missing.json()).toEqual({ ok: true, missing: 'no-review-block' })
   })
 
-  it('approveSplit 带 baseline：铸 splitBaseline（at 为 host 时间，prd/计数为 client 上送）；不带动作则无基线', async () => {
+  it('approveSplit 带 baseline：铸 splitBaseline（at 为 host 时间、prd 取上送、disposedFindings host 派生）；不带动作则 prd 空', async () => {
     const h = await harness()
-    await h.seed([seedRecord(RID, { workPackages: [seedWorkPackage('WP1')] })])
+    await h.seed([seedRecord(RID, {
+      workPackages: [seedWorkPackage('WP1')],
+      findings: [
+        { id: FINDING_ID, category: 'risk', severity: 'low', title: '已处置', detail: '', status: 'resolved', createdAt: NOW },
+        { id: GHOST, category: 'risk', severity: 'low', title: '未处置', detail: '', status: 'open', createdAt: NOW },
+      ],
+    })])
     const res = await h.post(WORKBENCH_PATH, {
       expectedRevision: 1, requirementId: RID, action: 'approveSplit',
-      baseline: { prd: [{ name: 'prd.md', size: 100, modifiedAt: 1700000000000 }], disposedFindings: 2 },
+      baseline: { prd: [{ name: 'prd.md', size: 100, modifiedAt: 1700000000000 }] },
     })
     expect(res.status).toBe(200)
     const record = ((await res.json()) as { record: WorkbenchRecord }).record
     expect(record.splitBaseline?.prd).toEqual([{ name: 'prd.md', size: 100, modifiedAt: 1700000000000 }])
-    expect(record.splitBaseline?.disposedFindings).toBe(2)
+    expect(record.splitBaseline?.disposedFindings).toBe(1) // host-derived：只有 resolved 那条
     expectIsoString(record.splitBaseline?.at)
     expect(record.splitBaseline?.at).toBe(record.splitApprovedAt)
 
@@ -1804,22 +1810,23 @@ describe('P5b: review seeding + reSplit + confirmSplitStillValid', () => {
     expect(unapproved.status).toBe(400)
   })
 
-  it('confirmSplitStillValid：换基线（列表与批准戳不动）；未批准 → 400', async () => {
+  it('confirmSplitStillValid：换基线（prd 取上送、disposedFindings host 派生；列表与批准戳不动）；未批准 → 400', async () => {
     const h = await harness()
     await h.seed([seedRecord(RID, {
       splitApprovedAt: NOW,
       splitBaseline: { at: NOW, prd: [{ name: 'prd.md', size: 1, modifiedAt: 1 }], disposedFindings: 0 },
       workPackages: [seedWorkPackage('WP1')],
+      findings: [{ id: FINDING_ID, category: 'risk', severity: 'low', title: '已处置', detail: '', status: 'resolved', createdAt: NOW }],
     })])
 
     const res = await h.post(WORKBENCH_PATH, {
       expectedRevision: 1, requirementId: RID, action: 'confirmSplitStillValid',
-      baseline: { prd: [{ name: 'prd.md', size: 999, modifiedAt: 2 }], disposedFindings: 3 },
+      baseline: { prd: [{ name: 'prd.md', size: 999, modifiedAt: 2 }] },
     })
     expect(res.status).toBe(200)
     const record = ((await res.json()) as { record: WorkbenchRecord }).record
     expect(record.splitBaseline?.prd).toEqual([{ name: 'prd.md', size: 999, modifiedAt: 2 }])
-    expect(record.splitBaseline?.disposedFindings).toBe(3)
+    expect(record.splitBaseline?.disposedFindings).toBe(1) // host-derived from the current record
     expect(record.splitApprovedAt).toBe(NOW) // 批准戳不动
     expect(record.workPackages[0]?.status).toBe('planned') // 列表不动
 
@@ -1827,7 +1834,7 @@ describe('P5b: review seeding + reSplit + confirmSplitStillValid', () => {
     await h2.seed([seedRecord(RID, { workPackages: [seedWorkPackage('WP1')] })])
     const unapproved = await h2.post(WORKBENCH_PATH, {
       expectedRevision: 1, requirementId: RID, action: 'confirmSplitStillValid',
-      baseline: { prd: [], disposedFindings: 0 },
+      baseline: { prd: [] },
     })
     expect(unapproved.status).toBe(400)
   })

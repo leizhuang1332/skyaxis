@@ -14,16 +14,35 @@ import type { WorkbenchT } from '../../src/client/workbench/dictionary.js'
 import { workbenchZh } from '../../src/client/workbench/dictionary.js'
 import type { WorkbenchController } from '../../src/client/workbench/controller.js'
 import type { RequirementWorkbenchState } from '../../src/client/workbench/store.js'
+import type { RequirementRecord } from '../../src/requirements-shared/protocol.js'
+import type { WorkbenchSessionsFace } from '../../src/client/workbench/view.js'
 import { ReviewSection } from '../../src/client/workbench/review-section.js'
 
 const RID = '11111111-1111-4111-8111-111111111111'
 const AT = '2026-09-27T08:00:00.000Z'
+
+const requirement: RequirementRecord = {
+  id: RID,
+  title: '报价管理：导入导出与数据校验',
+  description: '既有说明',
+  workspacePath: '/ws',
+  linkedRepos: [],
+  createdAt: '2026-09-25T09:30:00.000Z',
+  updatedAt: '2026-09-25T09:30:00.000Z',
+}
 
 const bindZh = (): WorkbenchT => (key) => (workbenchZh as unknown as Record<string, string>)[key] ?? key
 
 function wp(id: string, overrides: Partial<WorkbenchWorkPackage> = {}): WorkbenchWorkPackage {
   return { id, title: `工作包-${id}`, boundary: '', order: 1, dependsOn: [], covers: [], status: 'in-dev', plans: [], sessions: [], commits: [], acceptances: [], ...overrides }
 }
+
+const sessionsFace = (): WorkbenchSessionsFace => ({
+  ids: ['sess-review'],
+  summariesById: { 'sess-review': { id: 'sess-review', displayTitle: '评审·09-27', running: false, blank: false } },
+  subscribe: () => () => {},
+  navigate: () => {},
+})
 
 function report(id: string, overrides: Partial<ReviewReportEntry> = {}): ReviewReportEntry {
   return { id, at: AT, verdicts: [], ...overrides }
@@ -59,7 +78,10 @@ function slot(overrides: Partial<RequirementWorkbenchState> = {}): RequirementWo
 
 function fakeController(overrides: Record<string, unknown> = {}): WorkbenchController {
   return {
-    importReview: vi.fn(async () => true),
+    // importReview returns a ReviewImportOutcome (P5b), not a boolean — the
+    // modal reads .ok / .seeded / .blockError for the done-phase disclosure.
+    importReview: vi.fn(async () => ({ ok: true as const, reviewId: 'rev-new', seeded: 0 })),
+    reviewFetch: vi.fn(async () => ({ kind: 'ok' as const, response: { ok: true as const, text: '# 抓取的报告' } })),
     reviewContent: vi.fn(async () => ({ kind: 'ok' as const, content: '# 评审正文', contentTampered: false })),
     saveReviewVerdict: vi.fn(async () => true),
     removeReviewVerdict: vi.fn(async () => true),
@@ -70,9 +92,9 @@ function fakeController(overrides: Record<string, unknown> = {}): WorkbenchContr
   } as never
 }
 
-function subject(s: RequirementWorkbenchState, controller: WorkbenchController = fakeController()) {
+function subject(s: RequirementWorkbenchState, controller: WorkbenchController = fakeController(), sessions?: WorkbenchSessionsFace) {
   return {
-    ...render(<ReviewSection t={bindZh()} slot={s} controller={controller} requirementId={RID} />),
+    ...render(<ReviewSection t={bindZh()} requirement={requirement} slot={s} controller={controller} requirementId={RID} sessions={sessions} />),
     controller,
   }
 }
@@ -103,9 +125,9 @@ describe('S4 评审节：三节渲染', () => {
         ] }),
       ],
     }) }))
-    expect(screen.getByText('发现 0 · confirmed 0 / rejected 0')).toBeTruthy()
-    expect(screen.getByText('发现 1 · confirmed 1 / rejected 0')).toBeTruthy()
-    expect(screen.getByText('发现 2 · confirmed 1 / rejected 1')).toBeTruthy()
+    expect(screen.getByText('发现 0 · 待裁决 0 · confirmed 0 / rejected 0')).toBeTruthy()
+    expect(screen.getByText('发现 1 · 待裁决 0 · confirmed 1 / rejected 0')).toBeTruthy()
+    expect(screen.getByText('发现 2 · 待裁决 0 · confirmed 1 / rejected 1')).toBeTruthy()
   })
 
   it('裁决行状态 Tag 三态（mockup 原样）：confirmed·已修复 / confirmed·待修复 / rejected：理由', () => {
@@ -234,5 +256,77 @@ describe('S4 评审节：裁决 Modal', () => {
     const confirm = within(dialog).getAllByRole('button', { name: workbenchZh['action.confirm'] })
     fireEvent.click(confirm[confirm.length - 1]!)
     await waitFor(() => expect(controller.removeReviewVerdict).toHaveBeenCalledWith(RID, 'rev-a1', 'v-9'))
+  })
+})
+
+describe('S4 评审节：P5b 会话抓取 + 种子披露', () => {
+  const boundRecord = (overrides: Partial<WorkbenchRecord> = {}): WorkbenchRecord =>
+    record({
+      workPackages: [wp('WP1', { sessions: [{ sessionId: 'sess-review', purpose: 'review', boundAt: AT }] })],
+      ...overrides,
+    })
+
+  it('sessions face 缺席 ⇒ 抓取行整块不渲染（诚实降级，粘贴通道常在）', async () => {
+    const rendered = subject(slot({ record: boundRecord() }), fakeController())
+    fireEvent.click(rendered.getByRole('button', { name: workbenchZh['review.importButton'] }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).queryByText(workbenchZh['review.sessionLabel'])).toBeNull()
+    expect(within(dialog).getByLabelText(workbenchZh['review.bodyLabel'])).toBeTruthy()
+  })
+
+  it('有绑定会话 ⇒ 抓取行渲染；选中会话抓取填入正文', async () => {
+    const controller = fakeController()
+    const rendered = subject(slot({ record: boundRecord() }), controller, sessionsFace())
+    fireEvent.click(rendered.getByRole('button', { name: workbenchZh['review.importButton'] }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText(workbenchZh['review.sessionLabel'])).toBeTruthy()
+
+    fireEvent.change(within(dialog).getByRole('combobox'), { target: { value: 'sess-review' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: workbenchZh['review.fetchButton'] }))
+    await waitFor(() => expect(controller.reviewFetch).toHaveBeenCalledWith('sess-review'))
+    await waitFor(() => expect((within(dialog).getByLabelText(workbenchZh['review.bodyLabel']) as HTMLTextAreaElement).value).toBe('# 抓取的报告'))
+  })
+
+  it('抓取 missing 各态披露对应文案（no-review-block 仍非致命，正文可手填）', async () => {
+    for (const [missing, key] of [
+      ['no-service', 'review.fetchNoService'],
+      ['not-found', 'review.fetchNotFound'],
+      ['no-review-block', 'review.fetchNoBlock'],
+    ] as const) {
+      const controller = fakeController({
+        reviewFetch: vi.fn(async () => ({ kind: 'ok' as const, response: { ok: true as const, missing } })),
+      })
+      const rendered = subject(slot({ record: boundRecord() }), controller, sessionsFace())
+      fireEvent.click(rendered.getByRole('button', { name: workbenchZh['review.importButton'] }))
+      const dialog = await screen.findByRole('dialog')
+      fireEvent.change(within(dialog).getByRole('combobox'), { target: { value: 'sess-review' } })
+      fireEvent.click(within(dialog).getByRole('button', { name: workbenchZh['review.fetchButton'] }))
+      expect(await within(dialog).findByText(workbenchZh[key])).toBeTruthy()
+      cleanup()
+    }
+  })
+
+  it('导入后 done 披露种子数（有约定块）', async () => {
+    const controller = fakeController({
+      importReview: vi.fn(async () => ({ ok: true as const, reviewId: 'rev-new', seeded: 3 })),
+    })
+    const rendered = subject(slot({ record: boundRecord() }), controller)
+    fireEvent.click(rendered.getByRole('button', { name: workbenchZh['review.importButton'] }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.change(within(dialog).getByLabelText(workbenchZh['review.bodyLabel']), { target: { value: '# 报告' } })
+    fireEvent.click(within(dialog).getAllByRole('button', { name: workbenchZh['action.save'] }).at(-1)!)
+    await waitFor(() => expect(within(dialog).getByText(workbenchZh['review.seededCount'].replaceAll('{n}', '3'))).toBeTruthy())
+  })
+
+  it('导入后 done 披露 blockError 变体（无约定块/语法错——报告照建，种子数披露）', async () => {
+    const controller = fakeController({
+      importReview: vi.fn(async () => ({ ok: true as const, reviewId: 'rev-new', seeded: 0, blockError: 'no-review-block' as const })),
+    })
+    const rendered = subject(slot({ record: boundRecord() }), controller)
+    fireEvent.click(rendered.getByRole('button', { name: workbenchZh['review.importButton'] }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.change(within(dialog).getByLabelText(workbenchZh['review.bodyLabel']), { target: { value: '# 纯报告' } })
+    fireEvent.click(within(dialog).getAllByRole('button', { name: workbenchZh['action.save'] }).at(-1)!)
+    await waitFor(() => expect(within(dialog).getByText(workbenchZh['review.seededWithBlockError'].replaceAll('{n}', '0'))).toBeTruthy())
   })
 })

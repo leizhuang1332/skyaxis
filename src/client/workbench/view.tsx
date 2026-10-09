@@ -61,11 +61,15 @@ function badgeCounts(slot: RequirementWorkbenchState): Partial<Record<WorkbenchS
   const findingsOpen = record.findings.filter((finding) => finding.status === 'open').length
   const active = record.workPackages.filter((workPackage) => workPackage.status !== 'dropped')
   const accepted = active.filter((workPackage) => workPackage.status === 'accepted').length
-  // P4 semantic fix: "open" = confirmed AND undisposed — a rejected verdict
-  // IS its own resolution (the pre-P4 count included them; zero producers
-  // existed then, so no live behavior changed).
+  // P4 semantic fix + P5b: "open" = a proposed row (AI finding awaiting the
+  // user's ruling) OR a confirmed-and-undisposed row. A rejected verdict IS
+  // its own resolution, and a confirmed+disposed row is done. Before P5b
+  // proposed rows didn't exist, so the count was confirmed-undisposed only;
+  // the AI-seeded rows are exactly the ones the user most needs surfaced on
+  // the rail (§4.1「④未处置评审发现数」).
   const reviewOpen = record.reviewReports.reduce(
-    (sum, report) => sum + report.verdicts.filter((verdict) => verdict.verdict === 'confirmed' && verdict.disposition === undefined).length,
+    (sum, report) => sum + report.verdicts.filter((verdict) =>
+      verdict.verdict === 'proposed' || (verdict.verdict === 'confirmed' && verdict.disposition === undefined)).length,
     0,
   )
   const candidatesPending = record.knowledgeCandidates.filter((candidate) => candidate.status === 'pending').length
@@ -145,7 +149,7 @@ export function WorkbenchTabBody(props: {
   )
   const [viewing, setViewing] = useState<WorkbenchStage>('understand')
   // SOW modal state — view-owned so every section entry shares one instance.
-  const [sow, setSow] = useState<{ purpose: 'analysis' | 'split' | 'dev'; workPackage?: WorkbenchWorkPackage } | null>(null)
+  const [sow, setSow] = useState<{ purpose: 'analysis' | 'split' | 'dev' | 'review'; workPackage?: WorkbenchWorkPackage } | null>(null)
   // Follow the record's stage on first ready (and re-arm on requirement
   // switches); later refreshes never move the user's viewing choice.
   const syncedRef = useRef(false)
@@ -272,9 +276,12 @@ export function WorkbenchTabBody(props: {
               <ReviewSection
                 key={`review-${requirementId}`}
                 t={t}
+                requirement={props.requirement}
                 slot={slot}
                 controller={controller}
                 requirementId={requirementId}
+                sessions={sessionsFace}
+                onOpenSow={() => { setSow({ purpose: 'review' }) }}
               />
             ) : null}
           </div>

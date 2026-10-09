@@ -342,7 +342,6 @@ const MoveWorkPackageSchema = z.object({
 /** Client-supplied baseline input: no `at` — the host mints the stamp. */
 const SplitBaselineInputSchema = z.object({
   prd: z.array(SplitBaselinePrdSchema),
-  disposedFindings: z.number().int().nonnegative(),
 })
 
 const ApproveSplitSchema = z.object({

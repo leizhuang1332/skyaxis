@@ -184,7 +184,7 @@ export function knowledgeBytes(picks: readonly WorkbenchKnowledgeRecord[]): numb
 // ---------------------------------------------------------------------------
 
 export interface SowContext {
-  purpose: 'analysis' | 'split' | 'dev'
+  purpose: 'analysis' | 'split' | 'dev' | 'review'
   requirement: RequirementRecord
   /** null = the workbench record is not established yet (first-use entry). */
   record: WorkbenchRecord | null
@@ -236,7 +236,9 @@ function requirementBlock(ctx: SowContext): string {
   for (const wp of ctx.record.workPackages) {
     lines.push(`${wp.id} ${wp.title} · ${WP_STATUS_LABEL[wp.status]}（${wp.status}）`)
   }
-  if (ctx.purpose === 'split') {
+  // split needs the criteria as the breakdown contract; review needs them as
+  // the acceptance checklist it audits coverage against (P5b).
+  if (ctx.purpose === 'split' || ctx.purpose === 'review') {
     for (const criterion of ctx.record.criteria) {
       lines.push(`${criterion.id} ${criterion.text}`)
     }
@@ -304,6 +306,26 @@ function knowledgeBlock(ctx: SowContext): string {
 }
 
 function outputBlock(ctx: SowContext): string {
+  // Review purpose gets its OWN convention block (# skyaxis-review + findings),
+  // distinct from the declare block — the declare path below stays byte-identical
+  // (sow.test.ts pins its exact string). Findings teach the block-mapping shape
+  // via YAML comments (P3b lesson: the research §7.1 inline-comma form throws
+  // BLOCK_AS_IMPLICIT_KEY, so a model copying it would emit an unparseable block).
+  if (ctx.purpose === 'review') {
+    return [
+      '[输出约定]',
+      '评审结束时先给出完整报告正文（markdown），并在结尾附上如下机器可读的发现块（条目用缩进键值，勿用行内逗号）：',
+      '```yaml',
+      '# skyaxis-review',
+      '# findings 每条 = 一个待用户裁决的发现；severity: high|medium|low',
+      '# 条目形如：',
+      '#   - title: 发现标题（64 字内）',
+      '#     severity: high',
+      'findings: []',
+      '```',
+      '说明：findings 只列发现，裁决（成立/驳回）与处置由用户在工作台完成——不要替用户下结论。',
+    ].join('\n')
+  }
   const lines = ['[输出约定]', '结束时请输出如下机器可读的声明块（条目用缩进键值，勿用行内逗号）：', '```yaml', '# skyaxis-declare']
   if (ctx.purpose === 'dev' && ctx.workPackage !== undefined) {
     // dev 骨架：workPackage 键（决策 0006 连带，旧 module: 键已废）+ built

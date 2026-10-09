@@ -143,15 +143,20 @@ export function applyRecordAction(base: WorkbenchRecord, body: WorkbenchMutateRe
     return {
       ok: true,
       // stamps ONLY — no work-package status changes (pinned). The P5b
-      // baseline rides along when the client supplies it: `at` is host-minted
-      // (the client cannot set the stamp time), the prd/disposedFindings
-      // snapshot is the client's (it owns the PRD read — see protocol.ts).
+      // baseline is ALWAYS minted (so the findings arm of stale detection
+      // works even for a workspace-less requirement): `at` is host-minted,
+      // `disposedFindings` is DERIVED from this same record (never trusted
+      // from the wire — it cannot disagree with the ledger), and `prd` is the
+      // client's snapshot (empty when it couldn't read the workspace, which
+      // simply disables the PRD arm).
       record: {
         ...base,
         splitApprovedAt: at,
-        ...(body.baseline !== undefined
-          ? { splitBaseline: { at, prd: body.baseline.prd, disposedFindings: body.baseline.disposedFindings } }
-          : {}),
+        splitBaseline: {
+          at,
+          prd: body.baseline?.prd ?? [],
+          disposedFindings: base.findings.filter((finding) => finding.status !== 'open').length,
+        },
       },
     }
   }
@@ -194,10 +199,12 @@ export function applyRecordAction(base: WorkbenchRecord, body: WorkbenchMutateRe
     const at = now()
     return {
       ok: true,
-      // Re-mint the baseline from the client's current snapshot; list untouched.
+      // Re-mint the baseline from the client's current PRD snapshot; the
+      // disposed-findings count is DERIVED from this same record (never
+      // trusted from the wire, same as approveSplit). List untouched.
       record: {
         ...base,
-        splitBaseline: { at, prd: body.baseline.prd, disposedFindings: body.baseline.disposedFindings },
+        splitBaseline: { at, prd: body.baseline.prd, disposedFindings: base.findings.filter((finding) => finding.status !== 'open').length },
       },
     }
   }

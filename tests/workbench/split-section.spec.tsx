@@ -162,7 +162,10 @@ describe('SplitSection（S2 拆分清单 + 硬门①）', () => {
     fireEvent.click(within(dialog).getByRole('checkbox'))
     expect(confirm.disabled).toBe(false)
     fireEvent.click(confirm)
-    await waitFor(() => expect(controller.approveSplit).toHaveBeenCalledWith(RID))
+    // jsdom has no PRD fetch, so prdDocs stays null → the baseline carries an
+    // empty prd array (the host derives disposedFindings; the findings arm of
+    // stale detection still works, the PRD arm is simply inert).
+    await waitFor(() => expect(controller.approveSplit).toHaveBeenCalledWith(RID, { prd: [] }))
   })
 
   it('批准后：行只读（无行 Menu 锚/无＋工作包/无批准按钮）+ gonogo 横幅（已批准 Tag + 统计 + 撤销）', () => {

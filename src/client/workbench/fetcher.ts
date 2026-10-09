@@ -25,6 +25,8 @@ import type {
   ErrorResponse,
   PlanFileExistsRow,
   ReviewFileExistsRow,
+  ReviewFetchResponse,
+  SplitBaselinePrd,
   WorkbenchFinding,
   WorkbenchKnowledgeListResponse,
   WorkbenchKnowledgeMutateRequestBody,
@@ -42,6 +44,7 @@ import {
   isDeclareFetchResponse,
   isDeclarePreviewResponse,
   isErrorResponse,
+  isReviewFetchResponse,
   isWorkbenchDetailResponse,
   isWorkbenchKnowledgeListResponse,
   isWorkbenchKnowledgeSaveResponseOk,
@@ -92,6 +95,10 @@ export type WorkbenchArtifactContentResult =
 
 export type DeclareFetchResult =
   | { readonly kind: 'ok'; readonly response: DeclareFetchResponse }
+  | WorkbenchFailure
+
+export type ReviewFetchResult =
+  | { readonly kind: 'ok'; readonly response: ReviewFetchResponse }
   | WorkbenchFailure
 
 export type DeclarePreviewResult =
@@ -196,12 +203,22 @@ export function createWorkbenchFetcher() {
 
     // --- Hard gates ① (split) and the work-package state machine ---
 
-    async approveSplit(requirementId: string, expectedRevision: number, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
-      return this.mutate({ expectedRevision, requirementId, action: 'approveSplit' }, signal)
+    async approveSplit(requirementId: string, expectedRevision: number, baseline?: { prd: readonly SplitBaselinePrd[] }, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'approveSplit', ...(baseline !== undefined ? { baseline: { prd: [...baseline.prd] } } : {}) }, signal)
     },
 
     async revokeSplitApproval(requirementId: string, expectedRevision: number, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
       return this.mutate({ expectedRevision, requirementId, action: 'revokeSplitApproval' }, signal)
+    },
+
+    /** P5b §7.6: archive the approved list (all → dropped) and reopen for re-planning. */
+    async reSplit(requirementId: string, expectedRevision: number, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'reSplit' }, signal)
+    },
+
+    /** P5b §7.6「确认仍有效」: re-mint the stale baseline (PRD snapshot), list untouched. */
+    async confirmSplitStillValid(requirementId: string, expectedRevision: number, baseline: { prd: readonly SplitBaselinePrd[] }, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'confirmSplitStillValid', baseline: { prd: [...baseline.prd] } }, signal)
     },
 
     async approvePlan(requirementId: string, expectedRevision: number, id: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
@@ -400,6 +417,16 @@ export function createWorkbenchFetcher() {
       if (!response.ok) return parseErrorBody(response)
       const parsed: unknown = await response.json()
       if (!isDeclareFetchResponse(parsed)) return { kind: 'http-error', status: response.status }
+      return { kind: 'ok', response: parsed }
+    },
+
+    /** P5b: fetch a session's review report (whole assistant message carrying a `# skyaxis-review` block). */
+    async reviewFetch(sessionId: string, signal?: AbortSignal): Promise<ReviewFetchResult> {
+      const response = await request(`${WORKBENCH_DECLARE_PATH}?kind=review&sessionId=${encodeURIComponent(sessionId)}`, { method: 'GET' }, signal)
+      if ('kind' in response) return response
+      if (!response.ok) return parseErrorBody(response)
+      const parsed: unknown = await response.json()
+      if (!isReviewFetchResponse(parsed)) return { kind: 'http-error', status: response.status }
       return { kind: 'ok', response: parsed }
     },
 

@@ -419,15 +419,16 @@ export interface ApproveSplitRequest {
   readonly requirementId: string
   readonly action: 'approveSplit'
   /**
-   * Client-supplied stale baseline (P5b, optional for backward compat): the
-   * PRD listing snapshot + disposed-findings count the approval is based on.
-   * The client owns the PRD read (cross-module fetcher precedent); the host
-   * only stamps `at` and validates the shape. Absent ⇒ no baseline, no stale
-   * detection for this approval.
+   * Client-supplied PRD snapshot (P5b, optional for backward compat): the
+   * only upstream fact the host cannot see (PRD docs live in the requirement
+   * workspace, read by the client — the sow-modal cross-module precedent, so
+   * the workbench host never touches the requirements ledger or filesystem).
+   * `disposedFindings` is NOT sent — the host derives it from the very record
+   * it is stamping, so it can never disagree with the ledger. Absent baseline
+   * ⇒ no PRD arm of stale detection (findings arm still works).
    */
   readonly baseline?: {
     readonly prd: readonly SplitBaselinePrd[]
-    readonly disposedFindings: number
   }
 }
 
@@ -454,7 +455,6 @@ export interface ConfirmSplitStillValidRequest {
   readonly action: 'confirmSplitStillValid'
   readonly baseline: {
     readonly prd: readonly SplitBaselinePrd[]
-    readonly disposedFindings: number
   }
 }
 

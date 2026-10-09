@@ -10,17 +10,24 @@
  * approved list without re-approval would void the contract the stamp
  * certifies — the mockup's S3 add-card is a v2 wish, resolved per plan).
  */
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Modal, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { WorkbenchWorkPackage } from '../../workbench-shared/protocol.js'
+import type { PrdDocSummary } from '../../requirements-shared/protocol.js'
 import type { WorkbenchT } from './dictionary.js'
 import type { WorkbenchController } from './controller.js'
 import type { RequirementWorkbenchState } from './store.js'
 import { RowMenu } from './row-menu.js'
 import { WorkPackageFormModal } from './work-package-form.js'
+import { buildSplitBaseline, splitStaleReasons } from './split-stale.js'
+import type { SplitBaselineInput } from './split-stale.js'
+import { createRequirementsFetcher } from '../requirements/fetcher.js'
 import styles from './view.module.css'
 
 type Editing = { kind: 'closed' } | { kind: 'create' } | { kind: 'edit'; workPackage: WorkbenchWorkPackage }
+
+/** Not-yet-started statuses — a re-split is legal only while every active package is one of these. */
+const RE_SPLITTABLE_STATUSES: readonly WorkbenchWorkPackage['status'][] = ['planned', 'plan-draft', 'plan-approved']
 
 export function SplitSection(props: {
   t: WorkbenchT
@@ -29,6 +36,8 @@ export function SplitSection(props: {
   requirementId: string
   /** S2 entry: open the split SOW modal (view-owned instance). */
   onOpenSow?: () => void
+  /** Injectable PRD listing (P5b stale baseline); defaults to the requirements fetcher. */
+  fetchPrdDocs?: () => Promise<readonly PrdDocSummary[] | null>
 }): ReactNode {
   const { t, slot, controller, requirementId } = props
   const record = slot.record
@@ -39,7 +48,29 @@ export function SplitSection(props: {
   const [approveAck, setApproveAck] = useState(false)
   const [revokeOpen, setRevokeOpen] = useState(false)
   const [revokeAck, setRevokeAck] = useState(false)
+  const [reSplitOpen, setReSplitOpen] = useState(false)
+  const [reSplitAck, setReSplitAck] = useState(false)
   const [pendingRemove, setPendingRemove] = useState<WorkbenchWorkPackage | null>(null)
+  // P5b: the PRD listing, pulled once when S2 mounts (view.tsx renders this
+  // section only while viewing==='plan'). null = still loading / unavailable
+  // ⇒ stale detection degrades to the findings trigger only (honest absence).
+  const [prdDocs, setPrdDocs] = useState<readonly PrdDocSummary[] | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    const load = props.fetchPrdDocs ?? (async () => {
+      const result = await createRequirementsFetcher().prdDocs(requirementId)
+      return result.kind === 'ok' ? result.docs : null
+    })
+    void load().then((docs) => {
+      if (!cancelled) setPrdDocs(docs)
+    })
+    return () => {
+      cancelled = true
+    }
+    // Re-pull on requirement switch; the fetcher identity is stable enough to
+    // ignore (the sow-modal PRD-chain precedent).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requirementId])
   if (record === null) return null
   const approved = record.splitApprovedAt !== undefined
   const sorted = [...record.workPackages].sort((a, b) => a.order - b.order)
@@ -60,11 +91,27 @@ export function SplitSection(props: {
     holes > 0 ? t('split.statHole').replaceAll('{n}', String(holes)) : null,
   ].filter((part) => part !== null).join(' · ')
 
+  // P5b stale reconciliation (only meaningful while approved — the baseline
+  // exists exactly then). Reasons drive the badge; re-split eligibility gates
+  // the destructive action.
+  const staleReasons = approved ? splitStaleReasons(record, prdDocs) : []
+  const stale = staleReasons.length > 0
+  // A re-split archives every active package; legal only while none has
+  // started (an in-dev/built/accepted package carries plans/sessions/
+  // acceptances a re-split would orphan — the host 400s, we pre-disable and
+  // disclose, the criteria.lockedHint honesty precedent).
+  const startedActive = active.filter((workPackage) => !RE_SPLITTABLE_STATUSES.includes(workPackage.status))
+  const canReSplit = startedActive.length === 0
+  // The client sends only the PRD snapshot; the host derives the findings
+  // count. A null PRD listing (still loading / no workspace) sends an empty
+  // prd array — the findings arm still works, the PRD arm is simply inert.
+  const currentBaseline = (): SplitBaselineInput => buildSplitBaseline(prdDocs ?? [])
+
   return (
     <div className={styles.splitSection}>
       <div className={styles.sectionHead}>
         <div className={styles.sectionTitle}>{t('split.sectionTitle')}</div>
-        {/* stale 徽章预留位（research §4.2）：自动化在 P5，无数据不渲染占位。 */}
+        {stale ? <Tag tone="warning">{t('split.staleBadge')}</Tag> : null}
         <button type="button" className={styles.ghostButton} onClick={() => { props.onOpenSow?.() }}>{t('sow.splitButton')}</button>
         {approved ? null : (
           <button type="button" className={styles.ghostButton} onClick={() => { setEditing({ kind: 'create' }) }}>{t('split.add')}</button>
@@ -163,6 +210,36 @@ export function SplitSection(props: {
         </div>
       )}
 
+      {stale ? (
+        <div className={styles.gonogo}>
+          <span className={styles.gonogoText}>
+            {t('split.staleReason').replaceAll('{reasons}', staleReasons
+              .map((reason) => t(reason === 'prd' ? 'split.stalePrd' : 'split.staleFindings'))
+              .join(' · '))}
+          </span>
+          <span className={styles.gonogoSpacer} />
+          <button
+            type="button"
+            className={styles.ghostButton}
+            disabled={slot.busy}
+            onClick={() => { void controller.confirmSplitStillValid(requirementId, currentBaseline()) }}
+          >
+            {t('split.stillValid')}
+          </button>
+          <button
+            type="button"
+            className={`${styles.ghostButton} ${styles.dangerButton}`}
+            disabled={slot.busy || !canReSplit}
+            onClick={() => { setReSplitOpen(true); setReSplitAck(false) }}
+          >
+            {t('split.reSplit')}
+          </button>
+        </div>
+      ) : null}
+      {stale && !canReSplit ? (
+        <div className={styles.formHint}>{t('split.reSplitBlocked')}</div>
+      ) : null}
+
       {editing.kind !== 'closed' ? (
         <WorkPackageFormModal
           key={editing.kind === 'edit' ? editing.workPackage.id : 'create'}
@@ -195,7 +272,11 @@ export function SplitSection(props: {
               disabled={slot.busy || !approveAck}
               onClick={() => {
                 setApproveOpen(false)
-                void controller.approveSplit(requirementId)
+                // Carry the current upstream snapshot so the approval records
+                // what it was based on (P5b stale baseline). Absent PRD list
+                // (still loading) ⇒ approve without a baseline; stale
+                // detection then falls back to the findings trigger only.
+                void controller.approveSplit(requirementId, currentBaseline())
               }}
             >
               {t('split.approveConfirm')}
@@ -234,6 +315,35 @@ export function SplitSection(props: {
         <div className={styles.ackRow}>
           <input type="checkbox" checked={revokeAck} onChange={() => { setRevokeAck(!revokeAck) }} />
           <span>{t('split.revokeDescription')}</span>
+        </div>
+      </Modal>
+
+      <Modal
+        open={reSplitOpen}
+        onClose={() => { setReSplitOpen(false) }}
+        title={t('split.reSplitTitle')}
+        closeLabel={t('action.cancel')}
+        description={t('split.reSplitCount').replaceAll('{n}', String(active.length))}
+        footer={
+          <>
+            <button type="button" className={styles.ghostButton} onClick={() => { setReSplitOpen(false) }}>{t('action.cancel')}</button>
+            <button
+              type="button"
+              className={`${styles.primaryButton} ${styles.dangerButton}`}
+              disabled={slot.busy || !reSplitAck}
+              onClick={() => {
+                setReSplitOpen(false)
+                void controller.reSplit(requirementId)
+              }}
+            >
+              {t('split.reSplitConfirm')}
+            </button>
+          </>
+        }
+      >
+        <div className={styles.ackRow}>
+          <input type="checkbox" checked={reSplitAck} onChange={() => { setReSplitAck(!reSplitAck) }} />
+          <span>{t('split.reSplitAck')}</span>
         </div>
       </Modal>
 

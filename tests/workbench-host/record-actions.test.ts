@@ -1243,22 +1243,33 @@ describe('activateKnowledgeCandidate path mode（P5a 四处放宽的纯函数面
 // P5b: split baseline + reSplit + confirmSplitStillValid + proposed verdicts
 // ---------------------------------------------------------------------------
 
-const baselineInput = { prd: [{ name: 'prd.md', size: 100, modifiedAt: 1700000000000 }], disposedFindings: 2 }
+const baselineInput = { prd: [{ name: 'prd.md', size: 100, modifiedAt: 1700000000000 }] }
 
 describe('P5b split baseline & re-split', () => {
-  it('approveSplit 带 baseline：铸 splitBaseline（at 与 splitApprovedAt 同源），不带动作则无基线', () => {
-    const withBaseline = applyOk(baseRecord({ workPackages: [wp('WP1')] }), { ...mutate(), action: 'approveSplit', baseline: baselineInput })
+  it('approveSplit 总是铸 splitBaseline：at 与 splitApprovedAt 同源、prd 取上送、disposedFindings 由 host 从本记录派生', () => {
+    // 两条已处置 finding（resolved + wont-fix），一条 open 不计。
+    const withFindings = baseRecord({
+      workPackages: [wp('WP1')],
+      findings: [
+        finding({ id: 'f1', status: 'resolved' }),
+        finding({ id: 'f2', status: 'wont-fix' }),
+        finding({ id: 'f3', status: 'open' }),
+      ],
+    })
+    const withBaseline = applyOk(withFindings, { ...mutate(), action: 'approveSplit', baseline: baselineInput })
     expectIso(withBaseline.splitBaseline?.at)
     expect(withBaseline.splitBaseline?.at).toBe(withBaseline.splitApprovedAt)
     expect(withBaseline.splitBaseline?.prd).toEqual(baselineInput.prd)
-    expect(withBaseline.splitBaseline?.disposedFindings).toBe(2)
+    expect(withBaseline.splitBaseline?.disposedFindings).toBe(2) // host-derived，非上送
 
-    const without = applyOk(baseRecord({ workPackages: [wp('WP1')] }), { ...mutate(), action: 'approveSplit' })
-    expect(without.splitBaseline).toBeUndefined()
+    // 不带 baseline 动作 → 仍铸基线（prd 空数组），findings 臂照常工作。
+    const without = applyOk(withFindings, { ...mutate(), action: 'approveSplit' })
+    expect(without.splitBaseline?.prd).toEqual([])
+    expect(without.splitBaseline?.disposedFindings).toBe(2)
   })
 
   it('revokeSplitApproval 一并摘基线（基线只在批准期有意义）', () => {
-    const approved = baseRecord({ splitApprovedAt: NOW, splitBaseline: { at: NOW, ...baselineInput }, workPackages: [wp('WP1')] })
+    const approved = baseRecord({ splitApprovedAt: NOW, splitBaseline: { at: NOW, ...baselineInput, disposedFindings: 0 }, workPackages: [wp('WP1')] })
     const revoked = applyOk(approved, { ...mutate(), action: 'revokeSplitApproval' })
     expect('splitBaseline' in revoked).toBe(false)
     expect('splitApprovedAt' in revoked).toBe(false)
@@ -1268,7 +1279,7 @@ describe('P5b split baseline & re-split', () => {
   it('reSplit：未开工全归档 dropped + 摘批准戳与基线 + stageHistory 留痕；无活动包 → 400', () => {
     const approved = baseRecord({
       splitApprovedAt: NOW,
-      splitBaseline: { at: NOW, ...baselineInput },
+      splitBaseline: { at: NOW, ...baselineInput, disposedFindings: 0 },
       workPackages: [wp('WP1', { status: 'planned' }), wp('WP2', { status: 'plan-approved' }), wp('WP3', { status: 'dropped' })],
       stageHistory: [{ stage: 'plan', at: NOW }],
     })
@@ -1293,11 +1304,16 @@ describe('P5b split baseline & re-split', () => {
     expect(applyRecordAction(unapproved, { ...mutate(), action: 'reSplit' })).toEqual({ ok: false, status: 400, code: 'bad-request' })
   })
 
-  it('confirmSplitStillValid：换基线（列表与批准戳不动）；未批准 → 400', () => {
-    const approved = baseRecord({ splitApprovedAt: NOW, splitBaseline: { at: NOW, prd: [], disposedFindings: 0 }, workPackages: [wp('WP1')] })
+  it('confirmSplitStillValid：换基线（prd 取上送、disposedFindings host 派生；列表与批准戳不动）；未批准 → 400', () => {
+    const approved = baseRecord({
+      splitApprovedAt: NOW,
+      splitBaseline: { at: NOW, prd: [], disposedFindings: 0 },
+      workPackages: [wp('WP1')],
+      findings: [finding({ id: 'f1', status: 'resolved' })],
+    })
     const result = applyOk(approved, { ...mutate(), action: 'confirmSplitStillValid', baseline: baselineInput })
     expect(result.splitBaseline?.prd).toEqual(baselineInput.prd)
-    expect(result.splitBaseline?.disposedFindings).toBe(2)
+    expect(result.splitBaseline?.disposedFindings).toBe(1) // host-derived from the current record
     expect(result.splitApprovedAt).toBe(NOW) // 批准戳不动
     expect(result.workPackages[0]?.status).toBe('planned') // 列表不动
 

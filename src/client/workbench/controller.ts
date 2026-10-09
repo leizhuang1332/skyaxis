@@ -14,6 +14,12 @@
 import type { WorkbenchFinding, WorkbenchKnowledgeRecord, WorkbenchRecord } from '../../workbench-shared/protocol.js'
 import type { WorkbenchStore } from './store.js'
 import type { WorkbenchFailure, WorkbenchFetcher, WorkbenchMutateResult } from './fetcher.js'
+import type { SplitBaselineInput } from './split-stale.js'
+
+/** importReview outcome — ok carries the seeded count + advisory blockError for honest disclosure. */
+export type ReviewImportOutcome =
+  | { readonly ok: true; readonly reviewId: string | null; readonly seeded: number; readonly blockError?: 'no-review-block' | 'yaml-syntax'; readonly blockErrorLine?: number }
+  | { readonly ok: false }
 
 export function createWorkbenchController(store: WorkbenchStore, fetcher: WorkbenchFetcher) {
   let disposed = false
@@ -168,10 +174,15 @@ export function createWorkbenchController(store: WorkbenchStore, fetcher: Workbe
       mutate(requirementId, () => fetcher.moveWorkPackage(requirementId, slotRevision(requirementId), id, direction, signal), signal),
 
     // Hard gates + state machine.
-    approveSplit: (requirementId: string, signal?: AbortSignal) =>
-      mutate(requirementId, () => fetcher.approveSplit(requirementId, slotRevision(requirementId), signal), signal),
+    approveSplit: (requirementId: string, baseline?: SplitBaselineInput, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.approveSplit(requirementId, slotRevision(requirementId), baseline, signal), signal),
     revokeSplitApproval: (requirementId: string, signal?: AbortSignal) =>
       mutate(requirementId, () => fetcher.revokeSplitApproval(requirementId, slotRevision(requirementId), signal), signal),
+    // P5b §7.6 stale reconciliation actions.
+    reSplit: (requirementId: string, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.reSplit(requirementId, slotRevision(requirementId), signal), signal),
+    confirmSplitStillValid: (requirementId: string, baseline: SplitBaselineInput, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.confirmSplitStillValid(requirementId, slotRevision(requirementId), baseline, signal), signal),
     approvePlan: (requirementId: string, id: string, signal?: AbortSignal) =>
       mutate(requirementId, () => fetcher.approvePlan(requirementId, slotRevision(requirementId), id, signal), signal),
     startWorkPackage: (requirementId: string, id: string, signal?: AbortSignal) =>
@@ -236,21 +247,30 @@ export function createWorkbenchController(store: WorkbenchStore, fetcher: Workbe
     /** Review import: the artifact endpoint answers with the revision but NOT
      *  the record (the writePlan shape) — patch the revision, then re-pull.
      *  The byte-identical idempotency anchor makes retries safe. */
-    importReview: async (requirementId: string, title: string | undefined, text: string, signal?: AbortSignal): Promise<boolean> => {
+    importReview: async (requirementId: string, title: string | undefined, text: string, signal?: AbortSignal): Promise<ReviewImportOutcome | undefined> => {
       patchSlot(requirementId, { busy: true })
       const result = await fetcher.writeReview(requirementId, text, slotRevision(requirementId), title, signal)
-      if (!alive(result)) return false
+      if (!alive(result)) return undefined
       if (result.kind === 'ok') {
         patchSlot(requirementId, { busy: false, revision: result.revision, banner: undefined })
         await open(requirementId, signal)
-        return true
+        return {
+          ok: true,
+          reviewId: result.anchor.reviewId ?? null,
+          seeded: result.anchor.seeded ?? 0,
+          ...(result.anchor.reviewBlockError !== undefined ? { blockError: result.anchor.reviewBlockError, blockErrorLine: result.anchor.reviewBlockErrorLine } : {}),
+        }
       }
       patchSlot(requirementId, { busy: false, banner: failureBanner(result) })
       if (result.kind === 'http-error' && (result.status === 409 || result.status === 404)) {
         await open(requirementId, signal)
       }
-      return false
+      return { ok: false }
     },
+
+    /** P5b: fetch a session's review report (whole assistant message). Pure read, no store. */
+    reviewFetch: (sessionId: string, signal?: AbortSignal) =>
+      fetcher.reviewFetch(sessionId, signal),
 
     reviewContent: async (requirementId: string, reviewId: string, signal?: AbortSignal) => {
       const result = await fetcher.reviewContent(requirementId, reviewId, signal)
