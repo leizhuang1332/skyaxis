@@ -43,6 +43,8 @@ export function KnowledgeSection(props: {
   knowledge: KnowledgeSliceState
   controller: WorkbenchController
   requirementId: string
+  /** Injectable download for the export modal (挂账轮 — jsdom cannot click a real anchor). */
+  download?: (filename: string, text: string) => boolean
 }): ReactNode {
   const { t, requirement, slot, knowledge, controller, requirementId } = props
   const record = slot.record
@@ -274,6 +276,8 @@ export function KnowledgeSection(props: {
         t={t}
         open={exportRows !== null}
         sheet={exportRows !== null ? buildKnowledgeDoc(exportRows, new Date().toISOString()) : ''}
+        filename={`knowledge-export-${new Date().toISOString().slice(0, 16).replaceAll(':', '').replace('T', '-')}.md`}
+        download={props.download}
         title={t('knowledge.exportTitle')}
         onClose={() => { setExportRows(null) }}
       />

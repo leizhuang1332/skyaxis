@@ -276,7 +276,6 @@ interface WorkbenchDictionary {
   readonly 'sow.prdLoadError': string
   readonly 'sow.prdPreamble': string
   readonly 'sow.prdDocLabel': string
-  readonly 'sow.knowledgeGroup': string
   readonly 'sow.knowledgeHit': string
   readonly 'sow.knowledgeEmpty': string
   readonly 'sow.knowledgeOverLimit': string
@@ -289,13 +288,6 @@ interface WorkbenchDictionary {
   readonly 'sow.copy': string
   readonly 'sow.copied': string
   readonly 'sow.copyFailed': string
-  readonly 'sow.revisionStamp': string
-  readonly 'sow.sectionRequirement': string
-  readonly 'sow.sectionPrd': string
-  readonly 'sow.sectionWorkPackage': string
-  readonly 'sow.sectionKnowledge': string
-  readonly 'sow.sectionOutput': string
-  readonly 'sow.declareIntro': string
   readonly 'detail.dropDescription': string
   // release.* — S5 上线清单（P3a：手动 CRUD + go/no-go + 漂移披露 + 上线单导出）
   readonly 'release.sectionTitle': string
@@ -355,6 +347,10 @@ interface WorkbenchDictionary {
   readonly 'sheet.copy': string
   readonly 'sheet.copied': string
   readonly 'sheet.copyFailed': string
+  // 挂账轮：下载（blob + a[download]，web 平台能力——webview 行为实机验收验证）
+  readonly 'sheet.download': string
+  readonly 'sheet.downloaded': string
+  readonly 'sheet.downloadFailed': string
   // declare.* — 声明块导入（P3b：抓取 + 粘贴 + 逐条勾选两段式）
   readonly 'declare.importButton': string
   readonly 'declare.title': string
@@ -692,7 +688,6 @@ const zh: WorkbenchDictionary = {
   'sow.prdLoadError': 'PRD 加载失败',
   'sow.prdPreamble': '（开篇）',
   'sow.prdDocLabel': '文档',
-  'sow.knowledgeGroup': '知识注入',
   'sow.knowledgeHit': '命中 {n} · {size} / 上限 {cap}',
   'sow.knowledgeEmpty': '没有命中的知识条目。',
   'sow.knowledgeOverLimit': '超出注入上限（{entries} 条 / {size}）：请取消部分勾选。',
@@ -705,13 +700,6 @@ const zh: WorkbenchDictionary = {
   'sow.copy': '复制到剪贴板',
   'sow.copied': '已复制',
   'sow.copyFailed': '复制失败：请手动选中预览文本复制。',
-  'sow.revisionStamp': '生成于 revision {n} · {date} · 此后账本变更不自动同步',
-  'sow.sectionRequirement': '需求',
-  'sow.sectionPrd': 'PRD 节选',
-  'sow.sectionWorkPackage': '工作包',
-  'sow.sectionKnowledge': '知识注入',
-  'sow.sectionOutput': '输出约定',
-  'sow.declareIntro': '结束时请输出如下机器可读的声明块：',
   // release.* — S5 上线清单（P3a）
   'release.sectionTitle': '上线清单',
   'release.add': '＋ 登记',
@@ -770,6 +758,9 @@ const zh: WorkbenchDictionary = {
   'sheet.copy': '复制到剪贴板',
   'sheet.copied': '已复制',
   'sheet.copyFailed': '复制失败：请手动选中预览文本复制。',
+  'sheet.download': '下载为文件',
+  'sheet.downloaded': '已下载',
+  'sheet.downloadFailed': '下载失败：请改用复制。',
   // declare.* — 声明块导入（P3b）
   'declare.importButton': '导入声明',
   'declare.title': '导入声明',
@@ -1101,7 +1092,6 @@ const en: WorkbenchDictionary = {
   'sow.prdLoadError': 'Failed to load the PRD',
   'sow.prdPreamble': '(preamble)',
   'sow.prdDocLabel': 'Document',
-  'sow.knowledgeGroup': 'Knowledge injection',
   'sow.knowledgeHit': 'matched {n} · {size} / cap {cap}',
   'sow.knowledgeEmpty': 'No matching knowledge entries.',
   'sow.knowledgeOverLimit': 'Over the injection cap ({entries} entries / {size}): uncheck some rows.',
@@ -1114,13 +1104,6 @@ const en: WorkbenchDictionary = {
   'sow.copy': 'Copy to clipboard',
   'sow.copied': 'Copied',
   'sow.copyFailed': 'Copy refused: select the preview text and copy manually.',
-  'sow.revisionStamp': 'Generated at revision {n} · {date} · later ledger changes do not auto-sync',
-  'sow.sectionRequirement': 'Requirement',
-  'sow.sectionPrd': 'PRD sections',
-  'sow.sectionWorkPackage': 'Work package',
-  'sow.sectionKnowledge': 'Knowledge injection',
-  'sow.sectionOutput': 'Output convention',
-  'sow.declareIntro': 'End your reply with this machine-readable declare block:',
   // release.* — S5 delivery sheet (P3a)
   'release.sectionTitle': 'Release sheet',
   'release.add': '＋ Register',
@@ -1179,6 +1162,9 @@ const en: WorkbenchDictionary = {
   'sheet.copy': 'Copy to clipboard',
   'sheet.copied': 'Copied',
   'sheet.copyFailed': 'Copy refused: select the preview text and copy manually.',
+  'sheet.download': 'Download as file',
+  'sheet.downloaded': 'Downloaded',
+  'sheet.downloadFailed': 'Download failed: use copy instead.',
   // declare.* — declare-block import (P3b)
   'declare.importButton': 'Import declare',
   'declare.title': 'Import declare block',

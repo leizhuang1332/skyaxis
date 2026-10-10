@@ -126,9 +126,9 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-function subject(s: RequirementWorkbenchState, k: KnowledgeSliceState = knowledge(), controller: WorkbenchController = fakeController()) {
+function subject(s: RequirementWorkbenchState, k: KnowledgeSliceState = knowledge(), controller: WorkbenchController = fakeController(), download?: (filename: string, text: string) => boolean) {
   return {
-    ...render(<KnowledgeSection t={bindZh()} requirement={requirement} slot={s} knowledge={k} controller={controller} requirementId={RID} />),
+    ...render(<KnowledgeSection t={bindZh()} requirement={requirement} slot={s} knowledge={k} controller={controller} requirementId={RID} download={download} />),
     controller,
   }
 }
@@ -343,5 +343,15 @@ describe('P5a：workspace 行呈现 + path 触发 tag + 知识导出', () => {
     const cancelButtons = within(dialog).getAllByRole('button', { name: workbenchZh['action.cancel'] })
     fireEvent.click(cancelButtons[cancelButtons.length - 1]!)
     await waitFor(() => expect(screen.queryByRole('dialog', { name: workbenchZh['knowledge.exportTitle'] })).toBeNull())
+  })
+
+  it('导出下载（挂账轮）：注入收到 knowledge-export 文件名与全文', async () => {
+    const download = vi.fn((_filename: string, _text: string) => true)
+    subject(slot({ record: record() }), knowledge({ records: [knowledgeRow('k1')] }), fakeController(), download)
+    fireEvent.click(screen.getByRole('button', { name: workbenchZh['knowledge.exportButton'] }))
+    const dialog = await screen.findByRole('dialog', { name: workbenchZh['knowledge.exportTitle'] })
+    fireEvent.click(within(dialog).getByRole('button', { name: workbenchZh['sheet.download'] }))
+    expect(download.mock.calls[0]?.[0]).toMatch(/^knowledge-export-\d{4}-\d{2}-\d{2}-\d{4}\.md$/)
+    expect(download.mock.calls[0]?.[1]).toContain('## 知识-k1')
   })
 })

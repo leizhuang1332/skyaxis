@@ -89,9 +89,9 @@ function fakeController(overrides: Record<string, unknown> = {}): WorkbenchContr
   } as never
 }
 
-function subject(s: RequirementWorkbenchState, controller: WorkbenchController = fakeController(), copy?: (text: string) => Promise<boolean>) {
+function subject(s: RequirementWorkbenchState, controller: WorkbenchController = fakeController(), copy?: (text: string) => Promise<boolean>, download?: (filename: string, text: string) => boolean) {
   return {
-    ...render(<DeliverSection t={bindZh()} requirement={requirement} slot={s} controller={controller} requirementId={RID} copy={copy} />),
+    ...render(<DeliverSection t={bindZh()} requirement={requirement} slot={s} controller={controller} requirementId={RID} copy={copy} download={download} />),
     controller,
   }
 }
@@ -280,6 +280,42 @@ describe('S5 交付节：回滚预案与导出', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: workbenchZh['sheet.copy'] }))
     await waitFor(() => expect(copy.mock.calls[0]?.[0]).toContain('## SQL（1）'))
     await waitFor(() => expect(within(dialog).getByText(workbenchZh['sheet.copied'])).toBeTruthy())
+  })
+
+  it('导出下载（挂账轮）：注入收到 release-sheet 文件名与全文；失败出警示行', async () => {
+    // jsdom cannot exercise a real anchor click — the injected download seam
+    // is the test surface (the writeClipboard contract).
+    const download = vi.fn((_filename: string, _text: string) => true)
+    const rendered = subject(slot({ record: record({
+      releaseItems: [item('R0001', { status: 'confirmed' })],
+      rollbackPlanConfirmedAt: AT,
+    }) }), fakeController(), undefined, download)
+    fireEvent.click(rendered.getByRole('button', { name: workbenchZh['release.exportButton'] }))
+    const dialog = await screen.findByRole('dialog')
+
+    fireEvent.click(within(dialog).getByRole('button', { name: workbenchZh['sheet.download'] }))
+    expect(download.mock.calls[0]?.[0]).toBe(`release-sheet-${RID}.md`)
+    expect(download.mock.calls[0]?.[1]).toContain('## SQL（1）')
+    expect(within(dialog).getByText(workbenchZh['sheet.downloaded'])).toBeTruthy()
+  })
+
+  it('导出下载失败：downloadFailed 警示行出现且可重试（复制并存）', async () => {
+    let fail = true
+    const download = vi.fn((_filename: string, _text: string) => !fail)
+    const rendered = subject(slot({ record: record({
+      releaseItems: [item('R0001', { status: 'confirmed' })],
+      rollbackPlanConfirmedAt: AT,
+    }) }), fakeController(), undefined, download)
+    fireEvent.click(rendered.getByRole('button', { name: workbenchZh['release.exportButton'] }))
+    const dialog = await screen.findByRole('dialog')
+
+    fireEvent.click(within(dialog).getByRole('button', { name: workbenchZh['sheet.download'] }))
+    expect(within(dialog).getByText(workbenchZh['sheet.downloadFailed'])).toBeTruthy()
+    // Not locked out: a later attempt succeeds and the alert is gone.
+    fail = false
+    fireEvent.click(within(dialog).getByRole('button', { name: workbenchZh['sheet.download'] }))
+    expect(within(dialog).queryByText(workbenchZh['sheet.downloadFailed'])).toBeNull()
+    expect(within(dialog).getByText(workbenchZh['sheet.downloaded'])).toBeTruthy()
   })
 })
 

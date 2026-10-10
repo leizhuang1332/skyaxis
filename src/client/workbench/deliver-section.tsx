@@ -72,6 +72,8 @@ export function DeliverSection(props: {
   sessions?: WorkbenchSessionsFace
   /** Injectable clipboard for the export modal (the sow-modal IO contract; tests pass fakes). */
   copy?: (text: string) => Promise<boolean>
+  /** Injectable download for the export modal (挂账轮 — jsdom cannot click a real anchor). */
+  download?: (filename: string, text: string) => boolean
 }): ReactNode {
   const { t, slot, controller, requirementId } = props
   const record = slot.record
@@ -359,7 +361,9 @@ export function DeliverSection(props: {
           generatedAt: new Date().toISOString(),
           releaseDrifted: slot.releaseDrifted,
         })}
+        filename={`release-sheet-${requirementId}.md`}
         copy={props.copy}
+        download={props.download}
         onClose={() => { setExportOpen(false) }}
       />
     </div>
