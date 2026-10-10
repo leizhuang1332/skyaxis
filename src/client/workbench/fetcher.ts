@@ -7,15 +7,16 @@
  * error body, and 2xx payloads checked by the hand-written protocol guards.
  *
  * Artifact reads/writes ride text/plain bodies with query discrimination
- * (the prd-upload shape); the scan endpoint has no UI consumer this round
- * and deliberately has no method here — wire without a consumer stays
- * unopened (the D3 logic).
+ * (the prd-upload shape). The scan endpoint gained its UI consumer in the
+ * 挂账轮 (the scan modal) — until then it deliberately had no method here
+ * (wire without a consumer stays unopened, the D3 logic).
  */
 import {
   WORKBENCH_ARTIFACTS_PATH,
   WORKBENCH_DECLARE_PATH,
   WORKBENCH_KNOWLEDGE_PATH,
   WORKBENCH_PATH,
+  WORKBENCH_SCAN_PATH,
 } from '../../workbench-shared/protocol.js'
 import type {
   ArtifactWriteResponseOk,
@@ -36,6 +37,7 @@ import type {
   WorkbenchMutateRequestBody,
   WorkbenchRecord,
   WorkbenchSaveResponseOk,
+  WorkbenchScanResponseOk,
 } from '../../workbench-shared/protocol.js'
 import {
   isArtifactContentResponse,
@@ -50,6 +52,7 @@ import {
   isWorkbenchKnowledgeSaveResponseOk,
   isWorkbenchListResponse,
   isWorkbenchSaveResponseOk,
+  isWorkbenchScanResponse,
 } from '../../workbench-shared/protocol.js'
 
 export type WorkbenchFailure =
@@ -107,6 +110,10 @@ export type DeclarePreviewResult =
 
 export type DeclareImportResult =
   | { readonly kind: 'ok'; readonly committed: DeclareCommitResponseOk }
+  | WorkbenchFailure
+
+export type WorkbenchScanResult =
+  | { readonly kind: 'ok'; readonly response: WorkbenchScanResponseOk }
   | WorkbenchFailure
 
 async function request(path: string, init: RequestInit | undefined, signal: AbortSignal | undefined): Promise<Response | WorkbenchFailure> {
@@ -427,6 +434,16 @@ export function createWorkbenchFetcher() {
       if (!response.ok) return parseErrorBody(response)
       const parsed: unknown = await response.json()
       if (!isReviewFetchResponse(parsed)) return { kind: 'http-error', status: response.status }
+      return { kind: 'ok', response: parsed }
+    },
+
+    /** Global orphan/missing/trash reconciliation (挂账轮 UI consumer). */
+    async scan(signal?: AbortSignal): Promise<WorkbenchScanResult> {
+      const response = await request(WORKBENCH_SCAN_PATH, { method: 'GET' }, signal)
+      if ('kind' in response) return response
+      if (!response.ok) return parseErrorBody(response)
+      const parsed: unknown = await response.json()
+      if (!isWorkbenchScanResponse(parsed)) return { kind: 'http-error', status: response.status }
       return { kind: 'ok', response: parsed }
     },
 

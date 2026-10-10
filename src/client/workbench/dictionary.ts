@@ -202,6 +202,19 @@ interface WorkbenchDictionary {
   readonly 'md.footnotes': string
 
   // --- P2: session strip / knowledge base / SOW generation ---
+  // scan.* — 产物对账 Modal（挂账轮：P1b scan 端点首个消费面，只读披露）
+  readonly 'scan.button': string
+  readonly 'scan.empty': string
+  readonly 'scan.failed': string
+  readonly 'scan.kindPlan': string
+  readonly 'scan.kindReview': string
+  readonly 'scan.kindUnknown': string
+  readonly 'scan.loading': string
+  readonly 'scan.missing': string
+  readonly 'scan.orphans': string
+  readonly 'scan.refresh': string
+  readonly 'scan.title': string
+  readonly 'scan.trash': string
   readonly 'session.stripLabel': string
   readonly 'session.stripEmptyHint': string
   readonly 'session.stateWaiting': string
@@ -613,6 +626,18 @@ const zh: WorkbenchDictionary = {
   'md.copiedCode': '已复制',
   'md.footnotes': '脚注',
   'detail.dropDescription': '确定放弃该工作包？已放弃的工作包不再入板，历史保留。',
+  'scan.button': '产物对账',
+  'scan.empty': '无',
+  'scan.failed': '对账失败（账本不可读或网络错误），可刷新重试。',
+  'scan.kindPlan': '计划',
+  'scan.kindReview': '报告',
+  'scan.kindUnknown': '未识别',
+  'scan.loading': '对账中…',
+  'scan.missing': '缺失（账本有引用 · 盘上无文件）',
+  'scan.orphans': '孤儿（盘上有文件 · 账本无引用）',
+  'scan.refresh': '刷新',
+  'scan.title': '产物对账（只读）',
+  'scan.trash': '.trash（已删除需求）',
   'session.stripLabel': '关联 session（{n}）',
   'session.stripEmptyHint': '还没有关联 session：生成任务书 → 粘贴到新会话 → 回来在 S3 详情里关联。',
   'session.stateWaiting': '待输入',
@@ -1017,6 +1042,18 @@ const en: WorkbenchDictionary = {
   'md.copiedCode': 'Copied',
   'md.footnotes': 'Footnotes',
   'detail.dropDescription': 'Drop this work package? Dropped packages leave the board; history is preserved.',
+  'scan.button': 'Artifact reconciliation',
+  'scan.empty': 'none',
+  'scan.failed': 'Scan failed (unreadable ledger or network error) — retry with refresh.',
+  'scan.kindPlan': 'plan',
+  'scan.kindReview': 'review',
+  'scan.kindUnknown': 'unknown',
+  'scan.loading': 'Scanning…',
+  'scan.missing': 'Missing (referenced · file absent)',
+  'scan.orphans': 'Orphans (file present · unreferenced)',
+  'scan.refresh': 'Refresh',
+  'scan.title': 'Artifact reconciliation (read-only)',
+  'scan.trash': '.trash (deleted requirements)',
   'session.stripLabel': 'Linked sessions ({n})',
   'session.stripEmptyHint': 'No linked sessions yet: generate a statement of work → paste it into a new session → come back and bind it from the S3 detail dialog.',
   'session.stateWaiting': 'waiting for input',

@@ -203,6 +203,30 @@ describe('workbench fetcher', () => {
   })
 })
 
+describe('挂账轮 scan（孤儿对账三面）', () => {
+  it('narrows the three faces; a 409 unreadable ledger degrades to http-error', async () => {
+    vi.stubGlobal('fetch', async () => new Response(JSON.stringify({
+      ok: true,
+      orphans: [
+        { requirementId: RID, kind: 'plan', workPackageId: 'WP1', version: 2 },
+        { requirementId: RID, kind: 'unknown', name: 'stray.txt' },
+      ],
+      missing: [{ requirementId: RID, kind: 'review', reviewId: '48b3597e-58b8-40e5-a62b-4a052a41b917' }],
+      trash: [{ requirementId: RID, deletedAt: AT }],
+    })))
+    const ok = await createWorkbenchFetcher().scan()
+    expect(ok.kind).toBe('ok')
+    if (ok.kind !== 'ok') return
+    expect(ok.response.orphans).toHaveLength(2)
+    expect(ok.response.missing[0]?.reviewId).toBe('48b3597e-58b8-40e5-a62b-4a052a41b917')
+    expect(ok.response.trash[0]?.deletedAt).toBe(AT)
+
+    vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ ok: false, code: 'unreadable-file' }), { status: 409 }))
+    const refused = await createWorkbenchFetcher().scan()
+    expect(refused).toEqual({ kind: 'http-error', status: 409, code: 'unreadable-file' })
+  })
+})
+
 describe('P5a knowledgeList workspacePath 参数', () => {
   it('带参数上送；空串/undefined 省略参数（旧行为）', async () => {
     const calls: string[] = []

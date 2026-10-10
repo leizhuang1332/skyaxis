@@ -272,6 +272,12 @@ export function createWorkbenchController(store: WorkbenchStore, fetcher: Workbe
     reviewFetch: (sessionId: string, signal?: AbortSignal) =>
       fetcher.reviewFetch(sessionId, signal),
 
+    /** 挂账轮: global orphan/missing/trash reconciliation scan. Pure read, no
+     *  store — the scan modal owns loading/failed states and filters rows by
+     *  the CURRENT requirement (the join stays client-side by design). */
+    scan: (signal?: AbortSignal) =>
+      fetcher.scan(signal),
+
     reviewContent: async (requirementId: string, reviewId: string, signal?: AbortSignal) => {
       const result = await fetcher.reviewContent(requirementId, reviewId, signal)
       return alive(result) ? result : undefined

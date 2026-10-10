@@ -30,6 +30,7 @@ import { ReviewSection } from './review-section.js'
 import { SessionStrip } from './session-strip.js'
 import { KnowledgeSection } from './knowledge-section.js'
 import { SowModal } from './sow-modal.js'
+import { ScanModal } from './scan-modal.js'
 import type { DeliverFace } from './delivery.js'
 import type { WorkbenchWorkPackage } from '../../workbench-shared/protocol.js'
 import styles from './view.module.css'
@@ -150,6 +151,10 @@ export function WorkbenchTabBody(props: {
   const [viewing, setViewing] = useState<WorkbenchStage>('understand')
   // SOW modal state — view-owned so every section entry shares one instance.
   const [sow, setSow] = useState<{ purpose: 'analysis' | 'split' | 'dev' | 'review'; workPackage?: WorkbenchWorkPackage } | null>(null)
+  // 挂账轮: artifact-reconciliation modal — view-owned like the SOW instance;
+  // phase-independent entry (the scan's data source is the endpoint, not the
+  // slot — honesty means surfacing its own failures, not hiding the button).
+  const [scanOpen, setScanOpen] = useState(false)
   // Follow the record's stage on first ready (and re-arm on requirement
   // switches); later refreshes never move the user's viewing choice.
   const syncedRef = useRef(false)
@@ -196,6 +201,10 @@ export function WorkbenchTabBody(props: {
             </button>
           </Fragment>
         ))}
+      </div>
+
+      <div className={styles.railMeta}>
+        <button type="button" className={styles.ghostButton} onClick={() => { setScanOpen(true) }}>{t('scan.button')}</button>
       </div>
 
       {slot.phase === 'loading' ? <div className={styles.guideSection}><div className={styles.guideHint}>{t('page.loading')}</div></div> : null}
@@ -307,6 +316,13 @@ export function WorkbenchTabBody(props: {
           />
         </>
       ) : null}
+      <ScanModal
+        t={t}
+        open={scanOpen}
+        requirementId={requirementId}
+        controller={controller}
+        onClose={() => { setScanOpen(false) }}
+      />
     </div>
   )
 }

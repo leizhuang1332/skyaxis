@@ -1068,3 +1068,30 @@
   flex-direction: column;
   gap: 8px;
 }
+
+/* ---- 挂账轮: artifact reconciliation (scan modal + rail meta row). ---- */
+
+/* Slim meta row under the sticky rail — the scan entry lives OUTSIDE the
+ * tablist semantics (a button inside role=tablist would be a fake tab). */
+.railMeta {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0 0 12px;
+}
+
+.scanSectionHead {
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-tertiary);
+  margin-top: 8px;
+}
+
+.scanRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 20px;
+  padding: 2px 0;
+}
