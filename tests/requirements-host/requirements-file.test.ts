@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { RequirementRecord } from '../../src/requirements-shared/protocol.js'
+import { isRequirementRecord, type RequirementRecord } from '../../src/requirements-shared/protocol.js'
 import { RequirementsFileStore, type RequirementsFileIo } from '../../src/requirements-host/requirements-file.js'
 
 const dirs: string[] = []
@@ -65,6 +65,33 @@ describe('RequirementsFileStore: read/write roundtrip', () => {
     expect(backup.ok && backup.value.requirements.map((r) => r.title)).toEqual(['alpha'])
     const live = new RequirementsFileStore(file).load()
     expect(live.ok && live.value.requirements.map((r) => r.title)).toEqual(['alpha', 'beta'])
+  })
+
+  it('round-trips workspacePath + linkedRepos entries through disk — the zod-mirror drift guard', async () => {
+    // The compile-time assertions in types.ts are now LIVE consts (挂账轮)
+    // but they catch required-field drift only, and zod silently strips
+    // unknown keys. Drop linkedRepos (or a LinkedRepo member) from
+    // RequirementRecordSchema and this goes red (the workbench-file.test:86
+    // precedent — the P1b「一行旧数据炸整文件」lesson's mirror side).
+    const { store } = fixture()
+    const repoId = randomUUID()
+    const bound: RequirementRecord = {
+      ...record('绑定工作区'),
+      workspacePath: 'C:/ws/repo-1',
+      linkedRepos: [{ repoId, branch: 'feat/multi-search' }],
+    }
+    await store.save(0, [bound, record('空档')])
+    const loaded = store.load()
+    expect(loaded.ok).toBe(true)
+    if (!loaded.ok) return
+    const back = loaded.value.requirements.find((r) => r.title === '绑定工作区')
+    expect(back?.workspacePath).toBe('C:/ws/repo-1')
+    expect(back?.linkedRepos).toEqual([{ repoId, branch: 'feat/multi-search' }])
+    // The default side stays a real empty array after disk (not stripped,
+    // not undefined).
+    expect(loaded.value.requirements.find((r) => r.title === '空档')?.linkedRepos).toEqual([])
+    // And the wire guard accepts exactly the same shape (both halves agree).
+    expect(isRequirementRecord(back)).toBe(true)
   })
 })
 

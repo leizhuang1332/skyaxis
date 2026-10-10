@@ -648,18 +648,18 @@ export const DeclareImportSchema = z.object({
 // Compile-time alignment with the shared protocol (drift = type error)
 // ---------------------------------------------------------------------------
 
-/* eslint-disable @typescript-eslint/no-unused-vars */
-type _ProtocolWorkbenchRecordAssignableToSchema = WorkbenchRecord extends z.infer<typeof WorkbenchRecordSchema> ? true : never
+// LIVE assertions (挂账轮): every pair is a const assignment — a direction
+// flip errors the build, unlike the alias-only forms this file carried until
+// now (an unused `? true : never` alias never errors; verified by mutation
+// in P3a, which is why they were rewritten). Direction is uniformly
+// Schema→Protocol, the readonly-tolerant way (zod infers mutable arrays;
+// the reverse fails structurally on every readonly field). Required-field
+// drift trips these; optional-field drift stays the disk round-trip tests'
+// job (workbench-file.test) and the declare endpoint tests' job (wire).
 
-// LIVE assertion (P3b): unlike the alias-only forms above — which cannot
-// fail the build (an unused `? true : never` alias never errors; verified by
-// mutation in P3a) — this const assignment errors when the direction flips.
-// Direction chosen readonly-tolerantly (zod infers mutable arrays; the
-// reverse direction fails structurally on every readonly field). Required-
-// field drift trips this; optional-field drift is covered by the declare
-// endpoint round-trip tests instead.
+/* eslint-disable @typescript-eslint/no-unused-vars */
+const _SchemaWorkbenchRecordAssignableToProtocol: z.infer<typeof WorkbenchRecordSchema> extends WorkbenchRecord ? true : never = true
+const _MutateRequestAligned: z.infer<typeof WorkbenchMutateSchema> extends WorkbenchMutateRequestBody ? true : never = true
+const _KnowledgeMutateAligned: z.infer<typeof WorkbenchKnowledgeMutateSchema> extends WorkbenchKnowledgeMutateRequestBody ? true : never = true
+const _KnowledgeRecordAligned: z.infer<typeof KnowledgeRecordSchema> extends WorkbenchKnowledgeRecord ? true : never = true
 const _DeclareImportRequestAligned: z.infer<typeof DeclareImportSchema> extends DeclareImportRequestBody ? true : never = true
-type _SchemaWorkbenchRecordAssignableToProtocol = z.infer<typeof WorkbenchRecordSchema> extends WorkbenchRecord ? true : never
-type _MutateRequestAligned = WorkbenchMutateRequestBody extends z.infer<typeof WorkbenchMutateSchema> ? true : never
-type _KnowledgeMutateAligned = WorkbenchKnowledgeMutateRequestBody extends z.infer<typeof WorkbenchKnowledgeMutateSchema> ? true : never
-type _KnowledgeRecordAligned = WorkbenchKnowledgeRecord extends z.infer<typeof KnowledgeRecordSchema> ? true : never

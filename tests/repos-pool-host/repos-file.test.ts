@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { RepoRecord } from '../../src/repos-pool-shared/protocol.js'
+import { isRepoRecord, type RepoRecord } from '../../src/repos-pool-shared/protocol.js'
 import { ReposFileStore, type ReposFileIo } from '../../src/repos-pool-host/repos-file.js'
 
 const dirs: string[] = []
@@ -89,6 +89,46 @@ describe('ReposFileStore: read/write roundtrip', () => {
     expect(backup.ok && backup.value.repos.map((r) => r.name)).toEqual(['alpha'])
     const live = new ReposFileStore(file).load()
     expect(live.ok && live.value.repos.map((r) => r.name)).toEqual(['alpha', 'beta'])
+  })
+
+  it('round-trips every optional state field through disk — the zod-mirror drift guard', async () => {
+    // The compile-time assertions in types.ts are now LIVE consts (挂账轮)
+    // but they catch required-field drift only; a field present on the
+    // protocol yet missing from the zod mirror would still be SILENTLY
+    // STRIPPED on every load (zod drops unknown keys) — data loss with no
+    // error. This roundtrip is the load-bearing mirror test (the
+    // workbench-file.test:86 precedent): drop any field below from
+    // RepoRecordSchema and this goes red.
+    const { store } = fixture()
+    const dual: RepoRecord = {
+      id: randomUUID(),
+      name: 'dual-slot',
+      urlSsh: 'git@github.com:org/repo.git',
+      urlHttp: 'https://example.com/repo.git',
+      description: '双地址全状态行',
+      statusSsh: 'forced-auth',
+      statusHttp: 'unverified',
+      validatedAtSsh: '2026-09-24T09:30:00.000Z',
+      validatedAtHttp: null,
+      lastErrorSsh: 'Permission denied (publickey)',
+      lastErrorHttp: null,
+    }
+    await store.save(0, [dual, record('http-only')])
+    const loaded = store.load()
+    expect(loaded.ok).toBe(true)
+    if (!loaded.ok) return
+    const back = loaded.value.repos.find((r) => r.name === 'dual-slot')
+    expect(back?.urlSsh).toBe('git@github.com:org/repo.git')
+    expect(back?.statusSsh).toBe('forced-auth')
+    expect(back?.statusHttp).toBe('unverified')
+    expect(back?.validatedAtSsh).toBe('2026-09-24T09:30:00.000Z')
+    expect(back?.validatedAtHttp).toBeNull()
+    expect(back?.lastErrorSsh).toBe('Permission denied (publickey)')
+    expect(back?.lastErrorHttp).toBeNull()
+    // The absent-optional side survives as absent (not defaulted, not null).
+    expect(loaded.value.repos.find((r) => r.name === 'http-only')?.urlSsh).toBeUndefined()
+    // And the wire guard accepts exactly the same shape (both halves agree).
+    expect(isRepoRecord(back)).toBe(true)
   })
 })
 

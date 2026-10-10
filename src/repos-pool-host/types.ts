@@ -87,7 +87,8 @@ export const ReposFileSchema = z.object({
   repos: z.array(RepoRecordSchema),
 })
 
-export type ReposFile = z.infer<typeof ReposFileSchema>
+/** Parse output, with the protocol's readonly array face (records are shared immutable) — the WorkbenchFile/RequirementsFile 归一. */
+export type ReposFile = Omit<z.infer<typeof ReposFileSchema>, 'repos'> & { repos: readonly RepoRecord[] }
 
 /** Request url slot: blank input (whitespace-only) counts as "not provided". */
 const InputUrlSchema = z.preprocess(
@@ -153,12 +154,18 @@ export const ImportRequestSchema = z.object({
 // Compile-time alignment with the shared protocol (drift = type error)
 // ---------------------------------------------------------------------------
 
+// LIVE assertions (挂账轮): const assignments — a flip errors the build
+// (the alias-only forms never could; P3a's mutation finding, applied here).
+// Direction uniformly Schema→Protocol (readonly-tolerant; the reverse fails
+// structurally wherever the protocol carries readonly arrays). Required-
+// field drift trips these; optional-field drift is the disk round-trip
+// tests' job (repos-file.test).
+
 /* eslint-disable @typescript-eslint/no-unused-vars */
-type _ProtocolRepoRecordAssignableToSchema = RepoRecord extends z.infer<typeof RepoRecordSchema> ? true : never
-type _SchemaRepoRecordAssignableToProtocol = z.infer<typeof RepoRecordSchema> extends RepoRecord ? true : never
-type _SaveValidationAligned = SaveValidation extends z.infer<typeof SaveValidationSchema> ? true : never
-type _SaveRequestAligned = SaveRequestBody extends z.infer<typeof SaveRequestSchema> ? true : never
-type _ImportRequestAligned = ImportRequestBody extends z.infer<typeof ImportRequestSchema> ? true : never
+const _SchemaRepoRecordAssignableToProtocol: z.infer<typeof RepoRecordSchema> extends RepoRecord ? true : never = true
+const _SaveValidationAligned: z.infer<typeof SaveValidationSchema> extends SaveValidation ? true : never = true
+const _SaveRequestAligned: z.infer<typeof SaveRequestSchema> extends SaveRequestBody ? true : never = true
+const _ImportRequestAligned: z.infer<typeof ImportRequestSchema> extends ImportRequestBody ? true : never = true
 
 /** Re-exported so host modules consume the protocol unions under one import. */
 export type HostUrlRejection = UrlRejection

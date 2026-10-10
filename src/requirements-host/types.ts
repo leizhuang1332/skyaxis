@@ -153,10 +153,16 @@ export const PrdRequestSchema = z.discriminatedUnion('action', [PrdCreateSchema,
 // Compile-time alignment with the shared protocol (drift = type error)
 // ---------------------------------------------------------------------------
 
+// LIVE assertions (挂账轮): const assignments — a flip errors the build
+// (the alias-only forms never could; P3a's mutation finding, applied here).
+// Direction uniformly Schema→Protocol (readonly-tolerant; the reverse fails
+// structurally on `linkedRepos` — protocol readonly[] vs zod's default-
+// mutable[]). Required-field drift trips these; optional/default-field drift
+// is the disk round-trip tests' job (requirements-file.test).
+
 /* eslint-disable @typescript-eslint/no-unused-vars */
-type _ProtocolRequirementRecordAssignableToSchema = RequirementRecord extends z.infer<typeof RequirementRecordSchema> ? true : never
-type _SchemaRequirementRecordAssignableToProtocol = z.infer<typeof RequirementRecordSchema> extends RequirementRecord ? true : never
-type _SaveRequestAligned = SaveRequestBody extends z.infer<typeof SaveRequestSchema> ? true : never
-type _WorkspaceRequestAligned = WorkspaceSetRequestBody extends z.infer<typeof WorkspaceRequestSchema> ? true : never
-type _ReposRequestAligned = ReposMutateRequestBody extends z.infer<typeof ReposRequestSchema> ? true : never
-type _PrdRequestAligned = PrdMutateRequestBody extends z.infer<typeof PrdRequestSchema> ? true : never
+const _SchemaRequirementRecordAssignableToProtocol: z.infer<typeof RequirementRecordSchema> extends RequirementRecord ? true : never = true
+const _SaveRequestAligned: z.infer<typeof SaveRequestSchema> extends SaveRequestBody ? true : never = true
+const _WorkspaceRequestAligned: z.infer<typeof WorkspaceRequestSchema> extends WorkspaceSetRequestBody ? true : never = true
+const _ReposRequestAligned: z.infer<typeof ReposRequestSchema> extends ReposMutateRequestBody ? true : never = true
+const _PrdRequestAligned: z.infer<typeof PrdRequestSchema> extends PrdMutateRequestBody ? true : never = true
