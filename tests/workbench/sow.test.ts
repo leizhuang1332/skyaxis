@@ -1,13 +1,16 @@
 /**
- * SOW 纯函数（0006 P2）：splitPrdSections（ATX 切分 / preamble 归一 / 空文）
- * + matchKnowledge（always 全 / keyword 大小写命中 / manual 列出不命中标记 /
- * archived 排除 / path 不列）+ knowledgeBytes（UTF-8 逐条求和）+ buildSow
- * 五段矩阵（analysis record-null 降级、split criteria 清单、dev 全段两态、
- * declare 骨架 workPackage 键、revision 戳）。
+ * SOW 纯函数（0006 P2；analysis 重设计 = research 0008）：splitPrdSections
+ * （ATX 切分 / preamble 归一 / 空文）+ matchKnowledge（always 全 / keyword
+ * 大小写命中 / manual 列出不命中标记 / archived 排除 / path 不列）+
+ * knowledgeBytes（UTF-8 逐条求和）+ buildSow：analysis 九节新骨架（目标/
+ * 快照/输入路径引用/参考知识/约束/工作流/输出，PRD 正文零嵌入）与
+ * split/dev/review 五段旧路径（criteria 清单、dev 全段两态、declare 骨架
+ * workPackage 键、revision 戳）分派并存。
  */
 import { describe, expect, it } from 'vitest'
 import type {
   WorkbenchCriterion,
+  WorkbenchFinding,
   WorkbenchKnowledgeRecord,
   WorkbenchRecord,
   WorkbenchWorkPackage,
@@ -46,6 +49,19 @@ function wp(id: string, overrides: Partial<WorkbenchWorkPackage> = {}): Workbenc
     sessions: [],
     commits: [],
     acceptances: [],
+    ...overrides,
+  }
+}
+
+function finding(id: string, overrides: Partial<WorkbenchFinding> = {}): WorkbenchFinding {
+  return {
+    id,
+    category: 'conflict',
+    severity: 'high',
+    title: `发现-${id}`,
+    detail: '详情',
+    status: 'open',
+    createdAt: AT,
     ...overrides,
   }
 }
@@ -193,17 +209,107 @@ describe('knowledgeBytes', () => {
 })
 
 describe('buildSow', () => {
-  it('analysis 语境 record null 降级：仅标题+描述+未建立行，无 [工作包] 段，非 dev declare 骨架', () => {
+  it('analysis 语境（research 0008）：九节新骨架 + record null 降级 + plain declare 骨架逐字不变', () => {
     const text = buildSow(baseCtx)
-    expect(text).toContain('[需求]')
+    expect(text.startsWith('# skyaxis 分析任务书 · 导出功能改造\n')).toBe(true)
+    for (const header of ['## 目标', '## 需求快照（工作台账本，生成时快照）', '## 输入（用文件读取能力按路径阅读；不要凭记忆，不要猜）', '## 参考知识（工作台注入，已审定）', '## 约束', '## 工作流', '## 输出']) {
+      expect(text).toContain(header)
+    }
     expect(text).toContain('标题：导出功能改造')
     expect(text).toContain('描述：支持大数据量异步导出')
     expect(text).toContain('（工作台记录未建立）')
+    // 旧五段骨架退役：方括号段头不再出现，工作包段不出现。
+    for (const gone of ['[需求]', '[PRD 节选]', '[知识注入]', '[工作包]', '[输出约定]']) {
+      expect(text).not.toContain(gone)
+    }
     expect(text).not.toContain('当前阶段')
-    expect(text).not.toContain('[工作包]')
+    // declare 骨架逐字 pin（解析面零改动的回归锚）。
     expect(text).toContain('```yaml\n# skyaxis-declare\n# knowledge 条目形如（type: business|convention）：\n#   - type: convention\n#     title: 标题\n#     draft: 内容\nknowledge: []\nstageReady: false\n```')
     expect(text).not.toContain('workPackage:')
     expect(text).not.toContain('claims:')
+    // 约束/工作流/输出的关键纪律短语在场（只读、不裁决、F/A 编号、六类、完成自检）。
+    for (const phrase of ['严格只读', '不裁决', '有限停止', '先查后问', 'F1 [类别·级别] 标题', 'A1 一句可判定的话', '六类逐类给过结论', '完成自检（全部满足才算收尾）']) {
+      expect(text).toContain(phrase)
+    }
+  })
+
+  it('analysis 输入段：PRD 路径引用 + 重点章节指针 + 仓库行（池名/分支）+ 缺失容错指令；正文零嵌入', () => {
+    const text = buildSow({
+      ...baseCtx,
+      requirement: { ...requirement, workspacePath: 'C:\\ws\\quote' },
+      analysisPrdDocs: [
+        { name: 'prd.md', sizeBytes: 12 * 1024 + 300 },
+        { name: 'notes.md', sizeBytes: 4096 },
+      ],
+      prdDocumentName: 'prd.md',
+      prdSections: [{ heading: '背景', text: '背景正文全文' }, { heading: '', text: '开篇正文' }, { heading: '容量', text: '容量正文' }],
+      analysisRepos: [{ dirName: 'order-center-a1b2', poolName: 'order-center', branch: 'feat/export' }],
+    })
+    expect(text).toContain('工作区根目录：C:/ws/quote（下列相对路径以此为根）')
+    expect(text).toContain('- 必读 prds/prd.md（12.3 KB）——重点章节：背景、开篇、容量；其余章节按需')
+    expect(text).toContain('- 按需 prds/notes.md（4.0 KB）')
+    expect(text).toContain('- 必读 repos/order-center-a1b2（order-center，分支 feat/export）——与需求相关的模块与现有实现')
+    expect(text).toContain('路径不存在或不可读：停下来在「待澄清」中报告——不要假设内容，不要自行创建替代文件。')
+    // 路径引用的本体断言：PRD 章节正文一个字都不进任务书。
+    expect(text).not.toContain('背景正文全文')
+    expect(text).not.toContain('开篇正文')
+    expect(text).not.toContain('容量正文')
+  })
+
+  it('analysis 输入段诚实缺席：工作区未绑定 / 无 PRD 文档 / 无仓库 / 目录名不可得计数行', () => {
+    const unbound = buildSow(baseCtx)
+    expect(unbound).toContain('（工作区未绑定——无 PRD 与仓库可引用，分析只能基于需求描述）')
+    expect(unbound).not.toContain('PRD 文档（prds/ 目录）')
+
+    const emptyWs = buildSow({
+      ...baseCtx,
+      requirement: { ...requirement, workspacePath: 'C:/ws/none' },
+      analysisPrdDocs: [],
+    })
+    expect(emptyWs).toContain('（prds/ 目录暂无文档——分析只能基于需求描述与代码）')
+    expect(emptyWs).toContain('（本需求未关联仓库）')
+
+    // 列表未可得（加载中/失败）≠ 确认无文档——诚实未知单独成行。
+    const unknownDocs = buildSow({
+      ...baseCtx,
+      requirement: { ...requirement, workspacePath: 'C:/ws/x' },
+      analysisPrdDocs: null,
+    })
+    expect(unknownDocs).toContain('（PRD 文档列表未可得——可列举 prds/ 目录确认）')
+    expect(unknownDocs).not.toContain('（prds/ 目录暂无文档')
+
+    const unknownRepo = buildSow({
+      ...baseCtx,
+      requirement: { ...requirement, workspacePath: 'C:/ws/x', linkedRepos: [{ repoId: 'r1', branch: 'b' }, { repoId: 'r2', branch: 'b' }] },
+      analysisRepos: [{ dirName: 'alpha-a1', poolName: 'alpha', branch: 'b' }],
+      analysisUnknownRepos: 1,
+    })
+    expect(unknownRepo).toContain('- 必读 repos/alpha-a1（alpha，分支 b）')
+    expect(unknownRepo).toContain('（另有 1 个已关联仓库的克隆目录名暂不可得——可列举 repos/ 目录对照）')
+  })
+
+  it('analysis 快照增强：已有标准逐条、未处置发现一行（resolved 不列）、空组（尚无）、工作包快照', () => {
+    const text = buildSow({
+      ...baseCtx,
+      record: record({
+        stage: 'understand',
+        criteria,
+        findings: [
+          finding('f1', { category: 'conflict', severity: 'high', title: '与现有同步导出争用连接池' }),
+          finding('f2', { status: 'resolved', title: '已处置的不该出现' }),
+        ],
+        workPackages: [wp('WP1', { title: '导出队列' })],
+      }),
+    })
+    expect(text).toContain('当前阶段：需求理解')
+    expect(text).toContain('已有验收标准：\n- C1 十万行导出 30 秒内完成\n- C2 导出任务可取消')
+    expect(text).toContain('未处置发现：\n- [冲突·高] 与现有同步导出争用连接池')
+    expect(text).not.toContain('已处置的不该出现')
+    expect(text).toContain('- WP1 导出队列 · 已登记（planned）')
+
+    const empty = buildSow({ ...baseCtx, record: record({ stage: 'understand' }) })
+    expect(empty).toContain('已有验收标准：\n（尚无）')
+    expect(empty).toContain('未处置发现：\n（尚无）')
   })
 
   it('split 语境：工作包状态快照（id+title+中文状态+raw status）+ 验收标准清单', () => {
@@ -270,20 +376,21 @@ describe('buildSow', () => {
     expect(text).toContain('覆盖标准：无')
   })
 
-  it('PRD 段：文档行 + 章节（preamble 用「开篇」）；无选中章节仅（未选择）', () => {
+  it('PRD 段（五段路径，dev 语境）：文档行 + 章节（preamble 用「开篇」）；无选中章节仅（未选择）', () => {
+    const devBase = { ...baseCtx, purpose: 'dev' as const, record: record({ stage: 'implement', workPackages: [wp('WP1')] }), workPackage: wp('WP1') }
     const withPrd = buildSow({
-      ...baseCtx,
+      ...devBase,
       prdSections: [{ heading: '', text: '开篇正文' }, { heading: '背景', text: 'PRD 背景' }],
       prdDocumentName: 'prd.md',
     })
     expect(withPrd).toContain('[PRD 节选]\n文档：prd.md\n\n## 开篇\n开篇正文\n\n## 背景\nPRD 背景')
 
-    const without = buildSow(baseCtx)
+    const without = buildSow(devBase)
     expect(without).toContain('[PRD 节选]\n（未选择）')
     expect(without).not.toContain('文档：')
   })
 
-  it('知识段：逐条 title/触发/content；空选（无）', () => {
+  it('知识段（analysis 参考知识头）：逐条 title/触发/content；空选（无）', () => {
     const withKnowledge = buildSow({
       ...baseCtx,
       knowledgePicks: [
@@ -291,10 +398,11 @@ describe('buildSow', () => {
         knowledge('k2', { trigger: { mode: 'keyword', value: '导出' } }),
       ],
     })
-    expect(withKnowledge).toContain('### 知识-k1\n（触发：always）\n内容-k1')
+    expect(withKnowledge).toContain('## 参考知识（工作台注入，已审定）\n### 知识-k1\n（触发：always）\n内容-k1')
     expect(withKnowledge).toContain('### 知识-k2\n（触发：keyword）\n内容-k2')
 
-    expect(buildSow(baseCtx)).toContain('[知识注入]\n（无）')
+    expect(buildSow(baseCtx)).toContain('## 参考知识（工作台注入，已审定）\n（无）')
+    expect(buildSow(baseCtx)).not.toContain('[知识注入]')
   })
 
   it('revision 戳收尾：revision 数 + generatedAt 日期部分', () => {

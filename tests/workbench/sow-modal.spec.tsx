@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 /**
- * SOW 生成 Modal（0006 P2）：注入 fake fetchPrdList/fetchPrdText/
- * fetchPlanText/copy——PRD 章节渲染与勾选联动预览、多文档 select 切换、
- * 加载失败/无文档态、知识命中计数行与默认勾选态（always+keyword 勾、
- * manual 不勾）、勾选联动知识预览、超上限禁复制 + 警示、copy 成功 copied
- * 一秒复位、copy 失败警示可重试、dev 语境 [工作包] 段（已批准计划两态、
- * 依赖摘要勾选）。
+ * SOW 生成 Modal（0006 P2；analysis 重设计 = research 0008）：注入 fake
+ * fetchPrdList/fetchPrdText/fetchPlanText/copy——PRD 章节渲染与勾选联动
+ * 预览（analysis 语境勾选 = 重点章节指针，正文零嵌入、路径引用）、多文档
+ * select 切换、加载失败/无文档态、知识命中计数行与默认勾选态（always+
+ * keyword 勾、manual 不勾）、勾选联动知识预览、超上限禁复制 + 警示、
+ * copy 成功 copied 一秒复位、copy 失败警示可重试、dev 语境 [工作包] 段
+ * （已批准计划两态、依赖摘要勾选）。
  *
  * 预览断言走 data-testid 的 <pre> 文本（buildSow 产物是整块字符串）；
  * Modal portal 进 body，afterEach 显式清理。
@@ -27,7 +28,9 @@ const requirement: RequirementRecord = {
   id: RID,
   title: '导出功能改造',
   description: '支持大数据量异步导出',
-  workspacePath: '',
+  // Analysis previews cite workspace-relative paths; a bound path exercises
+  // the normalization (backslashes → forward) without touching dev cases.
+  workspacePath: 'C:\\ws\\demo',
   linkedRepos: [],
   createdAt: AT,
   updatedAt: AT,
@@ -114,27 +117,29 @@ const previewText = (rendered: ReturnType<typeof subject>): string =>
   rendered.getByTestId('sow-preview').textContent ?? ''
 
 describe('SowModal（SOW 生成 Modal）', () => {
-  it('PRD 章节渲染（默认全勾）联动预览；单文档不出 select；勾选变化即时反映', async () => {
+  it('analysis 预览：PRD 路径引用 + 重点章节指针（正文零嵌入）；勾选变化即时反映；单文档不出 select', async () => {
     const fetchPrdText = vi.fn(async (name: string) =>
       name === 'a.md' ? '# 背景\n背景正文\n\n## 方案\n方案正文' : '')
     const rendered = subject({ fetchPrdList: async () => [{ name: 'a.md' }], fetchPrdText })
 
     await waitFor(() => expect(fetchPrdText).toHaveBeenCalledWith('a.md'))
-    await waitFor(() => expect(previewText(rendered)).toContain('文档：a.md'))
+    await waitFor(() => expect(previewText(rendered)).toContain('必读 prds/a.md'))
     const text = previewText(rendered)
-    expect(text).toContain('## 背景\n背景正文')
-    expect(text).toContain('## 方案\n方案正文')
+    expect(text).toContain('工作区根目录：C:/ws/demo（下列相对路径以此为根）')
+    expect(text).toContain('- 必读 prds/a.md——重点章节：背景、方案；其余章节按需')
+    // 路径引用本体：章节正文一个字不进任务书。
+    expect(text).not.toContain('背景正文')
+    expect(text).not.toContain('方案正文')
     expect(rendered.queryByRole('combobox')).toBeNull()
 
-    // 取消勾选「背景」→ 预览即时丢该节（含标题行），方案节保留。
+    // 取消勾选「背景」→ 重点章节指针即时收窄为「方案」。
     fireEvent.click(rendered.getByLabelText('背景'))
     const after = previewText(rendered)
-    expect(after).not.toContain('背景正文')
-    expect(after).not.toContain('## 背景')
-    expect(after).toContain('方案正文')
+    expect(after).not.toContain('背景')
+    expect(after).toContain('重点章节：方案')
   })
 
-  it('多文档 select 切换：切到 b.md 重取正文并重置全勾', async () => {
+  it('多文档 select 切换：焦点文档换必读位、旧文档降按需行；切到 b.md 重取正文并重置全勾', async () => {
     const fetchPrdText = vi.fn(async (name: string) =>
       name === 'a.md' ? '# a 正文' : '## b 背景\nb 正文')
     const rendered = subject({
@@ -146,19 +151,20 @@ describe('SowModal（SOW 生成 Modal）', () => {
     const select = (await rendered.findByRole('combobox')) as HTMLSelectElement
     fireEvent.change(select, { target: { value: 'b.md' } })
     await waitFor(() => expect(fetchPrdText).toHaveBeenCalledWith('b.md'))
-    await waitFor(() => expect(previewText(rendered)).toContain('文档：b.md'))
-    expect(previewText(rendered)).toContain('## b 背景\nb 正文')
+    await waitFor(() => expect(previewText(rendered)).toContain('- 必读 prds/b.md——重点章节：b 背景；其余章节按需'))
+    expect(previewText(rendered)).toContain('- 按需 prds/a.md')
     expect(fetchPrdText).toHaveBeenCalledTimes(2)
   })
 
-  it('PRD 列表加载失败 → prdLoadError；无文档 → prdEmpty', async () => {
+  it('PRD 列表加载失败 → prdLoadError + 诚实未知行；无文档 → prdEmpty + 确认空行', async () => {
     const rendered = subject({ fetchPrdList: async () => null })
     expect(await rendered.findByText(workbenchZh['sow.prdLoadError'])).toBeTruthy()
-    expect(previewText(rendered)).toContain('（未选择）')
+    expect(previewText(rendered)).toContain('（PRD 文档列表未可得——可列举 prds/ 目录确认）')
     rendered.unmount()
 
     const rendered2 = subject({ fetchPrdList: async () => [] })
     expect(await rendered2.findByText(workbenchZh['sow.prdEmpty'])).toBeTruthy()
+    expect(previewText(rendered2)).toContain('（prds/ 目录暂无文档——分析只能基于需求描述与代码）')
   })
 
   it('知识命中计数行：{n} 只计 always+keyword，{size}/{cap} KB 一位小数；行渲染 [mode] 标题', async () => {
@@ -190,7 +196,7 @@ describe('SowModal（SOW 生成 Modal）', () => {
 
     await rendered.findByLabelText('[always] 知识-k1')
     fireEvent.click(rendered.getByLabelText('[always] 知识-k1'))
-    await waitFor(() => expect(previewText(rendered)).toContain('[知识注入]\n（无）'))
+    await waitFor(() => expect(previewText(rendered)).toContain('## 参考知识（工作台注入，已审定）\n（无）'))
     fireEvent.click(rendered.getByLabelText('[manual] 知识-k4'))
     await waitFor(() => expect(previewText(rendered)).toContain('### 知识-k4\n（触发：manual）\n内容-k4'))
   })
@@ -222,7 +228,7 @@ describe('SowModal（SOW 生成 Modal）', () => {
     fireEvent.click(copyButton())
     await waitFor(() => expect(copy).toHaveBeenCalledTimes(1))
     const sent = copy.mock.calls[0][0]
-    expect(sent).toContain('[需求]')
+    expect(sent).toContain('# skyaxis 分析任务书 · 导出功能改造')
     expect(sent).toContain('标题：导出功能改造')
     expect(sent).toContain('生成于 revision 7 ·')
     expect(rendered.getByText(workbenchZh['sow.copied'])).toBeTruthy()
@@ -319,13 +325,13 @@ describe('SowModal 投递 v2（P5a）', () => {
     const deliver = vi.fn(async (_text: string, _ws: string | undefined): Promise<{ ok: true; sessionId: string } | { ok: false; reason: 'failed' }> => ({ ok: true, sessionId: 'sess-1' }))
     const onClose = vi.fn()
     const rendered = subject({ deliver, onClose })
-    await waitFor(() => expect(previewOf(rendered)).toContain('[需求]'))
+    await waitFor(() => expect(previewOf(rendered)).toContain('# skyaxis 分析任务书'))
 
     fireEvent.click(rendered.getByRole('button', { name: workbenchZh['sow.deliver'] }))
     await waitFor(() => expect(deliver).toHaveBeenCalledTimes(1))
-    expect(deliver.mock.calls[0]?.[0]).toContain('[需求]')
+    expect(deliver.mock.calls[0]?.[0]).toContain('# skyaxis 分析任务书 · 导出功能改造')
     expect(deliver.mock.calls[0]?.[0]).toContain('生成于 revision 7 ·')
-    expect(deliver.mock.calls[0]?.[1]).toBe('') // requirement 夹具的 workspacePath（空 ⇒ cwd 省略）
+    expect(deliver.mock.calls[0]?.[1]).toBe('C:\\ws\\demo') // requirement 夹具的 workspacePath（非空 ⇒ 作 cwd）
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
   })
 
@@ -333,7 +339,7 @@ describe('SowModal 投递 v2（P5a）', () => {
     const deliver = vi.fn(async (_text: string, _ws: string | undefined): Promise<{ ok: true; sessionId: string } | { ok: false; reason: 'failed' }> => ({ ok: false, reason: 'failed' }))
     const onClose = vi.fn()
     const rendered = subject({ deliver, onClose })
-    await waitFor(() => expect(previewOf(rendered)).toContain('[需求]'))
+    await waitFor(() => expect(previewOf(rendered)).toContain('# skyaxis 分析任务书'))
 
     fireEvent.click(rendered.getByRole('button', { name: workbenchZh['sow.deliver'] }))
     expect(await rendered.findByRole('alert')).toBeTruthy()

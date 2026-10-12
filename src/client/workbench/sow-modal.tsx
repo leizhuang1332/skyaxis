@@ -4,6 +4,12 @@
  * right preview — the preview is the exact text the copy button places on
  * the clipboard, assembled by the pure buildSow.
  *
+ * Analysis purpose (research 0008): the checked PRD sections are FOCUS
+ * pointers, not embedded text — the doc listing rides the context as path
+ * references (prds/…) plus clone-repo rows (repos/…, branch noted), so the
+ * delivered session reads files itself; a failed body read (e.g. over the
+ * size cap) no longer blocks generation, it only drops the heading marks.
+ *
  * All IO is injected (the repos-section cross-module fetcher precedent):
  * PRD list/text default to the requirements fetcher, the approved plan
  * body defaults to the workbench artifacts endpoint, clipboard defaults to
@@ -39,9 +45,9 @@ import styles from './view.module.css'
 const kbLabel = (bytes: number): string => `${(bytes / 1024).toFixed(1)} KB`
 
 /** PRD doc listing, defaulting to the requirements endpoint (JSON envelope). */
-async function defaultPrdList(requirementId: string): Promise<{ name: string }[] | null> {
+async function defaultPrdList(requirementId: string): Promise<{ name: string; sizeBytes?: number }[] | null> {
   const result = await createRequirementsFetcher().prdDocs(requirementId)
-  return result.kind === 'ok' ? result.docs.map((doc) => ({ name: doc.name })) : null
+  return result.kind === 'ok' ? result.docs.map((doc) => ({ name: doc.name, sizeBytes: doc.size })) : null
 }
 
 /** PRD body, defaulting to the requirements content route (text/plain). */
@@ -75,7 +81,8 @@ export function SowModal(props: {
   workPackage?: WorkbenchWorkPackage
   busy?: boolean
   onClose: () => void
-  fetchPrdList?: () => Promise<{ name: string }[] | null>
+  /** sizeBytes optional so injected fakes can list names only. */
+  fetchPrdList?: () => Promise<{ name: string; sizeBytes?: number }[] | null>
   fetchPrdText?: (name: string) => Promise<string | null>
   /** dev context: approved plan body; undefined when none approved. */
   fetchPlanText?: () => Promise<string | undefined>
@@ -88,7 +95,7 @@ export function SowModal(props: {
 
   // --- PRD state (lazy per open; a stale doc response must not win) ---
   const prdSeqRef = useRef(0)
-  const [prdDocs, setPrdDocs] = useState<readonly { name: string }[] | null>(null)
+  const [prdDocs, setPrdDocs] = useState<readonly { name: string; sizeBytes?: number }[] | null>(null)
   const [prdError, setPrdError] = useState(false)
   const [docName, setDocName] = useState<string | null>(null)
   const [sections, setSections] = useState<readonly PrdSection[]>([])
@@ -238,6 +245,19 @@ export function SowModal(props: {
     return paths
   }, [requirement.workspacePath, requirement.linkedRepos, repoNames])
   const picks = useMemo(() => matchKnowledge(activeRecords, targetText, contextPaths), [activeRecords, targetText, contextPaths])
+  // Analysis-only inputs (research 0008): linked repos as clone-dir rows —
+  // the pool-name join is already here for the path trigger, same fetch,
+  // second consumer. Unresolved names count into the honest-absence line
+  // instead of a fabricated directory (the contextPaths degradation
+  // precedent).
+  const analysisRepoRows = useMemo(
+    () => requirement.linkedRepos.flatMap((linked) => {
+      const name = repoNames.get(linked.repoId)
+      return name === undefined ? [] : [{ dirName: repoDirName(name, linked.repoId), poolName: name, branch: linked.branch }]
+    }),
+    [requirement.linkedRepos, repoNames],
+  )
+  const analysisRepoUnknown = requirement.linkedRepos.length - analysisRepoRows.length
   const defaultKnowledgeIds = useMemo(
     () => new Set(picks.filter((pick) => pick.match !== 'manual').map((pick) => pick.record.id)),
     [picks],
@@ -285,7 +305,15 @@ export function SowModal(props: {
     prdDocumentName: docName ?? undefined,
     knowledgePicks: selectedKnowledge,
     includeDeps,
-  }), [purpose, requirement, record, revision, generatedAt, workPackage, includeBoundaryPlan, planLoaded, planText, selectedSections, docName, selectedKnowledge, includeDeps])
+    // Analysis inputs ride the same preview: the full doc listing (path
+    // references — PRD text itself is no longer embedded), the focus doc's
+    // checked sections (heading pointers), and the repo rows above.
+    ...(purpose === 'analysis' ? {
+      analysisPrdDocs: prdDocs,
+      analysisRepos: analysisRepoRows,
+      analysisUnknownRepos: analysisRepoUnknown,
+    } : {}),
+  }), [purpose, requirement, record, revision, generatedAt, workPackage, includeBoundaryPlan, planLoaded, planText, selectedSections, docName, selectedKnowledge, includeDeps, prdDocs, analysisRepoRows, analysisRepoUnknown])
 
   const warnText = overLimit
     ? t('sow.knowledgeOverLimit')
