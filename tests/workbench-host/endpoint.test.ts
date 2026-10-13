@@ -56,6 +56,7 @@ import { KnowledgeFileStore } from '../../src/workbench-host/knowledge-file.js'
 import { WorkbenchFileStore } from '../../src/workbench-host/workbench-file.js'
 import { SessionDeclareReader } from '../../src/workbench-host/declare-reader.js'
 import { registerWorkbenchEndpoints } from '../../src/workbench-host/endpoint.js'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
 
 const dirs: string[] = []
 const disposables: Array<() => unknown> = []
@@ -1862,5 +1863,240 @@ describe('P5b: review seeding + reSplit + confirmSplitStillValid', () => {
     })
     expect(res.status).toBe(400)
     expect(await errorCode(res)).toBe('bad-request')
+  })
+})
+
+describe('回传轮：analysis proposals（bind / seed / adopt / dismiss）', () => {
+  const assistantMsg = (text: string): SessionEvent =>
+    ({ type: 'assistant/message', seq: 1, time: 0, data: { message: { content: [{ type: 'text', text }] } } }) as never as SessionEvent
+  const declareFence = (rows: readonly string[]): string => '```yaml\n' + rows.join('\n') + '\n```'
+  const REPORT_ROWS = [
+    '# skyaxis-declare',
+    'findings:',
+    '  - category: conflict',
+    '    severity: high',
+    '    title: 与现有同步导出争用连接池',
+    '    detail: 证据：PRD#3.2 / repos/a/src/B.java:120',
+    '  - category: capacity',
+    '    severity: low',
+    '    title: 导出量级未量化',
+    'criteria:',
+    '  - text: 十万行导出 30 秒内完成',
+    '    sourceSection: PRD#3.2',
+    'knowledge: []',
+    'stageReady: false',
+  ]
+  const body = (action: string, extra: Record<string, unknown>, expectedRevision: number, requirementId = RID) =>
+    ({ expectedRevision, requirementId, action, ...extra })
+
+  it('bind：record-null 隐式铸账建容器；同 sessionId unchanged 不 bump；异 sessionId 只换指针保留旧行', async () => {
+    const h = await harness()
+    const res1 = await h.post(WORKBENCH_PATH, body('bindAnalysisSession', { sessionId: 'sess-a' }, 0))
+    expect(res1.status).toBe(200)
+    const row1 = await res1.json() as { ok: boolean; revision: number; record: WorkbenchRecord }
+    expect(row1.revision).toBe(1)
+    expect(row1.record.analysis?.session).toMatchObject({ sessionId: 'sess-a' })
+    expect(row1.record.analysis?.findings).toEqual([])
+    expect(row1.record.stage).toBe('understand')
+
+    const res2 = await h.post(WORKBENCH_PATH, body('bindAnalysisSession', { sessionId: 'sess-a' }, 1))
+    const row2 = await res2.json() as { ok: boolean; revision: number }
+    expect(row2.revision).toBe(1) // unchanged — no bump
+
+    // Pointer swap keeps the old batch (the replacement window).
+    await h.seed([seedRecord(RID, {
+      analysis: {
+        session: { sessionId: 'sess-a', boundAt: NOW },
+        seed: { sessionId: 'sess-a', contentHash: 'a'.repeat(64), seededAt: NOW, findings: 1, criteria: 0 },
+        findings: [{ id: '77777777-7777-4777-8777-777777777777', category: 'risk', severity: 'low', title: '旧行' }],
+        criteria: [],
+      },
+    })], 1)
+    const res3 = await h.post(WORKBENCH_PATH, body('bindAnalysisSession', { sessionId: 'sess-b' }, 2))
+    const row3 = await res3.json() as { ok: boolean; record: WorkbenchRecord }
+    expect(row3.record.analysis?.session.sessionId).toBe('sess-b')
+    expect(row3.record.analysis?.findings).toHaveLength(1) // old batch survives
+    expect(row3.record.analysis?.seed?.sessionId).toBe('sess-a') // anchor unchanged
+  })
+
+  it('seed：无 bind → 404；missing 引擎 → 200 零写零 bump；报告落账（行替换 + 锚 + hash）；同 hash 重放 unchanged 且已删行不复活；异 hash 新报告替换未裁决', async () => {
+    const h = await harness()
+    // No container yet.
+    const res0 = await h.post(WORKBENCH_PATH, body('seedAnalysis', { sessionId: 'sess-a' }, 0))
+    expect(res0.status).toBe(404)
+    expect(await errorCode(res0)).toBe('not-found')
+
+    // Bind, then seed with NO engine → 200 zero-write, revision untouched,
+    // with the advisory reason (回传轮 observability).
+    await h.post(WORKBENCH_PATH, body('bindAnalysisSession', { sessionId: 'sess-a' }, 0))
+    const resMissing = await h.post(WORKBENCH_PATH, body('seedAnalysis', { sessionId: 'sess-a' }, 1))
+    expect(resMissing.status).toBe(200)
+    const missing = await resMissing.json() as { revision: number; record: WorkbenchRecord; seedMissing?: string }
+    expect(missing.revision).toBe(1)
+    expect(missing.record.analysis?.seed).toBeUndefined()
+    expect(missing.seedMissing).toBe('no-service')
+
+    // Engine present but the session has NO declare block → no-declare-block advisory + scan fingerprint.
+    h.declareReader.setEngine({ readSession: async () => ({ events: [assistantMsg('分析报告正文，但没写声明块。')] }) })
+    const resNoBlock = await h.post(WORKBENCH_PATH, body('seedAnalysis', { sessionId: 'sess-a' }, 1))
+    const noBlock = await resNoBlock.json() as { seedMissing?: string; seedScan?: string }
+    expect(noBlock.seedMissing).toBe('no-declare-block')
+    expect(noBlock.seedScan).toContain('assistant/message:1')
+    expect(noBlock.seedScan).toContain('markers=0')
+
+    // Engine with the report → rows land + anchor stamped.
+    const fenceBody = REPORT_ROWS.join('\n') + '\n'
+    h.declareReader.setEngine({ readSession: async () => ({ events: [assistantMsg('分析报告正文。\n' + declareFence(REPORT_ROWS))] }) })
+    const resSeed = await h.post(WORKBENCH_PATH, body('seedAnalysis', { sessionId: 'sess-a' }, 1))
+    expect(resSeed.status).toBe(200)
+    const seeded = await resSeed.json() as { revision: number; record: WorkbenchRecord }
+    expect(seeded.revision).toBe(2)
+    const container = seeded.record.analysis
+    expect(container?.findings).toHaveLength(2)
+    expect(container?.criteria).toHaveLength(1)
+    expect(container?.findings[0]).toMatchObject({ category: 'conflict', severity: 'high', title: '与现有同步导出争用连接池' })
+    expect(container?.criteria[0]).toMatchObject({ text: '十万行导出 30 秒内完成', sourceSection: 'PRD#3.2' })
+    expect(container?.seed).toMatchObject({ sessionId: 'sess-a', contentHash: contentHashOf(fenceBody), findings: 2, criteria: 1 })
+
+    // Dismiss a row, then REPLAY the same report → unchanged, no resurrection.
+    const fid = container!.findings[0]!.id
+    await h.post(WORKBENCH_PATH, body('dismissFindingProposal', { id: fid }, 2))
+    const resReplay = await h.post(WORKBENCH_PATH, body('seedAnalysis', { sessionId: 'sess-a' }, 3))
+    const replay = await resReplay.json() as { revision: number; record: WorkbenchRecord }
+    expect(replay.revision).toBe(3) // no bump on anchor hit
+    expect(replay.record.analysis?.findings).toHaveLength(1) // deleted row stays deleted
+    expect(replay.record.analysis?.criteria).toHaveLength(1)
+
+    // A DIFFERENT report (hash differs) replaces the unadjudicated batch.
+    const rows2 = ['# skyaxis-declare', 'findings:', '  - category: risk', '    severity: medium', '    title: 新报告的发现', 'criteria: []', 'stageReady: false']
+    h.declareReader.setEngine({ readSession: async () => ({ events: [assistantMsg(declareFence(rows2))] }) })
+    const resNew = await h.post(WORKBENCH_PATH, body('seedAnalysis', { sessionId: 'sess-a' }, 3))
+    const renewed = await resNew.json() as { record: WorkbenchRecord }
+    expect(renewed.record.analysis?.findings.map((row) => row.title)).toEqual(['新报告的发现'])
+    expect(renewed.record.analysis?.criteria).toEqual([])
+
+    // 裸尾巴兜底实链路（同 hash 体系末尾再换一次报告）：散文引子 + 无围栏块
+    // ——实测 wild 形态（首版诊断根因）经兜底也能收取。
+    const bareTail = '以下是声明块：\n# skyaxis-declare\nfindings:\n  - category: risk\n    severity: medium\n    title: 裸尾发现\ncriteria: []\nstageReady: false'
+    h.declareReader.setEngine({ readSession: async () => ({ events: [assistantMsg(bareTail)] }) })
+    const resBare = await h.post(WORKBENCH_PATH, body('seedAnalysis', { sessionId: 'sess-a' }, 4))
+    const bare = await resBare.json() as { record: WorkbenchRecord }
+    expect(bare.record.analysis?.findings.map((row) => row.title)).toEqual(['裸尾发现'])
+
+    // 伪闭合线（```yaml 收尾）：未闭合 marker 围栏按尾体提取、剥掉结尾围栏标记行。
+    const badCloser = '报告：\n```yaml\n# skyaxis-declare\nfindings:\n  - category: risk\n    severity: low\n    title: 闭合线写错\ncriteria: []\n```yaml'
+    h.declareReader.setEngine({ readSession: async () => ({ events: [assistantMsg(badCloser)] }) })
+    const resBadCloser = await h.post(WORKBENCH_PATH, body('seedAnalysis', { sessionId: 'sess-a' }, 5))
+    const badCloserBody = await resBadCloser.json() as { record: WorkbenchRecord }
+    expect(badCloserBody.record.analysis?.findings.map((row) => row.title)).toEqual(['闭合线写错'])
+  })
+
+  it('四次诊断 shell 修复：锚内容寻址真会话——改绑指针 + 种子一次落账、锚保留', async () => {
+    const h = await harness()
+    const ANCHOR = '# skyaxis 分析任务书 · 短信账单扣费网点调整\n\n## 目标\n为需求「短信账单扣费网点调整」的需求理解阶段做一次只读分析'
+    await h.post(WORKBENCH_PATH, body('bindAnalysisSession', { sessionId: 'session-shell', anchor: ANCHOR.slice(0, 200) }, 0))
+    // The SHELL: config seeds only, no user/message, no declare block.
+    const shellEvents = [
+      { type: 'permission/preset', seq: 1, time: 0, data: {} },
+      { type: 'sandbox/mode', seq: 2, time: 0, data: {} },
+      { type: 'approval/policy', seq: 3, time: 0, data: {} },
+      { type: 'session/end-seed', seq: 4, time: 0, data: {} },
+    ] as never as SessionEvent[]
+    // The REAL session: task book + report (bare tail, wild shape #1).
+    const realRows = ['# skyaxis-declare', 'findings:', '  - category: conflict', '    severity: high', '    title: 真会话的发现', 'criteria: []', 'stageReady: false']
+    const realEvents = [
+      { type: 'user/message', seq: 1, time: 0, data: { content: [{ type: 'text', text: ANCHOR }] } },
+      assistantMsg('分析报告。\n' + declareFence(realRows)),
+    ] as never as SessionEvent[]
+    let readCount = 0
+    h.declareReader.setEngine({
+      readSession: async (id: string) => {
+        readCount += 1
+        return { events: id === 'session-shell' ? shellEvents : realEvents }
+      },
+      searchSessions: async (request: { query: string }) => {
+        expect(request.query).toContain('skyaxis 分析任务书')
+        return { items: [{ header: { id: 'session-real', createdAt: 1791793257690 } }] }
+      },
+    })
+    const res = await h.post(WORKBENCH_PATH, body('seedAnalysis', { sessionId: 'session-shell' }, 1))
+    expect(res.status).toBe(200)
+    const seeded = await res.json() as { revision: number; record: WorkbenchRecord }
+    expect(seeded.revision).toBe(2)
+    // Pointer swapped to the repaired id; anchor preserved for future repairs.
+    expect(seeded.record.analysis?.session.sessionId).toBe('session-real')
+    expect(seeded.record.analysis?.session.anchor).toContain('skyaxis 分析任务书')
+    expect(seeded.record.analysis?.findings.map((row) => row.title)).toEqual(['真会话的发现'])
+    expect(readCount).toBe(2) // shell read + real read (the search is content-addressed, not a read)
+  })
+
+  it('seed：stale revision → 409（慢 IO 与插入写的乐观锁串行化）', async () => {
+    const h = await harness()
+    await h.post(WORKBENCH_PATH, body('bindAnalysisSession', { sessionId: 'sess-a' }, 0))
+    const res = await h.post(WORKBENCH_PATH, body('seedAnalysis', { sessionId: 'sess-a' }, 99))
+    expect(res.status).toBe(409)
+    expect(await errorCode(res)).toBe('conflict')
+  })
+
+  it('adopt finding：正式行 + sessionId 溯源（seed 锚）+ 提议删除；行缺 → 404；dismiss 二次点击 → 404', async () => {
+    const h = await harness()
+    h.declareReader.setEngine({ readSession: async () => ({ events: [assistantMsg(declareFence(REPORT_ROWS))] }) })
+    await h.post(WORKBENCH_PATH, body('bindAnalysisSession', { sessionId: 'sess-a' }, 0))
+    await h.post(WORKBENCH_PATH, body('seedAnalysis', { sessionId: 'sess-a' }, 1))
+    const seeded = (await (await h.get(`${WORKBENCH_PATH}?requirementId=${RID}`)).json() as { record: WorkbenchRecord }).record
+    const fid = seeded.analysis!.findings[0]!.id
+
+    const res = await h.post(WORKBENCH_PATH, body('adoptFindingProposal', { id: fid }, 2))
+    expect(res.status).toBe(200)
+    const adopted = await res.json() as { record: WorkbenchRecord }
+    const formal = adopted.record.findings[0]!
+    expect(formal).toMatchObject({ category: 'conflict', severity: 'high', title: '与现有同步导出争用连接池', detail: '证据：PRD#3.2 / repos/a/src/B.java:120', status: 'open' })
+    expect(formal.sessionId).toBe('sess-a') // provenance unfolds from the batch anchor
+    expect(formal.id).not.toBe(fid)          // fresh uuid — the findings-family habit
+    expectIsoString(formal.createdAt)
+    expect(adopted.record.analysis?.findings).toHaveLength(1)
+
+    expect((await h.post(WORKBENCH_PATH, body('adoptFindingProposal', { id: fid }, 3))).status).toBe(404) // already consumed
+    const did = adopted.record.analysis!.findings[0]!.id
+    expect((await h.post(WORKBENCH_PATH, body('dismissFindingProposal', { id: did }, 3))).status).toBe(200)
+    expect((await h.post(WORKBENCH_PATH, body('dismissFindingProposal', { id: did }, 4))).status).toBe(404)
+  })
+
+  it('adopt criterion：C 序号铸造 + 空覆盖；splitApprovedAt 存在 → 400 locked-split；dismiss 不受锁', async () => {
+    const h = await harness()
+    // Locked record carrying a pending criterion proposal.
+    await h.seed([seedRecord(RID, {
+      splitApprovedAt: NOW,
+      criteria: [{ id: 'C1', text: '既有标准', coveredBy: [] }],
+      analysis: {
+        session: { sessionId: 'sess-a', boundAt: NOW },
+        seed: { sessionId: 'sess-a', contentHash: 'b'.repeat(64), seededAt: NOW, findings: 0, criteria: 1 },
+        findings: [],
+        criteria: [{ id: '88888888-8888-4888-8888-888888888888', text: '待采标准', sourceSection: 'PRD#4' }],
+      },
+    })], 0)
+    const cid = '88888888-8888-4888-8888-888888888888'
+    const locked = await h.post(WORKBENCH_PATH, body('adoptCriterionProposal', { id: cid }, 1))
+    expect(locked.status).toBe(400)
+    expect(await errorCode(locked)).toBe('locked-split')
+    // Dismiss is NOT hostage to the lock.
+    expect((await h.post(WORKBENCH_PATH, body('dismissCriterionProposal', { id: cid }, 1))).status).toBe(200)
+
+    // Unlock (re-seed a clean record) → adopt mints C2 after C1. The ledger
+    // sits at revision 2 (seed 0→1, dismiss 1→2) — re-seed anchors there.
+    await h.seed([seedRecord(RID, {
+      criteria: [{ id: 'C1', text: '既有标准', coveredBy: [] }],
+      analysis: {
+        session: { sessionId: 'sess-a', boundAt: NOW },
+        criteria: [{ id: cid, text: '待采标准', sourceSection: 'PRD#4' }],
+        findings: [],
+      },
+    })], 2)
+    const res = await h.post(WORKBENCH_PATH, body('adoptCriterionProposal', { id: cid }, 3))
+    expect(res.status).toBe(200)
+    const adopted = await res.json() as { record: WorkbenchRecord }
+    expect(adopted.record.criteria.map((criterion) => criterion.id)).toEqual(['C1', 'C2'])
+    expect(adopted.record.criteria[1]).toMatchObject({ text: '待采标准', sourceSection: 'PRD#4', coveredBy: [] })
+    expect(adopted.record.analysis?.criteria).toEqual([])
   })
 })

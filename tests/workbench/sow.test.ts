@@ -223,8 +223,8 @@ describe('buildSow', () => {
       expect(text).not.toContain(gone)
     }
     expect(text).not.toContain('当前阶段')
-    // declare 骨架逐字 pin（解析面零改动的回归锚）。
-    expect(text).toContain('```yaml\n# skyaxis-declare\n# knowledge 条目形如（type: business|convention）：\n#   - type: convention\n#     title: 标题\n#     draft: 内容\nknowledge: []\nstageReady: false\n```')
+    // declare 骨架逐字 pin（回传轮：analysis 专属骨架 = plain + findings/criteria 两段教学）。
+    expect(text).toContain('```yaml\n# skyaxis-declare\n# findings 每条 = 分析发现提议（category: feasibility|conflict|compatibility|risk|capacity|other；severity: high|medium|low）：\n#   - category: conflict\n#     severity: high\n#     title: 标题（64 字内）\n#     detail: 说明与证据出处（PRD#章节 或 代码 路径:行号）\n# criteria 每条 = 验收标准提议：\n#   - text: 一句可判定的话\n#     sourceSection: PRD#章节\n# knowledge 条目形如（type: business|convention）：\n#   - type: convention\n#     title: 标题\n#     draft: 内容\nknowledge: []\nstageReady: false\n```')
     expect(text).not.toContain('workPackage:')
     expect(text).not.toContain('claims:')
     // 约束/工作流/输出的关键纪律短语在场（只读、不裁决、F/A 编号、六类、完成自检）。
@@ -310,6 +310,23 @@ describe('buildSow', () => {
     const empty = buildSow({ ...baseCtx, record: record({ stage: 'understand' }) })
     expect(empty).toContain('已有验收标准：\n（尚无）')
     expect(empty).toContain('未处置发现：\n（尚无）')
+
+    // 回传轮：待裁决提议列示（防重提议闭环）；空批不渲染该组。
+    const withPending = buildSow({
+      ...baseCtx,
+      record: record({
+        stage: 'understand',
+        analysis: {
+          session: { sessionId: 'sess-a', boundAt: AT },
+          seed: { sessionId: 'sess-a', contentHash: 'c'.repeat(64), seededAt: AT, findings: 1, criteria: 1 },
+          findings: [{ id: '77777777-7777-4777-8777-777777777777', category: 'conflict', severity: 'high', title: '待裁决发现甲' }],
+          criteria: [{ id: '88888888-8888-4888-8888-888888888888', text: '待裁决标准乙' }],
+        },
+      }),
+    })
+    expect(withPending).toContain('待裁决提议（已收取未裁决，勿重复提议）：\n- [冲突·高] 待裁决发现甲\n- 标准：待裁决标准乙')
+    // 空批不渲染该组（输出节的「待裁决提议行」说明语不算——锚定组头）。
+    expect(empty).not.toContain('待裁决提议（已收取未裁决')
   })
 
   it('split 语境：工作包状态快照（id+title+中文状态+raw status）+ 验收标准清单', () => {
@@ -330,6 +347,9 @@ describe('buildSow', () => {
     expect(text).toContain('WP2 存储层 · 已登记（planned）')
     expect(text).toContain('C1 十万行导出 30 秒内完成')
     expect(text).toContain('C2 导出任务可取消')
+    // 回传轮回归锚：split/dev 的 declare 骨架不携带提议键（共享 plain 面未被殃及）。
+    expect(text).not.toContain('criteria:')
+    expect(text).not.toContain('findings 每条')
   })
 
   it('dev 语境全段（approvedPlanText 有 + includeDeps）：边界/依赖/覆盖标准/已批准计划/依赖摘要/dev declare', () => {
@@ -361,6 +381,9 @@ describe('buildSow', () => {
     expect(text).toContain('[PRD 节选]\n文档：prd.md\n\n## 背景\nPRD 背景')
     expect(text).toContain('[知识注入]\n### 知识-k1\n（触发：always）\n内容-k1')
     expect(text).toContain('```yaml\n# skyaxis-declare\nworkPackage: WP1\nclaims:\n  - built: true\n# artifacts 条目形如（type: sql|config|flag|mq|other）：\n#   - type: sql\n#     title: 标题（64 字内）\n#     content: |\n#       SQL 或配置值（多行用块状写法）\n#     envs: [prod]\nartifacts: []\n# knowledge 条目形如（type: business|convention）：\n#   - type: convention\n#     title: 标题\n#     draft: 内容\nknowledge: []\nstageReady: false\n```')
+    // 回传轮回归锚（逐字不动 + 不染提议键）。
+    expect(text).not.toContain('criteria:')
+    expect(text).not.toContain('findings 每条')
   })
 
   it('dev 语境无已批准计划：占位行；includeDeps 缺省不产依赖摘要', () => {

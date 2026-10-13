@@ -11,9 +11,10 @@
  * (tests inject both directly); the seat wrapper subscribes to the store and
  * pulls the controller on mount (the P1a factory-owner contract, grown up).
  */
-import { Fragment, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { WorkbenchStage } from '../../workbench-shared/protocol.js'
+import type { SeedMissingReason } from '../../workbench-shared/protocol.js'
 import { WORKBENCH_STAGES } from '../../workbench-shared/protocol.js'
 import type { RequirementRecord } from '../../requirements-shared/protocol.js'
 import type { WorkbenchT } from './dictionary.js'
@@ -139,10 +140,22 @@ export function WorkbenchTabBody(props: {
   const { t, slot, controller, knowledge } = props
   const requirementId = props.requirement.id
   // Live session summaries (zero-polling: the face's own subscribe drives
-  // re-renders; absent face ⇒ stable empty snapshot, hooks never conditional).
-  const sessionsFace = useSyncExternalStore(
-    (listener) => (props.sessions ?? EMPTY_SESSIONS).subscribe(listener),
-    () => props.sessions ?? EMPTY_SESSIONS,
+  // re-renders). The face OBJECT is identity-stable (register builds it once
+  // and its getters read live data), so it cannot serve as the store snapshot
+  // directly — React bails out on an unchanged getSnapshot. The snapshot is
+  // therefore a derived VALUE: the serialized summaries map, stable while
+  // nothing changed and a fresh string on every running/blank flip (the
+  // 回传轮 watcher depends on those flips). Absent face ⇒ constant ''.
+  const sessionsFace = props.sessions ?? EMPTY_SESSIONS
+  const summariesTick = useSyncExternalStore(
+    (listener) => sessionsFace.subscribe(listener),
+    () => (props.sessions === undefined ? '' : JSON.stringify(sessionsFace.summariesById)),
+  )
+  const sessionSummaries = useMemo(
+    () => summariesTick === ''
+      ? { ids: [] as readonly string[], byId: {} as WorkbenchSessionsFace['summariesById'] }
+      : { ids: sessionsFace.ids, byId: sessionsFace.summariesById },
+    [summariesTick, sessionsFace],
   )
   const waitingIds = useSyncExternalStore(
     (listener) => (props.waiting ?? EMPTY_WAITING_SUB).subscribe(listener),
@@ -173,6 +186,77 @@ export function WorkbenchTabBody(props: {
   const stage: WorkbenchStage | 'closed' = record?.stage ?? 'understand'
   const badges = badgeCounts(slot)
   const nextStage = record === null ? null : nextStageOf(stage)
+
+  // 回传轮 watcher: the bound analysis session's report lands on S1 without
+  // any manual import step. Derivations are RENDER-time (the sessions face is
+  // a stable object — its flips reach this component as re-renders, so the
+  // booleans below are the honest deps). `due` = the anchor does not yet name
+  // the bound session (never seeded, or a re-delivery swapped the pointer);
+  // `gateOpen` = read now — an absent summary (face gone / pre-list) allows a
+  // mount catch-up, a present one requires !running && !blank (a blank
+  // session has nothing to read; the waiting state stays running=true by the
+  // sessionChipState contract, so effect B re-arms naturally).
+  const analysis = record?.analysis
+  const analysisSessionId = analysis?.session.sessionId
+  const analysisSummary = analysisSessionId !== undefined ? sessionSummaries.byId[analysisSessionId] : undefined
+  const analysisRunning = analysisSummary?.running === true
+  const analysisDue = analysis !== undefined && analysis.seed?.sessionId !== analysisSessionId
+  const analysisGateOpen = analysisSummary === undefined || !(analysisSummary.running || analysisSummary.blank)
+  const seedAttemptedRef = useRef(false)
+  // 回传轮 observability: the LAST seed attempt's zero-write reason (+ scan
+  // fingerprint) — shown on the waiting row so「not written yet」and「written
+  // but unreadable」are distinguishable (the silent path was the blind spot).
+  const [seedMiss, setSeedMiss] = useState<SeedMissingReason | undefined>(undefined)
+  const [seedScan, setSeedScan] = useState<string | undefined>(undefined)
+  const runSeed = (): void => {
+    if (analysisSessionId === undefined) return
+    void controller.seedAnalysisQuiet(requirementId, analysisSessionId).then((outcome) => {
+      setSeedMiss(outcome?.miss)
+      setSeedScan(outcome?.scan)
+      // 回传轮 legacy shell repair: anchor-less binds (pre-repair deliveries)
+      // hit the shell with no server-side content address. The delivered SOW
+      // becomes the conversation session's auto-TITLE (first user message) —
+      // so a title-prefix match over the live list rebinds to the real
+      // session; the pointer swap re-arms the watcher, which re-seeds. Guard:
+      // only when the candidate differs (terminates after one hop).
+      if (outcome?.miss === 'no-declare-block' && outcome.shell === true
+        && record?.analysis?.session.anchor === undefined) {
+        const prefix = '# skyaxis 分析任务书'
+        const candidates = sessionSummaries.ids
+          .map((id) => sessionSummaries.byId[id])
+          .filter((summary): summary is NonNullable<typeof summary> => summary !== undefined && summary.displayTitle.startsWith(prefix))
+        const preferred = candidates.find((summary) => summary.displayTitle.includes(props.requirement.title)) ?? candidates.at(-1)
+        if (preferred !== undefined && preferred.id !== analysisSessionId) {
+          void controller.bindAnalysisSession(requirementId, preferred.id)
+        }
+      }
+    })
+  }
+  useEffect(() => {
+    // A new requirement view or a re-delivery (pointer swap) re-arms the
+    // one-shot attempt flag.
+    seedAttemptedRef.current = false
+    setSeedMiss(undefined)
+    setSeedScan(undefined)
+  }, [requirementId, analysisSessionId])
+  useEffect(() => {
+    // Observed running=true ⇒ a later idle flip means a FRESH report may
+    // exist — give this session a second seed attempt even in one mount.
+    if (analysisRunning) seedAttemptedRef.current = false
+  }, [analysisRunning])
+  useEffect(() => {
+    if (!analysisDue || !analysisGateOpen || analysisSessionId === undefined) return
+    if (seedAttemptedRef.current) return
+    seedAttemptedRef.current = true
+    runSeed()
+  }, [requirementId, analysisSessionId, analysisDue, analysisGateOpen, controller])
+  /** Manual re-arm (回传轮 diagnosis ②): a failed read consumes the one-shot
+   *  flag and a FINISHED session never flips running again — the waiting hint
+   *  doubles as the retry entry (reset the flag, re-fire the quiet seed). */
+  const retryAnalysisSeed = (): void => {
+    seedAttemptedRef.current = false
+    runSeed()
+  }
 
   const advance = (): void => {
     if (nextStage === null) return
@@ -230,8 +314,8 @@ export function WorkbenchTabBody(props: {
               t={t}
               record={record}
               requirement={{ id: requirementId, title: props.requirement.title }}
-              summaries={sessionsFace.ids.flatMap((id) => {
-                const summary = sessionsFace.summariesById[id]
+              summaries={sessionSummaries.ids.flatMap((id) => {
+                const summary = sessionSummaries.byId[id]
                 return summary === undefined ? [] : [summary]
               })}
               waitingIds={waitingIds}
@@ -248,10 +332,10 @@ export function WorkbenchTabBody(props: {
               </div>
             ) : null}
             {viewing === 'understand' ? (
-              <FindingsSection key={`findings-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} onOpenSow={() => { setSow({ purpose: 'analysis' }) }} />
+              <FindingsSection key={`findings-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} onOpenSow={() => { setSow({ purpose: 'analysis' }) }} onRetrySeed={retryAnalysisSeed} seedMiss={analysisDue ? seedMiss : undefined} seedScan={analysisDue ? seedScan : undefined} />
             ) : null}
             {record !== null && viewing === 'understand' ? (
-              <CriteriaSection key={`criteria-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} />
+              <CriteriaSection key={`criteria-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} onRetrySeed={retryAnalysisSeed} seedMiss={analysisDue ? seedMiss : undefined} seedScan={analysisDue ? seedScan : undefined} />
             ) : null}
             {record !== null && viewing === 'plan' ? (
               <SplitSection key={`split-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} onOpenSow={() => { setSow({ purpose: 'split' }) }} />
@@ -312,6 +396,12 @@ export function WorkbenchTabBody(props: {
             busy={slot.busy}
             workPackage={sow?.workPackage}
             deliver={props.deliver}
+            onDelivered={sow !== null && sow.purpose !== 'analysis' ? undefined : (sessionId: string, sowText: string) => {
+              // Analysis delivery is the ONLY auto-watched source (ruling ③)
+              // — bind with the task-book anchor (the SOW head content-addresses
+              // the real conversation if this created session proves a shell).
+              void controller.bindAnalysisSession(requirementId, sessionId, sowText.slice(0, 200))
+            }}
             onClose={() => { setSow(null) }}
           />
         </>

@@ -42,7 +42,9 @@ describe('SessionDeclareReader', () => {
     const reader = new SessionDeclareReader()
     // 用户粘了任务书（含骨架），AI 还没输出声明块。
     reader.setEngine(engineOf([user(SOW_SKELETON), assistant('好的，我开始。')]))
-    expect(await reader.readDeclareText('sess-1')).toEqual({ status: 'missing', reason: 'no-declare-block' })
+    const miss = await reader.readDeclareText('sess-1')
+    expect(miss).toMatchObject({ status: 'missing', reason: 'no-declare-block' })
+    expect(miss.status === 'missing' && miss.scan !== undefined).toBe(true)
   })
 
   it('正常提取：AI 的声明块文本（含 marker 的块体）', async () => {
@@ -55,7 +57,7 @@ describe('SessionDeclareReader', () => {
     })
   })
 
-  it('倒序取最后一条 assistant 声明；截断（未闭合）不提取', async () => {
+  it('倒序取最后一条 assistant 声明；未闭合围栏带 marker 头现按尾体提取（回传轮策略变更）', async () => {
     const reader = new SessionDeclareReader()
     reader.setEngine(engineOf([
       assistant('```yaml\n# skyaxis-declare\nstageReady: false\n```'),
@@ -65,8 +67,38 @@ describe('SessionDeclareReader', () => {
     const last = await reader.readDeclareText('sess-1')
     expect(last.status === 'ok' && last.text).toContain('stageReady: true')
 
-    reader.setEngine(engineOf([assistant('```yaml\n# skyaxis-declare\ntruncated...')]))
-    expect(await reader.readDeclareText('sess-1')).toEqual({ status: 'missing', reason: 'no-declare-block' })
+    // 回传轮二次诊断：野生失败形态 = FINISHED 会话的围栏闭合线写错——
+    // 「截断一律不提取」把整批静默丢掉。策略改为：未闭合但 marker 起头的
+    // 围栏按尾体提取（坏行 parse 期跳过；幂等锚 + 新报告替换使半批安全）。
+    reader.setEngine(engineOf([assistant('```yaml\n# skyaxis-declare\nstageReady: true')]))
+    const half = await reader.readDeclareText('sess-1')
+    expect(half.status === 'ok' && half.text).toContain('stageReady: true')
+
+    // 无 marker 的未闭合围栏仍不算声明块；miss 附扫描指纹（事件类型直方图）。
+    reader.setEngine(engineOf([assistant('```yaml\ntruncated unrelated')]))
+    const miss = await reader.readDeclareText('sess-1')
+    expect(miss).toMatchObject({ status: 'missing', reason: 'no-declare-block' })
+    expect(miss.status === 'missing' && miss.scan).toContain('events=1')
+    expect(miss.status === 'missing' && miss.scan).toContain('assistant/message:1')
+  })
+
+  it('attempt 轮次的报告也可提取（三次诊断：中断/未提交消息的文本只在 stream 里）', async () => {
+    const reader = new SessionDeclareReader()
+    const attempt = {
+      type: 'assistant/attempt',
+      seq: 2,
+      time: 0,
+      data: {
+        stream: [
+          { type: 'reasoning-chunks', texts: ['思考不进文本'] },
+          { type: 'text-chunks', texts: ['报告：\n```yaml\n# skyaxis-declare\nfindings: []\nstageReady: ', 'false\n```'] },
+        ],
+      },
+    } as never as SessionEvent
+    reader.setEngine(engineOf([user('任务书'), attempt]))
+    const result = await reader.readDeclareText('sess-1')
+    expect(result.status === 'ok').toBe(true)
+    expect(result.status === 'ok' && result.text).toContain('stageReady: false')
   })
 
   it('setEngine(undefined) 撤线后回落 no-service', async () => {

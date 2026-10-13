@@ -33,6 +33,7 @@ import styles from './view.module.css'
 const SKIP_REASON_KEY: Record<DeclareSkipReason, Parameters<WorkbenchT>[0]> = {
   'bad-shape': 'declare.skip.bad-shape',
   'bad-type': 'declare.skip.bad-type',
+  'bad-severity': 'declare.skip.bad-severity',
   'bad-title': 'declare.skip.bad-title',
   'bad-content': 'declare.skip.bad-content',
   'over-cap': 'declare.skip.over-cap',

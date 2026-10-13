@@ -45,7 +45,7 @@ import type {
 import { planDocPath, reviewDocPath } from './artifact-path.js'
 import { ArtifactStore, contentHashOf } from './artifact-store.js'
 import { scanWorkbenchArtifacts } from './orphan-scan.js'
-import { applyRecordAction, nextReleaseItemId } from './record-actions.js'
+import { applyRecordAction, applyAnalysisSeed, nextReleaseItemId } from './record-actions.js'
 import { parseDeclare } from './declare-parse.js'
 import { parseReviewFindings } from './review-parse.js'
 import type { SessionDeclareReader } from './declare-reader.js'
@@ -196,6 +196,13 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     const existing = current.value.records.find((candidate) => candidate.requirementId === body.requirementId)
     const base = existing ?? emptyRecord(body.requirementId)
 
+    // seedAnalysis (回传轮) is the ONE action with its own flow: its input is
+    // a sessionId and its payload lives in the session log, so the shell owns
+    // the read IO before the pure core (applyRecordAction stays IO-free).
+    // No implicit-create here — seeding requires a prior bindAnalysisSession
+    // (the container names the watched session; a missing record has none).
+    if (body.action === 'seedAnalysis') return seedAnalysisFlow(body, existing, current.value)
+
     // All business guards (target existence, split lock, state-machine
     // legality, referential integrity) live in the pure action core.
     const applied = applyRecordAction(base, body)
@@ -240,6 +247,96 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
         if (!projected) return errorResponse(500, 'internal')
       }
       return json({ ok: true, revision: saved.revision, record: next })
+    } catch (error) {
+      log?.(error)
+      return errorResponse(500, 'internal')
+    }
+  }
+
+  /**
+   * seedAnalysis (回传轮): read the bound session's declare block, parse its
+   * proposal rows, replace the pending batch (idempotency = sessionId +
+   * contentHash anchor inside applyAnalysisSeed). Every NON-committing
+   * outcome answers 200 ZERO-WRITE — {ok, revision, record: existing} with
+   * no banner field, no revision bump — so the watcher retries silently:
+   *   session missing (no-service / not-found / unreadable / no-block) — the
+   *   report may not exist yet; block-level YAML syntax error — advisory,
+   *   the user may re-run the session;
+   *   anchor hit — unchanged (user-deleted rows never resurrect).
+   * Concurrency: the session read is slow IO between load and save — any
+   * interleaved write moves the revision, this save hits stale-revision →
+   * 409, and the client converges by re-opening. A stale success therefore
+   * cannot land out of order.
+   */
+  async function seedAnalysisFlow(
+    body: { expectedRevision: number; requirementId: string; action: 'seedAnalysis'; sessionId: string },
+    existing: WorkbenchRecord | undefined,
+    current: { revision: number; records: readonly WorkbenchRecord[] },
+  ): Promise<Response> {
+    if (existing === undefined
+      || existing.analysis === undefined
+      || existing.analysis.session.sessionId !== body.sessionId) {
+      return errorResponse(404, 'not-found')
+    }
+    let base = existing
+    let sessionId = body.sessionId
+    let read = await services.declareReader.readDeclareText(sessionId)
+    // 回传轮 shell repair (四次诊断): the delivery's created session can be a
+    // config-only SHELL (DSH's send flow materializes the real conversation
+    // under a fresh id). When the bound log holds NO user message at all and
+    // the container carries the task-book anchor, content-address the real
+    // session and swap the pointer in-memory — the swap persists only with a
+    // successful seed (one write path; a miss on the repaired id keeps the
+    // original record and re-runs the search on the next attempt).
+    if (read.status === 'missing' && read.reason === 'no-declare-block' && read.shell === true) {
+      const anchor = existing.analysis.session.anchor
+      const repaired = anchor !== undefined ? await services.declareReader.findTaskbookSession(anchor, sessionId) : undefined
+      if (repaired !== undefined) {
+        const rebound = applyRecordAction(base, {
+          expectedRevision: body.expectedRevision,
+          requirementId: body.requirementId,
+          action: 'bindAnalysisSession',
+          sessionId: repaired,
+        })
+        if (rebound.ok) {
+          base = rebound.record
+          sessionId = repaired
+          read = await services.declareReader.readDeclareText(sessionId)
+        }
+      }
+    }
+    if (read.status !== 'ok') {
+      return json({
+        ok: true,
+        revision: current.revision,
+        record: existing,
+        seedMissing: read.reason,
+        ...(read.scan !== undefined ? { seedScan: read.scan } : {}),
+        ...(read.shell === true ? { seedShell: true } : {}),
+      })
+    }
+    const parsed = parseDeclare({ text: read.text, record: base })
+    if (!parsed.ok) return json({ ok: true, revision: current.revision, record: existing, seedMissing: 'yaml-syntax' })
+    const applied = applyAnalysisSeed(base, {
+      sessionId,
+      contentHash: contentHashOf(read.text),
+      findings: parsed.proposals.findings,
+      criteria: parsed.proposals.criteria,
+    })
+    if (!applied.ok) return errorResponse(applied.status, applied.code)
+    if (applied.unchanged === true) {
+      return json({ ok: true, revision: current.revision, record: applied.record })
+    }
+    const nextRecords = current.records.map((candidate) => (candidate.requirementId === body.requirementId ? applied.record : candidate))
+    try {
+      const saved = await file.save(body.expectedRevision, nextRecords)
+      if (!saved.ok) {
+        if (saved.rejected === 'stale-revision') {
+          return errorResponse(409, 'conflict', { currentRevision: saved.currentRevision })
+        }
+        return errorResponse(409, 'unreadable-file')
+      }
+      return json({ ok: true, revision: saved.revision, record: applied.record })
     } catch (error) {
       log?.(error)
       return errorResponse(500, 'internal')

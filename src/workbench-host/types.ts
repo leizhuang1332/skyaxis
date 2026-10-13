@@ -169,6 +169,40 @@ const StageChangeSchema = z.object({
   note: z.string().max(2000).optional(),
 })
 
+// Analysis proposals (回传轮) — caps per field EQUAL the formal-row caps
+// (finding title 64 / detail 32K; criterion text 2000 / sourceSection 256):
+// parse caps mirror these, so a seeded row always survives load().
+export const ProposedFindingSchema = z.object({
+  id: z.uuid(),
+  category: z.enum(FINDING_CATEGORY_VALUES),
+  severity: z.enum(SEVERITY_VALUES),
+  title: z.string().trim().min(1).max(64),
+  detail: z.string().max(WORKBENCH_INLINE_MAX_CHARS).optional(),
+})
+
+export const ProposedCriterionSchema = z.object({
+  id: z.uuid(),
+  text: z.string().min(1).max(2000),
+  sourceSection: z.string().max(256).optional(),
+})
+
+export const AnalysisProposalsSchema = z.object({
+  session: z.object({
+    sessionId: SessionIdSchema,
+    boundAt: TimestampSchema,
+    anchor: z.string().min(1).max(512).optional(),
+  }),
+  seed: z.object({
+    sessionId: SessionIdSchema,
+    contentHash: ContentHashSchema,
+    seededAt: TimestampSchema,
+    findings: z.number().int().nonnegative(),
+    criteria: z.number().int().nonnegative(),
+  }).optional(),
+  findings: z.array(ProposedFindingSchema),
+  criteria: z.array(ProposedCriterionSchema),
+})
+
 const SplitBaselinePrdSchema = z.object({
   name: z.string().min(1).max(256),
   size: z.number().int().nonnegative(),
@@ -202,6 +236,8 @@ export const WorkbenchRecordSchema = z.object({
   releaseItems: z.array(ReleaseItemSchema),
   reviewReports: z.array(ReviewReportEntrySchema),
   knowledgeCandidates: z.array(KnowledgeCandidateSchema),
+  /** Analysis-proposal container — optional per the field-evolution discipline. */
+  analysis: AnalysisProposalsSchema.optional(),
 })
 
 export const WorkbenchFileSchema = z.object({
@@ -557,6 +593,36 @@ const DismissKnowledgeCandidateSchema = z.object({
   id: z.uuid(),
 })
 
+// Analysis proposals (回传轮). NO proposal content ever rides the wire:
+// seedAnalysis carries only the sessionId and the HOST reads+mints the rows
+// (the P5b「input schema stays two-valued」discipline — a client cannot write
+// a proposal, only rule on host-minted ones).
+const BindAnalysisSessionSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  action: z.literal('bindAnalysisSession'),
+  sessionId: SessionIdSchema,
+  anchor: z.string().min(1).max(512).optional(),
+})
+
+const SeedAnalysisSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  action: z.literal('seedAnalysis'),
+  sessionId: SessionIdSchema,
+})
+
+const ProposalActionSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  id: z.uuid(),
+})
+
+const AdoptFindingProposalSchema = ProposalActionSchema.extend({ action: z.literal('adoptFindingProposal') })
+const DismissFindingProposalSchema = ProposalActionSchema.extend({ action: z.literal('dismissFindingProposal') })
+const AdoptCriterionProposalSchema = ProposalActionSchema.extend({ action: z.literal('adoptCriterionProposal') })
+const DismissCriterionProposalSchema = ProposalActionSchema.extend({ action: z.literal('dismissCriterionProposal') })
+
 export const WorkbenchMutateSchema = z.discriminatedUnion('action', [
   AdvanceStageSchema,
   SaveFindingSchema,
@@ -593,6 +659,12 @@ export const WorkbenchMutateSchema = z.discriminatedUnion('action', [
   ActivateKnowledgeCandidateSchema,
   EditKnowledgeCandidateSchema,
   DismissKnowledgeCandidateSchema,
+  BindAnalysisSessionSchema,
+  SeedAnalysisSchema,
+  AdoptFindingProposalSchema,
+  DismissFindingProposalSchema,
+  AdoptCriterionProposalSchema,
+  DismissCriterionProposalSchema,
 ])
 
 // ---------------------------------------------------------------------------

@@ -220,6 +220,51 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
+/* 回传轮: pending analysis-proposal rows (dashed = awaiting the user's
+   ruling, the addCard "not yet real" cue; formal rows stay solid). */
+.proposalGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.proposalRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 0.5px dashed var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: transparent;
+}
+
+.proposalRowMain {
+  min-width: 0;
+  flex: 1;
+}
+
+.proposalRowTitle {
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.proposalRowDetail {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-secondary);
+  word-break: break-word;
+}
+
+.proposalRowActions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 4px;
+}
+
 /* Dashed whole-card action (the setupCard shape): adding the first finding. */
 .addCard {
   display: flex;

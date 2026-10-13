@@ -294,6 +294,64 @@ export interface SplitBaselinePrd {
   readonly modifiedAt: number
 }
 
+// ---------------------------------------------------------------------------
+// Analysis proposals (回传轮) — the analysis session's report, seeded into
+// the ledger as PENDING rows awaiting the user's ruling. Epistemics = the
+// P5b ReviewVerdict 'proposed' discipline: rows are HOST-MINTED ONLY (the
+// seedAnalysis action reads the session and mints them; no client input
+// schema carries proposal content), never counted by badges/stale/matrix
+// (those read findings[]/criteria[] only), and only user actions promote.
+// ---------------------------------------------------------------------------
+
+export interface WorkbenchProposedFinding {
+  /** host uuid, minted at seed time (adopt mints a FRESH uuid for the formal row — the findings-family habit). */
+  readonly id: string
+  readonly category: WorkbenchFinding['category']
+  readonly severity: WorkbenchFinding['severity']
+  readonly title: string
+  readonly detail?: string
+}
+
+export interface WorkbenchProposedCriterion {
+  readonly id: string
+  readonly text: string
+  readonly sourceSection?: string
+}
+
+/**
+ * SINGLE CONTAINER: the invariant "every row belongs to the container's own
+ * seed" is structural (four sibling optionals would allow legally-typed but
+ * semantically-illegal states). `session` is bound at delivery (re-delivery
+ * only swaps the pointer — the replacement window keeps the old batch until
+ * the new seed lands); `seed` anchors idempotency (same sessionId + hash →
+ * unchanged, deleted rows never resurrect); rows carry NO sessionId/at —
+ * batch provenance lives on `seed` alone and unfolds into
+ * WorkbenchFinding.sessionId at adopt time.
+ */
+export interface WorkbenchAnalysisProposals {
+  readonly session: {
+    readonly sessionId: string
+    readonly boundAt: string
+    /**
+     * Task-book anchor (回传轮 四次诊断): the SOW text's head (~200 chars).
+     * The delivery's created session proved to be a SHELL — DSH's send flow
+     * materializes the real conversation under a fresh id ~2s later — so the
+     * anchor content-addresses the real session when the bound one is a shell
+     * (searchSessions by the anchor text; unique per delivery).
+     */
+    readonly anchor?: string
+  }
+  readonly seed?: {
+    readonly sessionId: string
+    readonly contentHash: string
+    readonly seededAt: string
+    readonly findings: number
+    readonly criteria: number
+  }
+  readonly findings: readonly WorkbenchProposedFinding[]
+  readonly criteria: readonly WorkbenchProposedCriterion[]
+}
+
 export interface WorkbenchRecord {
   /**
    * Join key against requirements.yaml ids — tolerant join, no foreign key
@@ -335,6 +393,11 @@ export interface WorkbenchRecord {
   readonly releaseItems: readonly ReleaseItem[]
   readonly reviewReports: readonly ReviewReportEntry[]
   readonly knowledgeCandidates: readonly KnowledgeCandidate[]
+  /**
+   * Analysis-proposal container (回传轮) — optional per the field-evolution
+   * discipline: pre-round records carry none; absent = never delivered.
+   */
+  readonly analysis?: WorkbenchAnalysisProposals
 }
 
 // ---------------------------------------------------------------------------
@@ -771,6 +834,64 @@ export type WorkbenchMutateRequestBody =
   | ActivateKnowledgeCandidateRequest
   | EditKnowledgeCandidateRequest
   | DismissKnowledgeCandidateRequest
+  | BindAnalysisSessionRequest
+  | SeedAnalysisRequest
+  | AdoptFindingProposalRequest
+  | DismissFindingProposalRequest
+  | AdoptCriterionProposalRequest
+  | DismissCriterionProposalRequest
+
+// ---------------------------------------------------------------------------
+// Analysis-proposal actions (回传轮). The input schemas carry NO proposal
+// CONTENT — rows are minted host-side by seedAnalysis (which reads the
+// session itself), so a client can never write a proposal directly (the
+// P5b「input schema stays two-valued」discipline). bind/seed target the
+// container by sessionId; adopt/dismiss target a row by id.
+// ---------------------------------------------------------------------------
+
+export interface BindAnalysisSessionRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'bindAnalysisSession'
+  readonly sessionId: string
+  /** Task-book anchor head (~200 chars) — rides the delivery bind (see WorkbenchAnalysisProposals.session.anchor). */
+  readonly anchor?: string
+}
+
+export interface SeedAnalysisRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'seedAnalysis'
+  readonly sessionId: string
+}
+
+export interface AdoptFindingProposalRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'adoptFindingProposal'
+  readonly id: string
+}
+
+export interface DismissFindingProposalRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'dismissFindingProposal'
+  readonly id: string
+}
+
+export interface AdoptCriterionProposalRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'adoptCriterionProposal'
+  readonly id: string
+}
+
+export interface DismissCriterionProposalRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'dismissCriterionProposal'
+  readonly id: string
+}
 
 // ---------------------------------------------------------------------------
 // Knowledge base (P2) — a SEPARATE route with its own action union and its
@@ -930,6 +1051,7 @@ export type ReviewSkipReason =
 export type DeclareSkipReason =
   | 'bad-shape'
   | 'bad-type'
+  | 'bad-severity'
   | 'bad-title'
   | 'bad-content'
   | 'over-cap'
@@ -1100,10 +1222,24 @@ export interface WorkbenchDetailResponseOk {
   readonly releaseDrifted: readonly string[]
 }
 
+/**
+ * seedAnalysis advisory (回传轮 observability): the ZERO-WRITE outcomes carry
+ * WHY nothing was collected, so the waiting row can disclose it instead of
+ * failing silently (the diagnosis round's lesson —「not written yet」and
+ * 「written but unreadable」were indistinguishable). Optional on the shared
+ * save envelope; only seedAnalysis ever sets it.
+ */
+export type SeedMissingReason = DeclareFetchMissing | 'yaml-syntax'
+
 export interface WorkbenchSaveResponseOk {
   readonly ok: true
   readonly revision: number
   readonly record: WorkbenchRecord
+  readonly seedMissing?: SeedMissingReason
+  /** Declare-reader scan fingerprint, attached to the no-declare-block miss only. */
+  readonly seedScan?: string
+  /** True when the bound log held NO user message — the delivery SHELL (drives the client-side legacy repair). */
+  readonly seedShell?: boolean
 }
 
 export interface ArtifactWriteResponseOk {
@@ -1356,6 +1492,53 @@ function isKnowledgeCandidate(v: unknown): v is KnowledgeCandidate {
   )
 }
 
+function isWorkbenchProposedFinding(v: unknown): v is WorkbenchProposedFinding {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  return (
+    isString(r.id) && r.id.length > 0
+    && isString(r.category) && FINDING_CATEGORIES.includes(r.category)
+    && isString(r.severity) && SEVERITIES.includes(r.severity)
+    && isString(r.title) && r.title.length > 0
+    && (r.detail === undefined || isString(r.detail))
+  )
+}
+
+function isWorkbenchProposedCriterion(v: unknown): v is WorkbenchProposedCriterion {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  return (
+    isString(r.id) && r.id.length > 0
+    && isString(r.text) && r.text.length > 0
+    && (r.sourceSection === undefined || isString(r.sourceSection))
+  )
+}
+
+function isWorkbenchAnalysisProposals(v: unknown): v is WorkbenchAnalysisProposals {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  const session = typeof r.session === 'object' && r.session !== null ? r.session as Record<string, unknown> : null
+  if (session === null
+    || !isString(session.sessionId) || session.sessionId.length === 0
+    || !isString(session.boundAt)) return false
+  if (r.seed !== undefined) {
+    const s = r.seed as Record<string, unknown>
+    // Read-side leniency on contentHash (the releaseItem.contentHash habit):
+    // presence + non-empty string, never format-checked on the wire.
+    if (
+      !isString(s.sessionId) || s.sessionId.length === 0
+      || !isString(s.contentHash) || s.contentHash.length === 0
+      || !isString(s.seededAt)
+      || typeof s.findings !== 'number' || typeof s.criteria !== 'number'
+    ) return false
+  }
+  if (session.anchor !== undefined && (!isString(session.anchor) || session.anchor.length === 0 || session.anchor.length > 512)) return false
+  return (
+    Array.isArray(r.findings) && r.findings.every(isWorkbenchProposedFinding)
+    && Array.isArray(r.criteria) && r.criteria.every(isWorkbenchProposedCriterion)
+  )
+}
+
 function isWorkbenchStageChange(v: unknown): v is WorkbenchStageChange {
   if (typeof v !== 'object' || v === null) return false
   const r = v as Record<string, unknown>
@@ -1398,6 +1581,7 @@ export function isWorkbenchRecord(v: unknown): v is WorkbenchRecord {
     && Array.isArray(r.releaseItems) && r.releaseItems.every(isReleaseItem)
     && Array.isArray(r.reviewReports) && r.reviewReports.every(isReviewReportEntry)
     && Array.isArray(r.knowledgeCandidates) && r.knowledgeCandidates.every(isKnowledgeCandidate)
+    && (r.analysis === undefined || isWorkbenchAnalysisProposals(r.analysis))
   )
 }
 
@@ -1446,7 +1630,14 @@ export function isWorkbenchDetailResponse(v: unknown): v is WorkbenchDetailRespo
 export function isWorkbenchSaveResponseOk(v: unknown): v is WorkbenchSaveResponseOk {
   if (typeof v !== 'object' || v === null) return false
   const r = v as Record<string, unknown>
-  return r.ok === true && typeof r.revision === 'number' && isWorkbenchRecord(r.record)
+  if (r.ok !== true || typeof r.revision !== 'number' || !isWorkbenchRecord(r.record)) return false
+  if (r.seedMissing !== undefined) {
+    const reasons = ['no-service', 'not-found', 'unreadable', 'no-declare-block', 'yaml-syntax']
+    if (typeof r.seedMissing !== 'string' || !reasons.includes(r.seedMissing)) return false
+  }
+  if (r.seedScan !== undefined && typeof r.seedScan !== 'string') return false
+  if (r.seedShell !== undefined && typeof r.seedShell !== 'boolean') return false
+  return true
 }
 
 export function isArtifactWriteResponseOk(v: unknown): v is ArtifactWriteResponseOk {
@@ -1590,7 +1781,7 @@ export function isWorkbenchKnowledgeSaveResponseOk(v: unknown): v is WorkbenchKn
 
 const DECLARE_FETCH_MISSING = ['no-service', 'not-found', 'unreadable', 'no-declare-block']
 const REVIEW_FETCH_MISSING = ['no-service', 'not-found', 'unreadable', 'no-review-block']
-const DECLARE_SKIP_REASONS = ['bad-shape', 'bad-type', 'bad-title', 'bad-content', 'over-cap', 'bad-envs', 'wp-not-found', 'wp-not-in-dev']
+const DECLARE_SKIP_REASONS = ['bad-shape', 'bad-type', 'bad-severity', 'bad-title', 'bad-content', 'over-cap', 'bad-envs', 'wp-not-found', 'wp-not-in-dev']
 const DECLARE_ENTRY_TYPES = ['sql', 'config', 'flag', 'mq', 'other']
 const DECLARE_KNOWLEDGE_TYPES = ['business', 'convention']
 

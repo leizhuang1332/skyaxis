@@ -33,6 +33,15 @@ interface WorkbenchDictionary {
   readonly 'page.degraded': string
   readonly 'page.degradedBackupHint': string
   readonly 'page.loadError': string
+  readonly 'proposal.adopt': string
+  readonly 'proposal.criteriaTitle': string
+  readonly 'proposal.dismiss': string
+  readonly 'proposal.findingsTitle': string
+  readonly 'proposal.lockedHint': string
+  readonly 'proposal.retry': string
+  readonly 'proposal.scanPrefix': string
+  readonly 'proposal.sourcePrefix': string
+  readonly 'proposal.waitingHint': string
   // empty.* — first use (record null)
   readonly 'empty.firstUseHint': string
   // advance.* — stage advance control (pure user prerogative, no modal)
@@ -393,6 +402,7 @@ interface WorkbenchDictionary {
   readonly 'declare.reparseButton': string
   readonly 'declare.skip.bad-shape': string
   readonly 'declare.skip.bad-type': string
+  readonly 'declare.skip.bad-severity': string
   readonly 'declare.skip.bad-title': string
   readonly 'declare.skip.bad-content': string
   readonly 'declare.skip.over-cap': string
@@ -454,6 +464,17 @@ interface WorkbenchDictionary {
 
 export type WorkbenchT = (key: keyof WorkbenchDictionary) => string
 
+/** 回传轮: seed zero-write reason → hint key (reuses the declare.fetch* copy —
+ *  the S5 modal phrases fit verbatim). The {n} placeholder in blockYamlSyntax
+ *  has no line number on this face; renderers replace it with '?'. */
+export const SEED_MISS_KEY: Readonly<Record<'no-service' | 'not-found' | 'unreadable' | 'no-declare-block' | 'yaml-syntax', keyof WorkbenchDictionary>> = {
+  'no-service': 'declare.fetchNoService',
+  'not-found': 'declare.fetchNotFound',
+  'unreadable': 'declare.fetchUnreadable',
+  'no-declare-block': 'declare.fetchNoBlock',
+  'yaml-syntax': 'declare.blockYamlSyntax',
+}
+
 const zh: WorkbenchDictionary = {
   'detail.tab.aiWorkbench': 'AI 工作台',
   'workbench.railLabel': '工作流阶段',
@@ -472,6 +493,15 @@ const zh: WorkbenchDictionary = {
   'page.loading': '正在加载 AI 工作台…',
   'page.degraded': 'AI 工作台账本文件不可读（可能已损坏）。',
   'page.degradedBackupHint': '可从 $DSH_HOME/skyaxis/ 下同名 .bak 文件手动恢复；修复前拒绝写入以保护现场。',
+  'proposal.adopt': '采纳',
+  'proposal.criteriaTitle': '待裁决标准提议（分析会话）',
+  'proposal.dismiss': '不采',
+  'proposal.findingsTitle': '待裁决发现提议（分析会话）',
+  'proposal.lockedHint': '拆分已批准：标准提议的【采纳】待解锁（撤销批准/重新拆分后可采），【不采】不受影响。',
+  'proposal.retry': '重新收取',
+  'proposal.scanPrefix': '收取扫描：',
+  'proposal.sourcePrefix': '来源会话 {id}…',
+  'proposal.waitingHint': '分析会话的报告尚未收取——会话收尾后自动收为待裁决行；若会话已被删除，可重新投递。',
   'page.loadError': 'AI 工作台数据加载失败。',
   'empty.firstUseHint': '本需求尚未启用 AI 工作台：登记第一条发现即建立工作台记录，之后可推进阶段。',
   'advance.stage': '完成本阶段 →',
@@ -815,6 +845,7 @@ const zh: WorkbenchDictionary = {
   'declare.reparseButton': '重新解析',
   'declare.skip.bad-shape': '行结构不合法',
   'declare.skip.bad-type': 'type 不在允许枚举内',
+  'declare.skip.bad-severity': 'severity 不在 high|medium|low 枚举内',
   'declare.skip.bad-title': '标题缺失或超过 64 字',
   'declare.skip.bad-content': '内容缺失',
   'declare.skip.over-cap': '内容超过 32K 上限',
@@ -888,6 +919,15 @@ const en: WorkbenchDictionary = {
   'page.loading': 'Loading the AI workbench…',
   'page.degraded': 'The AI workbench ledger file is unreadable (possibly corrupted).',
   'page.degradedBackupHint': 'Restore manually from the matching .bak file under $DSH_HOME/skyaxis/; writes stay refused until fixed to preserve the scene.',
+  'proposal.adopt': 'Adopt',
+  'proposal.criteriaTitle': 'Pending criterion proposals (analysis session)',
+  'proposal.dismiss': 'Reject',
+  'proposal.findingsTitle': 'Pending finding proposals (analysis session)',
+  'proposal.lockedHint': 'Split approved: adopting criterion proposals waits until the list unlocks (revoke/re-split); rejecting stays open.',
+  'proposal.retry': 'Retry collection',
+  'proposal.scanPrefix': 'scan: ',
+  'proposal.sourcePrefix': 'from session {id}…',
+  'proposal.waitingHint': 'The analysis session\'s report has not been collected yet — it lands here as pending rows once the session finishes; re-deliver if the session was deleted.',
   'page.loadError': 'Failed to load AI workbench data.',
   'empty.firstUseHint': 'The AI workbench is not enabled for this requirement yet: recording the first finding creates the workbench record; stages can be advanced afterwards.',
   'advance.stage': 'Complete stage →',
@@ -1231,6 +1271,7 @@ const en: WorkbenchDictionary = {
   'declare.reparseButton': 'Re-parse',
   'declare.skip.bad-shape': 'malformed row',
   'declare.skip.bad-type': 'type outside the allowed enum',
+  'declare.skip.bad-severity': 'severity outside high|medium|low',
   'declare.skip.bad-title': 'title missing or over 64 chars',
   'declare.skip.bad-content': 'content missing',
   'declare.skip.over-cap': 'content over the 32K cap',

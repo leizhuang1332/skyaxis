@@ -29,6 +29,7 @@ import type {
   DeclareKnowledgeEntry,
   DeclareSkip,
   DeclareSkipReason,
+  WorkbenchFinding,
   WorkbenchRecord,
 } from '../workbench-shared/protocol.js'
 import { WORKBENCH_INLINE_MAX_CHARS } from '../workbench-shared/protocol.js'
@@ -40,12 +41,46 @@ import { asString, errorLine, findMarkerFence, isRecord, rowLabel } from './fenc
 const DECLARE_MARKER = '# skyaxis-declare'
 const RELEASE_TYPES: readonly string[] = ['sql', 'config', 'flag', 'mq', 'other']
 const KNOWLEDGE_TYPES: readonly string[] = ['business', 'convention']
+const FINDING_CATEGORIES: readonly string[] = ['feasibility', 'conflict', 'compatibility', 'risk', 'capacity', 'other']
+const SEVERITIES: readonly string[] = ['high', 'medium', 'low']
+
+/**
+ * One parsed FINDING proposal (analysis declare block) — CONTENT only: the
+ * host mints the ledger row id at seed time, so the parse stays reusable and
+ * the input side never carries an id it could forge.
+ */
+export interface DeclareFindingRow {
+  readonly category: WorkbenchFinding['category']
+  readonly severity: WorkbenchFinding['severity']
+  readonly title: string
+  readonly detail?: string
+}
+
+/** One parsed CRITERION proposal (analysis declare block) — content only, same discipline. */
+export interface DeclareCriterionRow {
+  readonly text: string
+  readonly sourceSection?: string
+}
+
+/**
+ * Analysis proposals ride DeclareParseSuccess as a SEPARATE field, never
+ * inside entries[]: entries are the S5 import-preview wire face (declare
+ * preview response + import modal default-checks every non-duplicate entry),
+ * and proposal rows have no commit path there — the seedAnalysis flow is
+ * their only consumer. Keeping them out means the S5 wire and modal stay
+ * byte-identical whether or not a block carries proposals.
+ */
+export interface DeclareProposals {
+  readonly findings: readonly DeclareFindingRow[]
+  readonly criteria: readonly DeclareCriterionRow[]
+}
 
 export interface DeclareParseSuccess {
   ok: true
   entries: readonly DeclareEntry[]
   skipped: readonly DeclareSkip[]
   stageReady: boolean
+  readonly proposals: DeclareProposals
 }
 
 export interface DeclareParseBlockError {
@@ -198,5 +233,75 @@ export function parseDeclare(input: { text: string; record: WorkbenchRecord }): 
     entries.push({ kind: 'knowledge', key, type: type as DeclareKnowledgeEntry['type'], title, draft, duplicate } satisfies DeclareKnowledgeEntry)
   })
 
-  return { ok: true, entries, skipped, stageReady: doc.stageReady === true }
+  // --- analysis proposals (findings / criteria) — parse caps MUST equal the
+  // storage caps (finding title 1..64 / detail 32K; criterion text 2000 /
+  // sourceSection 256): an over-cap row the host minted into the ledger
+  // would poison the whole workbench.yaml on next load (the nextReleaseItemId
+  // lesson). Over-cap rows are SKIPPED, never truncated — truncation is a
+  // silent data edit.
+  const findings: DeclareFindingRow[] = []
+  const findingRows = Array.isArray(doc.findings) ? doc.findings : []
+  findingRows.forEach((row, index) => {
+    const key = `finding-${index}`
+    if (!isRecord(row)) {
+      skipped.push(skipOf(key, rowLabel(row), 'bad-shape'))
+      return
+    }
+    const category = asString(row.category)
+    if (category === undefined || !FINDING_CATEGORIES.includes(category)) {
+      skipped.push(skipOf(key, rowLabel(row), 'bad-type'))
+      return
+    }
+    const severity = asString(row.severity)
+    if (severity === undefined || !SEVERITIES.includes(severity)) {
+      skipped.push(skipOf(key, rowLabel(row), 'bad-severity'))
+      return
+    }
+    const title = asString(row.title)?.trim()
+    if (title === undefined || title.length === 0 || title.length > 64) {
+      skipped.push(skipOf(key, rowLabel(row), 'bad-title'))
+      return
+    }
+    const detailRaw = asString(row.detail)?.trim()
+    if (detailRaw !== undefined && detailRaw.length > WORKBENCH_INLINE_MAX_CHARS) {
+      skipped.push(skipOf(key, title, 'over-cap'))
+      return
+    }
+    findings.push({
+      category: category as WorkbenchFinding['category'],
+      severity: severity as WorkbenchFinding['severity'],
+      title,
+      ...(detailRaw !== undefined && detailRaw.length > 0 ? { detail: detailRaw } : {}),
+    })
+  })
+
+  const criteria: DeclareCriterionRow[] = []
+  const criterionRows = Array.isArray(doc.criteria) ? doc.criteria : []
+  criterionRows.forEach((row, index) => {
+    const key = `criterion-${index}`
+    if (!isRecord(row)) {
+      skipped.push(skipOf(key, rowLabel(row), 'bad-shape'))
+      return
+    }
+    const text = asString(row.text)?.trim()
+    if (text === undefined || text.length === 0) {
+      skipped.push(skipOf(key, rowLabel(row), 'bad-content'))
+      return
+    }
+    if (text.length > 2000) {
+      skipped.push(skipOf(key, rowLabel(row), 'over-cap'))
+      return
+    }
+    const sourceRaw = asString(row.sourceSection)?.trim()
+    if (sourceRaw !== undefined && sourceRaw.length > 256) {
+      skipped.push(skipOf(key, rowLabel(row), 'over-cap'))
+      return
+    }
+    criteria.push({
+      text,
+      ...(sourceRaw !== undefined && sourceRaw.length > 0 ? { sourceSection: sourceRaw } : {}),
+    })
+  })
+
+  return { ok: true, entries, skipped, stageReady: doc.stageReady === true, proposals: { findings, criteria } }
 }

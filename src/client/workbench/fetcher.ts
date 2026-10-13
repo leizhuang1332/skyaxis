@@ -27,6 +27,7 @@ import type {
   PlanFileExistsRow,
   ReviewFileExistsRow,
   ReviewFetchResponse,
+  SeedMissingReason,
   SplitBaselinePrd,
   WorkbenchFinding,
   WorkbenchKnowledgeListResponse,
@@ -85,7 +86,7 @@ export type WorkbenchDetailResult =
   | WorkbenchFailure
 
 export type WorkbenchMutateResult =
-  | { readonly kind: 'ok'; readonly revision: number; readonly record: WorkbenchRecord }
+  | { readonly kind: 'ok'; readonly revision: number; readonly record: WorkbenchRecord; readonly seedMissing?: SeedMissingReason; readonly seedScan?: string; readonly seedShell?: boolean }
   | WorkbenchFailure
 
 export type WorkbenchArtifactWriteResult =
@@ -183,7 +184,14 @@ export function createWorkbenchFetcher() {
       const parsed: unknown = await response.json()
       if (!isWorkbenchSaveResponseOk(parsed)) return { kind: 'http-error', status: response.status }
       const ok: WorkbenchSaveResponseOk = parsed
-      return { kind: 'ok', revision: ok.revision, record: ok.record }
+      return {
+        kind: 'ok',
+        revision: ok.revision,
+        record: ok.record,
+        ...(ok.seedMissing !== undefined ? { seedMissing: ok.seedMissing } : {}),
+        ...(ok.seedScan !== undefined ? { seedScan: ok.seedScan } : {}),
+        ...(ok.seedShell !== undefined ? { seedShell: ok.seedShell } : {}),
+      }
     },
 
     async advanceStage(requirementId: string, expectedRevision: number, stage: WorkbenchRecord['stage'], note?: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
@@ -382,6 +390,33 @@ export function createWorkbenchFetcher() {
 
     async removeFinding(requirementId: string, expectedRevision: number, id: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
       return this.mutate({ expectedRevision, requirementId, action: 'removeFinding', id }, signal)
+    },
+
+    // --- 回传轮: analysis proposals (bind/seed target the container; adopt/
+    // dismiss target a host-minted row by id — no proposal content rides the wire) ---
+
+    async bindAnalysisSession(requirementId: string, expectedRevision: number, sessionId: string, anchor?: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'bindAnalysisSession', sessionId, ...(anchor !== undefined ? { anchor } : {}) }, signal)
+    },
+
+    async seedAnalysis(requirementId: string, expectedRevision: number, sessionId: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'seedAnalysis', sessionId }, signal)
+    },
+
+    async adoptFindingProposal(requirementId: string, expectedRevision: number, id: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'adoptFindingProposal', id }, signal)
+    },
+
+    async dismissFindingProposal(requirementId: string, expectedRevision: number, id: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'dismissFindingProposal', id }, signal)
+    },
+
+    async adoptCriterionProposal(requirementId: string, expectedRevision: number, id: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'adoptCriterionProposal', id }, signal)
+    },
+
+    async dismissCriterionProposal(requirementId: string, expectedRevision: number, id: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'dismissCriterionProposal', id }, signal)
     },
 
     async writePlan(requirementId: string, workPackageId: string, text: string, expectedRevision: number, note?: string, signal?: AbortSignal): Promise<WorkbenchArtifactWriteResult> {

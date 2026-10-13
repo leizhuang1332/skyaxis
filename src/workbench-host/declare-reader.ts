@@ -30,21 +30,62 @@ const REVIEW_MARKER = '# skyaxis-review'
 /** Minimal local shape of ctx.sessionQuery (package not in store — see file header). */
 export interface SessionQueryLike {
   readSession(sessionId: string): Promise<{ events: readonly SessionEvent[] }>
+  /**
+   * 回传轮 shell repair: cross-session full-text search (the real engine's
+   * searchSessions — "query text interpreted as data, never executable FTS
+   * syntax"). Structurally optional: older engine builds lack it and the
+   * repair degrades honestly to the disclosed miss.
+   */
+  searchSessions?(request: { query: string; limit?: number }): Promise<{ items: readonly { header: { id: string; createdAt?: number } }[] }>
 }
 
 export type DeclareReadResult =
   | { status: 'ok'; text: string }
-  | { status: 'missing'; reason: 'no-service' | 'not-found' | 'unreadable' | 'no-declare-block' }
+  | {
+    status: 'missing'
+    reason: 'no-service' | 'not-found' | 'unreadable' | 'no-declare-block'
+    /**
+     * 回传轮 observability: a compact language-neutral fingerprint of what
+     * the scan DID see, attached only to the no-declare-block miss (the
+     * diagnosis blind spot — "no block" turned out to hide several distinct
+     * wild shapes). Shape: events=<n> [<type:count,…>] chars=<n> fences=<n>
+     * unclosed=<0|1> markers=<n>.
+     */
+    scan?: string
+    /** True when the read log contains NO user/message at all — the delivery SHELL (四次诊断). */
+    shell?: boolean
+  }
 
 export type ReviewReadResult =
   | { status: 'ok'; text: string }
   | { status: 'missing'; reason: 'no-service' | 'not-found' | 'unreadable' | 'no-review-block' }
 
-/** Text of one assistant/message event — its text content blocks joined (reasoning/tool blocks contribute nothing). */
+/** Text of one assistant-surface event — its text content blocks joined (reasoning/tool blocks contribute nothing). */
 function assistantText(event: SessionEvent): string {
+  if (event.type === 'assistant/attempt') {
+    // 三次诊断: an attempt that committed no surface message still embeds
+    // its EXACT stream — a cancelled / stream-error turn's delivered text
+    // lives here and nowhere else (types.d.ts: "failed, retried, cancelled,
+    // or stream-error attempt"). Join the text-chunks records.
+    const stream = (event.data as { stream?: unknown }).stream
+    if (!Array.isArray(stream)) return ''
+    const parts: string[] = []
+    for (const record of stream) {
+      if ((record as { type?: unknown } | null)?.type !== 'text-chunks') continue
+      const texts = (record as { texts?: unknown }).texts
+      if (!Array.isArray(texts)) continue
+      for (const text of texts) {
+        if (typeof text === 'string') parts.push(text)
+      }
+    }
+    return parts.join('')
+  }
   if (event.type !== 'assistant/message') return ''
   const message = (event.data as { message?: { content?: unknown } }).message
   const content = message?.content
+  // 二次诊断 tolerance: some pipelines serialize a single-part message's
+  // content as a plain STRING, not a block array — accept both shapes.
+  if (typeof content === 'string') return content
   if (!Array.isArray(content)) return ''
   const parts: string[] = []
   for (const block of content) {
@@ -84,14 +125,52 @@ export class SessionDeclareReader {
       const located = locate(assistantText(events[index]!))
       if (located !== null) return { status: 'ok', text: located }
     }
-    return { status: 'missing', reason: 'none' }
+    return { status: 'missing', reason: 'none', events }
   }
 
   /** Declare fetch: hands back the FENCE BODY (the declare block is the payload). */
   async readDeclareText(sessionId: string): Promise<DeclareReadResult> {
     const result = await this.#scan(sessionId, (text) => findDeclareFence(text))
     if (result.status === 'ok') return result
-    return { status: 'missing', reason: result.reason === 'none' ? 'no-declare-block' : result.reason }
+    if (result.reason === 'none') {
+      const events = result.events
+      return {
+        status: 'missing',
+        reason: 'no-declare-block',
+        scan: scanFingerprint(events, '# skyaxis-declare'),
+        shell: !events.some((event) => event.type === 'user/message'),
+      }
+    }
+    return { status: 'missing', reason: result.reason }
+  }
+
+  /**
+   * 回传轮 shell repair: content-address the REAL conversation session by
+   * the delivered task book's anchor text. The engine's cross-session search
+   * returns hits ranked by strongest event; we exclude the shell itself and
+   * take the NEWEST remaining header (re-deliveries of the same requirement
+   * produce same-anchor sessions — newest wins, mirroring ruling ②). Absent
+   * engine face / search failure / no hits ⇒ undefined (caller keeps the
+   * disclosed miss).
+   */
+  async findTaskbookSession(anchor: string, excludeSessionId: string): Promise<string | undefined> {
+    const search = this.#engine?.searchSessions
+    if (search === undefined) return undefined
+    let page: { items: readonly { header: { id: string; createdAt?: number } }[] }
+    try {
+      page = await search.call(this.#engine, { query: anchor, limit: 8 })
+    } catch {
+      return undefined
+    }
+    const candidates = page.items
+      .map((item) => item?.header)
+      .filter((header): header is { id: string; createdAt?: number } => header !== undefined && typeof header.id === 'string' && header.id.length > 0 && header.id !== excludeSessionId)
+    if (candidates.length === 0) return undefined
+    let best = candidates[0]!
+    for (const candidate of candidates) {
+      if ((candidate.createdAt ?? 0) > (best.createdAt ?? 0)) best = candidate
+    }
+    return best.id
   }
 
   /**
@@ -110,7 +189,49 @@ export class SessionDeclareReader {
   }
 }
 
-/** Internal scan outcome — 'none' means "engine read fine, no match". */
+/** Internal scan outcome — 'none' means "engine read fine, no match" (events ride along for the fingerprint). */
 type ScanResult =
   | { status: 'ok'; text: string }
-  | { status: 'missing'; reason: 'no-service' | 'not-found' | 'unreadable' | 'none' }
+  | { status: 'missing'; reason: 'no-service' | 'not-found' | 'unreadable' }
+  | { status: 'missing'; reason: 'none'; events: readonly SessionEvent[] }
+
+/**
+ * Compact scan fingerprint for the no-declare-block miss (see DeclareReadResult.scan):
+ * an event-TYPE histogram (三次诊断 — assistant=0 with 4 events was only
+ * half a diagnosis; the histogram names the shapes) plus marker mentions
+ * over ALL assistant texts (any column, even prose) and fence stats of the
+ * LAST assistant text, so the remaining wild shapes (subagent-authored
+ * report / wrong session id / indented block / mis-shaped fences) are
+ * tellable apart from the UI line alone.
+ */
+function scanFingerprint(events: readonly SessionEvent[], marker: string): string {
+  const needle = marker.replace(/^#\s+/, '')
+  const counts = new Map<string, number>()
+  let markers = 0
+  let last = ''
+  for (const event of events) {
+    counts.set(event.type, (counts.get(event.type) ?? 0) + 1)
+    if (event.type !== 'assistant/message' && event.type !== 'assistant/attempt') continue
+    const text = assistantText(event)
+    for (const line of text.split(/\r?\n/)) {
+      if (line.includes(needle)) markers += 1
+    }
+    last = text
+  }
+  const types = [...counts.entries()].map(([type, count]) => `${type}:${count}`).join(',')
+  let fences = 0
+  let unclosed = false
+  let inFence = false
+  for (const line of last.split(/\r?\n/)) {
+    if (inFence) {
+      if (/^```\s*$/.test(line)) {
+        fences += 1
+        inFence = false
+      }
+      continue
+    }
+    if (/^```[A-Za-z0-9_-]*\s*$/.test(line)) inFence = true
+  }
+  if (inFence) unclosed = true
+  return `events=${events.length} [${types}] chars=${last.length} fences=${fences} unclosed=${unclosed ? 1 : 0} markers=${markers}`
+}

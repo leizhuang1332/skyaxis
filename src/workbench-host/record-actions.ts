@@ -133,7 +133,107 @@ export function applyRecordAction(base: WorkbenchRecord, body: WorkbenchMutateRe
     return { ok: true, record: { ...base, findings: base.findings.filter((finding) => finding.id !== body.id) } }
   }
 
-  // Everything below this line is under the split contract's shadow.
+  // Analysis proposals (回传轮) — findings-family territory: outside the
+  // split contract, EXCEPT adoptCriterionProposal (writing criteria[] is the
+  // frozen 清单×coverage contract itself — the user-ratified lock).
+  if (body.action === 'bindAnalysisSession') {
+    // Same id → unchanged (repeat-bind precedent, no revision churn); a
+    // DIFFERENT id only swaps the pointer — the old batch survives until the
+    // new seed lands (the replacement window: rows in flight stay rulable).
+    // The anchor rides along when supplied; absent keeps the stored one (the
+    // shell-repair rebind has no fresh anchor to offer).
+    const anchor = body.anchor ?? base.analysis?.session.anchor
+    if (base.analysis?.session.sessionId === body.sessionId && base.analysis.session.anchor === anchor) {
+      return { ok: true, record: base, unchanged: true }
+    }
+    if (base.analysis?.session.sessionId === body.sessionId) {
+      return {
+        ok: true,
+        record: { ...base, analysis: { ...base.analysis, session: { ...base.analysis.session, ...(anchor !== undefined ? { anchor } : {}) } } },
+      }
+    }
+    return {
+      ok: true,
+      record: {
+        ...base,
+        analysis: {
+          session: { sessionId: body.sessionId, boundAt: now(), ...(anchor !== undefined ? { anchor } : {}) },
+          ...(base.analysis?.seed !== undefined ? { seed: base.analysis.seed } : {}),
+          findings: base.analysis?.findings ?? [],
+          criteria: base.analysis?.criteria ?? [],
+        },
+      },
+    }
+  }
+  if (body.action === 'adoptFindingProposal' || body.action === 'dismissFindingProposal') {
+    const container = base.analysis
+    if (container === undefined) return fail(404, 'not-found')
+    const row = container.findings.find((proposal) => proposal.id === body.id)
+    if (row === undefined) return fail(404, 'not-found')
+    if (body.action === 'dismissFindingProposal') {
+      return {
+        ok: true,
+        record: { ...base, analysis: { ...container, findings: container.findings.filter((proposal) => proposal.id !== body.id) } },
+      }
+    }
+    // Adopt: a FRESH uuid for the formal row (never the proposal's — the
+    // findings-family habit), sessionId unfolds from the batch anchor. In the
+    // replacement window (new session bound, old batch still rulable) the
+    // anchor names the batch the row actually came from.
+    const created: WorkbenchFinding = {
+      id: randomUUID(),
+      category: row.category,
+      severity: row.severity,
+      title: row.title,
+      detail: row.detail ?? '',
+      status: 'open',
+      sessionId: container.seed?.sessionId ?? container.session.sessionId,
+      createdAt: now(),
+    }
+    return {
+      ok: true,
+      record: {
+        ...base,
+        findings: [...base.findings, created],
+        analysis: { ...container, findings: container.findings.filter((proposal) => proposal.id !== body.id) },
+      },
+    }
+  }
+  if (body.action === 'adoptCriterionProposal' || body.action === 'dismissCriterionProposal') {
+    const container = base.analysis
+    if (container === undefined) return fail(404, 'not-found')
+    const row = container.criteria.find((proposal) => proposal.id === body.id)
+    if (row === undefined) return fail(404, 'not-found')
+    if (body.action === 'dismissCriterionProposal') {
+      return {
+        ok: true,
+        record: { ...base, analysis: { ...container, criteria: container.criteria.filter((proposal) => proposal.id !== body.id) } },
+      }
+    }
+    // adoptCriterionProposal sits UNDER the split lock — it writes criteria[],
+    // which is exactly the frozen contract (saveCriterion's own gate; ruling
+    // ⑤ of the 回传轮: a locked list admits no side door).
+    if (base.splitApprovedAt !== undefined) return fail(400, 'locked-split')
+    const created: WorkbenchCriterion = {
+      id: nextSequenceId(base.criteria.map((criterion) => criterion.id), 'C'),
+      text: row.text,
+      ...(row.sourceSection !== undefined ? { sourceSection: row.sourceSection } : {}),
+      coveredBy: [], // a new row has no covering work package yet (recompute is a no-op at [])
+    }
+    return {
+      ok: true,
+      record: {
+        ...base,
+        criteria: [...base.criteria, created],
+        analysis: { ...container, criteria: container.criteria.filter((proposal) => proposal.id !== body.id) },
+      },
+    }
+  }
+
+  // Everything below this line is under the split contract's shadow. (The
+  // one analysis-family exception — adoptCriterionProposal — handled above
+  // carries its own inline lock check: writing criteria[] IS the frozen
+  // 清单×coverage contract, ruling ⑤ of the 回传轮.)
   const splitLocked = base.splitApprovedAt !== undefined
 
   if (body.action === 'approveSplit') {
@@ -760,4 +860,67 @@ function reviewVerdictEquivalent(a: ReviewVerdict, b: ReviewVerdict): boolean {
     && a.verdict === b.verdict
     && a.disposition === b.disposition
     && a.note === b.note
+}
+
+/**
+ * applyAnalysisSeed (回传轮) — the PURE core of seedAnalysis: the endpoint
+ * shell owns the session-read IO (applyRecordAction stays IO-free) and hands
+ * the parsed proposals + the declare-block hash here.
+ *
+ * Semantics (rulings ①②): an anchor hit (same sessionId AND contentHash)
+ * is an UNCHANGED no-op — user-deleted/adopted rows never resurrect on a
+ * watcher replay; any other seed REPLACES both proposal arrays wholesale
+ * (unadjudicated proposals belong to the LATEST analysis; adopted formal
+ * rows live in findings[]/criteria[] and are untouched). An EMPTY batch
+ * (0+0, e.g. the report carried only knowledge/stageReady) still stamps the
+ * anchor — without it, every sessions-list flip would re-read the session
+ * forever. blockError / missing-session reads never reach this function
+ * (the shell returns 200 zero-write for those, keeping the retry path open).
+ */
+export interface AnalysisSeedInput {
+  readonly sessionId: string
+  readonly contentHash: string
+  readonly findings: readonly {
+    readonly category: WorkbenchFinding['category']
+    readonly severity: WorkbenchFinding['severity']
+    readonly title: string
+    readonly detail?: string
+  }[]
+  readonly criteria: readonly {
+    readonly text: string
+    readonly sourceSection?: string
+  }[]
+}
+
+export function applyAnalysisSeed(base: WorkbenchRecord, input: AnalysisSeedInput): RecordActionResult {
+  const container = base.analysis
+  if (container === undefined || container.session.sessionId !== input.sessionId) {
+    return fail(404, 'not-found')
+  }
+  if (container.seed !== undefined && container.seed.sessionId === input.sessionId && container.seed.contentHash === input.contentHash) {
+    return { ok: true, record: base, unchanged: true }
+  }
+  const at = now()
+  return {
+    ok: true,
+    record: {
+      ...base,
+      analysis: {
+        ...container,
+        seed: { sessionId: input.sessionId, contentHash: input.contentHash, seededAt: at, findings: input.findings.length, criteria: input.criteria.length },
+        findings: input.findings.map((row) => ({
+          id: randomUUID(),
+          category: row.category,
+          severity: row.severity,
+          title: row.title,
+          ...(row.detail !== undefined ? { detail: row.detail } : {}),
+        })),
+        criteria: input.criteria.map((row) => ({
+          id: randomUUID(),
+          text: row.text,
+          ...(row.sourceSection !== undefined ? { sourceSection: row.sourceSection } : {}),
+        })),
+      },
+    },
+  }
 }

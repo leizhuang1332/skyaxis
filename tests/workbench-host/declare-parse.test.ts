@@ -1,10 +1,13 @@
 /**
- * declare-parse 纯函数矩阵（P3b）：findDeclareFence（无标记 / 多块取最后 /
- * 未闭合不提取 / 缩进非列 0 不提取 / 裸块体兜底 / ```yaml info 串）+
- * parseDeclare（整块两错 no-declare-block / yaml-syntax 带行号——行内逗号
- * 形即 research §7.1 非法示例的复现 / 注释空块 = 空成功 / 块级 workPackage
- * 三态：缺失·有效·无效 / 八种逐条 skip / duplicate 咨询位 / stageReady
- * 只认 === true / 未知顶层键忽略）。
+ * declare-parse 纯函数矩阵（P3b；回传轮扩 analysis proposals）：findDeclareFence
+ * （无标记 / 多块取最后 / 未闭合不提取 / 缩进非列 0 不提取 / 裸块体兜底 /
+ * ```yaml info 串）+ parseDeclare（整块两错 no-declare-block / yaml-syntax 带行号
+ * ——行内逗号形即 research §7.1 非法示例的复现 / 注释空块 = 空成功 / 块级
+ * workPackage 三态：缺失·有效·无效 / 八种逐条 skip / duplicate 咨询位 /
+ * stageReady 只认 === true / 未知顶层键忽略）+ findings/criteria 提议解析
+ * （好坏行家族：bad-shape / bad-type / bad-severity / bad-title / bad-content /
+ * over-cap ×2；detail 与 sourceSection 空白归一省略；与 entries 共存时各自独立；
+ * 旧五键块 proposals 为空集——S5 导入路径零感知）。
  */
 import { describe, expect, it } from 'vitest'
 import type { WorkbenchRecord } from '../../src/workbench-shared/protocol.js'
@@ -58,16 +61,32 @@ describe('findDeclareFence', () => {
     expect(findDeclareFence('没有任何围栏')).toBeNull()
   })
 
-  it('多块取最后；未闭合不提取；缩进（非列 0）不提取', () => {
+  it('多块取最后；未闭合 marker 围栏按尾体提取（回传轮策略变更）；缩进（非列 0）不提取', () => {
     const two = fence('# skyaxis-declare\na: 1') + '\n中间正文\n' + fence('# skyaxis-declare\nb: 2')
     expect(findDeclareFence(two)).toBe('# skyaxis-declare\nb: 2\n')
-    expect(findDeclareFence('```yaml\n# skyaxis-declare\ntrunc')).toBeNull()
+    // 野生形态：闭合线写错/漏写——marker 起头的未闭合围栏现提取尾体。
+    expect(findDeclareFence('```yaml\n# skyaxis-declare\ntrunc: 1')).toBe('# skyaxis-declare\ntrunc: 1\n')
     expect(findDeclareFence('正文：\n  ```yaml\n  # skyaxis-declare\n  a: 1\n  ```')).toBeNull()
   })
 
   it('裸块体兜底（fetch 通道返回的形态）与 ```yaml info 串', () => {
     expect(findDeclareFence('# skyaxis-declare\na: 1')).toBe('# skyaxis-declare\na: 1\n')
     expect(findDeclareFence('```\n# skyaxis-declare\na: 1\n```')).toBe('# skyaxis-declare\na: 1\n')
+  })
+
+  it('裸尾巴兜底（回传轮实测形态）：散文引子 + 无围栏块——最后一个列 0 marker 行到 EOF；孤立 marker 行不算', () => {
+    const wild = '以下是本次分析的声明块：\n# skyaxis-declare\nfindings:\n  - category: risk\n    severity: high\n    title: 一条发现\nstageReady: false'
+    expect(findDeclareFence(wild)).toBe('# skyaxis-declare\nfindings:\n  - category: risk\n    severity: high\n    title: 一条发现\nstageReady: false\n')
+    // fenced 命中优先于裸尾（同文本两种形态并存取围栏块）。
+    const both = '引子\n# skyaxis-declare\n裸尾行\n```yaml\n# skyaxis-declare\nfenced: true\n```'
+    expect(findDeclareFence(both)).toBe('# skyaxis-declare\nfenced: true\n')
+    // 孤立 marker 行（EOF 前无内容）不是块。
+    expect(findDeclareFence('正文提到 # skyaxis-declare\n结束')).toBeNull()
+    expect(findDeclareFence('正文\n# skyaxis-declare')).toBeNull()
+    // 未闭合 marker 围栏按尾体提取（回传轮策略变更——闭合线写错的野生形态）。
+    expect(findDeclareFence('引子\n```yaml\n# skyaxis-declare\nfindings: []\nstageReady: false')).toBe('# skyaxis-declare\nfindings: []\nstageReady: false\n')
+    // 缩进 fence 的 marker 不算列 0 尾段命中（列 0 纪律）。
+    expect(findDeclareFence('正文：\n  # skyaxis-declare\n  a: 1')).toBeNull()
   })
 })
 
@@ -86,9 +105,9 @@ describe('parseDeclare：整块面', () => {
     expect(result.blockErrorLine).toBe(4)
   })
 
-  it('注释空块 → 空成功（不是错误）', () => {
+  it('注释空块 → 空成功（不是错误；proposals 恒在——空集两数组）', () => {
     const result = parseDeclare({ text: fence('# skyaxis-declare\n# 只有注释'), record: record() })
-    expect(result).toEqual({ ok: true, entries: [], skipped: [], stageReady: false })
+    expect(result).toEqual({ ok: true, entries: [], skipped: [], stageReady: false, proposals: { findings: [], criteria: [] } })
   })
 
   it('未知顶层键忽略；stageReady 只认 === true', () => {
@@ -218,5 +237,99 @@ describe('parseDeclare：逐条 skip 与 duplicate', () => {
     // 非重复路径
     const fresh = parseDeclare({ text: fence(GOOD_BLOCK), record: record() })
     expect(fresh.ok && fresh.entries.every((entry) => entry.kind === 'built' || entry.duplicate === false)).toBe(true)
+  })
+})
+
+describe('parseDeclare：analysis proposals（回传轮）', () => {
+  const parseFindings = (body: string) =>
+    parseDeclare({ text: fence(['# skyaxis-declare', body].join('\n')), record: record() })
+
+  it('findings 好行：category/severity 入枚举、title trim 后 1..64、detail 可选且空白省略', () => {
+    const result = parseFindings([
+      'findings:',
+      '  - category: conflict',
+      '    severity: high',
+      '    title:  与现有同步导出争用连接池  ',
+      '    detail: 证据：PRD#3.2 / repos/a/src/B.java:120 ',
+      '  - category: capacity',
+      '    severity: low',
+      '    title: 导出量级未量化',
+    ].join('\n'))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.proposals.findings).toEqual([
+      { category: 'conflict', severity: 'high', title: '与现有同步导出争用连接池', detail: '证据：PRD#3.2 / repos/a/src/B.java:120' },
+      { category: 'capacity', severity: 'low', title: '导出量级未量化' },
+    ])
+    expect(result.skipped).toEqual([])
+  })
+
+  it('findings 坏行家族：非 record / category 出枚举 / severity 出枚举 / title 空与超 64 / detail 超 32K', () => {
+    const over32K = 'x'.repeat(32 * 1024 + 1)
+    const longTitle = 't'.repeat(65)
+    const result = parseFindings([
+      'findings:',
+      '  - 纯字符串',
+      '  - category: 非法类',
+      '    severity: high',
+      '    title: t',
+      '  - category: risk',
+      '    severity: extreme',
+      '    title: t',
+      '  - category: risk',
+      '    severity: high',
+      '    title: ""',
+      '  - category: risk',
+      '    severity: high',
+      `    title: ${longTitle}`,
+      '  - category: risk',
+      '    severity: high',
+      '    title: 超限说明',
+      `    detail: ${over32K}`,
+    ].join('\n'))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.proposals.findings).toEqual([])
+    expect(result.skipped.map((row) => row.reason)).toEqual(['bad-shape', 'bad-type', 'bad-severity', 'bad-title', 'bad-title', 'over-cap'])
+    expect(result.skipped.map((row) => row.key)).toEqual(['finding-0', 'finding-1', 'finding-2', 'finding-3', 'finding-4', 'finding-5'])
+  })
+
+  it('criteria 好行与坏行：text trim 非空 ≤2000 / sourceSection 空白省略 ≤256；坏行 bad-shape / bad-content / over-cap ×2', () => {
+    const result = parseFindings([
+      'criteria:',
+      '  - text:  十万行导出 30 秒内完成 ',
+      '    sourceSection: PRD#3.2',
+      '  - text: 无来源的一条',
+      '  - 42',
+      '  - text: ""',
+      `  - text: ${'c'.repeat(2001)}`,
+      '  - text: 来源超限',
+      `    sourceSection: ${'s'.repeat(257)}`,
+    ].join('\n'))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.proposals.criteria).toEqual([
+      { text: '十万行导出 30 秒内完成', sourceSection: 'PRD#3.2' },
+      { text: '无来源的一条' },
+    ])
+    expect(result.skipped.map((row) => row.reason)).toEqual(['bad-shape', 'bad-content', 'over-cap', 'over-cap'])
+    expect(result.skipped.map((row) => row.key)).toEqual(['criterion-2', 'criterion-3', 'criterion-4', 'criterion-5'])
+  })
+
+  it('与 entries 共存：五键块 + proposals 各自独立；GOOD_BLOCK 旧块 proposals 为空集（S5 导入路径零感知）', () => {
+    const mixed = parseDeclare({
+      text: fence([GOOD_BLOCK, 'findings:', '  - category: risk', '    severity: medium', '    title: 一条发现', 'criteria:', '  - text: 一条标准'].join('\n')),
+      record: record(),
+    })
+    expect(mixed.ok).toBe(true)
+    if (!mixed.ok) return
+    expect(mixed.entries).toHaveLength(3) // built + artifact + knowledge（GOOD_BLOCK 原有三类）
+    expect(mixed.proposals).toEqual({
+      findings: [{ category: 'risk', severity: 'medium', title: '一条发现' }],
+      criteria: [{ text: '一条标准' }],
+    })
+
+    const legacy = parseDeclare({ text: fence(GOOD_BLOCK), record: record() })
+    expect(legacy.ok && legacy.proposals).toEqual({ findings: [], criteria: [] })
   })
 })

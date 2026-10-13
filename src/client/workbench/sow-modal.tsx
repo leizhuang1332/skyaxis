@@ -89,6 +89,11 @@ export function SowModal(props: {
   copy?: (text: string) => Promise<boolean>
   /** P5a delivery face — absent ⇒ no delivery button (copy stays the fallback). */
   deliver?: (text: string, workspacePath: string | undefined) => Promise<{ ok: boolean; sessionId?: string; reason?: 'no-service' | 'failed' }>
+  /** 回传轮: fired with the delivered session's id + the full SOW text right
+   *  before close — the view binds the session with the task-book anchor (the
+   *  SOW head content-addresses the real conversation when the created
+   *  session proves to be a shell). */
+  onDelivered?: (sessionId: string, sowText: string) => void
 }): ReactNode {
   const { t, open, purpose, requirement, record, knowledgeRecords, revision, workPackage } = props
   const busy = props.busy === true
@@ -349,6 +354,7 @@ export function SowModal(props: {
     void props.deliver?.(preview, requirement.workspacePath).then((outcome) => {
       if (outcome.ok) {
         setDeliverState('idle')
+        if (outcome.sessionId !== undefined) props.onDelivered?.(outcome.sessionId, preview)
         props.onClose()
         return
       }

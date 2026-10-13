@@ -354,10 +354,10 @@ function knowledgeBlock(ctx: SowContext, header: string): string {
 
 /**
  * The PLAIN declare skeleton (fence CONTENT, non-dev purposes) — shared
- * verbatim by the five-block output convention and the analysis output block
- * so the imported block shape cannot drift between purposes (sow.test.ts
- * pins this exact string; declare-parse consumes whatever the session emits
- * against it).
+ * verbatim by the five-block output convention so the imported block shape
+ * cannot drift between purposes (sow.test.ts pins this exact string for the
+ * split/dev path; declare-parse consumes whatever the session emits against
+ * it).
  */
 function declarePlainSkeleton(): string[] {
   return [
@@ -367,6 +367,28 @@ function declarePlainSkeleton(): string[] {
     '#     draft: 内容',
     'knowledge: []',
     'stageReady: false',
+  ]
+}
+
+/**
+ * The ANALYSIS declare skeleton (回传轮) — the plain shape plus the two
+ * proposal keys the watcher's seedAnalysis parses into S1 待裁决 rows
+ * (findings/criteria). It is deliberately NOT shared with split/dev: their
+ * declarePlainSkeleton stays byte-identical (the user ruling that froze the
+ * other three purposes' documents), and the analysis document is the only
+ * one whose report flows back through this contract.
+ */
+function declareAnalysisSkeleton(): string[] {
+  return [
+    '# findings 每条 = 分析发现提议（category: feasibility|conflict|compatibility|risk|capacity|other；severity: high|medium|low）：',
+    '#   - category: conflict',
+    '#     severity: high',
+    '#     title: 标题（64 字内）',
+    '#     detail: 说明与证据出处（PRD#章节 或 代码 路径:行号）',
+    '# criteria 每条 = 验收标准提议：',
+    '#   - text: 一句可判定的话',
+    '#     sourceSection: PRD#章节',
+    ...declarePlainSkeleton(),
   ]
 }
 
@@ -460,6 +482,20 @@ function analysisSnapshotBlock(ctx: SowContext): string {
   if (open.length === 0) lines.push('（尚无）')
   for (const finding of open) {
     lines.push(`- [${FINDING_CATEGORY_LABEL[finding.category]}·${SEVERITY_LABEL[finding.severity]}] ${finding.title}`)
+  }
+  // 回传轮: pending proposals list too — a re-run analysis session must see
+  // what is already on the table (adopted rows are the two groups above;
+  // unadjudicated rows live only here) so it refines instead of re-proposing.
+  const pendingFindings = ctx.record.analysis?.findings ?? []
+  const pendingCriteria = ctx.record.analysis?.criteria ?? []
+  if (pendingFindings.length > 0 || pendingCriteria.length > 0) {
+    lines.push('待裁决提议（已收取未裁决，勿重复提议）：')
+    for (const row of pendingFindings) {
+      lines.push(`- [${FINDING_CATEGORY_LABEL[row.category]}·${SEVERITY_LABEL[row.severity]}] ${row.title}`)
+    }
+    for (const row of pendingCriteria) {
+      lines.push(`- 标准：${row.text}`)
+    }
   }
   if (ctx.record.workPackages.length > 0) {
     lines.push('工作包：')
@@ -555,16 +591,16 @@ const ANALYSIS_WORKFLOW = [
 function analysisOutputBlock(): string {
   return [
     '## 输出',
-    '分析结束时先给出分析报告（markdown，会话内交付，不写文件），随后附上机器可读的声明块（条目用缩进键值，勿用行内逗号）。报告按三节组织：',
+    '分析结束时先给出分析报告（markdown，会话内交付，不写文件），随后附上机器可读的声明块（条目用缩进键值，勿用行内逗号；块体必须完整包在 ```yaml 围栏内——三个反引号起、三个反引号收，缺围栏无法收取）。报告按三节组织：',
     '1. 分析发现——每条一行起：F1 [类别·级别] 标题；随后说明（一两句）、证据出处（PRD#章节 或 代码 路径:行号）、（可选）处置建议。按级别降序、同级按类分组；编号 F1、F2… 稳定不重排；总量以 20 条为度，更多的聚合成一行溢出说明。六类逐类给过结论——没有发现的类如实写「未发现」，不要硬凑；六类全零时，显式说明残余风险与探索缺口（哪些范围没查、为什么）。',
     '2. 验收标准建议——每条：A1 一句可判定的话（来源：PRD#章节）；写不出可判定形式的不要写。',
     '3. 待澄清——每问：问题 + 推荐答案 + 阻塞了哪条结论。',
     '（级别判据：高 = 不处理则需求不成立、返工面大、或触碰安全/数据/已注入约定；中 = 不阻塞成立但须在方案期解决；低 = 提示性、可延后。）',
     '```yaml',
     '# skyaxis-declare',
-    ...declarePlainSkeleton(),
+    ...declareAnalysisSkeleton(),
     '```',
-    '说明：knowledge 只列值得沉淀的知识候选（业务知识/开发约定，入工作台审阅队列）；stageReady 是阶段就绪提议，仅供预览——录入、裁决与阶段推进由用户完成，不要替用户下结论。',
+    '说明：findings 与 criteria 会由工作台自动收为待裁决提议行（采纳与否由用户裁决）；knowledge 只列值得沉淀的知识候选（业务知识/开发约定，入工作台审阅队列）；stageReady 是阶段就绪提议，仅供预览——录入、裁决与阶段推进全部由用户完成，不要替用户下结论。',
     '完成自检（全部满足才算收尾）：需求要点已列且注章节 · 探察过的文件清单已列 · 每条发现有类别/级别/出处 · 每条标准建议可判定 · 每个待澄清问题带推荐答案 · 六类逐类有结论 · 声明块已附。',
   ].join('\n')
 }

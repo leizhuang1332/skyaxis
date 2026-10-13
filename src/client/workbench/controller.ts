@@ -11,10 +11,17 @@
  * overwriting a newer slot snapshot. Write outcomes update the slot in
  * place; conflict/not-found self-heal by re-pulling the slot.
  */
-import type { WorkbenchFinding, WorkbenchKnowledgeRecord, WorkbenchRecord } from '../../workbench-shared/protocol.js'
+import type { SeedMissingReason, WorkbenchFinding, WorkbenchKnowledgeRecord, WorkbenchRecord } from '../../workbench-shared/protocol.js'
 import type { WorkbenchStore } from './store.js'
 import type { WorkbenchFailure, WorkbenchFetcher, WorkbenchMutateResult } from './fetcher.js'
 import type { SplitBaselineInput } from './split-stale.js'
+
+/** seedAnalysisQuiet outcome — the zero-write advisory triple (reason + scan fingerprint + shell flag). */
+export interface SeedOutcome {
+  readonly miss?: SeedMissingReason
+  readonly scan?: string
+  readonly shell?: boolean
+}
 
 /** importReview outcome — ok carries the seeded count + advisory blockError for honest disclosure. */
 export type ReviewImportOutcome =
@@ -346,6 +353,55 @@ export function createWorkbenchController(store: WorkbenchStore, fetcher: Workbe
 
     bindSession: (requirementId: string, id: string, sessionId: string, purpose: 'analysis' | 'dev' | 'review', signal?: AbortSignal) =>
       mutate(requirementId, () => fetcher.bindSession(requirementId, slotRevision(requirementId), id, sessionId, purpose, signal), signal),
+
+    // --- 回传轮: analysis proposals ---
+
+    /** Delivery success → bind the watched session. ONE bounded retry: a 409
+     *  means the revision moved between open() and the click; mutate() already
+     *  self-healed the slot, so the second attempt rides the fresh revision.
+     *  A further failure stays with the banner (honest disclosure) — losing
+     *  the bind only costs auto-seeding, never data. */
+    bindAnalysisSession: async (requirementId: string, sessionId: string, anchor?: string, signal?: AbortSignal): Promise<boolean> => {
+      const first = await mutate(requirementId, () => fetcher.bindAnalysisSession(requirementId, slotRevision(requirementId), sessionId, anchor, signal), signal)
+      if (first || disposed) return first
+      return mutate(requirementId, () => fetcher.bindAnalysisSession(requirementId, slotRevision(requirementId), sessionId, anchor, signal), signal)
+    },
+
+    /** Watcher-only seed face — deliberately NOT the mutate() busy/banner
+     *  channel: a missing block is an expected transient (the report may not
+     *  exist yet) and busy-toggling on every sessions-list flip would flash
+     *  the whole stage. ok → patch slot in place; the zero-write advisory
+     *  (seedMissing) is RETURNED so the view can disclose why nothing landed
+     *  (回传轮 observability — the silent path was the diagnosis blind spot);
+     *  409/404 → open() so an anchor another window (or a racing write)
+     *  landed becomes visible — without this re-pull, `due` stays true in
+     *  this window while the attempted flag already fired; network → silent
+     *  (next flip / remount retries). */
+    seedAnalysisQuiet: async (requirementId: string, sessionId: string, signal?: AbortSignal): Promise<SeedOutcome | undefined> => {
+      const result = await fetcher.seedAnalysis(requirementId, slotRevision(requirementId), sessionId, signal)
+      if (!alive(result)) return undefined
+      if (result.kind === 'ok') {
+        patchSlot(requirementId, { revision: result.revision, record: result.record, banner: undefined })
+        return {
+          ...(result.seedMissing !== undefined ? { miss: result.seedMissing } : {}),
+          ...(result.seedScan !== undefined ? { scan: result.seedScan } : {}),
+          ...(result.seedShell === true ? { shell: true } : {}),
+        }
+      }
+      if (result.kind === 'http-error' && (result.status === 409 || result.status === 404)) {
+        await open(requirementId, signal)
+      }
+      return undefined
+    },
+
+    adoptFindingProposal: (requirementId: string, id: string, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.adoptFindingProposal(requirementId, slotRevision(requirementId), id, signal), signal),
+    dismissFindingProposal: (requirementId: string, id: string, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.dismissFindingProposal(requirementId, slotRevision(requirementId), id, signal), signal),
+    adoptCriterionProposal: (requirementId: string, id: string, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.adoptCriterionProposal(requirementId, slotRevision(requirementId), id, signal), signal),
+    dismissCriterionProposal: (requirementId: string, id: string, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.dismissCriterionProposal(requirementId, slotRevision(requirementId), id, signal), signal),
 
     editKnowledgeCandidate: (requirementId: string, id: string, candidate: { title: string; draft: string; type: 'business' | 'convention' }, signal?: AbortSignal) =>
       mutate(requirementId, () => fetcher.editKnowledgeCandidate(requirementId, slotRevision(requirementId), id, candidate, signal), signal),
