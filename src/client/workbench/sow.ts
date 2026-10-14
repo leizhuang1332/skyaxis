@@ -527,6 +527,9 @@ function analysisSnapshotBlock(ctx: SowContext): string {
 }
 
 function analysisInputBlock(ctx: SowContext): string {
+  // 0007: shared by analysis AND split (the purpose noun keeps the analysis
+  // bytes IDENTICAL — only the split path reads differently).
+  const noun = ctx.purpose === 'analysis' ? '分析' : '拆分规划'
   const lines = [
     '## 输入（用文件读取能力按路径阅读；不要凭记忆，不要猜）',
   ]
@@ -534,7 +537,7 @@ function analysisInputBlock(ctx: SowContext): string {
   if (workspace === '') {
     // Honest absence — without a bound workspace there are no prds/ or repos/
     // to cite (the host PRD endpoints require one too).
-    lines.push('（工作区未绑定——无 PRD 与仓库可引用，分析只能基于需求描述）')
+    lines.push(`（工作区未绑定——无 PRD 与仓库可引用，${noun}只能基于需求描述）`)
     return lines.join('\n')
   }
   lines.push(`工作区根目录：${toDisplayPath(workspace)}（下列相对路径以此为根）`)
@@ -546,7 +549,7 @@ function analysisInputBlock(ctx: SowContext): string {
     // same as a confirmed-empty directory.
     lines.push('（PRD 文档列表未可得——可列举 prds/ 目录确认）')
   } else if (docs.length === 0) {
-    lines.push('（prds/ 目录暂无文档——分析只能基于需求描述与代码）')
+    lines.push(`（prds/ 目录暂无文档——${noun}只能基于需求描述与代码）`)
   } else {
     lines.push('PRD 文档（prds/ 目录）：')
     for (const doc of docs) {
@@ -576,7 +579,9 @@ function analysisInputBlock(ctx: SowContext): string {
       lines.push(`（另有 ${unknown} 个已关联仓库的克隆目录名暂不可得——可列举 repos/ 目录对照）`)
     }
   }
-  lines.push('路径不存在或不可读：停下来在「待澄清」中报告——不要假设内容，不要自行创建替代文件。')
+  lines.push(ctx.purpose === 'analysis'
+    ? '路径不存在或不可读：停下来在「待澄清」中报告——不要假设内容，不要自行创建替代文件。'
+    : '路径不存在或不可读：停下来向用户报告——不要假设内容，不要自行创建替代文件。')
   return lines.join('\n')
 }
 
@@ -653,6 +658,123 @@ function analysisOutputBlock(ctx: SowContext): string {
 }
 
 // ---------------------------------------------------------------------------
+// Split assembly (0007 定稿软门轮：research 0008 九节骨架推广到 split —
+// the S2 session stops being「盲拆」: dispositions, answered clarifications
+// and the finalize state all ride the snapshot; PRD switches from wholesale
+// embedding to path references via the shared analysisInputBlock).
+// ---------------------------------------------------------------------------
+
+function splitGoalBlock(ctx: SowContext): string {
+  return [
+    '## 目标',
+    `为需求「${ctx.requirement.title}」的探索规划阶段做一次只读拆分规划，产出一份工作包清单建议——建议读者是需求负责人，他们将审阅后在工作台录入/修订工作包并决定是否批准拆分。本阶段一个产物：`,
+    '1. 工作包清单建议——每个工作包给出：标题、边界（做什么/不做什么）、依赖关系与可并行性、覆盖的验收标准（Cx 引用）、排序理由与依据。',
+    '本阶段不做方案设计、不做开发计划、不改任何代码——计划与实施是后续阶段的事。拆分质量的判据：边界清晰、依赖最小、每条验收标准至少被一个工作包覆盖。',
+  ].join('\n')
+}
+
+function splitSnapshotBlock(ctx: SowContext): string {
+  const lines = [
+    '## 需求快照（工作台账本，生成时快照）',
+    `标题：${ctx.requirement.title}`,
+    `描述：${ctx.requirement.description}`,
+  ]
+  if (ctx.record === null) {
+    lines.push('（工作台记录未建立——尚无标准与发现可用，拆分只能基于需求描述与 PRD）')
+    return lines.join('\n')
+  }
+  lines.push(`当前阶段：${STAGE_LABEL[ctx.record.stage]}`)
+  // 0007: the finalize state is the S1→S2 hand-off marker the split session
+  // should know about (finalized = the understanding contract stands as-is;
+  // not finalized = rulings may still be moving).
+  lines.push(ctx.record.understandApprovedAt !== undefined
+    ? `需求理解定稿：已定稿（${ctx.record.understandApprovedAt.slice(0, 10)}）——理解阶段的裁决视为已定输入`
+    : '需求理解定稿：未定稿——理解阶段的裁决可能仍在进行，快照以下列账本现状为准')
+  lines.push('已有验收标准（拆分的验收面——每条至少被一个工作包覆盖）：')
+  if (ctx.record.criteria.length === 0) lines.push('（尚无）')
+  for (const criterion of ctx.record.criteria) {
+    const source = criterion.sourceSection !== undefined && criterion.sourceSection.length > 0 ? `（出处 ${criterion.sourceSection}）` : ''
+    lines.push(`- ${criterion.id} ${criterion.text}${source}`)
+  }
+  // BMAD point-not-copy: 「下游不得自行解释 PRD」的 skyaxis 落地——处置结
+  // 论带方案文本喂下去，拆分会话不再对已裁决风险自行判断。
+  const open = ctx.record.findings.filter((finding) => finding.status === 'open')
+  const resolved = ctx.record.findings.filter((finding) => finding.status === 'resolved')
+  const wontFix = ctx.record.findings.filter((finding) => finding.status === 'wont-fix')
+  lines.push('分析发现处置结论（已裁决的风险是拆分输入；未处置项须消化或显式绕开）：')
+  for (const finding of open) {
+    lines.push(`- 未处置：[${FINDING_CATEGORY_LABEL[finding.category]}·${SEVERITY_LABEL[finding.severity]}] ${finding.title}`)
+  }
+  for (const finding of resolved) {
+    const plan = finding.resolution !== undefined && finding.resolution.length > 0 ? ` —— 方案：${finding.resolution}` : ''
+    lines.push(`- 已解决：[${FINDING_CATEGORY_LABEL[finding.category]}·${SEVERITY_LABEL[finding.severity]}] ${finding.title}${plan}`)
+  }
+  for (const finding of wontFix) {
+    lines.push(`- 不处理：[${FINDING_CATEGORY_LABEL[finding.category]}·${SEVERITY_LABEL[finding.severity]}] ${finding.title}`)
+  }
+  if (open.length + resolved.length + wontFix.length === 0) lines.push('（尚无）')
+  const clarifications = ctx.record.analysis?.clarifications ?? []
+  const answered = clarifications.filter((row) => row.answer !== undefined)
+  if (answered.length > 0) {
+    lines.push('已答澄清（需求方已回答，视为已定事实）：')
+    for (const row of answered) lines.push(`- 问：${row.question} / 已答：${row.answer}`)
+  }
+  const pendingFindings = ctx.record.analysis?.findings ?? []
+  const pendingCriteria = ctx.record.analysis?.criteria ?? []
+  const pendingClarifications = clarifications.filter((row) => row.answer === undefined)
+  if (pendingFindings.length + pendingCriteria.length + pendingClarifications.length > 0) {
+    lines.push('待裁决提议（用户裁决中——勿重复提议、勿视为已定）：')
+    for (const row of pendingFindings) lines.push(`- [${FINDING_CATEGORY_LABEL[row.category]}·${SEVERITY_LABEL[row.severity]}] ${row.title}`)
+    for (const row of pendingCriteria) lines.push(`- 标准：${row.text}`)
+    for (const row of pendingClarifications) lines.push(`- 澄清：${row.question}`)
+  }
+  if (ctx.record.workPackages.length > 0) {
+    lines.push('现有工作包（重拆分语境的参考——现状边界与状态）：')
+    for (const wp of ctx.record.workPackages) {
+      lines.push(`- ${wp.id} ${wp.title} · ${WP_STATUS_LABEL[wp.status]}（${wp.status}）`)
+    }
+  }
+  return lines.join('\n')
+}
+
+function splitConstraintsBlock(_ctx: SowContext): string {
+  return [
+    '## 约束',
+    '- 严格只读：不修改、创建、删除任何文件；不建分支、不提交、不推送——拆分建议在会话内交付，不写文件。',
+    '- 不裁决：工作包清单是建议，录入、修订、批准拆分全部由用户在工作台完成；拆分中发现的新风险以发现形式列出（带证据），不要顺手处置。',
+    '- 有据：每条边界/依赖/覆盖判断给出依据（PRD#章节 或 代码 路径:行号 或 已裁决发现的编号）；查不到依据的显式标「推测」。',
+    '- 有限停止：仅当需求信息不足以划分任何边界时停下来问用户；其余自行给出带取舍说明的方案。',
+  ].join('\n')
+}
+
+const SPLIT_WORKFLOW = [
+  '## 工作流',
+  '1. 通读重点 PRD、需求快照与发现处置结论——先明确验收面（每条标准）与已定约束（已解决/不处理的裁决是输入，不是待办）。',
+  '2. 探索与需求相关的模块（限需求相关范围，不做全库漫游）——识别天然边界：表/接口/进程/可独立验证的功能单元。',
+  '3. 逐条映射：每条验收标准至少落一个候选工作包；覆盖不了的标准显式列出并说明原因（留给用户裁决）。',
+  '4. 起草工作包清单：每包给标题、边界（做什么/不做什么）、依赖（哪些包必须先完成）、可并行性、覆盖的标准（Cx）、排序理由。',
+  '5. 自检覆盖矩阵：标准 × 工作包逐格确认；空洞与重复覆盖都写明。',
+  '先查后问：能从 PRD、代码、目录里查证的事实自己去查；只有影响拆分形态的取舍留给需求方——提问带推荐方案，而不是自行假设。',
+].join('\n')
+
+function splitOutputBlock(_ctx: SowContext): string {
+  return [
+    '## 输出',
+    '拆分结束时先给出完整建议报告（markdown，会话内交付，不写文件），随后附上机器可读的声明块（条目用缩进键值，勿用行内逗号；块体必须完整包在 ```yaml 围栏内——三个反引号起、三个反引号收，缺围栏无法收取）。报告按以下结构：',
+    '1. 工作包清单——每包一节：建议序号（WP1、WP2…）+ 标题 + 边界（做什么/不做什么）+ 依赖 + 可并行性 + 覆盖标准（Cx）+ 排序理由 + 依据（PRD#章节 / 代码 路径:行号 / 已裁决发现编号）。',
+    '2. 覆盖矩阵——每条验收标准 × 覆盖它的工作包；覆盖不了的标准单独列出并说明。',
+    '3. 新发现——拆分过程中发现的新风险/新问题（每条 [类别·级别] 标题 + 证据出处），不要自行处置。',
+    '（工作包由用户审阅后手动录入工作台再批准拆分——你的建议不会被自动导入。）',
+    '```yaml',
+    '# skyaxis-declare',
+    ...declarePlainSkeleton(),
+    '```',
+    '说明：knowledge 只列值得沉淀的知识候选（业务知识/开发约定，入工作台审阅队列）；stageReady 是阶段就绪提议，仅供预览——工作包录入、批准拆分与阶段推进全部由用户完成，不要替用户下结论。',
+    '完成自检（全部满足才算收尾）：每包有边界与依赖 · 覆盖矩阵无未说明空洞 · 每条标准有归属或显式说明无归属 · 新发现逐条带证据 · 声明块已附。',
+  ].join('\n')
+}
+
+// ---------------------------------------------------------------------------
 // Document assembly
 // ---------------------------------------------------------------------------
 
@@ -679,6 +801,22 @@ export function buildSow(ctx: SowContext): string {
       analysisConstraintsBlock(ctx),
       ANALYSIS_WORKFLOW,
       analysisOutputBlock(ctx),
+    ]
+    return [...blocks, revisionStamp(ctx)].join('\n\n')
+  }
+  if (ctx.purpose === 'split') {
+    // 0007: the nine-block research-0008 skeleton, split edition — the
+    // five-block shape (PRD wholesale embedding) is retired FOR SPLIT ONLY;
+    // dev/review keep it verbatim.
+    const blocks = [
+      `# skyaxis 拆分任务书 · ${ctx.requirement.title}`,
+      splitGoalBlock(ctx),
+      splitSnapshotBlock(ctx),
+      analysisInputBlock(ctx),
+      knowledgeBlock(ctx, ANALYSIS_KNOWLEDGE_HEADER),
+      splitConstraintsBlock(ctx),
+      SPLIT_WORKFLOW,
+      splitOutputBlock(ctx),
     ]
     return [...blocks, revisionStamp(ctx)].join('\n\n')
   }

@@ -530,6 +530,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       | 'split.staleBadge'
       | 'split.staleFindings'
       | 'split.stalePrd'
+      | 'split.staleUnderstand'
+      | 'split.staleClarifications'
       | 'split.staleReason'
       | 'split.statCovered'
       | 'split.statHole'

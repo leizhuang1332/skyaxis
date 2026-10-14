@@ -29,6 +29,14 @@ type Editing = { kind: 'closed' } | { kind: 'create' } | { kind: 'edit'; workPac
 /** Not-yet-started statuses — a re-split is legal only while every active package is one of these. */
 const RE_SPLITTABLE_STATUSES: readonly WorkbenchWorkPackage['status'][] = ['planned', 'plan-draft', 'plan-approved']
 
+/** Stale reason → copy key (0007: four arms — the ternary became a Record). */
+const STALE_REASON_KEY: Record<'prd' | 'findings' | 'understand' | 'clarifications', Parameters<WorkbenchT>[0]> = {
+  prd: 'split.stalePrd',
+  findings: 'split.staleFindings',
+  understand: 'split.staleUnderstand',
+  clarifications: 'split.staleClarifications',
+}
+
 export function SplitSection(props: {
   t: WorkbenchT
   slot: RequirementWorkbenchState
@@ -214,7 +222,7 @@ export function SplitSection(props: {
         <div className={styles.gonogo}>
           <span className={styles.gonogoText}>
             {t('split.staleReason').replaceAll('{reasons}', staleReasons
-              .map((reason) => t(reason === 'prd' ? 'split.stalePrd' : 'split.staleFindings'))
+              .map((reason) => t(STALE_REASON_KEY[reason]))
               .join(' · '))}
           </span>
           <span className={styles.gonogoSpacer} />

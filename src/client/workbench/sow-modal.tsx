@@ -310,10 +310,11 @@ export function SowModal(props: {
     prdDocumentName: docName ?? undefined,
     knowledgePicks: selectedKnowledge,
     includeDeps,
-    // Analysis inputs ride the same preview: the full doc listing (path
+    // Analysis + split inputs ride the same preview (0007: the split SOW
+    // joined the path-reference shape): the full doc listing (path
     // references — PRD text itself is no longer embedded), the focus doc's
     // checked sections (heading pointers), and the repo rows above.
-    ...(purpose === 'analysis' ? {
+    ...(purpose === 'analysis' || purpose === 'split' ? {
       analysisPrdDocs: prdDocs,
       analysisRepos: analysisRepoRows,
       analysisUnknownRepos: analysisRepoUnknown,

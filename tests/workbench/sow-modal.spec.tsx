@@ -167,6 +167,30 @@ describe('SowModal（SOW 生成 Modal）', () => {
     expect(previewText(rendered2)).toContain('（prds/ 目录暂无文档——分析只能基于需求描述与代码）')
   })
 
+  it('0007 split 预览：路径引用 + 重点章节指针同 analysis 形态；五段头与正文嵌入退役', async () => {
+    const fetchPrdText = vi.fn(async () => '# 背景\n背景正文')
+    const rendered = subject({ purpose: 'split', fetchPrdList: async () => [{ name: 'a.md' }], fetchPrdText })
+
+    await waitFor(() => expect(fetchPrdText).toHaveBeenCalledWith('a.md'))
+    await waitFor(() => expect(previewText(rendered)).toContain('# skyaxis 拆分任务书 · '))
+    const text = previewText(rendered)
+    expect(text).toContain('- 必读 prds/a.md——重点章节：背景；其余章节按需')
+    // 五段老形态（split 专属退役）：方括号段头与章节正文不出现。
+    expect(text).not.toContain('[需求]')
+    expect(text).not.toContain('[PRD 节选]')
+    expect(text).not.toContain('背景正文')
+    // declare plain 骨架照旧（knowledge + stageReady，无提议键）。
+    expect(text).toContain('knowledge: []')
+    expect(text).toContain('stageReady: false')
+    expect(text).not.toContain('findings 每条')
+
+    // 无文档语境用 split 名词（与 analysis 文案分流）。
+    rendered.unmount()
+    const empty = subject({ purpose: 'split', fetchPrdList: async () => [] })
+    expect(await empty.findByText(workbenchZh['sow.prdEmpty'])).toBeTruthy()
+    expect(previewText(empty)).toContain('（prds/ 目录暂无文档——拆分规划只能基于需求描述与代码）')
+  })
+
   it('知识命中计数行：{n} 只计 always+keyword，{size}/{cap} KB 一位小数；行渲染 [mode] 标题', async () => {
     const rendered = subject({
       knowledgeRecords: [

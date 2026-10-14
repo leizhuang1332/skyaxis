@@ -39,12 +39,22 @@ export function buildSplitBaseline(prd: readonly PrdDocSummary[]): SplitBaseline
   return { prd: prd.map((doc) => ({ name: doc.name, size: doc.size, modifiedAt: doc.modifiedAt })) }
 }
 
-export type SplitStaleReason = 'prd' | 'findings'
+export type SplitStaleReason = 'prd' | 'findings' | 'understand' | 'clarifications'
 
 /**
  * Why the approved split may be stale. Empty = not stale, OR no baseline to
  * compare / PRD listing still loading (honest absence — never a false alarm,
  * and never a badge over data we don't have).
+ *
+ * 0007 adds two arms (D3), both derived from host-minted baseline fields:
+ * - 'understand': the understand-finalize stamp moved since approval
+ *   (re-finalized, or revoked → record side flips to undefined ≠ the
+ *   baseline's string). Both-undefined (never finalized at approval, still
+ *   not) compares equal — no false alarm. Pre-0007 baselines carry no field
+ *   at all; absent reads as absent.
+ * - 'clarifications': the answered-clarification count moved (answers are
+ *   user-owned split-adjudication context). Pre-0007 baselines carry no
+ *   field; absent compares as 0 — and answered-now 0 ≠ 0 stays quiet.
  */
 export function splitStaleReasons(record: WorkbenchRecord, prd: readonly PrdDocSummary[] | null): readonly SplitStaleReason[] {
   const baseline = record.splitBaseline
@@ -61,5 +71,8 @@ export function splitStaleReasons(record: WorkbenchRecord, prd: readonly PrdDocS
     if (prdChanged) reasons.push('prd')
   }
   if (disposedFindingsCount(record) > baseline.disposedFindings) reasons.push('findings')
+  if (record.understandApprovedAt !== baseline.understandApprovedAt) reasons.push('understand')
+  const answeredNow = (record.analysis?.clarifications ?? []).filter((row) => row.answer !== undefined).length
+  if (answeredNow !== (baseline.answeredClarifications ?? 0)) reasons.push('clarifications')
   return reasons
 }

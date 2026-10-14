@@ -354,7 +354,7 @@ describe('buildSow', () => {
     expect(empty).not.toContain('待裁决提议（已收取未裁决')
   })
 
-  it('split 语境：工作包状态快照（id+title+中文状态+raw status）+ 验收标准清单', () => {
+  it('split 九节（0007）：标题/目标/快照/输入/参考知识/约束/工作流/输出 + declare plain 骨架逐字（回归锚）', () => {
     const text = buildSow({
       ...baseCtx,
       purpose: 'split',
@@ -367,14 +367,93 @@ describe('buildSow', () => {
         ],
       }),
     })
+    expect(text).toContain('# skyaxis 拆分任务书 · 导出功能改造')
+    expect(text).toContain('## 目标')
+    expect(text).toContain('## 需求快照（工作台账本，生成时快照）')
+    expect(text).toContain('## 输入（用文件读取能力按路径阅读；不要凭记忆，不要猜）')
+    expect(text).toContain('## 参考知识（工作台注入，已审定）')
+    expect(text).toContain('## 约束')
+    expect(text).toContain('## 工作流')
+    expect(text).toContain('## 输出')
+    // 工作包现状快照（re-split 语境）与标准清单沿用。
     expect(text).toContain('当前阶段：探索规划')
     expect(text).toContain('WP1 导出队列 · 已验收（accepted）')
     expect(text).toContain('WP2 存储层 · 已登记（planned）')
     expect(text).toContain('C1 十万行导出 30 秒内完成')
     expect(text).toContain('C2 导出任务可取消')
     // 回传轮回归锚：split/dev 的 declare 骨架不携带提议键（共享 plain 面未被殃及）。
+    expect(text).toContain('```yaml\n# skyaxis-declare\n# knowledge 条目形如（type: business|convention）：\n#   - type: convention\n#     title: 标题\n#     draft: 内容\nknowledge: []\nstageReady: false\n```')
     expect(text).not.toContain('criteria:')
     expect(text).not.toContain('findings 每条')
+    // 五段老形态退役（split 专属）：方括号段头与 PRD 嵌入段不再出现。
+    expect(text).not.toContain('[需求]')
+    expect(text).not.toContain('[PRD 节选]')
+    expect(text).not.toContain('[知识注入]')
+  })
+
+  it('split 快照升级（0007 盲拆补齐）：定稿状态行 + 发现处置结论三组（带方案）+ 已答澄清 + 待裁决提议勿视为已定；record null 降级', () => {
+    const text = buildSow({
+      ...baseCtx,
+      purpose: 'split',
+      record: record({
+        stage: 'plan',
+        criteria,
+        understandApprovedAt: '2026-10-13T08:00:00.000Z',
+        findings: [
+          finding('f1', { status: 'open', category: 'risk', severity: 'high', title: '连接池争用' }),
+          finding('f2', { status: 'resolved', resolution: '走异步队列', title: '同步导出阻塞' }),
+          finding('f3', { status: 'wont-fix', title: '历史命名不统一' }),
+        ],
+        analysis: {
+          session: { sessionId: 'sess-a', boundAt: AT },
+          findings: [{ id: '99999999-9999-4999-8999-999999999999', category: 'risk', severity: 'low', title: '提议发现' }],
+          criteria: [],
+          clarifications: [
+            { id: 'q1', question: '批量上限？', answer: '百万行', answeredAt: AT },
+            { id: 'q2', question: '未答问题' },
+          ],
+        },
+      }),
+    })
+    expect(text).toContain('需求理解定稿：已定稿（2026-10-13）——理解阶段的裁决视为已定输入')
+    expect(text).toContain('已有验收标准（拆分的验收面——每条至少被一个工作包覆盖）：')
+    expect(text).toContain('- C1 十万行导出 30 秒内完成')
+    expect(text).toContain('- 未处置：[风险·高] 连接池争用')
+    expect(text).toContain('- 已解决：[冲突·高] 同步导出阻塞 —— 方案：走异步队列')
+    expect(text).toContain('- 不处理：[冲突·高] 历史命名不统一')
+    expect(text).toContain('已答澄清（需求方已回答，视为已定事实）：')
+    expect(text).toContain('- 问：批量上限？ / 已答：百万行')
+    expect(text).toContain('待裁决提议（用户裁决中——勿重复提议、勿视为已定）：')
+    expect(text).toContain('- [风险·低] 提议发现')
+    expect(text).toContain('- 澄清：未答问题')
+
+    // 未定稿态 + record null 降级。
+    const notFinalized = buildSow({ ...baseCtx, purpose: 'split', record: record({ criteria }) })
+    expect(notFinalized).toContain('需求理解定稿：未定稿——理解阶段的裁决可能仍在进行')
+    const noRecord = buildSow({ ...baseCtx, purpose: 'split', record: null })
+    expect(noRecord).toContain('（工作台记录未建立——尚无标准与发现可用，拆分只能基于需求描述与 PRD）')
+  })
+
+  it('split 输入段（0007）：复用 analysis 路径引用——工作区根 + prds/ 重点章节指针 + repos/ 行 + PRD 正文零嵌入', () => {
+    const text = buildSow({
+      ...baseCtx,
+      purpose: 'split',
+      requirement: { ...requirement, workspacePath: 'C:\\ws\\repo-a' },
+      record: record({ criteria }),
+      prdDocumentName: '导出需求.md',
+      prdSections: [{ heading: '导出范围', text: '全文正文不该出现' }, { heading: '性能要求', text: '全文正文不该出现2' }],
+      analysisPrdDocs: [{ name: '导出需求.md', sizeBytes: 2048 }, { name: '其他.md' }],
+      analysisRepos: [{ dirName: 'order-svc', poolName: '订单服务', branch: 'feat/export' }],
+      analysisUnknownRepos: 1,
+    })
+    expect(text).toContain('工作区根目录：C:/ws/repo-a（下列相对路径以此为根）')
+    expect(text).toContain('- 必读 prds/导出需求.md（2.0 KB）——重点章节：导出范围、性能要求；其余章节按需')
+    expect(text).toContain('- 按需 prds/其他.md')
+    expect(text).toContain('- 必读 repos/order-svc（订单服务，分支 feat/export）——与需求相关的模块与现有实现')
+    expect(text).toContain('（另有 1 个已关联仓库的克隆目录名暂不可得——可列举 repos/ 目录对照）')
+    // 路径引用纪律（research 0008 推广）：勾选章节的正文绝不嵌入。
+    expect(text).not.toContain('全文正文不该出现')
+    expect(text).not.toContain('全文正文不该出现2')
   })
 
   it('dev 语境全段（approvedPlanText 有 + includeDeps）：边界/依赖/覆盖标准/已批准计划/依赖摘要/dev declare', () => {
