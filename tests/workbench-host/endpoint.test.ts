@@ -2156,7 +2156,7 @@ describe('文件交付轮：报告文件通道（file-first seed / analysis-repo
       { id: expect.any(String), question: '导出上限是十万行还是百万行？', recommendation: '百万行', blocks: 'F1' },
     ])
     // The disk-bytes sha256 of the WHOLE file is the idempotency anchor.
-    expect(container?.seed).toMatchObject({ sessionId: 'sess-shell', contentHash: contentHashOf(text), findings: 1, criteria: 0, clarifications: 1 })
+    expect(container?.seed).toMatchObject({ sessionId: 'sess-shell', contentHash: contentHashOf(text), findings: 1, criteria: 0, clarifications: 1, stageReady: false })
 
     // GET face: the body reads back untampered; an external edit flips the flag (细化④).
     const read1 = await h.get(`${WORKBENCH_ARTIFACTS_PATH}?kind=analysis-report&requirementId=${RID}`)
@@ -2256,5 +2256,83 @@ describe('文件交付轮：报告文件通道（file-first seed / analysis-repo
     const ws = fileWorkspace(null)
     const h2 = await harness({ resolveWorkspacePath: ws.resolve })
     expect((await h2.get(`${WORKBENCH_ARTIFACTS_PATH}?kind=analysis-report&requirementId=${RID}`)).status).toBe(404)
+  })
+})
+
+describe('0007 定稿软门：approveUnderstand / revokeUnderstand + stageReady 透传', () => {
+  const body = (action: string, extra: Record<string, unknown>, expectedRevision: number, requirementId = RID) =>
+    ({ expectedRevision, requirementId, action, ...extra })
+  const assistantMsg = (text: string): SessionEvent =>
+    ({ type: 'assistant/message', seq: 1, time: 0, data: { message: { content: [{ type: 'text', text }] } } }) as never as SessionEvent
+
+  it('approveUnderstand：隐式建账铸戳（全零定稿合法）→ 再定稿 400 → 撤销摘双键 → 再撤销 400；stale revision 409', async () => {
+    const h = await harness()
+    // No seeded record: the union's implicit-create semantics apply (an
+    // all-zero finalize is the ratified skip path).
+    const res1 = await h.post(WORKBENCH_PATH, body('approveUnderstand', {}, 0))
+    expect(res1.status).toBe(200)
+    const row1 = await res1.json() as { revision: number; record: WorkbenchRecord }
+    expect(row1.revision).toBe(1)
+    expectIsoString(row1.record.understandApprovedAt)
+    expect(row1.record.understandBaseline?.criteria).toEqual([])
+
+    const res2 = await h.post(WORKBENCH_PATH, body('approveUnderstand', {}, 1))
+    expect(res2.status).toBe(400)
+
+    const res3 = await h.post(WORKBENCH_PATH, body('revokeUnderstand', {}, 1))
+    expect(res3.status).toBe(200)
+    const row3 = await res3.json() as { revision: number; record: WorkbenchRecord }
+    expect(row3.revision).toBe(2)
+    expect(row3.record.understandApprovedAt).toBeUndefined()
+    expect(row3.record.understandBaseline).toBeUndefined()
+
+    expect((await h.post(WORKBENCH_PATH, body('revokeUnderstand', {}, 2))).status).toBe(400)
+
+    // Stale revision → 409 with the current revision (the optimistic-lock family).
+    const stale = await h.post(WORKBENCH_PATH, body('approveUnderstand', {}, 0))
+    expect(stale.status).toBe(409)
+  })
+
+  it('有内容记录：定稿快照经 HTTP 落盘（criteria/findings 元信息/已答澄清）且盘上往返可读', async () => {
+    const h = await harness()
+    await h.seed([seedRecord(RID, {
+      criteria: [{ id: 'C1', text: '导出走异步', sourceSection: 'PRD#3.1', coveredBy: [] }],
+      findings: [{ id: FINDING_ID, category: 'risk', severity: 'low', title: '慢查询风险', detail: 't_order 无索引', status: 'open', createdAt: NOW }],
+      analysis: {
+        session: { sessionId: 'sess-a', boundAt: NOW },
+        findings: [],
+        criteria: [],
+        clarifications: [
+          { id: '99999999-9999-4999-8999-999999999999', question: '上限？', answer: '百万行', answeredAt: NOW },
+        ],
+      },
+    })])
+    const res = await h.post(WORKBENCH_PATH, body('approveUnderstand', {}, 1))
+    expect(res.status).toBe(200)
+    const row = (await res.json()) as { record: WorkbenchRecord }
+    expect(row.record.understandBaseline).toEqual({
+      at: row.record.understandApprovedAt,
+      criteria: [{ id: 'C1', text: '导出走异步', sourceSection: 'PRD#3.1' }],
+      findings: [{ id: FINDING_ID, status: 'open', category: 'risk', severity: 'low', title: '慢查询风险' }],
+      clarifications: [{ question: '上限？', answer: '百万行' }],
+    })
+    // The ledger reloads with the new fields intact (the mirror-drift guard's e2e face).
+    const loaded = h.file.load()
+    expect(loaded.ok && loaded.value.records[0]?.understandBaseline?.criteria).toHaveLength(1)
+  })
+
+  it('stageReady 会话通道透传：true 落戳 → 新报告 false 随整戳换新（0007 收编断线）', async () => {
+    const h = await harness()
+    await h.post(WORKBENCH_PATH, body('bindAnalysisSession', { sessionId: 'sess-a' }, 0))
+    const fence = (rows: readonly string[]): string => '```yaml\n' + rows.join('\n') + '\n```'
+    h.declareReader.setEngine({ readSession: async () => ({ events: [assistantMsg(fence(['# skyaxis-declare', 'findings: []', 'criteria: []', 'stageReady: true']))] }) })
+    const res1 = await h.post(WORKBENCH_PATH, body('seedAnalysis', { sessionId: 'sess-a' }, 1))
+    const row1 = (await res1.json()) as { record: WorkbenchRecord }
+    expect(row1.record.analysis?.seed?.stageReady).toBe(true)
+
+    h.declareReader.setEngine({ readSession: async () => ({ events: [assistantMsg(fence(['# skyaxis-declare', 'findings: []', 'criteria: []', 'stageReady: false']))] }) })
+    const res2 = await h.post(WORKBENCH_PATH, body('seedAnalysis', { sessionId: 'sess-a' }, 2))
+    const row2 = (await res2.json()) as { record: WorkbenchRecord }
+    expect(row2.record.analysis?.seed?.stageReady).toBe(false)
   })
 })

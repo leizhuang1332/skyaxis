@@ -38,7 +38,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { KnowledgeRecord } from '../../src/workbench-host/types.js'
-import { applyRecordAction } from '../../src/workbench-host/record-actions.js'
+import { applyAnalysisSeed, applyRecordAction } from '../../src/workbench-host/record-actions.js'
 import { contentHashOf } from '../../src/workbench-host/artifact-store.js'
 import { isReleaseItemId, isWorkbenchRecord } from '../../src/workbench-shared/protocol.js'
 import type {
@@ -50,6 +50,7 @@ import type {
   ReviewVerdict,
   SaveReviewVerdictRequest,
   SaveReleaseItemRequest,
+  UnderstandBaseline,
   WorkbenchCriterion,
   WorkbenchFinding,
   WorkbenchMutateRequestBody,
@@ -1343,5 +1344,179 @@ describe('P5b proposed verdicts', () => {
     // proposed → confirmed 是真变更（不 unchanged）
     const same = applyRecordAction(base, saveVerdict({ id: 'v1', title: 'AI 报的', severity: 'high', verdict: 'confirmed', disposition: 'to-fix' }))
     expect(same.ok && same.unchanged).toBeUndefined()
+  })
+})
+
+describe('0007 定稿软门：approveUnderstand / revokeUnderstand', () => {
+  it('approveUnderstand 铸戳 + 轻快照：criteria 全文、findings 仅元信息（无 detail/resolution）、澄清只取已答', () => {
+    const base = baseRecord({
+      criteria: [criterion('C1', { sourceSection: 'PRD#3.1' }), criterion('C2')],
+      findings: [
+        finding({ id: 'f1', status: 'resolved', resolution: '方案：走异步', category: 'conflict', severity: 'high', title: '源码冲突' }),
+        finding({ id: 'f2', status: 'open', detail: '详详情况' }),
+      ],
+      analysis: {
+        session: { sessionId: 'sess-a', boundAt: NOW },
+        findings: [],
+        criteria: [],
+        clarifications: [
+          { id: 'q1', question: '批量上限？', answer: '一万行', answeredAt: NOW },
+          { id: 'q2', question: '未答问题' },
+        ],
+      },
+    })
+    const result = applyOk(base, { ...mutate(), action: 'approveUnderstand' })
+    expectIso(result.understandApprovedAt)
+    const baseline = result.understandBaseline
+    expect(baseline?.at).toBe(result.understandApprovedAt)
+    expect(baseline?.criteria).toEqual([{ id: 'C1', text: '准则 C1', sourceSection: 'PRD#3.1' }, { id: 'C2', text: '准则 C2' }])
+    expect(baseline?.findings).toEqual([
+      { id: 'f1', status: 'resolved', category: 'conflict', severity: 'high', title: '源码冲突' },
+      { id: 'f2', status: 'open', category: 'risk', severity: 'low', title: '慢查询风险' },
+    ]) // 无 detail/resolution —— 轻快照裁决①
+    expect(baseline?.clarifications).toEqual([{ question: '批量上限？', answer: '一万行' }]) // 未答行不入
+  })
+
+  it('approveUnderstand 全零记录可定稿（跳过理解的合法路径）；已定稿再定稿 → 400', () => {
+    const empty = applyOk(baseRecord(), { ...mutate(), action: 'approveUnderstand' })
+    expect(empty.understandBaseline?.criteria).toEqual([])
+    expect(empty.understandBaseline?.findings).toEqual([])
+    expect(empty.understandBaseline?.clarifications).toEqual([])
+
+    expect(applyRecordAction(empty, { ...mutate(), action: 'approveUnderstand' }))
+      .toEqual({ ok: false, status: 400, code: 'bad-request' }) // approving twice is a client bug
+  })
+
+  it('approveUnderstand 在 split 锁外：已批准拆分的记录照常可定稿（定稿是内容事件非拆分契约）', () => {
+    const approved = baseRecord({ splitApprovedAt: NOW, workPackages: [wp('WP1')] })
+    const finalized = applyOk(approved, { ...mutate(), action: 'approveUnderstand' })
+    expectIso(finalized.understandApprovedAt)
+    expect(finalized.splitApprovedAt).toBe(NOW) // 拆分契约不动
+  })
+
+  it('revokeUnderstand 摘双键（戳+基线一并）；未定稿 → 400', () => {
+    const finalized = applyOk(baseRecord({ criteria: [criterion('C1')] }), { ...mutate(), action: 'approveUnderstand' })
+    const revoked = applyOk(finalized, { ...mutate(), action: 'revokeUnderstand' })
+    expect('understandApprovedAt' in revoked).toBe(false)
+    expect('understandBaseline' in revoked).toBe(false)
+    expect(revoked.criteria).toHaveLength(1) // 活账本内容不动
+
+    expect(applyRecordAction(baseRecord(), { ...mutate(), action: 'revokeUnderstand' }))
+      .toEqual({ ok: false, status: 400, code: 'bad-request' })
+  })
+})
+
+describe('0007 D3：approveSplit / confirmSplitStillValid 基线两臂', () => {
+  it('已定稿需求批准拆分 → 基线带 understandApprovedAt 锚 + answeredClarifications 计数（皆 host 派生）', () => {
+    const base = baseRecord({
+      understandApprovedAt: NOW,
+      workPackages: [wp('WP1')],
+      analysis: {
+        session: { sessionId: 'sess-a', boundAt: NOW },
+        findings: [],
+        criteria: [],
+        clarifications: [
+          { id: 'q1', question: 'Q1', answer: 'A1', answeredAt: NOW },
+          { id: 'q2', question: 'Q2', answer: 'A2', answeredAt: NOW },
+          { id: 'q3', question: 'Q3 未答' },
+        ],
+      },
+    })
+    const approved = applyOk(base, { ...mutate(), action: 'approveSplit', baseline: { prd: [] } })
+    expect(approved.splitBaseline?.understandApprovedAt).toBe(NOW)
+    expect(approved.splitBaseline?.answeredClarifications).toBe(2)
+  })
+
+  it('未定稿需求批准拆分 → understandApprovedAt 键缺席（非 undefined 赋值）、answeredClarifications = 0', () => {
+    const approved = applyOk(baseRecord({ workPackages: [wp('WP1')] }), { ...mutate(), action: 'approveSplit', baseline: { prd: [] } })
+    expect('understandApprovedAt' in (approved.splitBaseline ?? {})).toBe(false)
+    expect(approved.splitBaseline?.answeredClarifications).toBe(0)
+  })
+
+  it('confirmSplitStillValid 重锚两臂到当前态（确认仍有效 = 全臂换基线；与 prd 快照同语义）', () => {
+    const base = baseRecord({
+      splitApprovedAt: NOW,
+      splitBaseline: { at: NOW, prd: [], disposedFindings: 0, understandApprovedAt: '2026-10-01T00:00:00.000Z', answeredClarifications: 0 },
+      understandApprovedAt: NOW,
+      workPackages: [wp('WP1')],
+      analysis: {
+        session: { sessionId: 'sess-a', boundAt: NOW },
+        findings: [],
+        criteria: [],
+        clarifications: [{ id: 'q1', question: 'Q1', answer: 'A1', answeredAt: NOW }],
+      },
+    })
+    const refreshed = applyOk(base, { ...mutate(), action: 'confirmSplitStillValid', baseline: { prd: [] } })
+    expect(refreshed.splitBaseline?.understandApprovedAt).toBe(NOW) // 重锚到当前戳
+    expect(refreshed.splitBaseline?.answeredClarifications).toBe(1)
+  })
+})
+
+describe('0007 applyAnalysisSeed × stageReady', () => {
+  const container = (): NonNullable<WorkbenchRecord['analysis']> => ({
+    session: { sessionId: 'sess-a', boundAt: NOW },
+    findings: [],
+    criteria: [],
+    clarifications: [],
+  })
+  const seedInput = (overrides: Partial<Parameters<typeof applyAnalysisSeed>[1]> = {}) => ({
+    sessionId: 'sess-a',
+    contentHash: 'hash-1',
+    stageReady: true,
+    findings: [],
+    criteria: [],
+    clarifications: [],
+    ...overrides,
+  })
+
+  it('stageReady 落 seed 戳（0007 收编：解析→落账，不再断线）', () => {
+    const result = applyAnalysisSeed(baseRecord({ analysis: container() }), seedInput())
+    if (!result.ok) throw new Error('expected ok')
+    expect(result.record.analysis?.seed?.stageReady).toBe(true)
+  })
+
+  it('新报告替换 → stageReady 随整戳换新（AI 重新评估）', () => {
+    const first = applyAnalysisSeed(baseRecord({ analysis: container() }), seedInput())
+    if (!first.ok) throw new Error('expected ok')
+    const second = applyAnalysisSeed(first.record, seedInput({ contentHash: 'hash-2', stageReady: false, findings: [{ category: 'risk', severity: 'low', title: '新发现' }] }))
+    if (!second.ok) throw new Error('expected ok')
+    expect(second.record.analysis?.seed?.stageReady).toBe(false)
+    expect(second.record.analysis?.seed?.contentHash).toBe('hash-2')
+  })
+
+  it('锚命中 → unchanged（stageReady 不复活已裁决批次——既有幂等语义不因新字段改变）', () => {
+    const first = applyAnalysisSeed(baseRecord({ analysis: container() }), seedInput())
+    if (!first.ok) throw new Error('expected ok')
+    const replay = applyAnalysisSeed(first.record, seedInput())
+    expect(replay).toEqual({ ok: true, record: first.record, unchanged: true })
+  })
+})
+
+describe('0007 isWorkbenchRecord × understand 字段（wire 守卫容忍面）', () => {
+  const baseline: UnderstandBaseline = {
+    at: NOW,
+    criteria: [{ id: 'C1', text: '准则', sourceSection: 'PRD#1' }],
+    findings: [{ id: FINDING_ID, status: 'resolved', category: 'risk', severity: 'low', title: '标题' }],
+    clarifications: [{ question: 'Q', answer: 'A' }],
+  }
+
+  it('缺席 / 合法形通过；坏形拒绝', () => {
+    expect(isWorkbenchRecord(baseRecord())).toBe(true) // 缺席
+    expect(isWorkbenchRecord(baseRecord({ understandApprovedAt: NOW, understandBaseline: baseline }))).toBe(true)
+    expect(isWorkbenchRecord(baseRecord({ understandApprovedAt: '' }))).toBe(false) // 空串
+    expect(isWorkbenchRecord(baseRecord({ understandApprovedAt: 42 } as unknown as Partial<WorkbenchRecord>))).toBe(false)
+    // 快照坏形：findings 带非枚举 status / 澄清缺 answer
+    const badStatus = { ...baseline, findings: [{ id: FINDING_ID, status: 'nope' as unknown as 'resolved', category: 'risk' as const, severity: 'low' as const, title: 't' }] }
+    expect(isWorkbenchRecord(baseRecord({ understandBaseline: badStatus as unknown as UnderstandBaseline }))).toBe(false)
+    const noAnswer = { ...baseline, clarifications: [{ question: 'Q' }] }
+    expect(isWorkbenchRecord(baseRecord({ understandBaseline: noAnswer as unknown as UnderstandBaseline }))).toBe(false)
+  })
+
+  it('seed.stageReady 容忍面：boolean 通过，非 boolean 拒绝（wire 层构造，绕过类型面）', () => {
+    const row = baseRecord({}) as unknown as Record<string, unknown>
+    row.analysis = { session: { sessionId: 's', boundAt: NOW }, seed: { sessionId: 's', contentHash: 'h', seededAt: NOW, findings: 0, criteria: 0, stageReady: true }, findings: [], criteria: [] }
+    expect(isWorkbenchRecord(row)).toBe(true)
+    row.analysis = { session: { sessionId: 's', boundAt: NOW }, seed: { sessionId: 's', contentHash: 'h', seededAt: NOW, findings: 0, criteria: 0, stageReady: 'yes' }, findings: [], criteria: [] }
+    expect(isWorkbenchRecord(row)).toBe(false)
   })
 })

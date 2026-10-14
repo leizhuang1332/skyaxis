@@ -63,6 +63,17 @@ function recomputeCoveredBy(criteria: readonly WorkbenchCriterion[], workPackage
   }))
 }
 
+/**
+ * 0007 D3: answered-clarification count, DERIVED from the record being
+ * stamped (never trusted from the wire — the approveSplit disposedFindings
+ * discipline: it cannot disagree with the ledger). Shared by both baseline
+ * mint sites (approveSplit + confirmSplitStillValid) so the compare side's
+ *口径 stays identical across a refresh.
+ */
+function answeredClarificationsOf(record: WorkbenchRecord): number {
+  return (record.analysis?.clarifications ?? []).filter((row) => row.answer !== undefined).length
+}
+
 /** WP<max+1> / C<max+1> sequence minting — ids are never recycled (the plans-version philosophy). */
 function nextSequenceId(ids: readonly string[], prefix: string): string {
   let max = 0
@@ -260,6 +271,50 @@ export function applyRecordAction(base: WorkbenchRecord, body: WorkbenchMutateRe
     }
   }
 
+  // 0007 定稿软门 — record-level understand stamps, OUTSIDE the split lock
+  // (the finalize is the user's own S1 content event; the split contract
+  // freezes list × coverage, not the understanding credential — the
+  // confirmRollbackPlan pair is the structural precedent).
+  if (body.action === 'approveUnderstand') {
+    if (base.understandApprovedAt !== undefined) return fail(400, 'bad-request') // approving twice is a client bug, not a state race
+    const at = now()
+    return {
+      ok: true,
+      // The credential snapshot is DERIVED from this same record (zero
+      // payload — it cannot disagree with the ledger). Deliberately LIGHT:
+      // findings carry metadata only (detail/resolution stay in the live
+      // rows), answered clarifications only (answers are the rulings).
+      record: {
+        ...base,
+        understandApprovedAt: at,
+        understandBaseline: {
+          at,
+          criteria: base.criteria.map((criterion) => ({
+            id: criterion.id,
+            text: criterion.text,
+            ...(criterion.sourceSection !== undefined ? { sourceSection: criterion.sourceSection } : {}),
+          })),
+          findings: base.findings.map((finding) => ({
+            id: finding.id,
+            status: finding.status,
+            category: finding.category,
+            severity: finding.severity,
+            title: finding.title,
+          })),
+          clarifications: (base.analysis?.clarifications ?? []).flatMap((row) =>
+            row.answer === undefined ? [] : [{ question: row.question, answer: row.answer }]),
+        },
+      },
+    }
+  }
+  if (body.action === 'revokeUnderstand') {
+    if (base.understandApprovedAt === undefined) return fail(400, 'bad-request')
+    // Stamp + credential strip TOGETHER (the revokeSplitApproval key-strip
+    // pattern — 'understandApprovedAt' in record is false downstream).
+    const { understandApprovedAt: _stamp, understandBaseline: _baseline, ...rest } = base
+    return { ok: true, record: rest }
+  }
+
   // Everything below this line is under the split contract's shadow. (The
   // one analysis-family exception — adoptCriterionProposal — handled above
   // carries its own inline lock check: writing criteria[] IS the frozen
@@ -286,6 +341,13 @@ export function applyRecordAction(base: WorkbenchRecord, body: WorkbenchMutateRe
           at,
           prd: body.baseline?.prd ?? [],
           disposedFindings: base.findings.filter((finding) => finding.status !== 'open').length,
+          // 0007 D3 arms — both host-derived (never trusted from the wire).
+          // understandApprovedAt is spread-conditional so pre-0007 semantics
+          // (absent key) hold for a never-finalized requirement; the
+          // answered count is always written (0 included) so the arm is
+          // armed from the first post-0007 approval on.
+          ...(base.understandApprovedAt !== undefined ? { understandApprovedAt: base.understandApprovedAt } : {}),
+          answeredClarifications: answeredClarificationsOf(base),
         },
       },
     }
@@ -334,7 +396,17 @@ export function applyRecordAction(base: WorkbenchRecord, body: WorkbenchMutateRe
       // trusted from the wire, same as approveSplit). List untouched.
       record: {
         ...base,
-        splitBaseline: { at, prd: body.baseline.prd, disposedFindings: base.findings.filter((finding) => finding.status !== 'open').length },
+        splitBaseline: {
+          at,
+          prd: body.baseline.prd,
+          disposedFindings: base.findings.filter((finding) => finding.status !== 'open').length,
+          // The 0007 arms re-anchor HERE TOO — 确认仍有效 means "checked, the
+          // split stands", which re-baselines every arm to NOW (exactly the
+          // prd-snapshot refresh semantics; a finalize that moved before the
+          // confirm was part of what the user just checked and accepted).
+          ...(base.understandApprovedAt !== undefined ? { understandApprovedAt: base.understandApprovedAt } : {}),
+          answeredClarifications: answeredClarificationsOf(base),
+        },
       },
     }
   }
@@ -915,6 +987,8 @@ function reviewVerdictEquivalent(a: ReviewVerdict, b: ReviewVerdict): boolean {
 export interface AnalysisSeedInput {
   readonly sessionId: string
   readonly contentHash: string
+  /** 0007: the report's stage-ready proposal rides the stamp (consultation only). */
+  readonly stageReady: boolean
   readonly findings: readonly {
     readonly category: WorkbenchFinding['category']
     readonly severity: WorkbenchFinding['severity']
@@ -949,7 +1023,7 @@ export function applyAnalysisSeed(base: WorkbenchRecord, input: AnalysisSeedInpu
       ...base,
       analysis: {
         ...container,
-        seed: { sessionId: input.sessionId, contentHash: input.contentHash, seededAt: at, findings: input.findings.length, criteria: input.criteria.length, clarifications: input.clarifications.length },
+        seed: { sessionId: input.sessionId, contentHash: input.contentHash, seededAt: at, findings: input.findings.length, criteria: input.criteria.length, clarifications: input.clarifications.length, stageReady: input.stageReady },
         findings: input.findings.map((row) => ({
           id: randomUUID(),
           category: row.category,

@@ -139,6 +139,43 @@ describe('WorkbenchFileStore', () => {
       expect(isWorkbenchRecord(loaded.value.records[0])).toBe(true)
     })
 
+    it('round-trips the 0007 optional fields through disk — understand stamp/baseline + seed.stageReady + splitBaseline 两臂', async () => {
+      // Same load-bearing mirror guard: drop understandBaseline from
+      // WorkbenchRecordSchema (or stageReady from the seed schema) and zod
+      // silently strips it on load — data loss with no error. This goes red.
+      const { store } = workbenchFixture()
+      const stamped: WorkbenchRecord = {
+        ...record(),
+        understandApprovedAt: NOW,
+        understandBaseline: {
+          at: NOW,
+          criteria: [{ id: 'C1', text: '导出走异步', sourceSection: 'PRD#3.1' }],
+          findings: [{ id: '44444444-4444-4444-8444-444444444444', status: 'resolved', category: 'risk', severity: 'high', title: '大表全量' }],
+          clarifications: [{ question: '批量上限？', answer: '一万行' }],
+        },
+        splitApprovedAt: NOW,
+        splitBaseline: { at: NOW, prd: [], disposedFindings: 1, understandApprovedAt: NOW, answeredClarifications: 2 },
+        analysis: {
+          session: { sessionId: 'sess-a', boundAt: NOW },
+          seed: { sessionId: 'sess-a', contentHash: 'a'.repeat(64), seededAt: NOW, findings: 1, criteria: 1, clarifications: 2, stageReady: true },
+          findings: [],
+          criteria: [],
+          clarifications: [],
+        },
+      }
+      await store.save(0, [stamped])
+      const loaded = store.load()
+      expect(loaded.ok).toBe(true)
+      if (!loaded.ok) return
+      const row = loaded.value.records[0]!
+      expect(row.understandApprovedAt).toBe(NOW)
+      expect(row.understandBaseline).toEqual(stamped.understandBaseline)
+      expect(row.splitBaseline?.understandApprovedAt).toBe(NOW)
+      expect(row.splitBaseline?.answeredClarifications).toBe(2)
+      expect(row.analysis?.seed?.stageReady).toBe(true)
+      expect(isWorkbenchRecord(row)).toBe(true)
+    })
+
     it('parses a hand-written legal file (hand-edited yaml stays loadable)', () => {
       const { store, file } = workbenchFixture()
       writeFileSync(

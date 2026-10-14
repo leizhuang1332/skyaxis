@@ -209,6 +209,8 @@ export const AnalysisProposalsSchema = z.object({
     findings: z.number().int().nonnegative(),
     criteria: z.number().int().nonnegative(),
     clarifications: z.number().int().nonnegative().optional(),
+    /** 0007 stage-ready proposal — consultation only, never auto-advance. */
+    stageReady: z.boolean().optional(),
   }).optional(),
   findings: z.array(ProposedFindingSchema),
   criteria: z.array(ProposedCriterionSchema),
@@ -225,12 +227,46 @@ const SplitBaselinePrdSchema = z.object({
 /**
  * Stale-reconciliation baseline (P5b). Sub-fields are REQUIRED (no legacy
  * data predates the field itself, and a half-populated baseline would make
- * the comparison lie — the protective stance from the file header).
+ * the comparison lie — the protective stance from the file header). The two
+ * 0007 additions are the exception — OPTIONAL by the field-evolution
+ * discipline: baselines minted before 0007 carry neither, and absent reads
+ * as absent on the compare side (never a false stale).
  */
 const SplitBaselineSchema = z.object({
   at: TimestampSchema,
   prd: z.array(SplitBaselinePrdSchema),
   disposedFindings: z.number().int().nonnegative(),
+  understandApprovedAt: TimestampSchema.optional(),
+  answeredClarifications: z.number().int().nonnegative().optional(),
+})
+
+// 0007 定稿软门 — the understand-finalize credential. Sub-fields REQUIRED
+// (the same half-populated-baseline-lies stance); HOST-MINTED ONLY, never on
+// any input schema (approveUnderstand carries zero payload).
+const UnderstandBaselineCriterionSchema = z.object({
+  id: z.string().min(1).max(64),
+  text: z.string().min(1).max(2000),
+  sourceSection: z.string().max(256).optional(),
+})
+
+const UnderstandBaselineFindingSchema = z.object({
+  id: z.uuid(),
+  status: z.enum(FINDING_STATUS_VALUES),
+  category: z.enum(FINDING_CATEGORY_VALUES),
+  severity: z.enum(SEVERITY_VALUES),
+  title: z.string().min(1).max(64),
+})
+
+const UnderstandBaselineClarificationSchema = z.object({
+  question: z.string().min(1).max(2000),
+  answer: z.string().min(1).max(2000),
+})
+
+const UnderstandBaselineSchema = z.object({
+  at: TimestampSchema,
+  criteria: z.array(UnderstandBaselineCriterionSchema),
+  findings: z.array(UnderstandBaselineFindingSchema),
+  clarifications: z.array(UnderstandBaselineClarificationSchema),
 })
 
 export const WorkbenchRecordSchema = z.object({
@@ -243,6 +279,10 @@ export const WorkbenchRecordSchema = z.object({
   rollbackPlanConfirmedAt: TimestampSchema.optional(),
   /** P5b stale baseline — present exactly while the split is approved. */
   splitBaseline: SplitBaselineSchema.optional(),
+  /** 0007 定稿软门 stamp — host-set-only (approve/revokeUnderstand). */
+  understandApprovedAt: TimestampSchema.optional(),
+  /** 0007 credential snapshot — minted with the stamp, stripped with it. */
+  understandBaseline: UnderstandBaselineSchema.optional(),
   criteria: z.array(WorkbenchCriterionSchema),
   findings: z.array(WorkbenchFindingSchema),
   workPackages: z.array(WorkbenchWorkPackageSchema),
@@ -508,6 +548,21 @@ const RevokeRollbackPlanSchema = z.object({
   action: z.literal('revokeRollbackPlan'),
 })
 
+// 0007 定稿软门 — record-level understand stamp pair, ZERO payload (the
+// baseline is host-derived from the stamped record itself; the
+// confirmRollbackPlan pair is the structural precedent).
+const ApproveUnderstandSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  action: z.literal('approveUnderstand'),
+})
+
+const RevokeUnderstandSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  action: z.literal('revokeUnderstand'),
+})
+
 // Review reports (S4, P4) — OUTSIDE the split gate (see record-actions.ts).
 // The rejected-note and rejected-no-disposition rules are BUSINESS guards in
 // the pure core (the AcceptWorkPackage note applies: superRefine on a
@@ -664,6 +719,8 @@ export const WorkbenchMutateSchema = z.discriminatedUnion('action', [
   RestoreWorkPackageSchema,
   SaveCriterionSchema,
   RemoveCriterionSchema,
+  ApproveUnderstandSchema,
+  RevokeUnderstandSchema,
   SaveReleaseItemSchema,
   RemoveReleaseItemSchema,
   ConfirmReleaseItemSchema,

@@ -307,6 +307,7 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
       const applied = applyAnalysisSeed(existing, {
         sessionId: body.sessionId,
         contentHash: reportFile.sha256,
+        stageReady: parsed.stageReady,
         findings: parsed.proposals.findings,
         criteria: parsed.proposals.criteria,
         clarifications: parsed.proposals.clarifications,
@@ -361,6 +362,7 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     const applied = applyAnalysisSeed(base, {
       sessionId,
       contentHash: contentHashOf(read.text),
+      stageReady: parsed.stageReady,
       findings: parsed.proposals.findings,
       criteria: parsed.proposals.criteria,
       clarifications: parsed.proposals.clarifications,

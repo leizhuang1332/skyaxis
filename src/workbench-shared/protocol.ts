@@ -285,6 +285,21 @@ export interface SplitBaseline {
   readonly at: string
   readonly prd: readonly SplitBaselinePrd[]
   readonly disposedFindings: number
+  /**
+   * Understand-finalize anchor (0007 D3): the understandApprovedAt stamp the
+   * split was approved under. Optional per the field-evolution discipline —
+   * baselines minted before 0007 carry none, and ABSENT READS AS ABSENT on
+   * the compare side (never a false stale). Revoking the finalize flips the
+   * record side to undefined ≠ this string ⇒ stale fires.
+   */
+  readonly understandApprovedAt?: string
+  /**
+   * Answered-clarification count at approval (0007 D3): answers are user-
+   * owned split-adjudication context that a later answer change should
+   * surface as stale. Optional per the field-evolution discipline; absent ⇒
+   * compared as 0 (pre-0007 baselines predate clarifications anyway).
+   */
+  readonly answeredClarifications?: number
 }
 
 export interface SplitBaselinePrd {
@@ -292,6 +307,47 @@ export interface SplitBaselinePrd {
   readonly size: number
   /** File mtime, epoch ms (the requirements PrdDocSummary shape, mirrored). */
   readonly modifiedAt: number
+}
+
+// ---------------------------------------------------------------------------
+// Understand baseline (0007 定稿软门) — the CREDENTIAL snapshot minted at
+// approveUnderstand. It is an ANCHOR, not a second truth source: the split
+// task book and the understanding-sheet export both DERIVE from the live
+// ledger, they never read this snapshot's content. Its two jobs are (a) the
+// approve-something-attach-to credential (the BMAD sign-off discipline) and
+// (b) the stale-compare anchor. Deliberately LIGHT (0007 实施裁决①):
+// criteria carry full text (≤2000/row caps inherited), findings carry
+// METADATA ONLY — id/status/category/severity/title, never detail/resolution
+// (20 rows × 32K detail would blow the ledger's inline budget; the full rows
+// live on in the live record anyway). No new caps: every row copies data
+// already capped at its write gate.
+// ---------------------------------------------------------------------------
+
+export interface UnderstandBaselineCriterion {
+  readonly id: string
+  readonly text: string
+  readonly sourceSection?: string
+}
+
+export interface UnderstandBaselineFinding {
+  readonly id: string
+  readonly status: WorkbenchFinding['status']
+  readonly category: WorkbenchFinding['category']
+  readonly severity: WorkbenchFinding['severity']
+  readonly title: string
+}
+
+export interface UnderstandBaselineClarification {
+  readonly question: string
+  readonly answer: string
+}
+
+export interface UnderstandBaseline {
+  readonly at: string
+  readonly criteria: readonly UnderstandBaselineCriterion[]
+  readonly findings: readonly UnderstandBaselineFinding[]
+  /** ANSWERED rows only ({question, answer}) — unanswered rows are not rulings. */
+  readonly clarifications: readonly UnderstandBaselineClarification[]
 }
 
 // ---------------------------------------------------------------------------
@@ -393,6 +449,13 @@ export interface WorkbenchAnalysisProposals {
     readonly criteria: number
     /** 文件交付轮 batch count — optional per the field-evolution discipline (pre-clarification stamps). */
     readonly clarifications?: number
+    /**
+     * The report's stage-ready proposal (0007): the AI's 「本阶段就绪」flag,
+     * surfaced in S1 as a CONSULTATION line only — advancing stays with the
+     * user (the declare.stageReadyProposal discipline). Optional per the
+     * field-evolution discipline (pre-0007 stamps carry none).
+     */
+    readonly stageReady?: boolean
   }
   readonly findings: readonly WorkbenchProposedFinding[]
   readonly criteria: readonly WorkbenchProposedCriterion[]
@@ -435,6 +498,19 @@ export interface WorkbenchRecord {
    * possible" (the badge stays hidden — honest absence, never a false GO).
    */
   readonly splitBaseline?: SplitBaseline
+  /**
+   * Understand-finalize stamp (0007 定稿软门) — presence = the requirement's
+   * understanding phase has been closed out by the user (a CONTENT event,
+   * deliberately decoupled from `stage`, the ATTENTION pointer: finalize
+   * never advances, advance never finalizes). Host-set-only, like
+   * splitApprovedAt; revoke strips stamp + baseline together (the key-strip
+   * precedent). NOT a hard gate: the split actions and criteria edits stay
+   * available with or without it (P3「阶段是指示器不是闸门」intact — the
+   * industry survey found approval-heaviness is where tools lose users).
+   */
+  readonly understandApprovedAt?: string
+  /** The credential snapshot minted with the stamp above (see its section note). */
+  readonly understandBaseline?: UnderstandBaseline
   readonly criteria: readonly WorkbenchCriterion[]
   readonly findings: readonly WorkbenchFinding[]
   readonly workPackages: readonly WorkbenchWorkPackage[]
@@ -632,6 +708,32 @@ export interface RestoreWorkPackageRequest {
   readonly requirementId: string
   readonly action: 'restoreWorkPackage'
   readonly id: string
+}
+
+// --- Understand finalize (S1 收口, 0007 定稿软门; OUTSIDE the split lock —
+// finalizing is the user's own content event over S1 state, and the split
+// contract freezes list × coverage, not the understanding credential. The
+// confirmRollbackPlan record-stamp pair is the structural precedent.) ---
+
+/**
+ * Finalize the requirement understanding: stamps understandApprovedAt +
+ * mints the UnderstandBaseline credential. ZERO PAYLOAD — the baseline is
+ * derived host-side from the very record being stamped (the approveSplit
+ * disposedFindings discipline: it can never disagree with the ledger).
+ * Approving twice is a 400 (the approve-family rule: a client bug, not a
+ * state race). Not a gate: nothing downstream locks or unlocks on it.
+ */
+export interface ApproveUnderstandRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'approveUnderstand'
+}
+
+/** Strip the finalize stamp + baseline together (key-strip precedent). */
+export interface RevokeUnderstandRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'revokeUnderstand'
 }
 
 // --- Criteria (S1; covered under the split lock like the list itself) ---
@@ -866,6 +968,8 @@ export type WorkbenchMutateRequestBody =
   | RestoreWorkPackageRequest
   | SaveCriterionRequest
   | RemoveCriterionRequest
+  | ApproveUnderstandRequest
+  | RevokeUnderstandRequest
   | SaveReleaseItemRequest
   | RemoveReleaseItemRequest
   | ConfirmReleaseItemRequest
@@ -1621,6 +1725,7 @@ function isWorkbenchAnalysisProposals(v: unknown): v is WorkbenchAnalysisProposa
       || !isString(s.seededAt)
       || typeof s.findings !== 'number' || typeof s.criteria !== 'number'
       || (s.clarifications !== undefined && typeof s.clarifications !== 'number')
+      || (s.stageReady !== undefined && typeof s.stageReady !== 'boolean')
     ) return false
   }
   if (session.anchor !== undefined && (!isString(session.anchor) || session.anchor.length === 0 || session.anchor.length > 512)) return false
@@ -1655,6 +1760,50 @@ function isSplitBaseline(v: unknown): v is SplitBaseline {
   return isString(r.at) && r.at.length > 0
     && Array.isArray(r.prd) && r.prd.every(isSplitBaselinePrd)
     && typeof r.disposedFindings === 'number'
+    && (r.understandApprovedAt === undefined || (isString(r.understandApprovedAt) && r.understandApprovedAt.length > 0))
+    && (r.answeredClarifications === undefined || typeof r.answeredClarifications === 'number')
+}
+
+function isUnderstandBaselineCriterion(v: unknown): v is UnderstandBaselineCriterion {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  return (
+    isString(r.id) && r.id.length > 0
+    && isString(r.text) && r.text.length > 0
+    && (r.sourceSection === undefined || isString(r.sourceSection))
+  )
+}
+
+function isUnderstandBaselineFinding(v: unknown): v is UnderstandBaselineFinding {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  return (
+    isString(r.id) && r.id.length > 0
+    && isString(r.status) && FINDING_STATUSES.includes(r.status)
+    && isString(r.category) && FINDING_CATEGORIES.includes(r.category)
+    && isString(r.severity) && SEVERITIES.includes(r.severity)
+    && isString(r.title) && r.title.length > 0
+  )
+}
+
+function isUnderstandBaselineClarification(v: unknown): v is UnderstandBaselineClarification {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  return (
+    isString(r.question) && r.question.length > 0
+    && isString(r.answer) && r.answer.length > 0
+  )
+}
+
+function isUnderstandBaseline(v: unknown): v is UnderstandBaseline {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  return (
+    isString(r.at) && r.at.length > 0
+    && Array.isArray(r.criteria) && r.criteria.every(isUnderstandBaselineCriterion)
+    && Array.isArray(r.findings) && r.findings.every(isUnderstandBaselineFinding)
+    && Array.isArray(r.clarifications) && r.clarifications.every(isUnderstandBaselineClarification)
+  )
 }
 
 export function isWorkbenchRecord(v: unknown): v is WorkbenchRecord {
@@ -1667,6 +1816,8 @@ export function isWorkbenchRecord(v: unknown): v is WorkbenchRecord {
     && (r.splitApprovedAt === undefined || (isString(r.splitApprovedAt) && r.splitApprovedAt.length > 0))
     && (r.rollbackPlanConfirmedAt === undefined || (isString(r.rollbackPlanConfirmedAt) && r.rollbackPlanConfirmedAt.length > 0))
     && (r.splitBaseline === undefined || isSplitBaseline(r.splitBaseline))
+    && (r.understandApprovedAt === undefined || (isString(r.understandApprovedAt) && r.understandApprovedAt.length > 0))
+    && (r.understandBaseline === undefined || isUnderstandBaseline(r.understandBaseline))
     && Array.isArray(r.criteria) && r.criteria.every(isWorkbenchCriterion)
     && Array.isArray(r.findings) && r.findings.every(isWorkbenchFinding)
     && Array.isArray(r.workPackages) && r.workPackages.every(isWorkbenchWorkPackage)
