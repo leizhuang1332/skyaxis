@@ -30,6 +30,7 @@ import type {
   WorkbenchStageOrClosed,
   WorkbenchWorkPackage,
 } from '../../workbench-shared/protocol.js'
+import { analysisReportRelPath } from '../../workbench-shared/protocol.js'
 import type { RequirementRecord } from '../../requirements-shared/protocol.js'
 
 // ---------------------------------------------------------------------------
@@ -371,12 +372,12 @@ function declarePlainSkeleton(): string[] {
 }
 
 /**
- * The ANALYSIS declare skeleton (回传轮) — the plain shape plus the two
- * proposal keys the watcher's seedAnalysis parses into S1 待裁决 rows
- * (findings/criteria). It is deliberately NOT shared with split/dev: their
- * declarePlainSkeleton stays byte-identical (the user ruling that froze the
- * other three purposes' documents), and the analysis document is the only
- * one whose report flows back through this contract.
+ * The ANALYSIS declare skeleton (回传轮 + 文件交付轮) — the plain shape plus
+ * the three proposal keys the watcher's seedAnalysis parses into S1 待裁决
+ * rows (findings/criteria/clarifications). It is deliberately NOT shared
+ * with split/dev: their declarePlainSkeleton stays byte-identical (the user
+ * ruling that froze the other three purposes' documents), and the analysis
+ * document is the only one whose report flows back through this contract.
  */
 function declareAnalysisSkeleton(): string[] {
   return [
@@ -388,6 +389,10 @@ function declareAnalysisSkeleton(): string[] {
     '# criteria 每条 = 验收标准提议：',
     '#   - text: 一句可判定的话',
     '#     sourceSection: PRD#章节',
+    '# clarifications 每条 = 待澄清问题（必须附你的推荐答案，把问题措辞成「是」即接受推荐）：',
+    '#   - question: 问题（一句）',
+    '#     recommendation: 推荐答案',
+    '#     blocks: 阻塞了哪条结论（如 F2 / PRD#3.2）',
     ...declarePlainSkeleton(),
   ]
 }
@@ -486,15 +491,30 @@ function analysisSnapshotBlock(ctx: SowContext): string {
   // 回传轮: pending proposals list too — a re-run analysis session must see
   // what is already on the table (adopted rows are the two groups above;
   // unadjudicated rows live only here) so it refines instead of re-proposing.
+  // 文件交付轮: ANSWERED clarifications re-enter as settled facts (the
+  // ledger is the answer's home — the file is never written back), and
+  // unanswered ones join the do-not-re-propose list.
   const pendingFindings = ctx.record.analysis?.findings ?? []
   const pendingCriteria = ctx.record.analysis?.criteria ?? []
-  if (pendingFindings.length > 0 || pendingCriteria.length > 0) {
+  const clarifications = ctx.record.analysis?.clarifications ?? []
+  const answeredClarifications = clarifications.filter((row) => row.answer !== undefined)
+  const pendingClarifications = clarifications.filter((row) => row.answer === undefined)
+  if (answeredClarifications.length > 0) {
+    lines.push('已答澄清（需求方已回答，视为已定事实，勿重复提问）：')
+    for (const row of answeredClarifications) {
+      lines.push(`- 问：${row.question} / 已答：${row.answer}`)
+    }
+  }
+  if (pendingFindings.length > 0 || pendingCriteria.length > 0 || pendingClarifications.length > 0) {
     lines.push('待裁决提议（已收取未裁决，勿重复提议）：')
     for (const row of pendingFindings) {
       lines.push(`- [${FINDING_CATEGORY_LABEL[row.category]}·${SEVERITY_LABEL[row.severity]}] ${row.title}`)
     }
     for (const row of pendingCriteria) {
       lines.push(`- 标准：${row.text}`)
+    }
+    for (const row of pendingClarifications) {
+      lines.push(`- 澄清：${row.question}`)
     }
   }
   if (ctx.record.workPackages.length > 0) {
@@ -562,14 +582,26 @@ function analysisInputBlock(ctx: SowContext): string {
 
 const ANALYSIS_KNOWLEDGE_HEADER = '## 参考知识（工作台注入，已审定）'
 
-const ANALYSIS_CONSTRAINTS = [
-  '## 约束',
-  '- 严格只读：不修改、创建、删除任何文件；不建分支、不提交、不推送——以任何方式不改变工作区状态。分析报告在会话内交付，不写文件。',
-  '- 不裁决：发现与验收标准皆为建议，录入、裁决、阶段推进全部由用户在工作台完成；发现处置建议可以给，但不要顺手实施。',
-  '- 有据：每条发现给出证据出处（PRD#章节 或 代码 路径:行号）；查不到依据的结论显式标「推测」；与参考知识条目冲突的发现至少「高」级并注明知识条目标题。',
-  '- 有限停止：仅四类情况停下来问用户——PRD 与代码矛盾到无从下手 / 需要工作区外的系统或权限 / 不可逆或破坏性操作 / 只有需求方能拍板的取舍；其余自行推进。',
-  '- 依据边界：以 PRD 与工作区代码为准；外部信息仅作辅助且注明来源。',
-].join('\n')
+/**
+ * 文件交付轮: the strict-readonly line carries the report-file carve-out
+ * when the workspace channel is armed (the report file is the ONE write the
+ * task book prescribes); a requirement without a workspace keeps the
+ * conversation-delivery wording verbatim (the honest fallback channel).
+ */
+function analysisConstraintsBlock(ctx: SowContext): string {
+  const fileChannel = ctx.requirement.workspacePath.trim() !== ''
+  const readonly = fileChannel
+    ? '- 严格只读：不修改、创建、删除任何文件；不建分支、不提交、不推送——唯一例外：把分析报告写入「输出」节指定路径的报告文件（目录不存在则创建，覆盖写）；除此之外以任何方式不改变工作区状态。'
+    : '- 严格只读：不修改、创建、删除任何文件；不建分支、不提交、不推送——以任何方式不改变工作区状态。分析报告在会话内交付，不写文件。'
+  return [
+    '## 约束',
+    readonly,
+    '- 不裁决：发现与验收标准皆为建议，录入、裁决、阶段推进全部由用户在工作台完成；发现处置建议可以给，但不要顺手实施。',
+    '- 有据：每条发现给出证据出处（PRD#章节 或 代码 路径:行号）；查不到依据的结论显式标「推测」；与参考知识条目冲突的发现至少「高」级并注明知识条目标题。',
+    '- 有限停止：仅四类情况停下来问用户——PRD 与代码矛盾到无从下手 / 需要工作区外的系统或权限 / 不可逆或破坏性操作 / 只有需求方能拍板的取舍；其余自行推进。',
+    '- 依据边界：以 PRD 与工作区代码为准；外部信息仅作辅助且注明来源。',
+  ].join('\n')
+}
 
 const ANALYSIS_WORKFLOW = [
   '## 工作流',
@@ -588,10 +620,23 @@ const ANALYSIS_WORKFLOW = [
   '先查后问：能从 PRD、代码、目录里查证的事实自己去查；只有影响结论的取舍留给需求方——本任务允许且期待你在真正的歧义处提问，而不是自行假设。',
 ].join('\n')
 
-function analysisOutputBlock(): string {
+/**
+ * 文件交付轮: with a bound workspace the report is FILE-delivered — the
+ * session writes the whole document (prose + embedded declare block) to the
+ * prescribed absolute path and the workbench seeds from the file (the
+ * conversation stream stops being the contract surface). Without a workspace
+ * the original conversation delivery stands verbatim (the fallback channel
+ * — no reachable directory to prescribe).
+ */
+function analysisOutputBlock(ctx: SowContext): string {
+  const workspace = ctx.requirement.workspacePath.trim()
+  const fileChannel = workspace !== ''
+  const delivery = fileChannel
+    ? `分析结束时把完整报告写入报告文件（markdown 正文 + 结尾机器可读声明块，一次成文），路径：${toDisplayPath(workspace)}/${analysisReportRelPath(ctx.requirement.id)}（绝对路径；目录不存在则创建；覆盖写——不追加、不留多份）。声明块条目用缩进键值，勿用行内逗号；块体必须完整包在 \`\`\`yaml 围栏内——三个反引号起、三个反引号收，缺围栏无法收取。报告按三节组织：`
+    : '分析结束时先给出分析报告（markdown，会话内交付，不写文件），随后附上机器可读的声明块（条目用缩进键值，勿用行内逗号；块体必须完整包在 ```yaml 围栏内——三个反引号起、三个反引号收，缺围栏无法收取）。报告按三节组织：'
   return [
     '## 输出',
-    '分析结束时先给出分析报告（markdown，会话内交付，不写文件），随后附上机器可读的声明块（条目用缩进键值，勿用行内逗号；块体必须完整包在 ```yaml 围栏内——三个反引号起、三个反引号收，缺围栏无法收取）。报告按三节组织：',
+    delivery,
     '1. 分析发现——每条一行起：F1 [类别·级别] 标题；随后说明（一两句）、证据出处（PRD#章节 或 代码 路径:行号）、（可选）处置建议。按级别降序、同级按类分组；编号 F1、F2… 稳定不重排；总量以 20 条为度，更多的聚合成一行溢出说明。六类逐类给过结论——没有发现的类如实写「未发现」，不要硬凑；六类全零时，显式说明残余风险与探索缺口（哪些范围没查、为什么）。',
     '2. 验收标准建议——每条：A1 一句可判定的话（来源：PRD#章节）；写不出可判定形式的不要写。',
     '3. 待澄清——每问：问题 + 推荐答案 + 阻塞了哪条结论。',
@@ -600,8 +645,10 @@ function analysisOutputBlock(): string {
     '# skyaxis-declare',
     ...declareAnalysisSkeleton(),
     '```',
-    '说明：findings 与 criteria 会由工作台自动收为待裁决提议行（采纳与否由用户裁决）；knowledge 只列值得沉淀的知识候选（业务知识/开发约定，入工作台审阅队列）；stageReady 是阶段就绪提议，仅供预览——录入、裁决与阶段推进全部由用户完成，不要替用户下结论。',
-    '完成自检（全部满足才算收尾）：需求要点已列且注章节 · 探察过的文件清单已列 · 每条发现有类别/级别/出处 · 每条标准建议可判定 · 每个待澄清问题带推荐答案 · 六类逐类有结论 · 声明块已附。',
+    '说明：findings、criteria 与 clarifications 会由工作台自动收为待裁决提议行（采纳与否、如何回答由用户裁决）；knowledge 只列值得沉淀的知识候选（业务知识/开发约定，入工作台审阅队列）；stageReady 是阶段就绪提议，仅供预览——录入、裁决与阶段推进全部由用户完成，不要替用户下结论。',
+    fileChannel
+      ? '完成自检（全部满足才算收尾）：需求要点已列且注章节 · 探察过的文件清单已列 · 每条发现有类别/级别/出处 · 每条标准建议可判定 · 每个待澄清问题带推荐答案 · 六类逐类有结论 · 声明块已附 · 报告已写入上述路径。'
+      : '完成自检（全部满足才算收尾）：需求要点已列且注章节 · 探察过的文件清单已列 · 每条发现有类别/级别/出处 · 每条标准建议可判定 · 每个待澄清问题带推荐答案 · 六类逐类有结论 · 声明块已附。',
   ].join('\n')
 }
 
@@ -629,9 +676,9 @@ export function buildSow(ctx: SowContext): string {
       analysisSnapshotBlock(ctx),
       analysisInputBlock(ctx),
       knowledgeBlock(ctx, ANALYSIS_KNOWLEDGE_HEADER),
-      ANALYSIS_CONSTRAINTS,
+      analysisConstraintsBlock(ctx),
       ANALYSIS_WORKFLOW,
-      analysisOutputBlock(),
+      analysisOutputBlock(ctx),
     ]
     return [...blocks, revisionStamp(ctx)].join('\n\n')
   }

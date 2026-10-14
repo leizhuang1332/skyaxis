@@ -349,6 +349,12 @@ export function createWorkbenchController(store: WorkbenchStore, fetcher: Workbe
       return alive(result) ? result : undefined
     },
 
+    /** 文件交付轮: the workspace analysis report file (pure read, the planContent precedent — no slot churn). */
+    analysisReportContent: async (requirementId: string, signal?: AbortSignal) => {
+      const result = await fetcher.analysisReportContent(requirementId, signal)
+      return alive(result) ? result : undefined
+    },
+
     // --- P2: session binding + knowledge candidates (main union mutations) ---
 
     bindSession: (requirementId: string, id: string, sessionId: string, purpose: 'analysis' | 'dev' | 'review', signal?: AbortSignal) =>
@@ -402,6 +408,10 @@ export function createWorkbenchController(store: WorkbenchStore, fetcher: Workbe
       mutate(requirementId, () => fetcher.adoptCriterionProposal(requirementId, slotRevision(requirementId), id, signal), signal),
     dismissCriterionProposal: (requirementId: string, id: string, signal?: AbortSignal) =>
       mutate(requirementId, () => fetcher.dismissCriterionProposal(requirementId, slotRevision(requirementId), id, signal), signal),
+    answerAnalysisClarification: (requirementId: string, id: string, answer: string, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.answerAnalysisClarification(requirementId, slotRevision(requirementId), id, answer, signal), signal),
+    dismissAnalysisClarification: (requirementId: string, id: string, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.dismissAnalysisClarification(requirementId, slotRevision(requirementId), id, signal), signal),
 
     editKnowledgeCandidate: (requirementId: string, id: string, candidate: { title: string; draft: string; type: 'business' | 'convention' }, signal?: AbortSignal) =>
       mutate(requirementId, () => fetcher.editKnowledgeCandidate(requirementId, slotRevision(requirementId), id, candidate, signal), signal),

@@ -22,6 +22,7 @@ import type { WorkbenchSessionsFace } from '../../src/client/workbench/view.js'
 import { WorkbenchTabBody } from '../../src/client/workbench/view.js'
 import { CriteriaSection } from '../../src/client/workbench/criteria-section.js'
 import { FindingsSection } from '../../src/client/workbench/findings-section.js'
+import { ClarificationsSection } from '../../src/client/workbench/clarifications-section.js'
 
 const RID = '11111111-1111-4111-1111-111111111111'
 const AT = '2026-09-29T08:00:00.000Z'
@@ -116,6 +117,8 @@ function fakeController(): WorkbenchController & {
   dismissFindingProposal: ReturnType<typeof vi.fn>
   adoptCriterionProposal: ReturnType<typeof vi.fn>
   dismissCriterionProposal: ReturnType<typeof vi.fn>
+  answerAnalysisClarification: ReturnType<typeof vi.fn>
+  dismissAnalysisClarification: ReturnType<typeof vi.fn>
 } {
   return {
     open: vi.fn(async () => undefined),
@@ -131,6 +134,12 @@ function fakeController(): WorkbenchController & {
     dismissFindingProposal: vi.fn(async () => true),
     adoptCriterionProposal: vi.fn(async () => true),
     dismissCriterionProposal: vi.fn(async () => true),
+    answerAnalysisClarification: vi.fn(async () => true),
+    dismissAnalysisClarification: vi.fn(async () => true),
+    // 文件交付轮: the S1 report panel fetches on mount — undefined = the
+    // network-failure face (the honest error hint; these tests assert the
+    // watcher and proposals, not the panel body).
+    analysisReportContent: vi.fn(async () => undefined),
     dispose: vi.fn(),
   } as never
 }
@@ -139,11 +148,11 @@ afterEach(() => {
   cleanup()
 })
 
-const renderBody = (props: { slot: RequirementWorkbenchState; controller: WorkbenchController; sessions?: WorkbenchSessionsFace; deliver?: unknown }) =>
+const renderBody = (props: { slot: RequirementWorkbenchState; controller: WorkbenchController; sessions?: WorkbenchSessionsFace; deliver?: unknown; requirement?: RequirementRecord }) =>
   render(
     <WorkbenchTabBody
       t={bindZh()}
-      requirement={requirement}
+      requirement={props.requirement ?? requirement}
       slot={props.slot}
       controller={props.controller}
       knowledge={{ phase: 'ready', revision: 1, records: [] }}
@@ -152,11 +161,15 @@ const renderBody = (props: { slot: RequirementWorkbenchState; controller: Workbe
     />,
   )
 
-describe('回传轮 watcher（sessions face 五态）', () => {
+/** 文件交付轮: the LEGACY channel fixture — no bound workspace, so the seed
+ * gate keeps its original session-state semantics (these tests pin that). */
+const legacyRequirement: RequirementRecord = { ...requirement, workspacePath: '' }
+
+describe('回传轮 watcher（sessions face 五态——legacy 会话通道，无工作区夹具）', () => {
   it('running→idle 翻转触发一次性 seedAnalysisQuiet；锚未变不再触发', async () => {
     const sessions = fakeFace({ running: true, blank: false })
     const controller = fakeController()
-    renderBody({ slot: slot({ record: workbenchRecord({ analysis: analysisContainer() }) }), controller, sessions: sessions.face })
+    renderBody({ slot: slot({ record: workbenchRecord({ analysis: analysisContainer() }) }), controller, sessions: sessions.face, requirement: legacyRequirement })
 
     expect(controller.seedAnalysisQuiet).not.toHaveBeenCalled()
     act(() => { sessions.set({ running: false, blank: false }) })
@@ -172,7 +185,7 @@ describe('回传轮 watcher（sessions face 五态）', () => {
   it('blank 会话不触发（投递即空读防线）；发送后 running=true，收尾 idle 时再触发', async () => {
     const sessions = fakeFace({ running: false, blank: true })
     const controller = fakeController()
-    renderBody({ slot: slot({ record: workbenchRecord({ analysis: analysisContainer() }) }), controller, sessions: sessions.face })
+    renderBody({ slot: slot({ record: workbenchRecord({ analysis: analysisContainer() }) }), controller, sessions: sessions.face, requirement: legacyRequirement })
 
     await new Promise((resolve) => setTimeout(resolve, 10))
     expect(controller.seedAnalysisQuiet).not.toHaveBeenCalled()
@@ -239,6 +252,29 @@ describe('回传轮 watcher（sessions face 五态）', () => {
     act(() => { sessions.set({ running: true, blank: false }) })
     act(() => { sessions.set({ running: false, blank: false }) })
     await waitFor(() => expect(controller.seedAnalysisQuiet).toHaveBeenCalledTimes(2))
+  })
+})
+
+describe('文件交付轮 watcher（工作区绑定 ⇒ 报告文件通道）', () => {
+  it('blank 壳挂载即触发收取（a8f5142 挂账死锁消解）；锚已盖仍不触发', async () => {
+    // The blank-shell gate would stay closed forever on the session channel;
+    // with the file channel armed the seed reads the workspace report file,
+    // so the mount catch-up fires regardless of session state.
+    const sessions = fakeFace({ running: false, blank: true })
+    const controller = fakeController()
+    renderBody({ slot: slot({ record: workbenchRecord({ analysis: analysisContainer({ findings: [], criteria: [] }) }) }), controller, sessions: sessions.face })
+    await waitFor(() => expect(controller.seedAnalysisQuiet).toHaveBeenCalledTimes(1))
+
+    // The anchor hit still suppresses everything (idempotence is gate-independent).
+    cleanup()
+    const sealed = fakeController()
+    renderBody({
+      slot: slot({ record: workbenchRecord({ analysis: analysisContainer({ findings: [], criteria: [], seed: { sessionId: 'sess-a', contentHash: SEED_HASH, seededAt: AT, findings: 0, criteria: 0 } }) }) }),
+      controller: sealed,
+      sessions: sessions.face,
+    })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(sealed.seedAnalysisQuiet).not.toHaveBeenCalled()
   })
 })
 
@@ -331,5 +367,51 @@ describe('回传轮 S1 提议子区', () => {
     expect(adopt2.disabled).toBe(false)
     fireEvent.click(adopt2)
     expect(controller.adoptCriterionProposal).toHaveBeenCalledWith(RID, '88888888-8888-4888-8888-888888888888')
+  })
+})
+
+describe('文件交付轮 S1 待澄清子区', () => {
+  it('ClarificationsSection：问题行（推荐次行 + 阻塞 meta）、inline 回答 → answerAnalysisClarification、忽略、已答行展示', async () => {
+    const controller = fakeController()
+    render(
+      <ClarificationsSection t={bindZh()} slot={slot({ record: workbenchRecord({
+        analysis: analysisContainer({
+          findings: [],
+          criteria: [],
+          seed: { sessionId: 'sess-a', contentHash: SEED_HASH, seededAt: AT, findings: 0, criteria: 0, clarifications: 2 },
+          clarifications: [
+            { id: '99999999-9999-4999-8999-999999999999', question: '导出上限是十万行还是百万行？', recommendation: '百万行', blocks: 'F2 / PRD#3.2' },
+            { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', question: '已答的一条', answer: '按百万行', answeredAt: AT },
+          ],
+        }),
+      }) }) } controller={controller} requirementId={RID} />,
+    )
+
+    expect(screen.getByText('待澄清（分析会话）')).toBeTruthy()
+    const row = (await screen.findByText('导出上限是十万行还是百万行？')).closest('div[class^="_proposalRow_"]') as HTMLElement
+    expect(within(row).getByText('推荐：百万行')).toBeTruthy()
+    expect(within(row).getByText('阻塞：F2 / PRD#3.2')).toBeTruthy()
+    // The ANSWERED row renders its answer (user-owned state, visible until ruled away).
+    expect(screen.getByText('已答：按百万行')).toBeTruthy()
+
+    // 回答：inline 草稿 → 提交（trim 后非空才发）；表单随成功关闭（mock true）。
+    fireEvent.click(within(row).getByRole('button', { name: workbenchZh['proposal.answer'] }))
+    fireEvent.change(within(row).getByRole('textbox'), { target: { value: ' 按百万行 ' } })
+    fireEvent.click(within(row).getByRole('button', { name: workbenchZh['proposal.answerSave'] }))
+    expect(controller.answerAnalysisClarification).toHaveBeenCalledWith(RID, '99999999-9999-4999-8999-999999999999', '按百万行')
+    await waitFor(() => within(row).getByRole('button', { name: workbenchZh['proposal.ignore'] }))
+
+    // 忽略：dismiss 走另一只手。
+    fireEvent.click(within(row).getByRole('button', { name: workbenchZh['proposal.ignore'] }))
+    expect(controller.dismissAnalysisClarification).toHaveBeenCalledWith(RID, '99999999-9999-4999-8999-999999999999')
+  })
+
+  it('空批隐退：seed 已盖且无待澄清行 ⇒ 整组不渲染（waiting 态归 findings/criteria 两组）', () => {
+    const { container } = render(
+      <ClarificationsSection t={bindZh()} slot={slot({ record: workbenchRecord({
+        analysis: analysisContainer({ findings: [], criteria: [], seed: { sessionId: 'sess-a', contentHash: SEED_HASH, seededAt: AT, findings: 0, criteria: 0 } }),
+      }) }) } controller={fakeController()} requirementId={RID} />,
+    )
+    expect(container.textContent).not.toContain('待澄清（分析会话）')
   })
 })

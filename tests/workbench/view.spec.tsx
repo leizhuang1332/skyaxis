@@ -77,6 +77,9 @@ function fakeController(): WorkbenchController & { advanceStage: ReturnType<type
     advanceStage: vi.fn(async () => true),
     saveFinding: vi.fn(async () => true),
     removeFinding: vi.fn(async () => true),
+    // 文件交付轮: the S1 report panel fetches on mount — undefined = network
+    // failure face, the panel's honest error hint (these tests assert the rail).
+    analysisReportContent: vi.fn(async () => undefined),
     dismissBanner: vi.fn(),
     dispose: vi.fn(),
   } as never

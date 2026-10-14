@@ -34,14 +34,39 @@ interface WorkbenchDictionary {
   readonly 'page.degradedBackupHint': string
   readonly 'page.loadError': string
   readonly 'proposal.adopt': string
+  readonly 'proposal.answer': string
+  readonly 'proposal.answerCancel': string
+  readonly 'proposal.answered': string
+  readonly 'proposal.answerPlaceholder': string
+  readonly 'proposal.answerPrefix': string
+  readonly 'proposal.answerSave': string
+  readonly 'proposal.blocksPrefix': string
+  readonly 'proposal.clarificationsTitle': string
   readonly 'proposal.criteriaTitle': string
   readonly 'proposal.dismiss': string
   readonly 'proposal.findingsTitle': string
+  readonly 'proposal.ignore': string
   readonly 'proposal.lockedHint': string
+  readonly 'proposal.recommendationPrefix': string
   readonly 'proposal.retry': string
   readonly 'proposal.scanPrefix': string
+  readonly 'proposal.seedMissReportFileMissing': string
+  readonly 'proposal.seedMissReportFileSyntax': string
+  readonly 'proposal.seedMissReportFileTooLarge': string
   readonly 'proposal.sourcePrefix': string
   readonly 'proposal.waitingHint': string
+  // report.* — 文件交付轮 S1 report panel
+  readonly 'report.title': string
+  readonly 'report.refresh': string
+  readonly 'report.pathPrefix': string
+  readonly 'report.missing': string
+  readonly 'report.noWorkspace': string
+  readonly 'report.loadError': string
+  readonly 'report.tampered': string
+  /** MarkdownText chrome (the prd.md* precedent, workbench namespace). */
+  readonly 'report.mdCopyCode': string
+  readonly 'report.mdCopiedCode': string
+  readonly 'report.mdFootnotes': string
   // empty.* — first use (record null)
   readonly 'empty.firstUseHint': string
   // advance.* — stage advance control (pure user prerogative, no modal)
@@ -467,12 +492,15 @@ export type WorkbenchT = (key: keyof WorkbenchDictionary) => string
 /** 回传轮: seed zero-write reason → hint key (reuses the declare.fetch* copy —
  *  the S5 modal phrases fit verbatim). The {n} placeholder in blockYamlSyntax
  *  has no line number on this face; renderers replace it with '?'. */
-export const SEED_MISS_KEY: Readonly<Record<'no-service' | 'not-found' | 'unreadable' | 'no-declare-block' | 'yaml-syntax', keyof WorkbenchDictionary>> = {
+export const SEED_MISS_KEY: Readonly<Record<'no-service' | 'not-found' | 'unreadable' | 'no-declare-block' | 'yaml-syntax' | 'report-file-missing' | 'report-file-too-large' | 'report-file-syntax', keyof WorkbenchDictionary>> = {
   'no-service': 'declare.fetchNoService',
   'not-found': 'declare.fetchNotFound',
   'unreadable': 'declare.fetchUnreadable',
   'no-declare-block': 'declare.fetchNoBlock',
   'yaml-syntax': 'declare.blockYamlSyntax',
+  'report-file-missing': 'proposal.seedMissReportFileMissing',
+  'report-file-too-large': 'proposal.seedMissReportFileTooLarge',
+  'report-file-syntax': 'proposal.seedMissReportFileSyntax',
 }
 
 const zh: WorkbenchDictionary = {
@@ -494,14 +522,37 @@ const zh: WorkbenchDictionary = {
   'page.degraded': 'AI 工作台账本文件不可读（可能已损坏）。',
   'page.degradedBackupHint': '可从 $DSH_HOME/skyaxis/ 下同名 .bak 文件手动恢复；修复前拒绝写入以保护现场。',
   'proposal.adopt': '采纳',
+  'proposal.answer': '回答',
+  'proposal.answerCancel': '取消',
+  'proposal.answered': '已答',
+  'proposal.answerPlaceholder': '输入你的回答…',
+  'proposal.answerPrefix': '已答：',
+  'proposal.answerSave': '提交回答',
+  'proposal.blocksPrefix': '阻塞：',
+  'proposal.clarificationsTitle': '待澄清（分析会话）',
   'proposal.criteriaTitle': '待裁决标准提议（分析会话）',
   'proposal.dismiss': '不采',
   'proposal.findingsTitle': '待裁决发现提议（分析会话）',
+  'proposal.ignore': '忽略',
   'proposal.lockedHint': '拆分已批准：标准提议的【采纳】待解锁（撤销批准/重新拆分后可采），【不采】不受影响。',
+  'proposal.recommendationPrefix': '推荐：',
   'proposal.retry': '重新收取',
   'proposal.scanPrefix': '收取扫描：',
+  'proposal.seedMissReportFileMissing': '报告文件未找到——任务书规定会话把报告写入工作区 .skyaxis/analysis/ 目录；会话可能尚未写完，或未按指定路径写入（此提示下方的扫描指纹来自会话兜底通道）。',
+  'proposal.seedMissReportFileSyntax': '报告文件中无可解析的声明块——yaml 围栏缺失或未闭合，可让会话补写报告文件。',
+  'proposal.seedMissReportFileTooLarge': '报告文件超过读取上限（2 MiB）——请让会话精简报告后重新收取。',
   'proposal.sourcePrefix': '来源会话 {id}…',
   'proposal.waitingHint': '分析会话的报告尚未收取——会话收尾后自动收为待裁决行；若会话已被删除，可重新投递。',
+  'report.title': '分析报告',
+  'report.refresh': '刷新',
+  'report.pathPrefix': '文件：',
+  'report.missing': '分析报告文件尚未生成——会话按任务书把报告写入工作区 .skyaxis/analysis/ 后，此处展示报告正文。',
+  'report.noWorkspace': '本需求未绑定工作区——分析报告在会话内交付，无报告文件可展示。',
+  'report.loadError': '报告文件读取失败。',
+  'report.tampered': '报告文件在收取后被外部修改（与收取时内容不一致）。',
+  'report.mdCopyCode': '复制代码',
+  'report.mdCopiedCode': '已复制',
+  'report.mdFootnotes': '脚注',
   'page.loadError': 'AI 工作台数据加载失败。',
   'empty.firstUseHint': '本需求尚未启用 AI 工作台：登记第一条发现即建立工作台记录，之后可推进阶段。',
   'advance.stage': '完成本阶段 →',
@@ -920,14 +971,37 @@ const en: WorkbenchDictionary = {
   'page.degraded': 'The AI workbench ledger file is unreadable (possibly corrupted).',
   'page.degradedBackupHint': 'Restore manually from the matching .bak file under $DSH_HOME/skyaxis/; writes stay refused until fixed to preserve the scene.',
   'proposal.adopt': 'Adopt',
+  'proposal.answer': 'Answer',
+  'proposal.answerCancel': 'Cancel',
+  'proposal.answered': 'Answered',
+  'proposal.answerPlaceholder': 'Type your answer…',
+  'proposal.answerPrefix': 'Answer: ',
+  'proposal.answerSave': 'Submit answer',
+  'proposal.blocksPrefix': 'Blocks: ',
+  'proposal.clarificationsTitle': 'Clarifications (analysis session)',
   'proposal.criteriaTitle': 'Pending criterion proposals (analysis session)',
   'proposal.dismiss': 'Reject',
   'proposal.findingsTitle': 'Pending finding proposals (analysis session)',
+  'proposal.ignore': 'Ignore',
   'proposal.lockedHint': 'Split approved: adopting criterion proposals waits until the list unlocks (revoke/re-split); rejecting stays open.',
+  'proposal.recommendationPrefix': 'Recommends: ',
   'proposal.retry': 'Retry collection',
   'proposal.scanPrefix': 'scan: ',
+  'proposal.seedMissReportFileMissing': 'Report file not found — the task book tells the session to write the report under .skyaxis/analysis/ in the workspace; it may be unfinished or written elsewhere (the scan fingerprint below comes from the session fallback).',
+  'proposal.seedMissReportFileSyntax': 'No parseable declare block in the report file — the yaml fence is missing or unclosed; ask the session to rewrite the file.',
+  'proposal.seedMissReportFileTooLarge': 'The report file exceeds the read cap (2 MiB) — have the session trim it, then retry.',
   'proposal.sourcePrefix': 'from session {id}…',
   'proposal.waitingHint': 'The analysis session\'s report has not been collected yet — it lands here as pending rows once the session finishes; re-deliver if the session was deleted.',
+  'report.title': 'Analysis report',
+  'report.refresh': 'Refresh',
+  'report.pathPrefix': 'File: ',
+  'report.missing': 'The report file has not been generated yet — once the session writes it to .skyaxis/analysis/ per the task book, the report body shows here.',
+  'report.noWorkspace': 'No workspace bound to this requirement — the report is delivered in the conversation; there is no report file.',
+  'report.loadError': 'Failed to read the report file.',
+  'report.tampered': 'The report file was modified externally after collection (differs from what was collected).',
+  'report.mdCopyCode': 'Copy code',
+  'report.mdCopiedCode': 'Copied',
+  'report.mdFootnotes': 'Footnotes',
   'page.loadError': 'Failed to load AI workbench data.',
   'empty.firstUseHint': 'The AI workbench is not enabled for this requirement yet: recording the first finding creates the workbench record; stages can be advanced afterwards.',
   'advance.stage': 'Complete stage →',

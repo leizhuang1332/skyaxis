@@ -295,6 +295,31 @@ export interface SplitBaselinePrd {
 }
 
 // ---------------------------------------------------------------------------
+// Analysis report file (文件交付轮) — the workspace transport convention.
+// The analysis task book prescribes this path; the session writes the whole
+// report (prose + embedded declare block) there; the host seeds from the
+// file. ONE source for the convention on both halves: the browser renders it
+// into the task-book text as a display path (forward slashes, string concat
+// — no node:path in the browser half), the host joins its workspace root in
+// artifact-path.ts which re-asserts the same uuid gate (defense layer 2).
+// Layout template frozen at v1 per the ADR 0005 precedent — a change is a
+// breaking migration, revise ADR 0007 first.
+// ---------------------------------------------------------------------------
+
+/** Workspace-relative directory for AI analysis reports (dot-prefix = tool-owned, decisions/0007). */
+export const ANALYSIS_REPORT_DIR = '.skyaxis/analysis'
+
+const ANALYSIS_REPORT_REQUIREMENT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
+/** Display-form workspace-relative report path `.skyaxis/analysis/<requirementId>.md` (forward slashes). */
+export function analysisReportRelPath(requirementId: string): string {
+  if (!ANALYSIS_REPORT_REQUIREMENT_ID_RE.test(requirementId)) {
+    throw new Error(`analysisReportRelPath: requirementId is not a lowercase uuid: ${JSON.stringify(requirementId)}`)
+  }
+  return `${ANALYSIS_REPORT_DIR}/${requirementId}.md`
+}
+
+// ---------------------------------------------------------------------------
 // Analysis proposals (回传轮) — the analysis session's report, seeded into
 // the ledger as PENDING rows awaiting the user's ruling. Epistemics = the
 // P5b ReviewVerdict 'proposed' discipline: rows are HOST-MINTED ONLY (the
@@ -316,6 +341,25 @@ export interface WorkbenchProposedCriterion {
   readonly id: string
   readonly text: string
   readonly sourceSection?: string
+}
+
+/**
+ * One pending CLARIFICATION proposal (文件交付轮): a 待澄清 row — a question
+ * the analysis session needs the requirement owner to answer. `answer` /
+ * `answeredAt` are USER-OWNED state (the adjudication discipline: the AI
+ * asks, only the user answers — the report file stays single-writer, the
+ * ledger carries every ruling). Caps equal the criterion caps (question/
+ * recommendation/answer 2000, blocks 256).
+ */
+export interface WorkbenchProposedClarification {
+  readonly id: string
+  readonly question: string
+  /** The session's recommended answer (「把问题措辞成『是』即接受推荐」). */
+  readonly recommendation?: string
+  /** Which conclusion the question blocks (short citation, e.g. F2 / PRD#3.2). */
+  readonly blocks?: string
+  readonly answer?: string
+  readonly answeredAt?: string
 }
 
 /**
@@ -347,9 +391,13 @@ export interface WorkbenchAnalysisProposals {
     readonly seededAt: string
     readonly findings: number
     readonly criteria: number
+    /** 文件交付轮 batch count — optional per the field-evolution discipline (pre-clarification stamps). */
+    readonly clarifications?: number
   }
   readonly findings: readonly WorkbenchProposedFinding[]
   readonly criteria: readonly WorkbenchProposedCriterion[]
+  /** 文件交付轮 third proposal group — optional per the field-evolution discipline. */
+  readonly clarifications?: readonly WorkbenchProposedClarification[]
 }
 
 export interface WorkbenchRecord {
@@ -840,6 +888,8 @@ export type WorkbenchMutateRequestBody =
   | DismissFindingProposalRequest
   | AdoptCriterionProposalRequest
   | DismissCriterionProposalRequest
+  | AnswerAnalysisClarificationRequest
+  | DismissAnalysisClarificationRequest
 
 // ---------------------------------------------------------------------------
 // Analysis-proposal actions (回传轮). The input schemas carry NO proposal
@@ -890,6 +940,29 @@ export interface DismissCriterionProposalRequest {
   readonly expectedRevision: number
   readonly requirementId: string
   readonly action: 'dismissCriterionProposal'
+  readonly id: string
+}
+
+/**
+ * 文件交付轮: the requirement owner answers a pending clarification. The
+ * answer is USER content (1..2000 after trim — the saveFinding payload
+ * discipline, distinct from the no-proposal-content rule which bars AI
+ * proposal rows from the wire), stored on the pending row in the ledger —
+ * never written back into the report file (single-writer, decisions/0007).
+ */
+export interface AnswerAnalysisClarificationRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'answerAnalysisClarification'
+  readonly id: string
+  readonly answer: string
+}
+
+/** 文件交付轮: drop a pending clarification without answering (「不答/忽略」 — the dismiss-proposal family). */
+export interface DismissAnalysisClarificationRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'dismissAnalysisClarification'
   readonly id: string
 }
 
@@ -1227,9 +1300,13 @@ export interface WorkbenchDetailResponseOk {
  * WHY nothing was collected, so the waiting row can disclose it instead of
  * failing silently (the diagnosis round's lesson —「not written yet」and
  * 「written but unreadable」were indistinguishable). Optional on the shared
- * save envelope; only seedAnalysis ever sets it.
+ * save envelope; only seedAnalysis ever sets it. The report-file-* family
+ * (文件交付轮) names the workspace file channel's misses — they are the
+ * ACTIONABLE headline when both channels miss (the file is the prescribed
+ * one; see endpoint.ts seedAnalysisFlow for the fallback ladder).
  */
 export type SeedMissingReason = DeclareFetchMissing | 'yaml-syntax'
+  | 'report-file-missing' | 'report-file-too-large' | 'report-file-syntax'
 
 export interface WorkbenchSaveResponseOk {
   readonly ok: true
@@ -1514,6 +1591,19 @@ function isWorkbenchProposedCriterion(v: unknown): v is WorkbenchProposedCriteri
   )
 }
 
+function isWorkbenchProposedClarification(v: unknown): v is WorkbenchProposedClarification {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  return (
+    isString(r.id) && r.id.length > 0
+    && isString(r.question) && r.question.length > 0
+    && (r.recommendation === undefined || isString(r.recommendation))
+    && (r.blocks === undefined || isString(r.blocks))
+    && (r.answer === undefined || isString(r.answer))
+    && (r.answeredAt === undefined || isString(r.answeredAt))
+  )
+}
+
 function isWorkbenchAnalysisProposals(v: unknown): v is WorkbenchAnalysisProposals {
   if (typeof v !== 'object' || v === null) return false
   const r = v as Record<string, unknown>
@@ -1530,12 +1620,14 @@ function isWorkbenchAnalysisProposals(v: unknown): v is WorkbenchAnalysisProposa
       || !isString(s.contentHash) || s.contentHash.length === 0
       || !isString(s.seededAt)
       || typeof s.findings !== 'number' || typeof s.criteria !== 'number'
+      || (s.clarifications !== undefined && typeof s.clarifications !== 'number')
     ) return false
   }
   if (session.anchor !== undefined && (!isString(session.anchor) || session.anchor.length === 0 || session.anchor.length > 512)) return false
   return (
     Array.isArray(r.findings) && r.findings.every(isWorkbenchProposedFinding)
     && Array.isArray(r.criteria) && r.criteria.every(isWorkbenchProposedCriterion)
+    && (r.clarifications === undefined || (Array.isArray(r.clarifications) && r.clarifications.every(isWorkbenchProposedClarification)))
   )
 }
 
@@ -1632,7 +1724,7 @@ export function isWorkbenchSaveResponseOk(v: unknown): v is WorkbenchSaveRespons
   const r = v as Record<string, unknown>
   if (r.ok !== true || typeof r.revision !== 'number' || !isWorkbenchRecord(r.record)) return false
   if (r.seedMissing !== undefined) {
-    const reasons = ['no-service', 'not-found', 'unreadable', 'no-declare-block', 'yaml-syntax']
+    const reasons = ['no-service', 'not-found', 'unreadable', 'no-declare-block', 'yaml-syntax', 'report-file-missing', 'report-file-too-large', 'report-file-syntax']
     if (typeof r.seedMissing !== 'string' || !reasons.includes(r.seedMissing)) return false
   }
   if (r.seedScan !== undefined && typeof r.seedScan !== 'string') return false

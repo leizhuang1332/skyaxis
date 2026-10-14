@@ -223,14 +223,33 @@ describe('buildSow', () => {
       expect(text).not.toContain(gone)
     }
     expect(text).not.toContain('当前阶段')
-    // declare 骨架逐字 pin（回传轮：analysis 专属骨架 = plain + findings/criteria 两段教学）。
-    expect(text).toContain('```yaml\n# skyaxis-declare\n# findings 每条 = 分析发现提议（category: feasibility|conflict|compatibility|risk|capacity|other；severity: high|medium|low）：\n#   - category: conflict\n#     severity: high\n#     title: 标题（64 字内）\n#     detail: 说明与证据出处（PRD#章节 或 代码 路径:行号）\n# criteria 每条 = 验收标准提议：\n#   - text: 一句可判定的话\n#     sourceSection: PRD#章节\n# knowledge 条目形如（type: business|convention）：\n#   - type: convention\n#     title: 标题\n#     draft: 内容\nknowledge: []\nstageReady: false\n```')
+    // declare 骨架逐字 pin（回传轮 + 文件交付轮：analysis 专属骨架 = plain + findings/criteria/clarifications 三段教学）。
+    expect(text).toContain('```yaml\n# skyaxis-declare\n# findings 每条 = 分析发现提议（category: feasibility|conflict|compatibility|risk|capacity|other；severity: high|medium|low）：\n#   - category: conflict\n#     severity: high\n#     title: 标题（64 字内）\n#     detail: 说明与证据出处（PRD#章节 或 代码 路径:行号）\n# criteria 每条 = 验收标准提议：\n#   - text: 一句可判定的话\n#     sourceSection: PRD#章节\n# clarifications 每条 = 待澄清问题（必须附你的推荐答案，把问题措辞成「是」即接受推荐）：\n#   - question: 问题（一句）\n#     recommendation: 推荐答案\n#     blocks: 阻塞了哪条结论（如 F2 / PRD#3.2）\n# knowledge 条目形如（type: business|convention）：\n#   - type: convention\n#     title: 标题\n#     draft: 内容\nknowledge: []\nstageReady: false\n```')
     expect(text).not.toContain('workPackage:')
     expect(text).not.toContain('claims:')
     // 约束/工作流/输出的关键纪律短语在场（只读、不裁决、F/A 编号、六类、完成自检）。
     for (const phrase of ['严格只读', '不裁决', '有限停止', '先查后问', 'F1 [类别·级别] 标题', 'A1 一句可判定的话', '六类逐类给过结论', '完成自检（全部满足才算收尾）']) {
       expect(text).toContain(phrase)
     }
+  })
+
+  it('文件交付轮：工作区绑定的输出/约束翻转为报告文件通道（绝对路径 + 覆盖写 + 自检尾句）；未绑定保留会话内交付原话', () => {
+    const fileChannel = buildSow({
+      ...baseCtx,
+      requirement: { ...requirement, workspacePath: 'C:\\ws\\quote' },
+    })
+    // 输出节：路径行（反斜杠折正 + uuid 文件名）+ 覆盖写纪律 + 完成自检「报告已写入」尾句。
+    expect(fileChannel).toContain('分析结束时把完整报告写入报告文件（markdown 正文 + 结尾机器可读声明块，一次成文），路径：C:/ws/quote/.skyaxis/analysis/11111111-1111-4111-8111-111111111111.md（绝对路径；目录不存在则创建；覆盖写——不追加、不留多份）。')
+    expect(fileChannel).toContain('声明块已附 · 报告已写入上述路径。')
+    // 约束节 carve-out：唯一例外条款替换「不写文件」。
+    expect(fileChannel).toContain('- 严格只读：不修改、创建、删除任何文件；不建分支、不提交、不推送——唯一例外：把分析报告写入「输出」节指定路径的报告文件（目录不存在则创建，覆盖写）；除此之外以任何方式不改变工作区状态。')
+    expect(fileChannel).not.toContain('分析报告在会话内交付，不写文件')
+
+    // 未绑定工作区：会话内交付原话保留（兜底通道），无路径行。
+    const conversation = buildSow(baseCtx)
+    expect(conversation).toContain('分析报告在会话内交付，不写文件')
+    expect(conversation).not.toContain('.skyaxis/analysis/')
+    expect(conversation).not.toContain('报告已写入上述路径')
   })
 
   it('analysis 输入段：PRD 路径引用 + 重点章节指针 + 仓库行（池名/分支）+ 缺失容错指令；正文零嵌入', () => {
@@ -312,19 +331,25 @@ describe('buildSow', () => {
     expect(empty).toContain('未处置发现：\n（尚无）')
 
     // 回传轮：待裁决提议列示（防重提议闭环）；空批不渲染该组。
+    // 文件交付轮：已答澄清作为已定事实回灌（勿重复提问），未答并入勿重复提议清单。
     const withPending = buildSow({
       ...baseCtx,
       record: record({
         stage: 'understand',
         analysis: {
           session: { sessionId: 'sess-a', boundAt: AT },
-          seed: { sessionId: 'sess-a', contentHash: 'c'.repeat(64), seededAt: AT, findings: 1, criteria: 1 },
+          seed: { sessionId: 'sess-a', contentHash: 'c'.repeat(64), seededAt: AT, findings: 1, criteria: 1, clarifications: 2 },
           findings: [{ id: '77777777-7777-4777-8777-777777777777', category: 'conflict', severity: 'high', title: '待裁决发现甲' }],
           criteria: [{ id: '88888888-8888-4888-8888-888888888888', text: '待裁决标准乙' }],
+          clarifications: [
+            { id: '99999999-9999-4999-8999-999999999999', question: '导出上限是十万行还是百万行？', recommendation: '百万行', answer: '按百万行', answeredAt: AT },
+            { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', question: '是否需要审计日志？', recommendation: '需要' },
+          ],
         },
       }),
     })
-    expect(withPending).toContain('待裁决提议（已收取未裁决，勿重复提议）：\n- [冲突·高] 待裁决发现甲\n- 标准：待裁决标准乙')
+    expect(withPending).toContain('待裁决提议（已收取未裁决，勿重复提议）：\n- [冲突·高] 待裁决发现甲\n- 标准：待裁决标准乙\n- 澄清：是否需要审计日志？')
+    expect(withPending).toContain('已答澄清（需求方已回答，视为已定事实，勿重复提问）：\n- 问：导出上限是十万行还是百万行？ / 已答：按百万行')
     // 空批不渲染该组（输出节的「待裁决提议行」说明语不算——锚定组头）。
     expect(empty).not.toContain('待裁决提议（已收取未裁决')
   })

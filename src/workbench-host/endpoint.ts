@@ -42,7 +42,7 @@ import type {
   WorkbenchListResponse,
   WorkbenchRecord,
 } from '../workbench-shared/protocol.js'
-import { planDocPath, reviewDocPath } from './artifact-path.js'
+import { planDocPath, reviewDocPath, analysisReportPath } from './artifact-path.js'
 import { ArtifactStore, contentHashOf } from './artifact-store.js'
 import { scanWorkbenchArtifacts } from './orphan-scan.js'
 import { applyRecordAction, applyAnalysisSeed, nextReleaseItemId } from './record-actions.js'
@@ -62,6 +62,14 @@ export interface WorkbenchEndpointServices {
   readonly workbenchRoot: string
   /** Session-log declare fetch (P3b) — engine optionally injected, absent ⇒ GET degrades to no-service. */
   readonly declareReader: SessionDeclareReader
+  /**
+   * 文件交付轮: bound-workspace resolver over requirements.yaml (the
+   * prd-endpoint.ts:59-65 tolerant read-side join — the 0002 boundary's
+   * read-path join, never a foreign key). '' = unbound / record absent.
+   * Structurally optional: absent ⇒ the report-file channel degrades
+   * honestly to the session chain (the declareReader no-service precedent).
+   */
+  readonly resolveWorkspacePath?: (requirementId: string) => string
   /** Host log face for unexpected handler failures (500s). */
   readonly log?: (error: unknown) => void
 }
@@ -254,19 +262,32 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
   }
 
   /**
-   * seedAnalysis (回传轮): read the bound session's declare block, parse its
-   * proposal rows, replace the pending batch (idempotency = sessionId +
-   * contentHash anchor inside applyAnalysisSeed). Every NON-committing
+   * seedAnalysis (回传轮 + 文件交付轮): collect the bound analysis report and
+   * replace the pending batch (idempotency = sessionId + contentHash anchor
+   * inside applyAnalysisSeed). SOURCE LADDER: the workspace report file is
+   * PRIMARY when the requirement has a bound workspace and the resolver is
+   * present — the prescribed path is content-addressed and immune to the
+   * shell-session addressing that plagued conversation extraction (五次诊断);
+   * the file's whole text is hashed (any report evolution re-seeds). Every
+   * file miss falls back to the session chain (legacy deliveries and
+   * no-workspace requirements); when BOTH channels miss and the file channel
+   * was armed, the disclosed reason is the FILE one (the actionable headline:
+   * the task book prescribed a file that never landed), with the session
+   * scan fingerprint still attached when present. Every NON-committing
    * outcome answers 200 ZERO-WRITE — {ok, revision, record: existing} with
    * no banner field, no revision bump — so the watcher retries silently:
+   *   file missing / over cap / no valid declare fence — advisory, the
+   *   session may not have finished or wrote a malformed file;
    *   session missing (no-service / not-found / unreadable / no-block) — the
    *   report may not exist yet; block-level YAML syntax error — advisory,
    *   the user may re-run the session;
    *   anchor hit — unchanged (user-deleted rows never resurrect).
-   * Concurrency: the session read is slow IO between load and save — any
+   * Concurrency: the source read is slow IO between load and save — any
    * interleaved write moves the revision, this save hits stale-revision →
    * 409, and the client converges by re-opening. A stale success therefore
-   * cannot land out of order.
+   * cannot land out of order. Provenance note: a file-channel seed stamps
+   * the BOUND session id (shell repair is a session-chain concern; the
+   * proposals' content does not depend on it).
    */
   async function seedAnalysisFlow(
     body: { expectedRevision: number; requirementId: string; action: 'seedAnalysis'; sessionId: string },
@@ -278,6 +299,24 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
       || existing.analysis.session.sessionId !== body.sessionId) {
       return errorResponse(404, 'not-found')
     }
+    // --- 文件交付轮: primary channel. ---
+    const reportFile = readAnalysisReportFile(existing.requirementId)
+    if (reportFile.status === 'ok') {
+      const parsed = parseDeclare({ text: reportFile.text, record: existing })
+      if (!parsed.ok) return json({ ok: true, revision: current.revision, record: existing, seedMissing: 'report-file-syntax' })
+      const applied = applyAnalysisSeed(existing, {
+        sessionId: body.sessionId,
+        contentHash: reportFile.sha256,
+        findings: parsed.proposals.findings,
+        criteria: parsed.proposals.criteria,
+        clarifications: parsed.proposals.clarifications,
+      })
+      return commitSeedResponse(body, applied, current)
+    }
+    if (reportFile.status === 'too-large') {
+      return json({ ok: true, revision: current.revision, record: existing, seedMissing: 'report-file-too-large' })
+    }
+    // --- Session chain: fallback (and the only channel when unarmed). ---
     let base = existing
     let sessionId = body.sessionId
     let read = await services.declareReader.readDeclareText(sessionId)
@@ -310,7 +349,9 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
         ok: true,
         revision: current.revision,
         record: existing,
-        seedMissing: read.reason,
+        // 文件交付轮 headline swap: with the file channel armed the file miss
+        // is the actionable reason (the session scan still rides along).
+        seedMissing: reportFile.status === 'missing' ? 'report-file-missing' : read.reason,
         ...(read.scan !== undefined ? { seedScan: read.scan } : {}),
         ...(read.shell === true ? { seedShell: true } : {}),
       })
@@ -322,7 +363,34 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
       contentHash: contentHashOf(read.text),
       findings: parsed.proposals.findings,
       criteria: parsed.proposals.criteria,
+      clarifications: parsed.proposals.clarifications,
     })
+    return commitSeedResponse(body, applied, current)
+  }
+
+  /**
+   * 文件交付轮: the workspace report file read — 'unarmed' means the channel
+   * is OFF (no resolver service / no bound workspace / requirement record
+   * absent), which is NOT a miss: the session chain is then simply the only
+   * channel. The disk sha256 (not contentHashOf(text)) anchors idempotency —
+   * the on-disk evidence hash, the artifact-store coordinate system.
+   */
+  function readAnalysisReportFile(requirementId: string): { status: 'ok'; text: string; sha256: string } | { status: 'missing' | 'too-large' | 'unarmed' } {
+    const resolve = services.resolveWorkspacePath
+    if (resolve === undefined) return { status: 'unarmed' }
+    const workspace = resolve(requirementId)
+    if (workspace === '') return { status: 'unarmed' }
+    const read = artifacts.read(analysisReportPath(workspace, requirementId))
+    if (read.status === 'ok') return { status: 'ok', text: read.text, sha256: read.sha256 }
+    return { status: read.status }
+  }
+
+  /** Shared seed tail: unchanged no-op, save, and the mapped error responses. */
+  async function commitSeedResponse(
+    body: { expectedRevision: number; requirementId: string },
+    applied: ReturnType<typeof applyAnalysisSeed>,
+    current: { revision: number; records: readonly WorkbenchRecord[] },
+  ): Promise<Response> {
     if (!applied.ok) return errorResponse(applied.status, applied.code)
     if (applied.unchanged === true) {
       return json({ ok: true, revision: current.revision, record: applied.record })
@@ -600,7 +668,27 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     const kind = url.searchParams.get('kind')
     const requirementId = url.searchParams.get('requirementId')
     if (requirementId === null || !REQUIREMENT_ID_RE.test(requirementId)) return errorResponse(400, 'bad-request')
-    if (kind !== 'plan' && kind !== 'review') return errorResponse(400, 'bad-request')
+    if (kind !== 'plan' && kind !== 'review' && kind !== 'analysis-report') return errorResponse(400, 'bad-request')
+
+    // 文件交付轮 face: the workspace report file — readable even before a
+    // seed lands (the file is the session's delivery; the ledger joins in
+    // only for tamper detection). Unarmed channel / absent file ⇒ 404 (the
+    // honest missing state; the S1 panel renders it, never a placeholder).
+    if (kind === 'analysis-report') {
+      const reportFile = readAnalysisReportFile(requirementId)
+      if (reportFile.status !== 'ok') return errorResponse(404, 'not-found')
+      const current = file.load()
+      if (!current.ok) return errorResponse(409, 'unreadable-file')
+      const record = current.value.records.find((candidate) => candidate.requirementId === requirementId)
+      // 细化④ discipline: a present seed hash that disagrees answers 200 +
+      // contentTampered — never silently, never blocking. The seed hash is
+      // the disk-bytes sha256 (see readAnalysisReportFile), so like hashes
+      // like. An unseeded record reads untampered-silent (field-evolution
+      // leniency — the panel is the report, not a ledger projection).
+      const expectedHash = record?.analysis?.seed?.contentHash
+      const contentTampered = expectedHash !== undefined && expectedHash !== reportFile.sha256
+      return json({ ok: true, content: reportFile.text, contentTampered })
+    }
 
     const current = file.load()
     if (!current.ok) return errorResponse(409, 'unreadable-file')

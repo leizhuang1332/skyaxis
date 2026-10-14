@@ -146,6 +146,36 @@ describe('workbench fetcher', () => {
     expect(calls[2].url).toBe(`/api/skyaxis/workbench/artifacts?kind=review&requirementId=${RID}&reviewId=rev-a1`)
   })
 
+  it('文件交付轮 methods: answer/dismissAnalysisClarification post the discriminated bodies; analysisReportContent hits the analysis-report query face', async () => {
+    const calls: { url: string; init: RequestInit }[] = []
+    vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
+      calls.push({ url, init })
+      if (String(url).includes('artifacts')) {
+        return new Response(JSON.stringify({ ok: true, content: '# 报告', contentTampered: false }))
+      }
+      return new Response(JSON.stringify({ ok: true, revision: 6, record: okRecord() }))
+    })
+    const fetcher = createWorkbenchFetcher()
+    expect((await fetcher.answerAnalysisClarification(RID, 5, '99999999-9999-4999-8999-999999999999', '按百万行')).kind).toBe('ok')
+    expect((await fetcher.dismissAnalysisClarification(RID, 5, '99999999-9999-4999-8999-999999999999')).kind).toBe('ok')
+    expect((await fetcher.analysisReportContent(RID)).kind).toBe('ok')
+    expect(JSON.parse(String(calls[0].init.body))).toEqual({
+      expectedRevision: 5,
+      requirementId: RID,
+      action: 'answerAnalysisClarification',
+      id: '99999999-9999-4999-8999-999999999999',
+      answer: '按百万行',
+    })
+    expect(JSON.parse(String(calls[1].init.body))).toEqual({
+      expectedRevision: 5,
+      requirementId: RID,
+      action: 'dismissAnalysisClarification',
+      id: '99999999-9999-4999-8999-999999999999',
+    })
+    expect(calls[2].url).toBe(`/api/skyaxis/workbench/artifacts?kind=analysis-report&requirementId=${RID}`)
+    expect(calls[2].init.method).toBe('GET')
+  })
+
   it('second-knife action methods post their discriminated bodies (split gates + lifecycle)', async () => {
     const calls: unknown[] = []
     vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {

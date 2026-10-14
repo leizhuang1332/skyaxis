@@ -105,9 +105,9 @@ describe('parseDeclare：整块面', () => {
     expect(result.blockErrorLine).toBe(4)
   })
 
-  it('注释空块 → 空成功（不是错误；proposals 恒在——空集两数组）', () => {
+  it('注释空块 → 空成功（不是错误；proposals 恒在——空集三数组）', () => {
     const result = parseDeclare({ text: fence('# skyaxis-declare\n# 只有注释'), record: record() })
-    expect(result).toEqual({ ok: true, entries: [], skipped: [], stageReady: false, proposals: { findings: [], criteria: [] } })
+    expect(result).toEqual({ ok: true, entries: [], skipped: [], stageReady: false, proposals: { findings: [], criteria: [], clarifications: [] } })
   })
 
   it('未知顶层键忽略；stageReady 只认 === true', () => {
@@ -327,9 +327,35 @@ describe('parseDeclare：analysis proposals（回传轮）', () => {
     expect(mixed.proposals).toEqual({
       findings: [{ category: 'risk', severity: 'medium', title: '一条发现' }],
       criteria: [{ text: '一条标准' }],
+      clarifications: [],
     })
 
     const legacy = parseDeclare({ text: fence(GOOD_BLOCK), record: record() })
-    expect(legacy.ok && legacy.proposals).toEqual({ findings: [], criteria: [] })
+    expect(legacy.ok && legacy.proposals).toEqual({ findings: [], criteria: [], clarifications: [] })
+  })
+
+  it('文件交付轮 clarifications：question trim 非空 ≤2000 / recommendation 空白省略 ≤2000 / blocks ≤256；坏行 bad-shape / bad-content / over-cap ×3', () => {
+    const result = parseFindings([
+      'clarifications:',
+      '  - question:  导出上限是十万行还是百万行？ ',
+      '    recommendation: 百万行',
+      '    blocks: F2 / PRD#3.2',
+      '  - question: 无推荐的一条',
+      '  - 纯字符串',
+      '  - question: ""',
+      `  - question: ${'q'.repeat(2001)}`,
+      '  - question: 推荐超限',
+      `    recommendation: ${'r'.repeat(2001)}`,
+      '  - question: 阻塞超限',
+      `    blocks: ${'b'.repeat(257)}`,
+    ].join('\n'))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.proposals.clarifications).toEqual([
+      { question: '导出上限是十万行还是百万行？', recommendation: '百万行', blocks: 'F2 / PRD#3.2' },
+      { question: '无推荐的一条' },
+    ])
+    expect(result.skipped.map((row) => row.reason)).toEqual(['bad-shape', 'bad-content', 'over-cap', 'over-cap', 'over-cap'])
+    expect(result.skipped.map((row) => row.key)).toEqual(['clarification-2', 'clarification-3', 'clarification-4', 'clarification-5', 'clarification-6'])
   })
 })

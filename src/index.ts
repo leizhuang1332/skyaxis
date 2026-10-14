@@ -118,6 +118,15 @@ export function apply(ctx: Context): void {
       knowledgeFile,
       workbenchRoot,
       declareReader,
+      // 文件交付轮: tolerant read-side join over requirements.yaml (the
+      // prd-endpoint prdContext precedent) — '' when the ledger is
+      // unreadable, the requirement is absent, or no workspace is bound;
+      // the workbench file channel then degrades to the session chain.
+      resolveWorkspacePath: (requirementId) => {
+        const current = requirementsFile.load()
+        if (!current.ok) return ''
+        return current.value.requirements.find((candidate) => candidate.id === requirementId)?.workspacePath ?? ''
+      },
       log: (error) => ctx.logger.error(error),
     })
     registerWorkbenchKnowledgeEndpoints(scope.connection, {

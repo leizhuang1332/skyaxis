@@ -417,6 +417,28 @@
   font-family: var(--dsw-font-family);
 }
 
+/* 文件交付轮: the inline answer draft inside a pending clarification row. */
+.inlineAnswerForm {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 6px;
+  width: 100%;
+}
+
+.inlineAnswerForm textarea {
+  width: 100%;
+  padding: 6px 8px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  font-family: var(--dsw-font-family);
+  resize: vertical;
+}
+
 .formHint {
   font-size: 12px;
   line-height: 18px;

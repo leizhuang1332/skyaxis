@@ -229,6 +229,36 @@ export function applyRecordAction(base: WorkbenchRecord, body: WorkbenchMutateRe
       },
     }
   }
+  // 文件交付轮: clarification rulings — pure pending-row state (an answer
+  // never promotes into any formal table), deliberately OUTSIDE the split
+  // lock like the findings family: the gate freezes the list × coverage
+  // contract, not analysis Q&A.
+  if (body.action === 'answerAnalysisClarification' || body.action === 'dismissAnalysisClarification') {
+    const container = base.analysis
+    if (container === undefined) return fail(404, 'not-found')
+    const rows = container.clarifications ?? []
+    const row = rows.find((proposal) => proposal.id === body.id)
+    if (row === undefined) return fail(404, 'not-found')
+    if (body.action === 'dismissAnalysisClarification') {
+      return {
+        ok: true,
+        record: { ...base, analysis: { ...container, clarifications: rows.filter((proposal) => proposal.id !== body.id) } },
+      }
+    }
+    // Re-answering updates in place (answeredAt moves) — the user owns this
+    // state for as long as the row lives; a later batch replace keeps
+    // answered rows (see applyAnalysisSeed).
+    return {
+      ok: true,
+      record: {
+        ...base,
+        analysis: {
+          ...container,
+          clarifications: rows.map((proposal) => (proposal.id === body.id ? { ...proposal, answer: body.answer, answeredAt: now() } : proposal)),
+        },
+      },
+    }
+  }
 
   // Everything below this line is under the split contract's shadow. (The
   // one analysis-family exception — adoptCriterionProposal — handled above
@@ -863,19 +893,24 @@ function reviewVerdictEquivalent(a: ReviewVerdict, b: ReviewVerdict): boolean {
 }
 
 /**
- * applyAnalysisSeed (回传轮) — the PURE core of seedAnalysis: the endpoint
- * shell owns the session-read IO (applyRecordAction stays IO-free) and hands
- * the parsed proposals + the declare-block hash here.
+ * applyAnalysisSeed (回传轮 + 文件交付轮) — the PURE core of seedAnalysis:
+ * the endpoint shell owns the source IO (workspace file first, session log
+ * fallback — applyRecordAction stays IO-free) and hands the parsed
+ * proposals + the content hash here.
  *
  * Semantics (rulings ①②): an anchor hit (same sessionId AND contentHash)
  * is an UNCHANGED no-op — user-deleted/adopted rows never resurrect on a
- * watcher replay; any other seed REPLACES both proposal arrays wholesale
+ * watcher replay; any other seed REPLACES the AI proposal arrays wholesale
  * (unadjudicated proposals belong to the LATEST analysis; adopted formal
- * rows live in findings[]/criteria[] and are untouched). An EMPTY batch
- * (0+0, e.g. the report carried only knowledge/stageReady) still stamps the
- * anchor — without it, every sessions-list flip would re-read the session
- * forever. blockError / missing-session reads never reach this function
- * (the shell returns 200 zero-write for those, keeping the retry path open).
+ * rows live in findings[]/criteria[] and are untouched). 文件交付轮 addendum:
+ * ANSWERED clarifications are USER-authored state, not AI proposals — the
+ * batch replace keeps them (user intent is authoritative, the same reason
+ * deleted rows never resurrect) and the next SOW snapshot re-embeds them
+ * as settled facts; dismissal is the manual cleanup. An EMPTY batch
+ * (e.g. the report carried only knowledge/stageReady) still stamps the
+ * anchor — without it, every sessions-list flip would re-read forever.
+ * blockError / missing reads never reach this function (the shell returns
+ * 200 zero-write for those, keeping the retry path open).
  */
 export interface AnalysisSeedInput {
   readonly sessionId: string
@@ -890,6 +925,11 @@ export interface AnalysisSeedInput {
     readonly text: string
     readonly sourceSection?: string
   }[]
+  readonly clarifications: readonly {
+    readonly question: string
+    readonly recommendation?: string
+    readonly blocks?: string
+  }[]
 }
 
 export function applyAnalysisSeed(base: WorkbenchRecord, input: AnalysisSeedInput): RecordActionResult {
@@ -901,13 +941,15 @@ export function applyAnalysisSeed(base: WorkbenchRecord, input: AnalysisSeedInpu
     return { ok: true, record: base, unchanged: true }
   }
   const at = now()
+  // User-authored answers survive the batch replace (see the header ruling).
+  const keptAnswered = (container.clarifications ?? []).filter((row) => row.answer !== undefined)
   return {
     ok: true,
     record: {
       ...base,
       analysis: {
         ...container,
-        seed: { sessionId: input.sessionId, contentHash: input.contentHash, seededAt: at, findings: input.findings.length, criteria: input.criteria.length },
+        seed: { sessionId: input.sessionId, contentHash: input.contentHash, seededAt: at, findings: input.findings.length, criteria: input.criteria.length, clarifications: input.clarifications.length },
         findings: input.findings.map((row) => ({
           id: randomUUID(),
           category: row.category,
@@ -920,6 +962,15 @@ export function applyAnalysisSeed(base: WorkbenchRecord, input: AnalysisSeedInpu
           text: row.text,
           ...(row.sourceSection !== undefined ? { sourceSection: row.sourceSection } : {}),
         })),
+        clarifications: [
+          ...keptAnswered,
+          ...input.clarifications.map((row) => ({
+            id: randomUUID(),
+            question: row.question,
+            ...(row.recommendation !== undefined ? { recommendation: row.recommendation } : {}),
+            ...(row.blocks !== undefined ? { blocks: row.blocks } : {}),
+          })),
+        ],
       },
     },
   }

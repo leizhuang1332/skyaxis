@@ -419,6 +419,14 @@ export function createWorkbenchFetcher() {
       return this.mutate({ expectedRevision, requirementId, action: 'dismissCriterionProposal', id }, signal)
     },
 
+    async answerAnalysisClarification(requirementId: string, expectedRevision: number, id: string, answer: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'answerAnalysisClarification', id, answer }, signal)
+    },
+
+    async dismissAnalysisClarification(requirementId: string, expectedRevision: number, id: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'dismissAnalysisClarification', id }, signal)
+    },
+
     async writePlan(requirementId: string, workPackageId: string, text: string, expectedRevision: number, note?: string, signal?: AbortSignal): Promise<WorkbenchArtifactWriteResult> {
       const query = new URLSearchParams({ kind: 'plan', requirementId, workPackageId, expectedRevision: String(expectedRevision) })
       if (note !== undefined) query.set('note', note)
@@ -448,6 +456,12 @@ export function createWorkbenchFetcher() {
 
     async reviewContent(requirementId: string, reviewId: string, signal?: AbortSignal): Promise<WorkbenchArtifactContentResult> {
       const query = new URLSearchParams({ kind: 'review', requirementId, reviewId })
+      return artifactContentResult(await request(`${WORKBENCH_ARTIFACTS_PATH}?${query.toString()}`, { method: 'GET' }, signal))
+    },
+
+    /** 文件交付轮: the workspace analysis report file (kind=analysis-report face; 404 = honest missing, the panel renders it). */
+    async analysisReportContent(requirementId: string, signal?: AbortSignal): Promise<WorkbenchArtifactContentResult> {
+      const query = new URLSearchParams({ kind: 'analysis-report', requirementId })
       return artifactContentResult(await request(`${WORKBENCH_ARTIFACTS_PATH}?${query.toString()}`, { method: 'GET' }, signal))
     },
 

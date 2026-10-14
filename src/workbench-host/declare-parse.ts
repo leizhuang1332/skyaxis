@@ -16,10 +16,12 @@
  *    「坏行跳过并列出，不整块拒绝」.
  *
  * Known top-level keys only: workPackage / claims / artifacts / knowledge /
- * stageReady. Unknown keys are ignored silently (YAGNI — the generated SOW
- * skeleton teaches exactly these five). The block-level workPackage scopes
- * BOTH built claims and artifacts; absent ⇒ built claims are targetless
- * ('bad-shape') while artifacts import without an owning package.
+ * stageReady + the analysis proposal keys (findings / criteria /
+ * clarifications — 回传轮与文件交付轮; they ride proposals[], not entries[]).
+ * Unknown keys are ignored silently (YAGNI — the generated SOW skeleton
+ * teaches exactly these). The block-level workPackage scopes BOTH built
+ * claims and artifacts; absent ⇒ built claims are targetless ('bad-shape')
+ * while artifacts import without an owning package.
  */
 import YAML from 'yaml'
 import type {
@@ -62,6 +64,13 @@ export interface DeclareCriterionRow {
   readonly sourceSection?: string
 }
 
+/** One parsed CLARIFICATION proposal (文件交付轮) — content only, same discipline (id is host-minted at seed time). */
+export interface DeclareClarificationRow {
+  readonly question: string
+  readonly recommendation?: string
+  readonly blocks?: string
+}
+
 /**
  * Analysis proposals ride DeclareParseSuccess as a SEPARATE field, never
  * inside entries[]: entries are the S5 import-preview wire face (declare
@@ -73,6 +82,7 @@ export interface DeclareCriterionRow {
 export interface DeclareProposals {
   readonly findings: readonly DeclareFindingRow[]
   readonly criteria: readonly DeclareCriterionRow[]
+  readonly clarifications: readonly DeclareClarificationRow[]
 }
 
 export interface DeclareParseSuccess {
@@ -303,5 +313,41 @@ export function parseDeclare(input: { text: string; record: WorkbenchRecord }): 
     })
   })
 
-  return { ok: true, entries, skipped, stageReady: doc.stageReady === true, proposals: { findings, criteria } }
+  // --- clarifications (文件交付轮) — caps equal the criterion caps (question/
+  // recommendation 2000, blocks 256): same storage-cap = parse-cap rule.
+  const clarifications: DeclareClarificationRow[] = []
+  const clarificationRows = Array.isArray(doc.clarifications) ? doc.clarifications : []
+  clarificationRows.forEach((row, index) => {
+    const key = `clarification-${index}`
+    if (!isRecord(row)) {
+      skipped.push(skipOf(key, rowLabel(row), 'bad-shape'))
+      return
+    }
+    const question = asString(row.question)?.trim()
+    if (question === undefined || question.length === 0) {
+      skipped.push(skipOf(key, rowLabel(row), 'bad-content'))
+      return
+    }
+    if (question.length > 2000) {
+      skipped.push(skipOf(key, rowLabel(row), 'over-cap'))
+      return
+    }
+    const recommendationRaw = asString(row.recommendation)?.trim()
+    if (recommendationRaw !== undefined && recommendationRaw.length > 2000) {
+      skipped.push(skipOf(key, rowLabel(row), 'over-cap'))
+      return
+    }
+    const blocksRaw = asString(row.blocks)?.trim()
+    if (blocksRaw !== undefined && blocksRaw.length > 256) {
+      skipped.push(skipOf(key, rowLabel(row), 'over-cap'))
+      return
+    }
+    clarifications.push({
+      question,
+      ...(recommendationRaw !== undefined && recommendationRaw.length > 0 ? { recommendation: recommendationRaw } : {}),
+      ...(blocksRaw !== undefined && blocksRaw.length > 0 ? { blocks: blocksRaw } : {}),
+    })
+  })
+
+  return { ok: true, entries, skipped, stageReady: doc.stageReady === true, proposals: { findings, criteria, clarifications } }
 }

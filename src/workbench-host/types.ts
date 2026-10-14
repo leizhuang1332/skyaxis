@@ -186,6 +186,16 @@ export const ProposedCriterionSchema = z.object({
   sourceSection: z.string().max(256).optional(),
 })
 
+/** 文件交付轮: caps equal the criterion caps (question/recommendation/answer 2000, blocks 256) — parse caps mirror these. */
+export const ProposedClarificationSchema = z.object({
+  id: z.uuid(),
+  question: z.string().trim().min(1).max(2000),
+  recommendation: z.string().max(2000).optional(),
+  blocks: z.string().max(256).optional(),
+  answer: z.string().max(2000).optional(),
+  answeredAt: TimestampSchema.optional(),
+})
+
 export const AnalysisProposalsSchema = z.object({
   session: z.object({
     sessionId: SessionIdSchema,
@@ -198,9 +208,12 @@ export const AnalysisProposalsSchema = z.object({
     seededAt: TimestampSchema,
     findings: z.number().int().nonnegative(),
     criteria: z.number().int().nonnegative(),
+    clarifications: z.number().int().nonnegative().optional(),
   }).optional(),
   findings: z.array(ProposedFindingSchema),
   criteria: z.array(ProposedCriterionSchema),
+  /** 文件交付轮 third proposal group — optional per the field-evolution discipline. */
+  clarifications: z.array(ProposedClarificationSchema).optional(),
 })
 
 const SplitBaselinePrdSchema = z.object({
@@ -623,6 +636,14 @@ const DismissFindingProposalSchema = ProposalActionSchema.extend({ action: z.lit
 const AdoptCriterionProposalSchema = ProposalActionSchema.extend({ action: z.literal('adoptCriterionProposal') })
 const DismissCriterionProposalSchema = ProposalActionSchema.extend({ action: z.literal('dismissCriterionProposal') })
 
+// 文件交付轮: the ANSWER is user content (the saveFinding payload discipline),
+// not AI proposal content — it rides the wire because only the user knows it.
+const AnswerAnalysisClarificationSchema = ProposalActionSchema.extend({
+  action: z.literal('answerAnalysisClarification'),
+  answer: z.string().trim().min(1).max(2000),
+})
+const DismissAnalysisClarificationSchema = ProposalActionSchema.extend({ action: z.literal('dismissAnalysisClarification') })
+
 export const WorkbenchMutateSchema = z.discriminatedUnion('action', [
   AdvanceStageSchema,
   SaveFindingSchema,
@@ -665,6 +686,8 @@ export const WorkbenchMutateSchema = z.discriminatedUnion('action', [
   DismissFindingProposalSchema,
   AdoptCriterionProposalSchema,
   DismissCriterionProposalSchema,
+  AnswerAnalysisClarificationSchema,
+  DismissAnalysisClarificationSchema,
 ])
 
 // ---------------------------------------------------------------------------

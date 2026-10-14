@@ -82,7 +82,7 @@ const expectIsoString = (value: unknown) => {
   expect(Number.isNaN(Date.parse(value as string))).toBe(false)
 }
 
-async function harness() {
+async function harness(options: { resolveWorkspacePath?: (requirementId: string) => string } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'workbench-endpoint-test-'))
   dirs.push(dir)
   const file = new WorkbenchFileStore(join(dir, 'workbench.yaml'))
@@ -95,7 +95,13 @@ async function harness() {
   })
   await fiber.await()
   const connection = ctx.get('connection') as HostConnectionHandle
-  registerWorkbenchEndpoints(connection, { file, knowledgeFile, workbenchRoot, declareReader })
+  registerWorkbenchEndpoints(connection, {
+    file,
+    knowledgeFile,
+    workbenchRoot,
+    declareReader,
+    ...(options.resolveWorkspacePath !== undefined ? { resolveWorkspacePath: options.resolveWorkspacePath } : {}),
+  })
   const shared = connection.createSharedFetchHandler('/api')
   disposables.push(() => fiber.dispose())
   const get = (path: string) => shared.fetch(new Request(BASE + path))
@@ -2098,5 +2104,157 @@ describe('回传轮：analysis proposals（bind / seed / adopt / dismiss）', ()
     expect(adopted.record.criteria.map((criterion) => criterion.id)).toEqual(['C1', 'C2'])
     expect(adopted.record.criteria[1]).toMatchObject({ text: '待采标准', sourceSection: 'PRD#4', coveredBy: [] })
     expect(adopted.record.analysis?.criteria).toEqual([])
+  })
+})
+
+describe('文件交付轮：报告文件通道（file-first seed / analysis-report GET / 待澄清动作）', () => {
+  const body = (action: string, extra: Record<string, unknown>, expectedRevision: number, requirementId = RID) =>
+    ({ expectedRevision, requirementId, action, ...extra })
+  const assistantMsg = (text: string): SessionEvent =>
+    ({ type: 'assistant/message', seq: 1, time: 0, data: { message: { content: [{ type: 'text', text }] } } }) as never as SessionEvent
+
+  /** A workspace with (null = without) the report file; the resolver closes over it. */
+  function fileWorkspace(text: string | null): { dir: string; resolve: (requirementId: string) => string } {
+    const dir = mkdtempSync(join(tmpdir(), 'workbench-filechannel-test-'))
+    dirs.push(dir)
+    if (text !== null) {
+      mkdirSync(join(dir, '.skyaxis', 'analysis'), { recursive: true })
+      writeFileSync(join(dir, '.skyaxis', 'analysis', `${RID}.md`), text, 'utf8')
+    }
+    return { dir, resolve: () => dir }
+  }
+
+  const reportFile = (declareRows: readonly string[]): string =>
+    ['# 分析报告', '', '## 1. 分析发现', 'F1 [冲突·高] 与现有同步导出争用连接池', '', '```yaml', ...declareRows, '```'].join('\n')
+
+  it('file 命中：整份文件哈希锚 + 三组提议落账（会话引擎缺席也成立——通道独立于会话）；GET 正文 + 篡改披露', async () => {
+    const text = reportFile([
+      '# skyaxis-declare',
+      'findings:',
+      '  - category: conflict',
+      '    severity: high',
+      '    title: 与现有同步导出争用连接池',
+      'criteria: []',
+      'clarifications:',
+      '  - question: 导出上限是十万行还是百万行？',
+      '    recommendation: 百万行',
+      '    blocks: F1',
+      'knowledge: []',
+      'stageReady: false',
+    ])
+    const ws = fileWorkspace(text)
+    const h = await harness({ resolveWorkspacePath: ws.resolve })
+    await h.post(WORKBENCH_PATH, body('bindAnalysisSession', { sessionId: 'sess-shell' }, 0))
+    // NO declareReader engine at all — the file channel must stand alone.
+    const res = await h.post(WORKBENCH_PATH, body('seedAnalysis', { sessionId: 'sess-shell' }, 1))
+    expect(res.status).toBe(200)
+    const seeded = await res.json() as { revision: number; record: WorkbenchRecord }
+    expect(seeded.revision).toBe(2)
+    const container = seeded.record.analysis
+    expect(container?.findings).toHaveLength(1)
+    expect(container?.clarifications).toEqual([
+      { id: expect.any(String), question: '导出上限是十万行还是百万行？', recommendation: '百万行', blocks: 'F1' },
+    ])
+    // The disk-bytes sha256 of the WHOLE file is the idempotency anchor.
+    expect(container?.seed).toMatchObject({ sessionId: 'sess-shell', contentHash: contentHashOf(text), findings: 1, criteria: 0, clarifications: 1 })
+
+    // GET face: the body reads back untampered; an external edit flips the flag (细化④).
+    const read1 = await h.get(`${WORKBENCH_ARTIFACTS_PATH}?kind=analysis-report&requirementId=${RID}`)
+    expect(read1.status).toBe(200)
+    const body1 = await read1.json() as { ok: boolean; content: string; contentTampered: boolean }
+    expect(body1.content).toContain('F1 [冲突·高]')
+    expect(body1.contentTampered).toBe(false)
+    writeFileSync(join(ws.dir, '.skyaxis', 'analysis', `${RID}.md`), `${text}\n<!-- edited -->`, 'utf8')
+    const read2 = await h.get(`${WORKBENCH_ARTIFACTS_PATH}?kind=analysis-report&requirementId=${RID}`)
+    expect(((await read2.json()) as { contentTampered: boolean }).contentTampered).toBe(true)
+  })
+
+  it('file 缺失 → 回落会话链收取；双通道皆 miss 且文件通道在 ⇒ 披露 report-file-missing（headline 交换，指纹仍附）', async () => {
+    const ws = fileWorkspace(null)
+    const h = await harness({ resolveWorkspacePath: ws.resolve })
+    const rows = ['# skyaxis-declare', 'findings:', '  - category: risk', '    severity: low', '    title: 会话兜底的发现', 'criteria: []', 'stageReady: false']
+    h.declareReader.setEngine({ readSession: async () => ({ events: [assistantMsg(`报告。\n\`\`\`yaml\n${rows.join('\n')}\n\`\`\``)] }) })
+    await h.post(WORKBENCH_PATH, body('bindAnalysisSession', { sessionId: 'sess-a' }, 0))
+    const res = await h.post(WORKBENCH_PATH, body('seedAnalysis', { sessionId: 'sess-a' }, 1))
+    const seeded = await res.json() as { record: WorkbenchRecord }
+    expect(seeded.record.analysis?.findings.map((row) => row.title)).toEqual(['会话兜底的发现'])
+
+    // Both channels miss (engine: no declare block) → the FILE reason is the headline.
+    h.declareReader.setEngine({ readSession: async () => ({ events: [assistantMsg('报告没写声明块。')] }) })
+    const res2 = await h.post(WORKBENCH_PATH, body('seedAnalysis', { sessionId: 'sess-a' }, 2))
+    const miss = await res2.json() as { seedMissing?: string; seedScan?: string }
+    expect(miss.seedMissing).toBe('report-file-missing')
+    expect(miss.seedScan).toContain('markers=0')
+  })
+
+  it('file 语法坏（无围栏）→ report-file-syntax 零写；resolver 缺席 ⇒ 通道 unarmed 走原会话语义', async () => {
+    const ws = fileWorkspace('# 报告\n没有声明块。')
+    const h = await harness({ resolveWorkspacePath: ws.resolve })
+    await h.post(WORKBENCH_PATH, body('bindAnalysisSession', { sessionId: 'sess-a' }, 0))
+    const res = await h.post(WORKBENCH_PATH, body('seedAnalysis', { sessionId: 'sess-a' }, 1))
+    const miss = await res.json() as { seedMissing?: string; revision: number }
+    expect(miss.seedMissing).toBe('report-file-syntax')
+    expect(miss.revision).toBe(1) // zero-write, no bump
+
+    // Unarmed (no resolver service): the session chain verbatim.
+    const h2 = await harness()
+    await h2.post(WORKBENCH_PATH, body('bindAnalysisSession', { sessionId: 'sess-a' }, 0))
+    const res2 = await h2.post(WORKBENCH_PATH, body('seedAnalysis', { sessionId: 'sess-a' }, 1))
+    expect(((await res2.json()) as { seedMissing?: string }).seedMissing).toBe('no-service')
+  })
+
+  it('answer/dismiss 待澄清：答案落行 + 重答原位更新 + 404/400 守卫；批替换保留已答行（用户状态权威）', async () => {
+    const ws = fileWorkspace(reportFile([
+      '# skyaxis-declare', 'findings: []', 'criteria: []',
+      'clarifications:',
+      '  - question: Q1 导出上限？',
+      '    recommendation: 百万行',
+    ]))
+    const h = await harness({ resolveWorkspacePath: ws.resolve })
+    await h.post(WORKBENCH_PATH, body('bindAnalysisSession', { sessionId: 'sess-a' }, 0))
+    await h.post(WORKBENCH_PATH, body('seedAnalysis', { sessionId: 'sess-a' }, 1))
+    const record1 = (await (await h.get(`${WORKBENCH_PATH}?requirementId=${RID}`)).json() as { record: WorkbenchRecord }).record
+    const q1 = record1.analysis!.clarifications![0]!
+    expect(q1).toMatchObject({ question: 'Q1 导出上限？', recommendation: '百万行' })
+
+    const ans = await h.post(WORKBENCH_PATH, body('answerAnalysisClarification', { id: q1.id, answer: '按百万行' }, 2))
+    expect(ans.status).toBe(200)
+    const answered = (await ans.json()) as { record: WorkbenchRecord }
+    expect(answered.record.analysis?.clarifications?.[0]).toMatchObject({ question: 'Q1 导出上限？', answer: '按百万行' })
+    expectIsoString(answered.record.analysis?.clarifications?.[0]?.answeredAt)
+
+    // Re-answer updates in place.
+    const ans2 = await h.post(WORKBENCH_PATH, body('answerAnalysisClarification', { id: q1.id, answer: '改为十万行' }, 3))
+    expect(((await ans2.json()) as { record: WorkbenchRecord }).record.analysis?.clarifications?.[0]?.answer).toBe('改为十万行')
+
+    // Guards: unknown id → 404; blank answer → 400 (both zero-write).
+    expect((await h.post(WORKBENCH_PATH, body('answerAnalysisClarification', { id: '99999999-9999-4999-8999-999999999999', answer: 'x' }, 4))).status).toBe(404)
+    expect((await h.post(WORKBENCH_PATH, body('answerAnalysisClarification', { id: q1.id, answer: '   ' }, 4))).status).toBe(400)
+
+    // A NEW report (new hash, new question): the ANSWERED Q1 survives the batch replace.
+    writeFileSync(join(ws.dir, '.skyaxis', 'analysis', `${RID}.md`), reportFile([
+      '# skyaxis-declare', 'findings: []', 'criteria: []',
+      'clarifications:',
+      '  - question: Q2 是否审计？',
+    ]), 'utf8')
+    const res = await h.post(WORKBENCH_PATH, body('seedAnalysis', { sessionId: 'sess-a' }, 4))
+    const renewed = (await res.json()) as { record: WorkbenchRecord }
+    expect(renewed.record.analysis?.clarifications?.map((row) => [row.question, row.answer ?? null])).toEqual([
+      ['Q1 导出上限？', '改为十万行'],
+      ['Q2 是否审计？', null],
+    ])
+
+    // Dismiss cleans up — works on answered rows too (the manual exit).
+    const q1Again = renewed.record.analysis?.clarifications?.[0]!.id
+    expect((await h.post(WORKBENCH_PATH, body('dismissAnalysisClarification', { id: q1Again! }, 5))).status).toBe(200)
+  })
+
+  it('analysis-report GET：unarmed 通道 / 文件缺失 → 404（诚实缺失态，不造占位）', async () => {
+    const h = await harness() // no resolver
+    const res = await h.get(`${WORKBENCH_ARTIFACTS_PATH}?kind=analysis-report&requirementId=${RID}`)
+    expect(res.status).toBe(404)
+    const ws = fileWorkspace(null)
+    const h2 = await harness({ resolveWorkspacePath: ws.resolve })
+    expect((await h2.get(`${WORKBENCH_ARTIFACTS_PATH}?kind=analysis-report&requirementId=${RID}`)).status).toBe(404)
   })
 })

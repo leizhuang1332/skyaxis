@@ -24,6 +24,8 @@ import type { KnowledgeSliceState, RequirementWorkbenchState, WorkbenchStore } f
 import { knowledgeFor, slotFor } from './store.js'
 import { FindingsSection } from './findings-section.js'
 import { CriteriaSection } from './criteria-section.js'
+import { ClarificationsSection } from './clarifications-section.js'
+import { ReportSection } from './report-section.js'
 import { SplitSection } from './split-section.js'
 import { BoardSection } from './board-section.js'
 import { DeliverSection } from './deliver-section.js'
@@ -201,7 +203,15 @@ export function WorkbenchTabBody(props: {
   const analysisSummary = analysisSessionId !== undefined ? sessionSummaries.byId[analysisSessionId] : undefined
   const analysisRunning = analysisSummary?.running === true
   const analysisDue = analysis !== undefined && analysis.seed?.sessionId !== analysisSessionId
-  const analysisGateOpen = analysisSummary === undefined || !(analysisSummary.running || analysisSummary.blank)
+  // 文件交付轮 deadlock kill: with a bound workspace the report FILE is the
+  // collection source — the seed read is a cheap, zero-write disk stat that
+  // does not care whether the bound session is blank (the blank-shell gate
+  // could stay closed forever, the a8f5142 挂账 suspicion). RUNNING still
+  // closes the gate on BOTH channels (never seed mid-run); the idle flip
+  // re-opens it and re-runs the watcher effect (analysisRunning is a dep).
+  const fileChannelArmed = props.requirement.workspacePath.trim() !== ''
+  const analysisGateOpen = !analysisRunning
+    && (fileChannelArmed || analysisSummary === undefined || !analysisSummary.blank)
   const seedAttemptedRef = useRef(false)
   // 回传轮 observability: the LAST seed attempt's zero-write reason (+ scan
   // fingerprint) — shown on the waiting row so「not written yet」and「written
@@ -249,7 +259,11 @@ export function WorkbenchTabBody(props: {
     if (seedAttemptedRef.current) return
     seedAttemptedRef.current = true
     runSeed()
-  }, [requirementId, analysisSessionId, analysisDue, analysisGateOpen, controller])
+    // analysisRunning rides the deps for the FILE channel: its gate no longer
+    // transitions on idle flips (armed workspaces keep it open), so the
+    // running→idle edge itself must re-run this effect (the running=true
+    // effect above has re-armed the one-shot flag by then).
+  }, [requirementId, analysisSessionId, analysisDue, analysisGateOpen, analysisRunning, controller])
   /** Manual re-arm (回传轮 diagnosis ②): a failed read consumes the one-shot
    *  flag and a FINISHED session never flips running again — the waiting hint
    *  doubles as the retry entry (reset the flag, re-fire the quiet seed). */
@@ -332,10 +346,16 @@ export function WorkbenchTabBody(props: {
               </div>
             ) : null}
             {viewing === 'understand' ? (
+              <ReportSection key={`report-${requirementId}`} t={t} controller={controller} requirementId={requirementId} workspacePath={props.requirement.workspacePath.trim()} />
+            ) : null}
+            {viewing === 'understand' ? (
               <FindingsSection key={`findings-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} onOpenSow={() => { setSow({ purpose: 'analysis' }) }} onRetrySeed={retryAnalysisSeed} seedMiss={analysisDue ? seedMiss : undefined} seedScan={analysisDue ? seedScan : undefined} />
             ) : null}
             {record !== null && viewing === 'understand' ? (
               <CriteriaSection key={`criteria-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} onRetrySeed={retryAnalysisSeed} seedMiss={analysisDue ? seedMiss : undefined} seedScan={analysisDue ? seedScan : undefined} />
+            ) : null}
+            {record !== null && viewing === 'understand' ? (
+              <ClarificationsSection key={`clarifications-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} onRetrySeed={retryAnalysisSeed} seedMiss={analysisDue ? seedMiss : undefined} seedScan={analysisDue ? seedScan : undefined} />
             ) : null}
             {record !== null && viewing === 'plan' ? (
               <SplitSection key={`split-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} onOpenSow={() => { setSow({ purpose: 'split' }) }} />

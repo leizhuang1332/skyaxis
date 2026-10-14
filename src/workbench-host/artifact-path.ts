@@ -85,6 +85,22 @@ export function reviewDocPath(root: string, requirementId: string, reviewId: str
   return join(root, requirementId, 'reviews', `${reviewId}.md`)
 }
 
+/**
+ * Analysis report file (文件交付轮, decisions/0007) — `<workspaceRoot>/
+ * .skyaxis/analysis/<requirementId>.md`. NOTE the root here is the bound
+ * WORKSPACE, not workbenchRoot: this is the one artifact the SESSION writes
+ * (its reachable domain is the workspace cwd), delivered to the workbench
+ * through the prescribed path rather than plugin-authored storage — the
+ * ledger holds the seeded state, never a reference to this file. The
+ * relative-segment convention is the shared one-truth helper
+ * analysisReportRelPath (workbench-shared/protocol.ts); this join re-asserts
+ * the uuid gate as defense layer 2 (layer 1 = the shared helper's own gate).
+ */
+export function analysisReportPath(workspaceRoot: string, requirementId: string): string {
+  assertRequirementId(requirementId)
+  return join(workspaceRoot, '.skyaxis', 'analysis', `${requirementId}.md`)
+}
+
 /** The per-requirement artifact root; plans/ and reviews/ live under it. */
 export function requirementArtifactDir(root: string, requirementId: string): string {
   assertRequirementId(requirementId)
