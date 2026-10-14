@@ -58,6 +58,7 @@ interface WorkbenchDictionary {
   // report.* — 文件交付轮 S1 report panel
   readonly 'report.title': string
   readonly 'report.refresh': string
+  readonly 'report.preview': string
   readonly 'report.pathPrefix': string
   readonly 'report.missing': string
   readonly 'report.noWorkspace': string
@@ -545,8 +546,9 @@ const zh: WorkbenchDictionary = {
   'proposal.waitingHint': '分析会话的报告尚未收取——会话收尾后自动收为待裁决行；若会话已被删除，可重新投递。',
   'report.title': '分析报告',
   'report.refresh': '刷新',
+  'report.preview': '预览报告',
   'report.pathPrefix': '文件：',
-  'report.missing': '分析报告文件尚未生成——会话按任务书把报告写入工作区 .skyaxis/analysis/ 后，此处展示报告正文。',
+  'report.missing': '分析报告文件尚未生成——会话按任务书把报告写入工作区 .skyaxis/analysis/ 后，此处出现报告文件卡片，点击即可预览正文。',
   'report.noWorkspace': '本需求未绑定工作区——分析报告在会话内交付，无报告文件可展示。',
   'report.loadError': '报告文件读取失败。',
   'report.tampered': '报告文件在收取后被外部修改（与收取时内容不一致）。',
@@ -994,8 +996,9 @@ const en: WorkbenchDictionary = {
   'proposal.waitingHint': 'The analysis session\'s report has not been collected yet — it lands here as pending rows once the session finishes; re-deliver if the session was deleted.',
   'report.title': 'Analysis report',
   'report.refresh': 'Refresh',
+  'report.preview': 'Preview report',
   'report.pathPrefix': 'File: ',
-  'report.missing': 'The report file has not been generated yet — once the session writes it to .skyaxis/analysis/ per the task book, the report body shows here.',
+  'report.missing': 'The report file has not been generated yet — once the session writes it to .skyaxis/analysis/ per the task book, the file card appears here; click it to preview the body.',
   'report.noWorkspace': 'No workspace bound to this requirement — the report is delivered in the conversation; there is no report file.',
   'report.loadError': 'Failed to read the report file.',
   'report.tampered': 'The report file was modified externally after collection (differs from what was collected).',

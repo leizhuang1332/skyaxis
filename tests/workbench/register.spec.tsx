@@ -339,6 +339,7 @@ describe('workbench: dictionaries', () => {
       'report.missing',
       'report.noWorkspace',
       'report.pathPrefix',
+      'report.preview',
       'report.refresh',
       'report.tampered',
       'report.title',

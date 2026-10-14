@@ -1162,3 +1162,47 @@
   line-height: 20px;
   padding: 2px 0;
 }
+
+/* ---- 换形轮: S1 report face as a file row + preview modal (PRD-doc
+   precedent — prdRowMain/prdWideDialog/prdPreviewBody twins). ---- */
+
+.reportRowMain {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0.5px solid var(--dsh-alias-border-l2);
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--dsw-font-family);
+}
+
+.reportRowMain:hover {
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.reportRowNameLine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.reportRowName {
+  font-size: 13px;
+  color: var(--dsh-alias-state-business-primary);
+}
+
+/* The wpDialog precedent: the primitive card defaults to 380px, the
+   !important wins against cross-package css-module injection order. */
+.reportWideDialog {
+  width: min(860px, 100%) !important;
+}
+
+.reportPreviewBody {
+  max-height: 70vh;
+  overflow-y: auto;
+}

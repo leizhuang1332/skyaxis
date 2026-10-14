@@ -379,6 +379,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       | 'report.missing'
       | 'report.noWorkspace'
       | 'report.pathPrefix'
+      | 'report.preview'
       | 'report.refresh'
       | 'report.tampered'
       | 'report.title'
