@@ -128,6 +128,27 @@ interface WorkbenchDictionary {
   readonly 'criteria.removeDescription': string
   readonly 'criteria.uncovered': string
   readonly 'criteria.lockedHint': string
+  // understand.* — 0007 定稿软门：S1 就绪披露 + 定稿动作 + 撤销 + 摘要导出
+  readonly 'understand.readyPending': string
+  readonly 'understand.stageReadyTag': string
+  readonly 'understand.exportButton': string
+  readonly 'understand.exportTitle': string
+  readonly 'understand.approveButton': string
+  readonly 'understand.approveTitle': string
+  readonly 'understand.statCriteria': string
+  readonly 'understand.statFindings': string
+  readonly 'understand.statClarifications': string
+  readonly 'understand.statProposals': string
+  readonly 'understand.approveAck': string
+  readonly 'understand.approveConfirm': string
+  readonly 'understand.approvedTag': string
+  readonly 'understand.approvedAtPrefix': string
+  readonly 'understand.bannerChanged': string
+  readonly 'understand.revoke': string
+  readonly 'understand.revokeTitle': string
+  readonly 'understand.revokeDescription': string
+  readonly 'understand.revokeAck': string
+  readonly 'understand.revokeConfirm': string
   // split.* — S2 breakdown list + hard gate ①
   readonly 'split.sectionTitle': string
   readonly 'split.add': string
@@ -607,6 +628,27 @@ const zh: WorkbenchDictionary = {
   'criteria.removeDescription': '确定删除该验收标准？工作包对该标准的覆盖引用将被一并剥离。',
   'criteria.uncovered': '尚无工作包覆盖',
   'criteria.lockedHint': '拆分已批准：验收标准与工作包清单一并锁定，撤销批准后可编辑。',
+  // understand.* — 0007 定稿软门
+  'understand.readyPending': '待裁决提议 {p} · 未答澄清 {q} · 未处置发现 {f}',
+  'understand.stageReadyTag': '分析会话提议：本阶段就绪',
+  'understand.exportButton': '导出理解摘要',
+  'understand.exportTitle': '需求理解摘要',
+  'understand.approveButton': '定稿需求理解',
+  'understand.approveTitle': '定稿需求理解',
+  'understand.statCriteria': '验收标准 {n} 条',
+  'understand.statFindings': '发现：已处置 {d} · 未处置 {o}',
+  'understand.statClarifications': '澄清：已答 {a} · 未答 {u}',
+  'understand.statProposals': '待裁决提议 {n}',
+  'understand.approveAck': '我已核对上述统计——未处置发现、未答澄清与待裁决提议不阻断定稿，带着已知风险进规划是我的裁决。',
+  'understand.approveConfirm': '确定定稿',
+  'understand.approvedTag': '已定稿',
+  'understand.approvedAtPrefix': '需求理解已定稿',
+  'understand.bannerChanged': '定稿后上游已变化（裁决/答案/标准有更新）——重新定稿可刷新基线。',
+  'understand.revoke': '撤销定稿',
+  'understand.revokeTitle': '撤销定稿',
+  'understand.revokeDescription': '确定撤销需求理解定稿？定稿戳与基线快照将一并移除（活账本的裁决内容不受影响），S2 可能出现「理解已重新定稿」失效提示。',
+  'understand.revokeAck': '我确定撤销定稿。',
+  'understand.revokeConfirm': '确定撤销',
   'split.sectionTitle': '工作包拆分',
   'split.add': '＋ 工作包',
   'split.approve': '批准拆分',
@@ -1057,6 +1099,27 @@ const en: WorkbenchDictionary = {
   'criteria.removeDescription': 'Remove this criterion? Coverage references from work packages will be stripped along with it.',
   'criteria.uncovered': 'No work package covers this',
   'criteria.lockedHint': 'The split is approved: criteria are locked with the list — revoke the approval to edit.',
+  // understand.* — 0007 understand finalize (soft gate)
+  'understand.readyPending': 'Pending proposals {p} · unanswered clarifications {q} · open findings {f}',
+  'understand.stageReadyTag': 'The analysis session proposes this stage is ready',
+  'understand.exportButton': 'Export understanding summary',
+  'understand.exportTitle': 'Understanding summary',
+  'understand.approveButton': 'Finalize understanding',
+  'understand.approveTitle': 'Finalize requirement understanding',
+  'understand.statCriteria': 'Acceptance criteria: {n}',
+  'understand.statFindings': 'Findings: disposed {d} · open {o}',
+  'understand.statClarifications': 'Clarifications: answered {a} · unanswered {u}',
+  'understand.statProposals': 'Pending AI proposals: {n}',
+  'understand.approveAck': 'I have reviewed the stats — open findings, unanswered clarifications and pending proposals do NOT block finalizing; proceeding with known risks is my call.',
+  'understand.approveConfirm': 'Finalize',
+  'understand.approvedTag': 'Finalized',
+  'understand.approvedAtPrefix': 'Understanding finalized',
+  'understand.bannerChanged': 'Upstream changed after finalizing (rulings / answers / criteria) — re-finalize to refresh the baseline.',
+  'understand.revoke': 'Revoke finalize',
+  'understand.revokeTitle': 'Revoke finalize',
+  'understand.revokeDescription': 'Revoke the understanding finalize? The stamp and baseline snapshot are removed together (live-ledger rulings stay); S2 may then show the understand stale hint.',
+  'understand.revokeAck': 'I want to revoke the finalize.',
+  'understand.revokeConfirm': 'Revoke',
   'split.sectionTitle': 'Work-package breakdown',
   'split.add': '＋ Work package',
   'split.approve': 'Approve split',

@@ -12,8 +12,9 @@
  * pulls the controller on mount (the P1a factory-owner contract, grown up).
  */
 import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { Modal, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { WorkbenchStage } from '../../workbench-shared/protocol.js'
+import type { WorkbenchRecord, WorkbenchStage } from '../../workbench-shared/protocol.js'
 import type { SeedMissingReason } from '../../workbench-shared/protocol.js'
 import { WORKBENCH_STAGES } from '../../workbench-shared/protocol.js'
 import type { RequirementRecord } from '../../requirements-shared/protocol.js'
@@ -34,6 +35,8 @@ import { SessionStrip } from './session-strip.js'
 import { KnowledgeSection } from './knowledge-section.js'
 import { SowModal } from './sow-modal.js'
 import { ScanModal } from './scan-modal.js'
+import { SheetExportModal } from './sheet-export-modal.js'
+import { buildUnderstandingSheet } from './understanding-sheet.js'
 import type { DeliverFace } from './delivery.js'
 import type { WorkbenchWorkPackage } from '../../workbench-shared/protocol.js'
 import styles from './view.module.css'
@@ -105,6 +108,48 @@ function nextStageOf(stage: WorkbenchStage | 'closed'): WorkbenchStage | 'closed
   return index === WORKBENCH_STAGES.length - 1 ? 'closed' : WORKBENCH_STAGES[index + 1]!
 }
 
+/**
+ * 0007 定稿软门: S1 readiness derivations — render-time, all from the LIVE
+ * ledger (the credential snapshot is an anchor for stale compare, never the
+ * content source). The finalize itself stays a pure pointer-independent
+ * content event: advancing the stage neither requires nor triggers it.
+ */
+function understandReadiness(record: WorkbenchRecord): {
+  pending: number
+  unanswered: number
+  openFindings: number
+  stageReady: boolean
+  finalized: boolean
+  changedSinceFinalize: boolean
+  exportable: boolean
+} {
+  const analysis = record.analysis
+  const clarifications = analysis?.clarifications ?? []
+  const unanswered = clarifications.filter((row) => row.answer === undefined).length
+  const openFindings = record.findings.filter((finding) => finding.status === 'open').length
+  const finalized = record.understandApprovedAt !== undefined
+  // Post-finalize drift hint — COUNT-level compare only: a text edit to a
+  // criterion stays undetected (the honest lower bound; the contract-grade
+  // compare lives in the S2 stale arms). A NEWER seed (a re-analysis landed
+  // after finalizing) is upstream change too.
+  const baseline = record.understandBaseline
+  const changedSinceFinalize = finalized && baseline !== undefined && (
+    baseline.criteria.length !== record.criteria.length
+    || baseline.findings.filter((finding) => finding.status !== 'open').length !== record.findings.length - openFindings
+    || baseline.clarifications.length !== clarifications.length - unanswered
+    || (analysis?.seed !== undefined && analysis.seed.seededAt > (record.understandApprovedAt ?? ''))
+  )
+  return {
+    pending: (analysis?.findings.length ?? 0) + (analysis?.criteria.length ?? 0),
+    unanswered,
+    openFindings,
+    stageReady: analysis?.seed?.stageReady === true,
+    finalized,
+    changedSinceFinalize,
+    exportable: record.criteria.length > 0 || record.findings.length > 0 || clarifications.length > 0,
+  }
+}
+
 /** The live-session summary face the strip/picker consume (register.tsx owns the real impl; tests inject). */
 export interface SessionStripSummary {
   readonly id: string
@@ -170,6 +215,12 @@ export function WorkbenchTabBody(props: {
   // phase-independent entry (the scan's data source is the endpoint, not the
   // slot — honesty means surfacing its own failures, not hiding the button).
   const [scanOpen, setScanOpen] = useState(false)
+  // 0007 定稿软门 — S1 收口面 state (view-owned like the sow/scan instances).
+  const [understandApproveOpen, setUnderstandApproveOpen] = useState(false)
+  const [understandApproveAck, setUnderstandApproveAck] = useState(false)
+  const [understandRevokeOpen, setUnderstandRevokeOpen] = useState(false)
+  const [understandRevokeAck, setUnderstandRevokeAck] = useState(false)
+  const [understandExportOpen, setUnderstandExportOpen] = useState(false)
   // Follow the record's stage on first ready (and re-arm on requirement
   // switches); later refreshes never move the user's viewing choice.
   const syncedRef = useRef(false)
@@ -188,6 +239,18 @@ export function WorkbenchTabBody(props: {
   const stage: WorkbenchStage | 'closed' = record?.stage ?? 'understand'
   const badges = badgeCounts(slot)
   const nextStage = record === null ? null : nextStageOf(stage)
+  // 0007 定稿软门 derivations (render-time; null = no record — honest absence).
+  const readiness = record === null ? null : understandReadiness(record)
+  const understandAckStats = readiness === null || record === null ? '' : [
+    t('understand.statCriteria').replaceAll('{n}', String(record.criteria.length)),
+    t('understand.statFindings')
+      .replaceAll('{d}', String(record.findings.length - readiness.openFindings))
+      .replaceAll('{o}', String(readiness.openFindings)),
+    t('understand.statClarifications')
+      .replaceAll('{a}', String((record.analysis?.clarifications?.length ?? 0) - readiness.unanswered))
+      .replaceAll('{u}', String(readiness.unanswered)),
+    t('understand.statProposals').replaceAll('{n}', String(readiness.pending)),
+  ].join(' · ')
 
   // 回传轮 watcher: the bound analysis session's report lands on S1 without
   // any manual import step. Derivations are RENDER-time (the sessions face is
@@ -345,6 +408,55 @@ export function WorkbenchTabBody(props: {
                 {viewing === 'understand' ? <div className={styles.guideHint}>{t('empty.firstUseHint')}</div> : null}
               </div>
             ) : null}
+            {record !== null && viewing === 'understand' && readiness !== null ? (
+              <div key={`understand-${requirementId}`}>
+                {readiness.finalized ? (
+                  <div className={styles.gonogo}>
+                    <Tag tone="success">{t('understand.approvedTag')}</Tag>
+                    <span className={styles.gonogoText}>
+                      {t('understand.approvedAtPrefix')} · {record.understandApprovedAt?.slice(0, 10)}
+                      {readiness.changedSinceFinalize ? ` —— ${t('understand.bannerChanged')}` : ''}
+                    </span>
+                    <span className={styles.gonogoSpacer} />
+                    <button
+                      type="button"
+                      className={`${styles.ghostButton} ${styles.dangerButton}`}
+                      disabled={slot.busy}
+                      onClick={() => { setUnderstandRevokeOpen(true); setUnderstandRevokeAck(false) }}
+                    >
+                      {t('understand.revoke')}
+                    </button>
+                  </div>
+                ) : null}
+                {readiness.pending > 0 || readiness.stageReady ? (
+                  <div className={styles.gonogo}>
+                    {readiness.pending > 0 ? (
+                      <Tag tone="warning">
+                        {t('understand.readyPending')
+                          .replaceAll('{p}', String(readiness.pending))
+                          .replaceAll('{q}', String(readiness.unanswered))
+                          .replaceAll('{f}', String(readiness.openFindings))}
+                      </Tag>
+                    ) : null}
+                    {readiness.stageReady ? <Tag tone="success">{t('understand.stageReadyTag')}</Tag> : null}
+                    <span className={styles.gonogoSpacer} />
+                  </div>
+                ) : null}
+                {readiness.stageReady ? (
+                  <div className={styles.formHint}>{t('declare.stageReadyProposal')}</div>
+                ) : null}
+                <div className={styles.sowEntryRow}>
+                  <button
+                    type="button"
+                    className={styles.ghostButton}
+                    disabled={slot.busy || !readiness.exportable}
+                    onClick={() => { setUnderstandExportOpen(true) }}
+                  >
+                    {t('understand.exportButton')}
+                  </button>
+                </div>
+              </div>
+            ) : null}
             {viewing === 'understand' ? (
               <ReportSection key={`report-${requirementId}`} t={t} controller={controller} requirementId={requirementId} workspacePath={props.requirement.workspacePath.trim()} />
             ) : null}
@@ -400,6 +512,16 @@ export function WorkbenchTabBody(props: {
           </div>
           {nextStage !== null ? (
             <div className={styles.advanceRow}>
+              {record !== null && viewing === 'understand' && readiness !== null && !readiness.finalized ? (
+                <button
+                  type="button"
+                  className={styles.ghostButton}
+                  disabled={slot.busy}
+                  onClick={() => { setUnderstandApproveOpen(true); setUnderstandApproveAck(false) }}
+                >
+                  {t('understand.approveButton')}
+                </button>
+              ) : null}
               <button type="button" className={styles.advanceButton} disabled={slot.busy} onClick={advance}>
                 {nextStage === 'closed' ? t('advance.close') : `${t('advance.stage')} ${t(STAGE_LABEL_KEY[nextStage])}`}
               </button>
@@ -433,6 +555,80 @@ export function WorkbenchTabBody(props: {
         controller={controller}
         onClose={() => { setScanOpen(false) }}
       />
+      {/* 0007 定稿软门 — ack-confirm finalize (the split approve-modal shape:
+          stats in the description, checkbox-gated confirm; warnings NEVER
+          block — proceeding with known risks is the user's call). */}
+      <Modal
+        open={understandApproveOpen}
+        onClose={() => { setUnderstandApproveOpen(false) }}
+        title={t('understand.approveTitle')}
+        closeLabel={t('action.cancel')}
+        description={understandAckStats}
+        footer={
+          <>
+            <button type="button" className={styles.ghostButton} onClick={() => { setUnderstandApproveOpen(false) }}>{t('action.cancel')}</button>
+            <button
+              type="button"
+              className={styles.primaryButton}
+              disabled={slot.busy || !understandApproveAck}
+              onClick={() => {
+                setUnderstandApproveOpen(false)
+                void controller.approveUnderstand(requirementId)
+              }}
+            >
+              {t('understand.approveConfirm')}
+            </button>
+          </>
+        }
+      >
+        <div className={styles.ackRow}>
+          <input type="checkbox" checked={understandApproveAck} onChange={() => { setUnderstandApproveAck(!understandApproveAck) }} />
+          <span>{t('understand.approveAck')}</span>
+        </div>
+      </Modal>
+      <Modal
+        open={understandRevokeOpen}
+        onClose={() => { setUnderstandRevokeOpen(false) }}
+        title={t('understand.revokeTitle')}
+        closeLabel={t('action.cancel')}
+        description={t('understand.revokeDescription')}
+        footer={
+          <>
+            <button type="button" className={styles.ghostButton} onClick={() => { setUnderstandRevokeOpen(false) }}>{t('action.cancel')}</button>
+            <button
+              type="button"
+              className={`${styles.primaryButton} ${styles.dangerButton}`}
+              disabled={slot.busy || !understandRevokeAck}
+              onClick={() => {
+                setUnderstandRevokeOpen(false)
+                void controller.revokeUnderstand(requirementId)
+              }}
+            >
+              {t('understand.revokeConfirm')}
+            </button>
+          </>
+        }
+      >
+        <div className={styles.ackRow}>
+          <input type="checkbox" checked={understandRevokeAck} onChange={() => { setUnderstandRevokeAck(!understandRevokeAck) }} />
+          <span>{t('understand.revokeAck')}</span>
+        </div>
+      </Modal>
+      {record !== null ? (
+        <SheetExportModal
+          t={t}
+          open={understandExportOpen}
+          title={t('understand.exportTitle')}
+          sheet={buildUnderstandingSheet({
+            requirement: props.requirement,
+            record,
+            revision: slot.revision,
+            generatedAt: new Date().toISOString(),
+          })}
+          filename={`understanding-sheet-${requirementId}.md`}
+          onClose={() => { setUnderstandExportOpen(false) }}
+        />
+      ) : null}
     </div>
   )
 }

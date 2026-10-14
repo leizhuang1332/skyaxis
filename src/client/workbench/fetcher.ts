@@ -226,6 +226,16 @@ export function createWorkbenchFetcher() {
       return this.mutate({ expectedRevision, requirementId, action: 'revokeSplitApproval' }, signal)
     },
 
+    /** 0007 定稿软门: stamp understandApprovedAt + mint the credential baseline (zero payload — host derives). */
+    async approveUnderstand(requirementId: string, expectedRevision: number, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'approveUnderstand' }, signal)
+    },
+
+    /** 0007 定稿软门: strip the stamp + baseline together. */
+    async revokeUnderstand(requirementId: string, expectedRevision: number, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'revokeUnderstand' }, signal)
+    },
+
     /** P5b §7.6: archive the approved list (all → dropped) and reopen for re-planning. */
     async reSplit(requirementId: string, expectedRevision: number, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
       return this.mutate({ expectedRevision, requirementId, action: 'reSplit' }, signal)

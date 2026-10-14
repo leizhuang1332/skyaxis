@@ -185,6 +185,11 @@ export function createWorkbenchController(store: WorkbenchStore, fetcher: Workbe
       mutate(requirementId, () => fetcher.approveSplit(requirementId, slotRevision(requirementId), baseline, signal), signal),
     revokeSplitApproval: (requirementId: string, signal?: AbortSignal) =>
       mutate(requirementId, () => fetcher.revokeSplitApproval(requirementId, slotRevision(requirementId), signal), signal),
+    // 0007 定稿软门 (outside the split lock — a content event, not a contract one).
+    approveUnderstand: (requirementId: string, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.approveUnderstand(requirementId, slotRevision(requirementId), signal), signal),
+    revokeUnderstand: (requirementId: string, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.revokeUnderstand(requirementId, slotRevision(requirementId), signal), signal),
     // P5b §7.6 stale reconciliation actions.
     reSplit: (requirementId: string, signal?: AbortSignal) =>
       mutate(requirementId, () => fetcher.reSplit(requirementId, slotRevision(requirementId), signal), signal),

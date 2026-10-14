@@ -70,13 +70,20 @@ function slot(overrides: Partial<RequirementWorkbenchState> = {}): RequirementWo
   }
 }
 
-function fakeController(): WorkbenchController & { advanceStage: ReturnType<typeof vi.fn>; saveFinding: ReturnType<typeof vi.fn> } {
+function fakeController(): WorkbenchController & { advanceStage: ReturnType<typeof vi.fn>; saveFinding: ReturnType<typeof vi.fn>; approveUnderstand: ReturnType<typeof vi.fn>; revokeUnderstand: ReturnType<typeof vi.fn> } {
   return {
     open: vi.fn(async () => undefined),
     openKnowledge: vi.fn(async () => undefined),
     advanceStage: vi.fn(async () => true),
     saveFinding: vi.fn(async () => true),
     removeFinding: vi.fn(async () => true),
+    // 0007 定稿软门: the S1 finalize/revoke actions (asserted on click).
+    approveUnderstand: vi.fn(async () => true),
+    revokeUnderstand: vi.fn(async () => true),
+    // 回传轮 watcher face: records WITH an analysis container make the seed
+    // watcher fire on mount — these must exist (undefined outcome = quiet miss).
+    seedAnalysisQuiet: vi.fn(async () => undefined),
+    bindAnalysisSession: vi.fn(async () => true),
     // 文件交付轮: the S1 report panel fetches on mount — undefined = network
     // failure face, the panel's honest error hint (these tests assert the rail).
     analysisReportContent: vi.fn(async () => undefined),
@@ -277,5 +284,134 @@ describe('WorkbenchTabBody（六阶段导轨 · 真实数据源）', () => {
       })
     })
     expect(await screen.findByText('1 待处置')).toBeTruthy()
+  })
+})
+
+describe('0007 定稿软门：S1 就绪披露 + 定稿/撤销 + 摘要导出', () => {
+  const analysisContainer = (overrides: Partial<NonNullable<WorkbenchRecord['analysis']>> = {}): NonNullable<WorkbenchRecord['analysis']> => ({
+    session: { sessionId: 'sess-a', boundAt: AT },
+    findings: [
+      { id: '77777777-7777-4777-8777-777777777777', category: 'risk', severity: 'low', title: '提议发现' },
+    ],
+    criteria: [{ id: '88888888-8888-4888-8888-888888888888', text: '提议标准' }],
+    clarifications: [{ id: '99999999-9999-4999-8999-999999999999', question: '未答问题' }],
+    ...overrides,
+  })
+
+  it('就绪区：待裁决/未答/未处置计数行 + stageReady 咨询行并存（Devin 绿灯提议与黄灯欠账并存）；导出按钮在场', () => {
+    render(
+      <WorkbenchTabBody
+        t={bindZh()}
+        requirement={requirement}
+        slot={slot({ record: workbenchRecord({
+          findings: [finding('a', 'open')],
+          analysis: analysisContainer({ seed: { sessionId: 'sess-a', contentHash: 'h', seededAt: AT, findings: 1, criteria: 1, clarifications: 1, stageReady: true } }),
+        }) })}
+        controller={fakeController()}
+        knowledge={knowledgeState()}
+      />,
+    )
+    expect(screen.getByText(/待裁决提议 2 · 未答澄清 1 · 未处置发现 1/)).toBeTruthy()
+    expect(screen.getByText(workbenchZh['understand.stageReadyTag'])).toBeTruthy()
+    expect(screen.getByText(workbenchZh['declare.stageReadyProposal'])).toBeTruthy()
+    expect(screen.getByRole('button', { name: workbenchZh['understand.exportButton'] })).toBeTruthy()
+  })
+
+  it('诚实缺席：零记录无定稿/导出动作；有记录零未决 ⇒ 无计数行、导出禁用', () => {
+    const { unmount } = render(<WorkbenchTabBody t={bindZh()} requirement={requirement} slot={slot()} controller={fakeController()} knowledge={knowledgeState()} />)
+    expect(screen.queryByRole('button', { name: workbenchZh['understand.approveButton'] })).toBeNull()
+    expect(screen.queryByRole('button', { name: workbenchZh['understand.exportButton'] })).toBeNull()
+    unmount()
+
+    render(
+      <WorkbenchTabBody
+        t={bindZh()}
+        requirement={requirement}
+        slot={slot({ record: workbenchRecord({ criteria: [{ id: 'C1', text: '一条标准', coveredBy: [] }] }) })}
+        controller={fakeController()}
+        knowledge={knowledgeState()}
+      />,
+    )
+    expect(screen.queryByText(/待裁决提议/)).toBeNull()
+    expect(screen.getByRole('button', { name: workbenchZh['understand.approveButton'] })).toBeTruthy()
+    expect((screen.getByRole('button', { name: workbenchZh['understand.exportButton'] }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('定稿流：ack Modal 统计行 + 勾选门控确认 → approveUnderstand(RID)；警示不阻断（无需清零）', async () => {
+    const controller = fakeController()
+    render(
+      <WorkbenchTabBody
+        t={bindZh()}
+        requirement={requirement}
+        slot={slot({ record: workbenchRecord({
+          criteria: [{ id: 'C1', text: '标准一', coveredBy: [] }],
+          findings: [finding('a', 'open')],
+          analysis: analysisContainer(),
+        }) })}
+        controller={controller}
+        knowledge={knowledgeState()}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: workbenchZh['understand.approveButton'] }))
+    const dialog = screen.getByRole('dialog', { name: workbenchZh['understand.approveTitle'] })
+    // 统计行四段（split approve modal 的 description 先例）。
+    expect(dialog.textContent).toContain('验收标准 1 条')
+    expect(dialog.textContent).toContain('发现：已处置 0 · 未处置 1')
+    expect(dialog.textContent).toContain('澄清：已答 0 · 未答 1')
+    expect(dialog.textContent).toContain('待裁决提议 2')
+    const confirm = screen.getByRole('button', { name: workbenchZh['understand.approveConfirm'] }) as HTMLButtonElement
+    expect(confirm.disabled).toBe(true) // 勾选门控
+    fireEvent.click(screen.getByRole('checkbox'))
+    expect(confirm.disabled).toBe(false)
+    fireEvent.click(confirm)
+    await waitFor(() => { expect(controller.approveUnderstand).toHaveBeenCalledWith(RID) })
+  })
+
+  it('已定稿：横幅带日期；计数漂移 ⇒ 「定稿后上游已变化」提示；撤销确认流 → revokeUnderstand(RID)', async () => {
+    const controller = fakeController()
+    render(
+      <WorkbenchTabBody
+        t={bindZh()}
+        requirement={requirement}
+        slot={slot({ record: workbenchRecord({
+          understandApprovedAt: '2026-10-13T08:00:00.000Z',
+          // 基线 1 条标准 vs 活账本 2 条 ⇒ 计数级漂移提示。
+          understandBaseline: { at: '2026-10-13T08:00:00.000Z', criteria: [{ id: 'C1', text: '标准一' }], findings: [], clarifications: [] },
+          criteria: [{ id: 'C1', text: '标准一', coveredBy: [] }, { id: 'C2', text: '标准二', coveredBy: [] }],
+        }) })}
+        controller={controller}
+        knowledge={knowledgeState()}
+      />,
+    )
+    expect(screen.getByText(/需求理解已定稿 · 2026-10-13/).textContent).toContain(workbenchZh['understand.bannerChanged'])
+    expect(screen.queryByRole('button', { name: workbenchZh['understand.approveButton'] })).toBeNull() // 已定稿 ⇒ 无定稿按钮
+    fireEvent.click(screen.getByRole('button', { name: workbenchZh['understand.revoke'] }))
+    const dialog = screen.getByRole('dialog', { name: workbenchZh['understand.revokeTitle'] })
+    expect(dialog.textContent).toContain(workbenchZh['understand.revokeDescription'])
+    const confirm = screen.getByRole('button', { name: workbenchZh['understand.revokeConfirm'] }) as HTMLButtonElement
+    expect(confirm.disabled).toBe(true)
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(confirm)
+    await waitFor(() => { expect(controller.revokeUnderstand).toHaveBeenCalledWith(RID) })
+  })
+
+  it('导出 Modal：标题与预览来自 buildUnderstandingSheet（所见即所复制）', () => {
+    render(
+      <WorkbenchTabBody
+        t={bindZh()}
+        requirement={requirement}
+        slot={slot({ record: workbenchRecord({
+          criteria: [{ id: 'C1', text: '导出走异步', sourceSection: 'PRD#3.1', coveredBy: [] }],
+        }) })}
+        controller={fakeController()}
+        knowledge={knowledgeState()}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: workbenchZh['understand.exportButton'] }))
+    const dialog = screen.getByRole('dialog', { name: workbenchZh['understand.exportTitle'] })
+    expect(dialog.textContent).toContain('需求理解摘要：报价管理：导入导出与数据校验')
+    expect(dialog.textContent).toContain('[定稿状态] 未定稿')
+    expect(dialog.textContent).toContain('C1　导出走异步')
+    expect(dialog.textContent).toContain('账本为真源，导出为分发')
   })
 })
