@@ -387,10 +387,12 @@ export function ReposSection(props: {
     // 'failed': the banner behind the dialog explains.
   }
 
-  const revealDir = async (repo: { name: string; id: string }): Promise<void> => {
+  const openRepoDir = async (repo: { name: string; id: string }): Promise<void> => {
     if (caps.opener === undefined) return
     const path = `${requirement.workspacePath}/repos/${repoDirName(repo.name, repo.id)}`
-    await caps.opener.openWorkspacePath({ path, action: 'reveal' }).catch(() => {})
+    // Plain open, no 'reveal' — the reveal argv cannot carry CJK paths
+    // (decisions/0012), and repo dirs live under a CJK-named workspace.
+    await caps.opener.openWorkspacePath({ path }).catch(() => {})
   }
 
   const reclone = async (repo: RepoRecord): Promise<void> => {
@@ -485,7 +487,7 @@ export function ReposSection(props: {
               t={t}
               entries={entries}
               name={name}
-              onOpen={() => repo !== undefined ? void revealDir(repo) : undefined}
+              onOpen={() => repo !== undefined ? void openRepoDir(repo) : undefined}
               onReclone={() => repo !== undefined ? void reclone(repo) : undefined}
               onCancel={() => void cancelClone(linked.repoId)}
               onUnlink={() => setPendingRemove({ repoId: linked.repoId, name, repoName: repo?.name })}

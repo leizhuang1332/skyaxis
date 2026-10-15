@@ -164,8 +164,12 @@ export function WorkspaceTabBody(props: {
 
   const openDirectory = async (): Promise<void> => {
     if (caps.opener === undefined) return
-    await caps.opener.openWorkspacePath({ path: requirement.workspacePath, action: 'reveal' }).catch(() => {})
-    // Reveal failures are silent (nativeOpen config is an environment fact).
+    // Plain open, never 'reveal': the reveal argv hands Explorer a UTF-8
+    // percent-encoded file URL it cannot resolve on zh-CN Windows (falls back
+    // to the default folder), while plain open is the same host opener the GUI
+    // open-in-app explorer button rides (decisions/0012). Failures stay
+    // silent (nativeOpen config is an environment fact).
+    await caps.opener.openWorkspacePath({ path: requirement.workspacePath }).catch(() => {})
   }
 
   const unbind = async (): Promise<void> => {

@@ -2,7 +2,7 @@
 /**
  * Workspace tab seat (0003 P3a): the unbound setup flow (notice card, dialog
  * with the host-suggested default), the bound flow (inline path editing,
- * status tag, reveal, unbind without confirmation), and the optional remote
+ * status tag, open, unbind without confirmation), and the optional remote
  * capability degradation (picker unavailable, opener gated by canOpen).
  */
 import { describe, expect, it, vi } from 'vitest'
@@ -250,7 +250,7 @@ describe('RequirementWorkspaceTab (0003 P3a: workspace binding)', () => {
     unmount()
   })
 
-  it('reveal button rides the opener capability and the canOpen pre-check', async () => {
+  it('open button rides the opener capability and the canOpen pre-check', async () => {
     const controller = fakeController()
     const capabilities = createWorkspaceCapabilities()
     const openWorkspacePath = vi.fn(async () => ({ ok: true as const, value: { opened: true as const } }))
@@ -259,7 +259,9 @@ describe('RequirementWorkspaceTab (0003 P3a: workspace binding)', () => {
     const { unmount } = subject({ requirement: record('/old/path'), controller, capabilities })
     const open = await waitFor(() => screen.getByRole('button', { name: DICT.zh['workspace.open'] }))
     fireEvent.click(open)
-    await waitFor(() => expect(openWorkspacePath).toHaveBeenCalledWith({ path: '/old/path', action: 'reveal' }))
+    // Plain open payload — no action key (reveal's argv cannot carry CJK paths,
+    // decisions/0012; the absent key is the entire point of this regression lock).
+    await waitFor(() => expect(openWorkspacePath).toHaveBeenCalledWith({ path: '/old/path' }))
     unmount()
 
     // canOpen false: no button at all.
