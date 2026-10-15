@@ -1,10 +1,10 @@
 /**
  * Clone task engine: the spawn contract (argv/env/stdio), the drive chain
- * (clone → checkout -b → done), lazy incremental progress parsing, failure
+ * (clone → ref probe → checkout → done), lazy incremental progress parsing, failure
  * classification (aborted before network), half-made destination cleanup,
  * and the preflight gate — against a scripted fake SubprocessRuntime.
  */
-import { mkdtempSync, rmSync, statSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -96,24 +96,26 @@ function input(workspacePath: string): CloneStartInput {
   }
 }
 
-/** happy-path trio: check-ref-format → clone → checkout, all resolved in order. */
-function trio(): { check: Script; clone: Script; checkout: Script } {
+/** happy-path quad: check-ref-format → clone → probe (exit 0 ⇒ tracking arm) → checkout, all resolved in order. */
+function quad(): { check: Script; clone: Script; probe: Script; checkout: Script } {
   const check = makeScript()
   const clone = makeScript()
+  const probe = makeScript()
   const checkout = makeScript()
   check.outcome.resolve({ exitCode: 0, signal: null })
   clone.outcome.resolve({ exitCode: 0, signal: null })
+  probe.outcome.resolve({ exitCode: 0, signal: null })
   checkout.outcome.resolve({ exitCode: 0, signal: null })
-  return { check, clone, checkout }
+  return { check, clone, probe, checkout }
 }
 
 describe('CloneTaskRegistry', () => {
-  it('drives the happy path: preflight spawn, clone argv/env/stdio, checkout -C -b, done', async () => {
+  it('drives the happy path: preflight spawn, clone argv/env/stdio, probe argv, tracking checkout, done', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'clone-test-'))
     dirs.push(dir)
     const ws = join(dir, 'ws')
-    const { check, clone, checkout } = trio()
-    const fake = fakeService({ scripts: [check, clone, checkout] })
+    const { check, clone, probe, checkout } = quad()
+    const fake = fakeService({ scripts: [check, clone, probe, checkout] })
     const registry = new CloneTaskRegistry()
     registry.setSubprocess(fake.service)
 
@@ -124,6 +126,7 @@ describe('CloneTaskRegistry', () => {
     const snap = registry.begin(input(ws), (pre as { ok: true; exe: string }).exe)
     expect(snap.status).toBe('cloning')
     await clone.outcome.promise
+    await probe.outcome.promise
     await checkout.outcome.promise
     await new Promise((resolve) => setTimeout(resolve, 0))
     const [done] = registry.snapshot(REQ)
@@ -133,7 +136,32 @@ describe('CloneTaskRegistry', () => {
     expect(cloneCall?.argv).toEqual(['/usr/bin/git', '-c', 'credential.helper=', 'clone', '--progress', 'https://example.com/org/repo.git', join(ws, 'repos', 'My-Repo')])
     expect(cloneCall?.env).toMatchObject({ GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never', LC_ALL: 'C' })
     expect(cloneCall?.graceMs).toBe(3000)
-    expect(fake.spawnCalls[2]?.argv).toEqual(['/usr/bin/git', '-c', 'credential.helper=', '-C', join(ws, 'repos', 'My-Repo'), 'checkout', '-b', 'req-11111111'])
+    expect(fake.spawnCalls[2]?.argv).toEqual(['/usr/bin/git', '-c', 'credential.helper=', '-C', join(ws, 'repos', 'My-Repo'), 'show-ref', '--verify', '--quiet', 'refs/remotes/origin/req-11111111'])
+    expect(fake.spawnCalls[3]?.argv).toEqual(['/usr/bin/git', '-c', 'credential.helper=', '-C', join(ws, 'repos', 'My-Repo'), 'checkout', '-B', 'req-11111111', '--track', 'origin/req-11111111'])
+  })
+
+  it('a probe exit 1 (remote branch absent) takes the plain -b arm', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'clone-test-'))
+    dirs.push(dir)
+    const ws = join(dir, 'ws')
+    const check = makeScript()
+    const clone = makeScript()
+    const probe = makeScript()
+    const checkout = makeScript()
+    check.outcome.resolve({ exitCode: 0, signal: null })
+    clone.outcome.resolve({ exitCode: 0, signal: null })
+    probe.outcome.resolve({ exitCode: 1, signal: null })
+    checkout.outcome.resolve({ exitCode: 0, signal: null })
+    const fake = fakeService({ scripts: [check, clone, probe, checkout] })
+    const registry = new CloneTaskRegistry()
+    registry.setSubprocess(fake.service)
+
+    const pre = await registry.preflight(input(ws))
+    registry.begin(input(ws), (pre as { ok: true; exe: string }).exe)
+    await checkout.outcome.promise
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(registry.snapshot(REQ)[0]?.status).toBe('done')
+    expect(fake.spawnCalls[3]?.argv).toEqual(['/usr/bin/git', '-c', 'credential.helper=', '-C', join(ws, 'repos', 'My-Repo'), 'checkout', '-b', 'req-11111111'])
   })
 
   it('parses progress incrementally: two snapshots advance 45% → 71%', async () => {
@@ -307,10 +335,12 @@ describe('CloneTaskRegistry', () => {
     check.outcome.resolve({ exitCode: 0, signal: null })
     const clone = makeScript()
     clone.outcome.resolve({ exitCode: 0, signal: null })
+    const probe = makeScript()
+    probe.outcome.resolve({ exitCode: 0, signal: null })
     const checkout = makeScript()
     checkout.appendStderr("fatal: a branch named 'req-11111111' already exists")
     checkout.outcome.resolve({ exitCode: 128, signal: null })
-    const fake = fakeService({ scripts: [check, clone, checkout] })
+    const fake = fakeService({ scripts: [check, clone, probe, checkout] })
     const registry = new CloneTaskRegistry()
     registry.setSubprocess(fake.service)
     const pre = await registry.preflight(input(dir))
@@ -321,12 +351,72 @@ describe('CloneTaskRegistry', () => {
     expect(statSync(join(dir, 'repos', 'My-Repo'), { throwIfNoEntry: false })).toBeUndefined()
   })
 
+  it('abort during the probe terminates the live process and cleans the half-made destination', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'clone-test-'))
+    dirs.push(dir)
+    const ws = join(dir, 'ws')
+    const check = makeScript()
+    check.outcome.resolve({ exitCode: 0, signal: null })
+    const clone = makeScript()
+    clone.outcome.resolve({ exitCode: 0, signal: null })
+    const probe = makeScript() // unsettled — task sits in the probe
+    const fake = fakeService({ scripts: [check, clone, probe] })
+    const registry = new CloneTaskRegistry()
+    registry.setSubprocess(fake.service)
+    const pre = await registry.preflight(input(ws))
+    registry.begin(input(ws), (pre as { ok: true; exe: string }).exe)
+    // Dest must appear AFTER begin — begin's race re-check would read a
+    // pre-made directory as dest-exists. No await between begin and the
+    // mkdir: yielding would let the clone continuation (and its cleanup)
+    // run before the directory exists.
+    mkdirSync(join(ws, 'repos', 'My-Repo'), { recursive: true })
+    await clone.outcome.promise
+
+    expect(registry.abort(REQ, REPO)).toBe(true)
+    expect(probe.terminate).toHaveBeenCalled()
+    expect(registry.snapshot(REQ)[0]?.failureClass).toBe('aborted')
+
+    probe.outcome.resolve({ exitCode: null, signal: 'SIGTERM' })
+    await probe.outcome.promise
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(registry.snapshot(REQ)[0]?.failureClass).toBe('aborted')
+    expect(statSync(join(ws, 'repos', 'My-Repo'), { throwIfNoEntry: false })).toBeUndefined()
+  })
+
+  it('a probe spawn blow-up settles unknown and removes the destination (no -b fallback)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'clone-test-'))
+    dirs.push(dir)
+    const ws = join(dir, 'ws')
+    const check = makeScript()
+    check.outcome.resolve({ exitCode: 0, signal: null })
+    const clone = makeScript()
+    clone.outcome.resolve({ exitCode: 0, signal: null })
+    // No probe script: the fake's next spawn throws 'unexpected spawn', which
+    // #spawnGuarded contains as undefined.
+    const fake = fakeService({ scripts: [check, clone] })
+    const registry = new CloneTaskRegistry()
+    registry.setSubprocess(fake.service)
+    const pre = await registry.preflight(input(ws))
+    registry.begin(input(ws), (pre as { ok: true; exe: string }).exe)
+    // Same no-await rule as the abort test: the cleanup must race a directory
+    // that already exists.
+    mkdirSync(join(ws, 'repos', 'My-Repo'), { recursive: true })
+    await clone.outcome.promise
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const [failed] = registry.snapshot(REQ)
+    expect(failed?.status).toBe('failed')
+    expect(failed?.failureClass).toBe('unknown')
+    expect(statSync(join(ws, 'repos', 'My-Repo'), { throwIfNoEntry: false })).toBeUndefined()
+    expect(fake.spawnCalls).toHaveLength(3) // check, clone, probe — no checkout spawn
+  })
+
   it('reclone removes the old destination and writes no second slot', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'clone-test-'))
     dirs.push(dir)
     const ws = join(dir, 'ws')
-    const first = trio()
-    const fake = fakeService({ scripts: [first.check, first.clone, first.checkout] })
+    const first = quad()
+    const fake = fakeService({ scripts: [first.check, first.clone, first.probe, first.checkout] })
     const registry = new CloneTaskRegistry()
     registry.setSubprocess(fake.service)
     const pre = await registry.preflight(input(ws))
@@ -335,8 +425,8 @@ describe('CloneTaskRegistry', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(registry.snapshot(REQ)).toHaveLength(1)
 
-    const second = trio()
-    const fake2 = fakeService({ scripts: [second.check, second.clone, second.checkout] })
+    const second = quad()
+    const fake2 = fakeService({ scripts: [second.check, second.clone, second.probe, second.checkout] })
     registry.setSubprocess(fake2.service)
     const result = await registry.reclone(input(ws))
     expect(result.ok).toBe(true)

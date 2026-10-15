@@ -1,7 +1,11 @@
 /**
  * Clone task engine (P3b): an in-memory task registry that drives
- * `git clone --progress` + `git checkout -b` over ctx.subprocess and reports
- * progress through lazily-read snapshot polls.
+ * `git clone --progress` + a local `show-ref` probe + `git checkout` over
+ * ctx.subprocess and reports progress through lazily-read snapshot polls.
+ * The probe checks refs/remotes/origin/<branch> (zero network — the full
+ * clone already fetched every branch): remote branch present ⇒ `checkout -B
+ * --track` (start point = remote tip + upstream), absent ⇒ `checkout -b`
+ * (the new-branch case, decided in the 0003 P3 plan).
  *
  * Shape notes (all decided in the 0003 P3 plan):
  * - Single slot per (requirement, repo): the latest task per link wins,
@@ -49,6 +53,7 @@ export type ClonePreflight =
   | { ok: true; exe: string }
   | { ok: false; reason: ClonePreflightReason }
 
+/** 'branching' spans the ref probe and the checkout itself. */
 type CloneStatus = 'cloning' | 'branching' | 'done' | 'failed'
 
 interface CloneTask {
@@ -188,7 +193,7 @@ export class CloneTaskRegistry {
   }
 
   /**
-   * Register and drive a task: clone → (exit 0) → checkout -b → done.
+   * Register and drive a task: clone → (exit 0) → #branchPhase → done.
    * The promise chain settles terminal states; spawn/driver rejections are
    * contained as failed{unknown}.
    */
@@ -262,17 +267,58 @@ export class CloneTaskRegistry {
         task.status = 'branching'
         task.progressPct = undefined
         task.phaseText = undefined
-        const checkoutHandle = this.#spawnGuarded(
-          [exe, '-c', 'credential.helper=', '-C', task.destPath, 'checkout', '-b', task.branch],
-          task.controller.signal,
-        )
+        this.#branchPhase(task, exe)
+      })
+      .catch(() => {
+        this.#cleanupDest(task)
+        this.#settleFailure(task, 'unknown')
+      })
+  }
+
+  /**
+   * Post-clone branch phase: a zero-network `show-ref` probe of the local
+   * refs/remotes/origin/<branch> picks the checkout arm — remote branch
+   * present ⇒ `checkout -B <branch> --track origin/<branch>` (start point =
+   * remote tip, upstream set; -B also covers branch == the default branch
+   * name, where -b would hit "already exists"), absent ⇒ `checkout -b` (the
+   * new-branch case). A probe spawn/driver failure is a provider-level
+   * fault: settle unknown{cleanup} rather than falling back to -b, which
+   * would silently produce the wrong-start-point branch this phase exists
+   * to prevent (explicit `--track` guards a global branch.autoSetupMerge=
+   * false, which disables implicit upstream setup for remote-tracking start
+   * points).
+   */
+  #branchPhase(task: CloneTask, exe: string): void {
+    const probeHandle = this.#spawnGuarded(
+      [exe, '-c', 'credential.helper=', '-C', task.destPath, 'show-ref', '--verify', '--quiet', `refs/remotes/origin/${task.branch}`],
+      task.controller.signal,
+    )
+    if (probeHandle === undefined) {
+      this.#cleanupDest(task)
+      this.#settleFailure(task, 'unknown')
+      return
+    }
+    // Abort must reach the LIVE process: park the handle on the task
+    // (it still points at the exited clone otherwise).
+    task.handle = probeHandle
+    void probeHandle.done
+      .then((probeOutcome) => {
+        if (task.controller.signal.aborted) {
+          this.#cleanupDest(task)
+          this.#settleFailure(task, 'aborted')
+          return
+        }
+        const checkoutArgv = probeOutcome.exitCode === 0
+          ? [exe, '-c', 'credential.helper=', '-C', task.destPath, 'checkout', '-B', task.branch, '--track', `origin/${task.branch}`]
+          : [exe, '-c', 'credential.helper=', '-C', task.destPath, 'checkout', '-b', task.branch]
+        const checkoutHandle = this.#spawnGuarded(checkoutArgv, task.controller.signal)
         if (checkoutHandle === undefined) {
           this.#cleanupDest(task)
           this.#settleFailure(task, 'unknown')
           return
         }
         // Abort must reach the LIVE process: park the handle on the task
-        // (it still points at the exited clone otherwise).
+        // (it still points at the exited probe otherwise).
         task.handle = checkoutHandle
         void checkoutHandle.done
           .then((checkoutOutcome) => {
