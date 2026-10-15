@@ -356,8 +356,6 @@ interface WorkbenchDictionary {
   readonly 'sow.workPackageButton': string
   readonly 'sow.title': string
   readonly 'sow.prdGroup': string
-  readonly 'sow.prdGroupConsolidate': string
-  readonly 'sow.prdAllHint': string
   readonly 'sow.prdEmpty': string
   readonly 'sow.prdLoadError': string
   readonly 'sow.prdPreamble': string
@@ -374,6 +372,7 @@ interface WorkbenchDictionary {
   readonly 'sow.copy': string
   readonly 'sow.copied': string
   readonly 'sow.copyFailed': string
+  readonly 'sow.resetEdit': string
   readonly 'detail.dropDescription': string
   // release.* — S5 上线清单（P3a：手动 CRUD + go/no-go + 漂移披露 + 上线单导出）
   readonly 'release.sectionTitle': string
@@ -866,8 +865,6 @@ const zh: WorkbenchDictionary = {
   'sow.workPackageButton': '生成工作包任务书',
   'sow.title': '生成任务书',
   'sow.prdGroup': 'PRD 重点章节',
-  'sow.prdGroupConsolidate': 'PRD 文档',
-  'sow.prdAllHint': '整理需通读全部 PRD 文档（不做章节节选），清单已列入任务书输入段。',
   'sow.prdEmpty': '该需求没有可用的 PRD 文档（在工作区 tab 上传后可用）。',
   'sow.prdLoadError': 'PRD 加载失败',
   'sow.prdPreamble': '（开篇）',
@@ -884,6 +881,7 @@ const zh: WorkbenchDictionary = {
   'sow.copy': '复制到剪贴板',
   'sow.copied': '已复制',
   'sow.copyFailed': '复制失败：请手动选中预览文本复制。',
+  'sow.resetEdit': '恢复生成内容',
   // release.* — S5 上线清单（P3a）
   'release.sectionTitle': '上线清单',
   'release.add': '＋ 登记',
@@ -1354,8 +1352,6 @@ const en: WorkbenchDictionary = {
   'sow.workPackageButton': 'Generate work-package SOW',
   'sow.title': 'Generate statement of work',
   'sow.prdGroup': 'PRD focus sections',
-  'sow.prdGroupConsolidate': 'PRD documents',
-  'sow.prdAllHint': 'Consolidation reads every PRD document wholesale (no section selection) — the listing rides the SOW input block.',
   'sow.prdEmpty': 'No PRD documents available for this requirement (upload one in the workspace tab).',
   'sow.prdLoadError': 'Failed to load the PRD',
   'sow.prdPreamble': '(preamble)',
@@ -1372,6 +1368,7 @@ const en: WorkbenchDictionary = {
   'sow.copy': 'Copy to clipboard',
   'sow.copied': 'Copied',
   'sow.copyFailed': 'Copy refused: select the preview text and copy manually.',
+  'sow.resetEdit': 'Restore generated text',
   // release.* — S5 delivery sheet (P3a)
   'release.sectionTitle': 'Release sheet',
   'release.add': '＋ Register',

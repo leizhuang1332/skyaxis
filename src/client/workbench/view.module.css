@@ -1071,6 +1071,7 @@
   color: var(--dsw-alias-label-primary);
 }
 
+/* Read-only preview (the sheet-export modal reuses this chrome). */
 .sowPreview {
   margin: 0;
   padding: 12px;
@@ -1084,6 +1085,24 @@
   word-break: break-word;
   overflow-y: auto;
   max-height: 50vh;
+  min-width: 0;
+}
+
+/* 0009: the SOW preview pre became an EDITABLE textarea (user-trimmed task
+ * books) — same mono/border chrome as .sowPreview above. */
+.sowEditor {
+  box-sizing: border-box;
+  width: 100%;
+  height: 50vh;
+  padding: 12px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+  font-family: var(--dsw-font-mono, monospace);
+  font-size: 12px;
+  line-height: 18px;
+  overflow-y: auto;
+  resize: vertical;
   min-width: 0;
 }
 

@@ -20,8 +20,10 @@
  * identifiers, Codex "reference paths only"); the workbench ledger lives
  * outside the workspace, so its data stays an embedded snapshot (P1).
  *
- * Honesty anchor: every document ends with the revision stamp — the ledger
- * may move on after generation and nothing auto-syncs.
+ * Honesty anchor: dev/review documents end with the revision stamp; the
+ * three AI-session purposes dropped it in 0009 (conservative trim, user
+ * ruling) — their snapshots carry the 生成时快照 wording instead. The ledger
+ * may move on after generation and nothing auto-syncs either way.
  */
 import type {
   WorkbenchFinding,
@@ -208,7 +210,8 @@ export interface SowContext {
   workPackage?: WorkbenchWorkPackage
   /** dev context: the highest approvedAt plan version's body (absent = none). */
   approvedPlanText?: string
-  /** Checked PRD sections. */
+  /** Checked PRD sections (dev/review five-block path only — the embedded
+   * [PRD 节选] face; the three AI-session purposes cite paths instead). */
   prdSections?: readonly PrdSection[]
   prdDocumentName?: string
   /** Selected knowledge rows (in pool order). */
@@ -284,9 +287,10 @@ function requirementBlock(ctx: SowContext): string {
   for (const wp of ctx.record.workPackages) {
     lines.push(`${wp.id} ${wp.title} · ${WP_STATUS_LABEL[wp.status]}（${wp.status}）`)
   }
-  // split needs the criteria as the breakdown contract; review needs them as
-  // the acceptance checklist it audits coverage against (P5b).
-  if (ctx.purpose === 'split' || ctx.purpose === 'review') {
+  // review needs the criteria as the acceptance checklist it audits coverage
+  // against (P5b). (0009: the dead split arm is gone — split rides the
+  // nine-block assembly since 0007 and reads the baseline doc since 0009.)
+  if (ctx.purpose === 'review') {
     for (const criterion of ctx.record.criteria) {
       lines.push(`${criterion.id} ${criterion.text}`)
     }
@@ -530,7 +534,12 @@ function analysisInputBlock(ctx: SowContext): string {
   // 0007: shared by analysis AND split (the purpose noun keeps the analysis
   // bytes IDENTICAL — only the split path reads differently).
   // 0008: consolidate joins — consolidation reads EVERY PRD wholesale (no
-  // key-section pointers), so the docs loop branches before the focus logic.
+  // key-section pointers).
+  // 0009: the PRD focus-section pointers RETIRE for analysis too (user
+  // ruling — every doc lists as 必读, the consolidate loop shape), and split
+  // drops the PRD listing ENTIRELY: the finalized requirement baseline doc is
+  // THE requirement source (0009 D2), so criteria/findings/clarifications
+  // never ride the split SOW — the doc carries them.
   const noun = ctx.purpose === 'analysis' ? '分析' : ctx.purpose === 'consolidate' ? '整理' : '拆分规划'
   const lines = [
     '## 输入（用文件读取能力按路径阅读；不要凭记忆，不要猜）',
@@ -539,43 +548,43 @@ function analysisInputBlock(ctx: SowContext): string {
   if (workspace === '') {
     // Honest absence — without a bound workspace there are no prds/ or repos/
     // to cite (the host PRD endpoints require one too).
-    lines.push(`（工作区未绑定——无 PRD 与仓库可引用，${noun}只能基于需求描述）`)
+    lines.push(`（工作区未绑定——无可引用的文档与仓库，${noun}只能基于需求描述）`)
     return lines.join('\n')
   }
   lines.push(`工作区根目录：${toDisplayPath(workspace)}（下列相对路径以此为根）`)
-  // 0008: the finalized requirement baseline doc is the split session's
-  // PRIMARY input — decided by the LEDGER (understandBaseline.docHash present
-  // = a finalized doc was anchored), never by probing the disk.
-  if (ctx.purpose === 'split' && ctx.record?.understandBaseline?.docHash !== undefined) {
-    lines.push(`- 必读 ${requirementDocRelPath(ctx.requirement.id)}——需求基线文档，本拆分的唯一需求真源（验收标准以账本为准，其余需求表达以文档为权威；文档与你所见快照冲突时在报告中列出，不要自行取舍）`)
-  }
-  const docs = ctx.analysisPrdDocs
-  const focus = ctx.prdDocumentName
-  const headings = (ctx.prdSections ?? []).map((section) => (section.heading.length > 0 ? section.heading : PREAMBLE_HEADING))
-  if (docs == null) {
-    // Listing unavailable (loading or failed) — an honest unknown, NOT the
-    // same as a confirmed-empty directory.
-    lines.push('（PRD 文档列表未可得——可列举 prds/ 目录确认）')
-  } else if (docs.length === 0) {
-    lines.push(`（prds/ 目录暂无文档——${noun}只能基于需求描述与代码）`)
-  } else if (ctx.purpose === 'consolidate') {
-    // 0008: consolidation reads every doc WHOLESALE — no focus doc, no
-    // key-section pointers (the section-checkbox face hides in the modal).
-    lines.push('PRD 文档（prds/ 目录，全部通读——整理以原文为底，不能只读节选）：')
-    for (const doc of docs) {
-      const size = doc.sizeBytes !== undefined ? `（${kbSize(doc.sizeBytes)}）` : ''
-      lines.push(`- 必读 prds/${doc.name}${size}`)
+  if (ctx.purpose === 'split') {
+    // 0008: the baseline-doc line is decided by the LEDGER (understandBaseline
+    // .docHash present = a finalized doc was anchored), never by probing the
+    // disk. 0009 D2: the lean shape holds in EVERY state (user ruling — no
+    // pre-finalize fallback snapshot): anchored ⇒ 必读行; finalized-without-
+    // anchor (pre-0008 approval / docless at finalize) and 未定稿 ⇒ honest
+    // absence lines, the requirement description is the sole requirement
+    // basis.
+    if (ctx.record?.understandBaseline?.docHash !== undefined) {
+      lines.push(`- 必读 ${requirementDocRelPath(ctx.requirement.id)}——需求基线文档，本拆分的唯一需求真源（验收标准以账本为准，其余需求表达以文档为权威；文档与你所见快照冲突时在报告中列出，不要自行取舍）`)
+    } else if (ctx.record?.understandApprovedAt !== undefined) {
+      lines.push('（需求理解已定稿但未锚定基线文档——定稿时工作区无此文档；本次拆分以需求描述为唯一需求依据。）')
+    } else {
+      lines.push('（需求理解未定稿——尚无锚定的需求基线文档；本次拆分以需求描述为唯一需求依据。）')
     }
   } else {
-    lines.push('PRD 文档（prds/ 目录）：')
-    for (const doc of docs) {
-      const size = doc.sizeBytes !== undefined ? `（${kbSize(doc.sizeBytes)}）` : ''
-      if (doc.name === focus) {
-        lines.push(headings.length > 0
-          ? `- 必读 prds/${doc.name}${size}——重点章节：${headings.join('、')}；其余章节按需`
-          : `- 必读 prds/${doc.name}${size}`)
-      } else {
-        lines.push(`- 按需 prds/${doc.name}${size}`)
+    const docs = ctx.analysisPrdDocs
+    if (docs == null) {
+      // Listing unavailable (loading or failed) — an honest unknown, NOT the
+      // same as a confirmed-empty directory.
+      lines.push('（PRD 文档列表未可得——可列举 prds/ 目录确认）')
+    } else if (docs.length === 0) {
+      lines.push(`（prds/ 目录暂无文档——${noun}只能基于需求描述与代码）`)
+    } else {
+      // 0009: analysis joins the consolidate loop shape — every doc 必读, no
+      // focus doc, no key-section pointers (the checkboxes are gone from the
+      // modal for all three AI-session purposes).
+      lines.push(ctx.purpose === 'consolidate'
+        ? 'PRD 文档（prds/ 目录，全部通读——整理以原文为底，不能只读节选）：'
+        : 'PRD 文档（prds/ 目录）：')
+      for (const doc of docs) {
+        const size = doc.sizeBytes !== undefined ? `（${kbSize(doc.sizeBytes)}）` : ''
+        lines.push(`- 必读 prds/${doc.name}${size}`)
       }
     }
   }
@@ -674,10 +683,10 @@ function analysisOutputBlock(ctx: SowContext): string {
 }
 
 // ---------------------------------------------------------------------------
-// Split assembly (0007 定稿软门轮：research 0008 九节骨架推广到 split —
-// the S2 session stops being「盲拆」: dispositions, answered clarifications
-// and the finalize state all ride the snapshot; PRD switches from wholesale
-// embedding to path references via the shared analysisInputBlock).
+// Split assembly (0007 定稿软门轮：research 0008 九节骨架推广到 split;
+// 0009 任务书精简轮 D2: the requirement baseline doc is the split session's
+// ONLY requirement source — the snapshot slims to identity + finalize state
+// + existing packages, and the PRD listing is gone from the input block).
 // ---------------------------------------------------------------------------
 
 function splitGoalBlock(ctx: SowContext): string {
@@ -690,13 +699,18 @@ function splitGoalBlock(ctx: SowContext): string {
 }
 
 function splitSnapshotBlock(ctx: SowContext): string {
+  // 0009 D2: the snapshot slims to identity + finalize state + existing
+  // packages — criteria/findings/clarifications ride the requirement baseline
+  // doc the input block cites (the doc is THE requirement source; the ledger
+  // copy would be a second expression of the same truth). The lean shape
+  // holds in every state (user ruling — no pre-finalize fallback).
   const lines = [
     '## 需求快照（工作台账本，生成时快照）',
     `标题：${ctx.requirement.title}`,
     `描述：${ctx.requirement.description}`,
   ]
   if (ctx.record === null) {
-    lines.push('（工作台记录未建立——尚无标准与发现可用，拆分只能基于需求描述与 PRD）')
+    lines.push('（工作台记录未建立——尚无基线文档可用，拆分只能基于需求描述）')
     return lines.join('\n')
   }
   lines.push(`当前阶段：${STAGE_LABEL[ctx.record.stage]}`)
@@ -705,45 +719,7 @@ function splitSnapshotBlock(ctx: SowContext): string {
   // not finalized = rulings may still be moving).
   lines.push(ctx.record.understandApprovedAt !== undefined
     ? `需求理解定稿：已定稿（${ctx.record.understandApprovedAt.slice(0, 10)}）——理解阶段的裁决视为已定输入`
-    : '需求理解定稿：未定稿——理解阶段的裁决可能仍在进行，快照以下列账本现状为准')
-  lines.push('已有验收标准（拆分的验收面——每条至少被一个工作包覆盖）：')
-  if (ctx.record.criteria.length === 0) lines.push('（尚无）')
-  for (const criterion of ctx.record.criteria) {
-    const source = criterion.sourceSection !== undefined && criterion.sourceSection.length > 0 ? `（出处 ${criterion.sourceSection}）` : ''
-    lines.push(`- ${criterion.id} ${criterion.text}${source}`)
-  }
-  // BMAD point-not-copy: 「下游不得自行解释 PRD」的 skyaxis 落地——处置结
-  // 论带方案文本喂下去，拆分会话不再对已裁决风险自行判断。
-  const open = ctx.record.findings.filter((finding) => finding.status === 'open')
-  const resolved = ctx.record.findings.filter((finding) => finding.status === 'resolved')
-  const wontFix = ctx.record.findings.filter((finding) => finding.status === 'wont-fix')
-  lines.push('分析发现处置结论（已裁决的风险是拆分输入；未处置项须消化或显式绕开）：')
-  for (const finding of open) {
-    lines.push(`- 未处置：[${FINDING_CATEGORY_LABEL[finding.category]}·${SEVERITY_LABEL[finding.severity]}] ${finding.title}`)
-  }
-  for (const finding of resolved) {
-    const plan = finding.resolution !== undefined && finding.resolution.length > 0 ? ` —— 方案：${finding.resolution}` : ''
-    lines.push(`- 已解决：[${FINDING_CATEGORY_LABEL[finding.category]}·${SEVERITY_LABEL[finding.severity]}] ${finding.title}${plan}`)
-  }
-  for (const finding of wontFix) {
-    lines.push(`- 不处理：[${FINDING_CATEGORY_LABEL[finding.category]}·${SEVERITY_LABEL[finding.severity]}] ${finding.title}`)
-  }
-  if (open.length + resolved.length + wontFix.length === 0) lines.push('（尚无）')
-  const clarifications = ctx.record.analysis?.clarifications ?? []
-  const answered = clarifications.filter((row) => row.answer !== undefined)
-  if (answered.length > 0) {
-    lines.push('已答澄清（需求方已回答，视为已定事实）：')
-    for (const row of answered) lines.push(`- 问：${row.question} / 已答：${row.answer}`)
-  }
-  const pendingFindings = ctx.record.analysis?.findings ?? []
-  const pendingCriteria = ctx.record.analysis?.criteria ?? []
-  const pendingClarifications = clarifications.filter((row) => row.answer === undefined)
-  if (pendingFindings.length + pendingCriteria.length + pendingClarifications.length > 0) {
-    lines.push('待裁决提议（用户裁决中——勿重复提议、勿视为已定）：')
-    for (const row of pendingFindings) lines.push(`- [${FINDING_CATEGORY_LABEL[row.category]}·${SEVERITY_LABEL[row.severity]}] ${row.title}`)
-    for (const row of pendingCriteria) lines.push(`- 标准：${row.text}`)
-    for (const row of pendingClarifications) lines.push(`- 澄清：${row.question}`)
-  }
+    : '需求理解定稿：未定稿——理解阶段的裁决可能仍在进行')
   if (ctx.record.workPackages.length > 0) {
     lines.push('现有工作包（重拆分语境的参考——现状边界与状态）：')
     for (const wp of ctx.record.workPackages) {
@@ -758,14 +734,14 @@ function splitConstraintsBlock(_ctx: SowContext): string {
     '## 约束',
     '- 严格只读：不修改、创建、删除任何文件；不建分支、不提交、不推送——拆分建议在会话内交付，不写文件。',
     '- 不裁决：工作包清单是建议，录入、修订、批准拆分全部由用户在工作台完成；拆分中发现的新风险以发现形式列出（带证据），不要顺手处置。',
-    '- 有据：每条边界/依赖/覆盖判断给出依据（PRD#章节 或 代码 路径:行号 或 已裁决发现的编号）；查不到依据的显式标「推测」。',
+    '- 有据：每条边界/依赖/覆盖判断给出依据（基线文档 FR/C 编号 或 代码 路径:行号）；查不到依据的显式标「推测」。',
     '- 有限停止：仅当需求信息不足以划分任何边界时停下来问用户；其余自行给出带取舍说明的方案。',
   ].join('\n')
 }
 
 const SPLIT_WORKFLOW = [
   '## 工作流',
-  '1. 通读重点 PRD、需求快照与发现处置结论——先明确验收面（每条标准）与已定约束（已解决/不处理的裁决是输入，不是待办）。',
+  '1. 通读需求基线文档与需求快照——先明确验收面（基线文档「验收标准」节逐条 C 编号）与已定约束（「已裁决风险」节是输入，不是待办）。',
   '2. 探索与需求相关的模块（限需求相关范围，不做全库漫游）——识别天然边界：表/接口/进程/可独立验证的功能单元。',
   '3. 逐条映射：每条验收标准至少落一个候选工作包；覆盖不了的标准显式列出并说明原因（留给用户裁决）。',
   '4. 起草工作包清单：每包给标题、边界（做什么/不做什么）、依赖（哪些包必须先完成）、可并行性、覆盖的标准（Cx）、排序理由。',
@@ -777,7 +753,7 @@ function splitOutputBlock(_ctx: SowContext): string {
   return [
     '## 输出',
     '拆分结束时先给出完整建议报告（markdown，会话内交付，不写文件），随后附上机器可读的声明块（条目用缩进键值，勿用行内逗号；块体必须完整包在 ```yaml 围栏内——三个反引号起、三个反引号收，缺围栏无法收取）。报告按以下结构：',
-    '1. 工作包清单——每包一节：建议序号（WP1、WP2…）+ 标题 + 边界（做什么/不做什么）+ 依赖 + 可并行性 + 覆盖标准（Cx）+ 排序理由 + 依据（PRD#章节 / 代码 路径:行号 / 已裁决发现编号）。',
+    '1. 工作包清单——每包一节：建议序号（WP1、WP2…）+ 标题 + 边界（做什么/不做什么）+ 依赖 + 可并行性 + 覆盖标准（Cx）+ 排序理由 + 依据（基线文档 FR/C 编号 / 代码 路径:行号）。',
     '2. 覆盖矩阵——每条验收标准 × 覆盖它的工作包；覆盖不了的标准单独列出并说明。',
     '3. 新发现——拆分过程中发现的新风险/新问题（每条 [类别·级别] 标题 + 证据出处），不要自行处置。',
     '（工作包由用户审阅后手动录入工作台再批准拆分——你的建议不会被自动导入。）',
@@ -943,16 +919,21 @@ function consolidateOutputBlock(ctx: SowContext): string {
 // ---------------------------------------------------------------------------
 
 function revisionStamp(ctx: SowContext): string {
+  // 0009: dev/review only — the three AI-session purposes dropped the stamp
+  // (conservative trim, user ruling); their honesty anchor is the snapshot
+  // header's 生成时快照 wording.
   const date = ctx.generatedAt.slice(0, 10)
   return `生成于 revision ${ctx.revision} · ${date} · 此后账本变更不自动同步`
 }
 
 /**
- * Assemble the SOW markdown plus the trailing revision stamp. Analysis gets
- * the nine-block research-0008 assembly; split/dev/review keep the original
- * five-block shape (research 0006 §7.1) — the dispatch is the user-ratified
- * scope boundary of this round. Section headers are fixed zh; the declare
- * skeleton is dev-shaped (`workPackage:` + claims) or the plain shape.
+ * Assemble the SOW markdown. Analysis/split/consolidate get the nine-block
+ * research-0008 assembly; dev/review keep the original five-block shape
+ * (research 0006 §7.1). 0009: the revision stamp retires for the three
+ * AI-session purposes (conservative trim, user ruling — the ledger-move
+ * honesty rides the snapshot's 生成时快照 header); dev/review keep it.
+ * Section headers are fixed zh; the declare skeleton is dev-shaped
+ * (`workPackage:` + claims) or the plain shape.
  */
 export function buildSow(ctx: SowContext): string {
   if (ctx.purpose === 'analysis') {
@@ -966,12 +947,14 @@ export function buildSow(ctx: SowContext): string {
       ANALYSIS_WORKFLOW,
       analysisOutputBlock(ctx),
     ]
-    return [...blocks, revisionStamp(ctx)].join('\n\n')
+    return blocks.join('\n\n')
   }
   if (ctx.purpose === 'split') {
     // 0007: the nine-block research-0008 skeleton, split edition — the
     // five-block shape (PRD wholesale embedding) is retired FOR SPLIT ONLY;
-    // dev/review keep it verbatim.
+    // dev/review keep it verbatim. 0009 D2: the requirement baseline doc is
+    // the split session's ONLY requirement source (see analysisInputBlock /
+    // splitSnapshotBlock).
     const blocks = [
       `# skyaxis 拆分任务书 · ${ctx.requirement.title}`,
       splitGoalBlock(ctx),
@@ -982,7 +965,7 @@ export function buildSow(ctx: SowContext): string {
       SPLIT_WORKFLOW,
       splitOutputBlock(ctx),
     ]
-    return [...blocks, revisionStamp(ctx)].join('\n\n')
+    return blocks.join('\n\n')
   }
   if (ctx.purpose === 'consolidate') {
     // 0008: the same nine-block skeleton, consolidation edition.
@@ -996,7 +979,7 @@ export function buildSow(ctx: SowContext): string {
       CONSOLIDATE_WORKFLOW,
       consolidateOutputBlock(ctx),
     ]
-    return [...blocks, revisionStamp(ctx)].join('\n\n')
+    return blocks.join('\n\n')
   }
   const blocks = [
     requirementBlock(ctx),

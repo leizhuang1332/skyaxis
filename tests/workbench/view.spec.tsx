@@ -418,7 +418,7 @@ describe('0007 定稿软门：S1 就绪披露 + 定稿/撤销 + 摘要导出', (
     expect(dialog.textContent).toContain('账本为真源，导出为分发')
   })
 
-  it('0008 整理入口：[生成整理任务书] 开 SowModal（consolidate purpose，预览含任务书头与基线文件路径段）', async () => {
+  it('0008 整理入口：[生成整理任务书] 开 SowModal（consolidate purpose，编辑器含任务书头与基线文件路径段）', async () => {
     render(
       <WorkbenchTabBody
         t={bindZh()}
@@ -430,9 +430,13 @@ describe('0007 定稿软门：S1 就绪披露 + 定稿/撤销 + 摘要导出', (
     )
     fireEvent.click(screen.getByRole('button', { name: workbenchZh['understand.consolidateButton'] }))
     const dialog = await screen.findByRole('dialog', { name: workbenchZh['sow.title'] })
-    await waitFor(() => { expect(dialog.textContent).toContain('# skyaxis 需求整理任务书 · 报价管理：导入导出与数据校验') })
-    // consolidate 语境的输入段（全必读提示行在 modal 侧）。
-    expect(dialog.textContent).toContain(workbenchZh['sow.prdAllHint'])
+    // 0009：预览是可编辑 textarea——断言读 value（textContent 不含受控值）。
+    const editor = dialog.querySelector('textarea[data-testid="sow-preview"]') as HTMLTextAreaElement
+    expect(editor).toBeTruthy()
+    await waitFor(() => { expect(editor.value).toContain('# skyaxis 需求整理任务书 · 报价管理：导入导出与数据校验') })
+    // consolidate 语境的输入段在场（view.spec 不注入 PRD fake ⇒ jsdom 列表
+    // 不可得的诚实行；左侧提示组已退役）。
+    expect(editor.value).toContain('（PRD 文档列表未可得——可列举 prds/ 目录确认）')
   })
 
   it('0008 ack 文档态探测：无文档 ⇒ 「尚无基线文档」披露行（软门不阻断，确认键照常可用）', async () => {

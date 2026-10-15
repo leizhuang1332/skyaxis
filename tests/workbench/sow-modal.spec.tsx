@@ -1,14 +1,14 @@
 // @vitest-environment jsdom
 /**
- * SOW 生成 Modal（0006 P2；analysis 重设计 = research 0008）：注入 fake
- * fetchPrdList/fetchPrdText/fetchPlanText/copy——PRD 章节渲染与勾选联动
- * 预览（analysis 语境勾选 = 重点章节指针，正文零嵌入、路径引用）、多文档
- * select 切换、加载失败/无文档态、知识命中计数行与默认勾选态（always+
- * keyword 勾、manual 不勾）、勾选联动知识预览、超上限禁复制 + 警示、
- * copy 成功 copied 一秒复位、copy 失败警示可重试、dev 语境 [工作包] 段
- * （已批准计划两态、依赖摘要勾选）。
+ * SOW 生成 Modal（0006 P2；analysis 重设计 = research 0008；0009 任务书
+ * 精简轮）：注入 fake fetchPrdList/fetchPrdText/fetchPlanText/copy——
+ * analysis/split/consolidate 无左侧 PRD 组（0009：路径引用全部必读、split
+ * 无 PRD 面、正文零嵌入、revision 戳退役），dev/review 保留章节勾选组与
+ * 多文档 select；知识命中计数行与默认勾选态、勾选联动知识预览、超上限
+ * 禁复制 + 警示、copy 成功/失败、dev 语境 [工作包] 段、0009 可编辑
+ * textarea（键入即改、copy 收编辑后全文、恢复生成内容、脏锁不覆盖）。
  *
- * 预览断言走 data-testid 的 <pre> 文本（buildSow 产物是整块字符串）；
+ * 预览断言走 data-testid 的 textarea value（buildSow 产物是整块字符串）；
  * Modal portal 进 body，afterEach 显式清理。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -113,101 +113,128 @@ const tick = async (): Promise<void> => {
   await new Promise((resolve) => setTimeout(resolve, 20))
 }
 
+// 0009: the preview is an editable textarea — assertions read its value.
 const previewText = (rendered: ReturnType<typeof subject>): string =>
-  rendered.getByTestId('sow-preview').textContent ?? ''
+  (rendered.getByTestId('sow-preview') as HTMLTextAreaElement).value
 
 describe('SowModal（SOW 生成 Modal）', () => {
-  it('analysis 预览：PRD 路径引用 + 重点章节指针（正文零嵌入）；勾选变化即时反映；单文档不出 select', async () => {
-    const fetchPrdText = vi.fn(async (name: string) =>
-      name === 'a.md' ? '# 背景\n背景正文\n\n## 方案\n方案正文' : '')
-    const rendered = subject({ fetchPrdList: async () => [{ name: 'a.md' }], fetchPrdText })
+  it('analysis 预览（0009 指针退役）：PRD 路径引用全部必读（正文零嵌入、不拉正文）；无左侧 PRD 组、无 select', async () => {
+    const fetchPrdText = vi.fn(async () => '# 背景\n背景正文\n\n## 方案\n方案正文')
+    const rendered = subject({ fetchPrdList: async () => [{ name: 'a.md' }, { name: 'b.md', sizeBytes: 4096 }], fetchPrdText })
 
-    await waitFor(() => expect(fetchPrdText).toHaveBeenCalledWith('a.md'))
     await waitFor(() => expect(previewText(rendered)).toContain('必读 prds/a.md'))
+    // 0009：无焦点文档链——正文一次都不拉。
+    expect(fetchPrdText).not.toHaveBeenCalled()
     const text = previewText(rendered)
     expect(text).toContain('工作区根目录：C:/ws/demo（下列相对路径以此为根）')
-    expect(text).toContain('- 必读 prds/a.md——重点章节：背景、方案；其余章节按需')
-    // 路径引用本体：章节正文一个字不进任务书。
+    expect(text).toContain('- 必读 prds/a.md')
+    expect(text).toContain('- 必读 prds/b.md（4.0 KB）')
+    expect(text).not.toContain('按需 prds/')
+    expect(text).not.toContain('重点章节')
+    // 路径引用本体：章节正文一个字不进任务书；戳退役。
     expect(text).not.toContain('背景正文')
-    expect(text).not.toContain('方案正文')
+    expect(text).not.toContain('此后账本变更不自动同步')
+    // 左侧 PRD 组退役：无文档 select、无章节 checkbox。
     expect(rendered.queryByRole('combobox')).toBeNull()
-
-    // 取消勾选「背景」→ 重点章节指针即时收窄为「方案」。
-    fireEvent.click(rendered.getByLabelText('背景'))
-    const after = previewText(rendered)
-    expect(after).not.toContain('背景')
-    expect(after).toContain('重点章节：方案')
+    expect(rendered.queryByRole('checkbox', { name: '背景' })).toBeNull()
   })
 
-  it('多文档 select 切换：焦点文档换必读位、旧文档降按需行；切到 b.md 重取正文并重置全勾', async () => {
+  it('多文档 select 切换（0009 起左侧组仅 dev/review）：焦点文档换位、切到 b.md 重取正文并重置全勾', async () => {
     const fetchPrdText = vi.fn(async (name: string) =>
-      name === 'a.md' ? '# a 正文' : '## b 背景\nb 正文')
+      name === 'a.md' ? '# a 标题\na 正文' : '## b 背景\nb 正文')
+    const target = wp('WP1')
     const rendered = subject({
+      purpose: 'dev',
+      workPackage: target,
+      record: record({ workPackages: [target] }),
       fetchPrdList: async () => [{ name: 'a.md' }, { name: 'b.md' }],
       fetchPrdText,
     })
 
     await waitFor(() => expect(fetchPrdText).toHaveBeenCalledWith('a.md'))
+    await waitFor(() => expect(previewText(rendered)).toContain('[PRD 节选]\n文档：a.md\n\n## a 标题\na 正文'))
     const select = (await rendered.findByRole('combobox')) as HTMLSelectElement
     fireEvent.change(select, { target: { value: 'b.md' } })
     await waitFor(() => expect(fetchPrdText).toHaveBeenCalledWith('b.md'))
-    await waitFor(() => expect(previewText(rendered)).toContain('- 必读 prds/b.md——重点章节：b 背景；其余章节按需'))
-    expect(previewText(rendered)).toContain('- 按需 prds/a.md')
+    await waitFor(() => expect(previewText(rendered)).toContain('[PRD 节选]\n文档：b.md\n\n## b 背景\nb 正文'))
     expect(fetchPrdText).toHaveBeenCalledTimes(2)
   })
 
-  it('PRD 列表加载失败 → prdLoadError + 诚实未知行；无文档 → prdEmpty + 确认空行', async () => {
+  it('PRD 列表加载失败/无文档：analysis 无组内 UI（输入段诚实行承载）；dev 组内提示照旧', async () => {
     const rendered = subject({ fetchPrdList: async () => null })
-    expect(await rendered.findByText(workbenchZh['sow.prdLoadError'])).toBeTruthy()
-    expect(previewText(rendered)).toContain('（PRD 文档列表未可得——可列举 prds/ 目录确认）')
+    await waitFor(() => expect(previewText(rendered)).toContain('（PRD 文档列表未可得——可列举 prds/ 目录确认）'))
+    expect(rendered.queryByText(workbenchZh['sow.prdLoadError'])).toBeNull()
     rendered.unmount()
 
     const rendered2 = subject({ fetchPrdList: async () => [] })
-    expect(await rendered2.findByText(workbenchZh['sow.prdEmpty'])).toBeTruthy()
-    expect(previewText(rendered2)).toContain('（prds/ 目录暂无文档——分析只能基于需求描述与代码）')
+    await waitFor(() => expect(previewText(rendered2)).toContain('（prds/ 目录暂无文档——分析只能基于需求描述与代码）'))
+    expect(rendered2.queryByText(workbenchZh['sow.prdEmpty'])).toBeNull()
+    rendered2.unmount()
+
+    // dev 语境：左侧组在场，组内提示照旧。
+    const target = wp('WP1')
+    const devFail = subject({ purpose: 'dev', workPackage: target, record: record({ workPackages: [target] }), fetchPrdList: async () => null })
+    expect(await devFail.findByText(workbenchZh['sow.prdLoadError'])).toBeTruthy()
+    devFail.unmount()
+    const devEmpty = subject({ purpose: 'dev', workPackage: target, record: record({ workPackages: [target] }), fetchPrdList: async () => [] })
+    expect(await devEmpty.findByText(workbenchZh['sow.prdEmpty'])).toBeTruthy()
   })
 
-  it('0007 split 预览：路径引用 + 重点章节指针同 analysis 形态；五段头与正文嵌入退役', async () => {
+  it('0009 split 预览：无 PRD 面（列表/正文均不拉）+ 定稿带锚基线必读行 + 未定稿诚实行；五段头与正文嵌入退役', async () => {
+    const fetchPrdList = vi.fn(async () => [{ name: 'a.md' }])
     const fetchPrdText = vi.fn(async () => '# 背景\n背景正文')
-    const rendered = subject({ purpose: 'split', fetchPrdList: async () => [{ name: 'a.md' }], fetchPrdText })
+    const rendered = subject({
+      purpose: 'split',
+      record: record({
+        understandApprovedAt: AT,
+        understandBaseline: { at: AT, criteria: [], findings: [], clarifications: [], docHash: 'a'.repeat(64) },
+      }),
+      fetchPrdList,
+      fetchPrdText,
+    })
 
-    await waitFor(() => expect(fetchPrdText).toHaveBeenCalledWith('a.md'))
     await waitFor(() => expect(previewText(rendered)).toContain('# skyaxis 拆分任务书 · '))
+    // 0009 D2：split 无 PRD 面——列表与正文一次都不拉。
+    expect(fetchPrdList).not.toHaveBeenCalled()
+    expect(fetchPrdText).not.toHaveBeenCalled()
     const text = previewText(rendered)
-    expect(text).toContain('- 必读 prds/a.md——重点章节：背景；其余章节按需')
-    // 五段老形态（split 专属退役）：方括号段头与章节正文不出现。
+    expect(text).toContain(`- 必读 .skyaxis/requirements/${RID}.md——需求基线文档，本拆分的唯一需求真源`)
+    expect(text).not.toContain('必读 prds/')
+    // 五段老形态（split 专属退役）：方括号段头与章节正文不出现；戳退役。
     expect(text).not.toContain('[需求]')
     expect(text).not.toContain('[PRD 节选]')
     expect(text).not.toContain('背景正文')
+    expect(text).not.toContain('此后账本变更不自动同步')
     // declare plain 骨架照旧（knowledge + stageReady，无提议键）。
     expect(text).toContain('knowledge: []')
     expect(text).toContain('stageReady: false')
     expect(text).not.toContain('findings 每条')
+    expect(rendered.queryByRole('combobox')).toBeNull()
 
-    // 无文档语境用 split 名词（与 analysis 文案分流）。
+    // 未定稿（record null ⇒ 无锚）⇒ 诚实行。
     rendered.unmount()
-    const empty = subject({ purpose: 'split', fetchPrdList: async () => [] })
-    expect(await empty.findByText(workbenchZh['sow.prdEmpty'])).toBeTruthy()
-    expect(previewText(empty)).toContain('（prds/ 目录暂无文档——拆分规划只能基于需求描述与代码）')
+    const notFinalized = subject({ purpose: 'split', fetchPrdList, fetchPrdText })
+    await waitFor(() => expect(previewText(notFinalized)).toContain('# skyaxis 拆分任务书 · '))
+    expect(previewText(notFinalized)).toContain('（需求理解未定稿——尚无锚定的需求基线文档；本次拆分以需求描述为唯一需求依据。）')
   })
 
-  it('0008 consolidate 预览：无章节勾选（loadDoc 链跳过）+ 全必读清单 + 基线文件路径段；正文零嵌入', async () => {
+  it('0008/0009 consolidate 预览：无左侧 PRD 面（提示组退役）+ 全必读清单 + 基线文件路径段；正文零嵌入', async () => {
     const fetchPrdText = vi.fn(async () => '# 背景\n背景正文')
     const rendered = subject({ purpose: 'consolidate' as never, fetchPrdList: async () => [{ name: 'a.md' }, { name: 'b.md' }], fetchPrdText })
 
     // consolidate 不拉正文（无章节可勾）——唯一一次 fetch 是列表。
     await waitFor(() => expect(previewText(rendered)).toContain('# skyaxis 需求整理任务书 · '))
     expect(fetchPrdText).not.toHaveBeenCalled()
-    // 无勾选面：通读提示行在场，无 combobox / 无章节 checkbox。
-    expect(rendered.getByText(workbenchZh['sow.prdAllHint'])).toBeTruthy()
+    // 0009：左侧 PRD 提示组退役——无 combobox / 无章节 checkbox。
     expect(rendered.queryByRole('combobox')).toBeNull()
     expect(rendered.queryByRole('checkbox', { name: '背景' })).toBeNull()
-    // 全部文档必读（无重点章节指针），正文零嵌入。
+    // 全部文档必读（无重点章节指针），正文零嵌入；戳退役。
     const text = previewText(rendered)
     expect(text).toContain('- 必读 prds/a.md')
     expect(text).toContain('- 必读 prds/b.md')
     expect(text).not.toContain('重点章节')
     expect(text).not.toContain('背景正文')
+    expect(text).not.toContain('此后账本变更不自动同步')
     // 输出节带基线文件路径 + 十节模板头。
     expect(text).toContain('.skyaxis/requirements/')
     expect(text).toContain('# 需求基线 · <需求标题>')
@@ -276,7 +303,6 @@ describe('SowModal（SOW 生成 Modal）', () => {
     const sent = copy.mock.calls[0][0]
     expect(sent).toContain('# skyaxis 分析任务书 · 导出功能改造')
     expect(sent).toContain('标题：导出功能改造')
-    expect(sent).toContain('生成于 revision 7 ·')
     expect(rendered.getByText(workbenchZh['sow.copied'])).toBeTruthy()
     await new Promise((resolve) => setTimeout(resolve, 1100))
     expect(rendered.getByText(workbenchZh['sow.copy'])).toBeTruthy()
@@ -296,6 +322,44 @@ describe('SowModal（SOW 生成 Modal）', () => {
     await waitFor(() => expect(copy).toHaveBeenCalledTimes(2))
     await waitFor(() => expect(rendered.queryByRole('alert')).toBeNull())
     expect(rendered.getByText(workbenchZh['sow.copied'])).toBeTruthy()
+  })
+
+  it('0009 编辑：键入即改文本、copy 收到编辑后全文；恢复生成内容复位并隐藏', async () => {
+    const copy = vi.fn(async (_text: string) => true)
+    const rendered = subject({ copy })
+
+    const editor = (): HTMLTextAreaElement => rendered.getByTestId('sow-preview') as HTMLTextAreaElement
+    await waitFor(() => expect(editor().value).toContain('# skyaxis 分析任务书'))
+    // 未编辑 ⇒ 无恢复按钮。
+    expect(rendered.queryByRole('button', { name: workbenchZh['sow.resetEdit'] })).toBeNull()
+
+    fireEvent.change(editor(), { target: { value: '# 我改过的任务书\n只有这些' } })
+    expect(editor().value).toBe('# 我改过的任务书\n只有这些')
+    expect(rendered.getByRole('button', { name: workbenchZh['sow.resetEdit'] })).toBeTruthy()
+
+    fireEvent.click(rendered.getByRole('button', { name: workbenchZh['sow.copy'] }))
+    await waitFor(() => expect(copy).toHaveBeenCalledTimes(1))
+    expect(copy.mock.calls[0][0]).toBe('# 我改过的任务书\n只有这些')
+
+    fireEvent.click(rendered.getByRole('button', { name: workbenchZh['sow.resetEdit'] }))
+    await waitFor(() => expect(editor().value).toContain('# skyaxis 分析任务书'))
+    expect(rendered.queryByRole('button', { name: workbenchZh['sow.resetEdit'] })).toBeNull()
+  })
+
+  it('0009 编辑脏锁：编辑后左列勾选不覆盖用户文本；恢复后同步最新生成内容', async () => {
+    const rendered = subject({
+      knowledgeRecords: [knowledge('k1'), knowledge('k4', { trigger: { mode: 'manual' } })],
+    })
+
+    const editor = (): HTMLTextAreaElement => rendered.getByTestId('sow-preview') as HTMLTextAreaElement
+    await waitFor(() => expect(editor().value).toContain('### 知识-k1'))
+    fireEvent.change(editor(), { target: { value: '我的版本' } })
+    // 勾选 manual：live 生成内容变化，但用户编辑不被覆盖（恢复按钮负责同步）。
+    fireEvent.click(rendered.getByLabelText('[manual] 知识-k4'))
+    expect(editor().value).toBe('我的版本')
+    // 恢复 ⇒ 同步最新生成内容（含新勾的 k4）。
+    fireEvent.click(rendered.getByRole('button', { name: workbenchZh['sow.resetEdit'] }))
+    await waitFor(() => expect(editor().value).toContain('### 知识-k4'))
   })
 
   it('dev 语境：预览含 [工作包] 段 + 已批准计划正文 + dev declare；有计划不出无计划提示', async () => {
@@ -353,7 +417,7 @@ describe('SowModal（SOW 生成 Modal）', () => {
 
 describe('SowModal 投递 v2（P5a）', () => {
   const previewOf = (rendered: ReturnType<typeof subject>): string =>
-    rendered.getByTestId('sow-preview').textContent ?? ''
+    (rendered.getByTestId('sow-preview') as HTMLTextAreaElement).value
 
   it('deliver 缺席 ⇒ 投递按钮不渲染（诚实降级，复制为 primary）；在场 ⇒ 投递 primary / 复制降 ghost', async () => {
     const noFace = subject({})
@@ -376,7 +440,7 @@ describe('SowModal 投递 v2（P5a）', () => {
     fireEvent.click(rendered.getByRole('button', { name: workbenchZh['sow.deliver'] }))
     await waitFor(() => expect(deliver).toHaveBeenCalledTimes(1))
     expect(deliver.mock.calls[0]?.[0]).toContain('# skyaxis 分析任务书 · 导出功能改造')
-    expect(deliver.mock.calls[0]?.[0]).toContain('生成于 revision 7 ·')
+    expect(deliver.mock.calls[0]?.[0]).not.toContain('此后账本变更不自动同步')
     expect(deliver.mock.calls[0]?.[1]).toBe('C:\\ws\\demo') // requirement 夹具的 workspacePath（非空 ⇒ 作 cwd）
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
   })

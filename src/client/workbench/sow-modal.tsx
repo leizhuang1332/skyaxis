@@ -1,14 +1,16 @@
 /**
  * SOW generation modal (0006 P2; research 0006 §7.1): left pick column
  * (PRD sections / knowledge hits / dev work-package scope) over a live
- * right preview — the preview is the exact text the copy button places on
- * the clipboard, assembled by the pure buildSow.
+ * right EDITOR — the textarea holds the exact text the copy button places
+ * on the clipboard, assembled by the pure buildSow and user-editable since
+ * 0009 (a dirty edit survives left-column toggles; the 恢复生成内容 button
+ * resyncs to the live build).
  *
- * Analysis purpose (research 0008): the checked PRD sections are FOCUS
- * pointers, not embedded text — the doc listing rides the context as path
- * references (prds/…) plus clone-repo rows (repos/…, branch noted), so the
- * delivered session reads files itself; a failed body read (e.g. over the
- * size cap) no longer blocks generation, it only drops the heading marks.
+ * 0009 任务书精简轮: the PRD pick group is dev/review-only (their five-block
+ * SOW embeds checked sections); analysis/split/consolidate cite paths — the
+ * doc listing rides the input block, no focus doc, no section checkboxes.
+ * split additionally fetches NO PRD face at all (the finalized requirement
+ * baseline doc is THE requirement source — 0009 D2).
  *
  * All IO is injected (the repos-section cross-module fetcher precedent):
  * PRD list/text default to the requirements fetcher, the approved plan
@@ -18,8 +20,9 @@
  * matching happen here via matchKnowledge. Injection caps
  * (KNOWLEDGE_INJECTION_MAX_ENTRIES/BYTES) disable copy with an honest warn.
  *
- * Transient payloads (PRD text, plan body) live in component state and die
- * with the dialog — never the store (the plan-body cache precedent).
+ * Transient payloads (PRD text, plan body, edited preview) live in
+ * component state and die with the dialog — never the store (the plan-body
+ * cache precedent).
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Modal, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -130,6 +133,10 @@ export function SowModal(props: {
 
   const [generatedAt, setGeneratedAt] = useState(() => new Date().toISOString())
 
+  // --- edited preview (0009): null = show/copy the live buildSow output;
+  // once the user types, the edit wins until 恢复生成内容 resets to null. ---
+  const [editedText, setEditedText] = useState<string | null>(null)
+
   const loadDoc = (name: string, dead: () => boolean): void => {
     setDocName(name)
     void (async () => {
@@ -170,7 +177,11 @@ export function SowModal(props: {
     setCopyState('idle')
     setCopyFailed(false)
     setGeneratedAt(new Date().toISOString())
+    setEditedText(null)
     void (async () => {
+      // 0009 D2: split has no PRD face at all — no listing, no focus doc (the
+      // baseline doc line rides the ledger, the input block carries it).
+      if (purpose === 'split') return
       let docs: { name: string }[] | null = null
       try {
         docs = await (props.fetchPrdList ?? (() => defaultPrdList(requirement.id)))()
@@ -183,10 +194,11 @@ export function SowModal(props: {
         return
       }
       setPrdDocs(docs)
-      // 0008: consolidate reads every doc wholesale — no focus doc, no
-      // section checkboxes — so the first-doc body chain is skipped (the
-      // listing itself still feeds the input block's all-docs rows).
-      if (purpose !== 'consolidate' && docs[0] !== undefined) loadDoc(docs[0].name, dead)
+      // 0009: the doc-body chain is dev/review only (their five-block SOW
+      // embeds checked sections); analysis/consolidate cite paths — the
+      // listing itself feeds the input block's all-docs rows (the 0008
+      // consolidate skip generalized).
+      if ((purpose === 'dev' || purpose === 'review') && docs[0] !== undefined) loadDoc(docs[0].name, dead)
     })()
     if (purpose === 'dev' && workPackage !== undefined) {
       void (props.fetchPlanText ?? (() => defaultPlanText(requirement.id, workPackage)))()
@@ -309,21 +321,29 @@ export function SowModal(props: {
     generatedAt,
     workPackage: purpose === 'dev' && includeBoundaryPlan ? workPackage : undefined,
     approvedPlanText: purpose === 'dev' && planLoaded ? planText : undefined,
-    prdSections: selectedSections,
-    prdDocumentName: docName ?? undefined,
+    // 0009: the embedded-section face is dev/review-only (five-block SOW);
+    // analysis/split/consolidate cite paths instead.
+    ...(purpose === 'dev' || purpose === 'review' ? {
+      prdSections: selectedSections,
+      prdDocumentName: docName ?? undefined,
+    } : {}),
     knowledgePicks: selectedKnowledge,
     includeDeps,
-    // Analysis + split + consolidate inputs ride the same preview (0007: the
-    // split SOW joined the path-reference shape; 0008: consolidate reads all
-    // docs wholesale): the full doc listing (path references — PRD text
-    // itself is never embedded), the focus doc's checked sections (heading
-    // pointers; consolidate ignores them — no focus doc), and the repo rows.
+    // Analysis + consolidate inputs ride the same preview (0007: the split
+    // SOW joined the path-reference shape; 0008: consolidate reads all docs
+    // wholesale; 0009: split takes the repos rows but NO doc listing): the
+    // full doc listing (path references — PRD text itself is never embedded)
+    // and the repo rows.
     ...(purpose === 'analysis' || purpose === 'split' || purpose === 'consolidate' ? {
       analysisPrdDocs: prdDocs,
       analysisRepos: analysisRepoRows,
       analysisUnknownRepos: analysisRepoUnknown,
     } : {}),
   }), [purpose, requirement, record, revision, generatedAt, workPackage, includeBoundaryPlan, planLoaded, planText, selectedSections, docName, selectedKnowledge, includeDeps, prdDocs, analysisRepoRows, analysisRepoUnknown])
+
+  // The user edit (if any) wins over the live build; copy/deliver/anchors
+  // all use THIS text (0009).
+  const text = editedText ?? preview
 
   const warnText = overLimit
     ? t('sow.knowledgeOverLimit')
@@ -338,7 +358,7 @@ export function SowModal(props: {
   const onCopy = (): void => {
     if (copyState !== 'idle' || busy || overLimit) return
     setCopyState('busy')
-    void (props.copy ?? writeClipboard)(preview).then((ok) => {
+    void (props.copy ?? writeClipboard)(text).then((ok) => {
       if (ok) {
         setCopyFailed(false)
         setCopyState('copied')
@@ -356,10 +376,10 @@ export function SowModal(props: {
     // told the user why; a dead retry button would strand them).
     if (deliverState === 'busy' || busy || overLimit) return
     setDeliverState('busy')
-    void props.deliver?.(preview, requirement.workspacePath).then((outcome) => {
+    void props.deliver?.(text, requirement.workspacePath).then((outcome) => {
       if (outcome.ok) {
         setDeliverState('idle')
-        if (outcome.sessionId !== undefined) props.onDelivered?.(outcome.sessionId, preview)
+        if (outcome.sessionId !== undefined) props.onDelivered?.(outcome.sessionId, text)
         props.onClose()
         return
       }
@@ -379,6 +399,9 @@ export function SowModal(props: {
         <>
           {warnText !== null ? <div className={styles.sowWarn} role="alert">{warnText}</div> : null}
           <div className={styles.wpFooterMain}>
+            {editedText !== null ? (
+              <button type="button" className={styles.ghostButton} onClick={() => { setEditedText(null) }}>{t('sow.resetEdit')}</button>
+            ) : null}
             <button type="button" className={styles.ghostButton} onClick={props.onClose}>{t('action.cancel')}</button>
             {props.deliver !== undefined ? (
               <button
@@ -404,48 +427,45 @@ export function SowModal(props: {
     >
       <div className={styles.sowGrid}>
         <div className={styles.sowPick}>
-          {/* 0008: consolidate reads every PRD wholesale — no focus doc, no
-              section checkboxes, so the pick group has nothing to pick; the
-              input block's own honest-absence lines carry the listing state. */}
-          {purpose === 'consolidate' ? (
+          {/* 0009: the PRD pick group is dev/review-only — their five-block
+              SOW embeds checked sections. analysis/split/consolidate cite
+              paths instead (the input block's listing carries the state);
+              split has no PRD face at all (baseline doc = THE requirement
+              source). */}
+          {purpose === 'dev' || purpose === 'review' ? (
             <div className={styles.sowGroup}>
-              <div className={styles.sowGroupTitle}>{t('sow.prdGroupConsolidate')}</div>
-              <div className={styles.formHint}>{t('sow.prdAllHint')}</div>
+              <div className={styles.sowGroupTitle}>{t('sow.prdGroup')}</div>
+              {prdError ? <div className={styles.fieldError}>{t('sow.prdLoadError')}</div> : null}
+              {!prdError && prdDocs === null ? <div className={styles.formHint}>{t('page.loading')}</div> : null}
+              {prdDocs !== null && prdDocs.length === 0 ? <div className={styles.formHint}>{t('sow.prdEmpty')}</div> : null}
+              {prdDocs !== null && prdDocs.length > 1 ? (
+                <label className={styles.sowPickRow}>
+                  <span>{t('sow.prdDocLabel')}</span>
+                  <select
+                    value={docName ?? ''}
+                    onChange={(event) => {
+                      const seq = ++prdSeqRef.current
+                      loadDoc(event.target.value, () => prdSeqRef.current !== seq)
+                    }}
+                  >
+                    {prdDocs.map((doc) => (
+                      <option key={doc.name} value={doc.name}>{doc.name}</option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+              {sections.map((section, index) => (
+                <label key={index} className={styles.sowPickRow}>
+                  <input
+                    type="checkbox"
+                    checked={checkedSections === null || checkedSections.has(index)}
+                    onChange={() => { toggleSection(index); setCopyFailed(false) }}
+                  />
+                  <span>{section.heading.length > 0 ? section.heading : t('sow.prdPreamble')}</span>
+                </label>
+              ))}
             </div>
-          ) : (
-          <div className={styles.sowGroup}>
-            <div className={styles.sowGroupTitle}>{t('sow.prdGroup')}</div>
-            {prdError ? <div className={styles.fieldError}>{t('sow.prdLoadError')}</div> : null}
-            {!prdError && prdDocs === null ? <div className={styles.formHint}>{t('page.loading')}</div> : null}
-            {prdDocs !== null && prdDocs.length === 0 ? <div className={styles.formHint}>{t('sow.prdEmpty')}</div> : null}
-            {prdDocs !== null && prdDocs.length > 1 ? (
-              <label className={styles.sowPickRow}>
-                <span>{t('sow.prdDocLabel')}</span>
-                <select
-                  value={docName ?? ''}
-                  onChange={(event) => {
-                    const seq = ++prdSeqRef.current
-                    loadDoc(event.target.value, () => prdSeqRef.current !== seq)
-                  }}
-                >
-                  {prdDocs.map((doc) => (
-                    <option key={doc.name} value={doc.name}>{doc.name}</option>
-                  ))}
-                </select>
-              </label>
-            ) : null}
-            {sections.map((section, index) => (
-              <label key={index} className={styles.sowPickRow}>
-                <input
-                  type="checkbox"
-                  checked={checkedSections === null || checkedSections.has(index)}
-                  onChange={() => { toggleSection(index); setCopyFailed(false) }}
-                />
-                <span>{section.heading.length > 0 ? section.heading : t('sow.prdPreamble')}</span>
-              </label>
-            ))}
-          </div>
-          )}
+          ) : null}
 
           <div className={styles.sowGroup}>
             <div className={styles.sowGroupTitle}>
@@ -494,7 +514,13 @@ export function SowModal(props: {
           ) : null}
         </div>
 
-        <pre className={styles.sowPreview} data-testid="sow-preview">{preview}</pre>
+        <textarea
+          className={styles.sowEditor}
+          data-testid="sow-preview"
+          value={text}
+          spellCheck={false}
+          onChange={(event) => { setEditedText(event.target.value) }}
+        />
       </div>
     </Modal>
   )

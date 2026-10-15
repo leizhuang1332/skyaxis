@@ -1,11 +1,12 @@
 /**
- * SOW 纯函数（0006 P2；analysis 重设计 = research 0008）：splitPrdSections
- * （ATX 切分 / preamble 归一 / 空文）+ matchKnowledge（always 全 / keyword
- * 大小写命中 / manual 列出不命中标记 / archived 排除 / path 不列）+
- * knowledgeBytes（UTF-8 逐条求和）+ buildSow：analysis 九节新骨架（目标/
- * 快照/输入路径引用/参考知识/约束/工作流/输出，PRD 正文零嵌入）与
- * split/dev/review 五段旧路径（criteria 清单、dev 全段两态、declare 骨架
- * workPackage 键、revision 戳）分派并存。
+ * SOW 纯函数（0006 P2；analysis 重设计 = research 0008；0009 任务书精简轮）：
+ * splitPrdSections（ATX 切分 / preamble 归一 / 空文）+ matchKnowledge（always
+ * 全 / keyword 大小写命中 / manual 列出不命中标记 / archived 排除 / path 不
+ * 列）+ knowledgeBytes（UTF-8 逐条求和）+ buildSow 三形态分派：analysis/
+ * split/consolidate 九节骨架（0009：PRD 重点指针退役——analysis 全必读、
+ * split 只引需求基线文档且快照瘦身；revision 戳退役）与 dev/review 五段旧
+ * 路径（criteria 清单、dev 全段两态、declare 骨架 workPackage 键、revision
+ * 戳保留）。
  */
 import { describe, expect, it } from 'vitest'
 import type {
@@ -223,6 +224,8 @@ describe('buildSow', () => {
       expect(text).not.toContain(gone)
     }
     expect(text).not.toContain('当前阶段')
+    // 0009：revision 戳退役（保守精简——诚实锚由快照头「生成时快照」承担）。
+    expect(text).not.toContain('此后账本变更不自动同步')
     // declare 骨架逐字 pin（回传轮 + 文件交付轮：analysis 专属骨架 = plain + findings/criteria/clarifications 三段教学）。
     expect(text).toContain('```yaml\n# skyaxis-declare\n# findings 每条 = 分析发现提议（category: feasibility|conflict|compatibility|risk|capacity|other；severity: high|medium|low）：\n#   - category: conflict\n#     severity: high\n#     title: 标题（64 字内）\n#     detail: 说明与证据出处（PRD#章节 或 代码 路径:行号）\n# criteria 每条 = 验收标准提议：\n#   - text: 一句可判定的话\n#     sourceSection: PRD#章节\n# clarifications 每条 = 待澄清问题（必须附你的推荐答案，把问题措辞成「是」即接受推荐）：\n#   - question: 问题（一句）\n#     recommendation: 推荐答案\n#     blocks: 阻塞了哪条结论（如 F2 / PRD#3.2）\n# knowledge 条目形如（type: business|convention）：\n#   - type: convention\n#     title: 标题\n#     draft: 内容\nknowledge: []\nstageReady: false\n```')
     expect(text).not.toContain('workPackage:')
@@ -252,7 +255,7 @@ describe('buildSow', () => {
     expect(conversation).not.toContain('报告已写入上述路径')
   })
 
-  it('analysis 输入段：PRD 路径引用 + 重点章节指针 + 仓库行（池名/分支）+ 缺失容错指令；正文零嵌入', () => {
+  it('analysis 输入段（0009 指针退役）：PRD 路径引用全部必读（无重点指针）+ 仓库行（池名/分支）+ 缺失容错指令；正文零嵌入', () => {
     const text = buildSow({
       ...baseCtx,
       requirement: { ...requirement, workspacePath: 'C:\\ws\\quote' },
@@ -260,16 +263,19 @@ describe('buildSow', () => {
         { name: 'prd.md', sizeBytes: 12 * 1024 + 300 },
         { name: 'notes.md', sizeBytes: 4096 },
       ],
+      // 传入了也被忽略（prdSections 已是 dev/review 专用面）——退役钉死。
       prdDocumentName: 'prd.md',
       prdSections: [{ heading: '背景', text: '背景正文全文' }, { heading: '', text: '开篇正文' }, { heading: '容量', text: '容量正文' }],
       analysisRepos: [{ dirName: 'order-center-a1b2', poolName: 'order-center', branch: 'feat/export' }],
     })
     expect(text).toContain('工作区根目录：C:/ws/quote（下列相对路径以此为根）')
-    expect(text).toContain('- 必读 prds/prd.md（12.3 KB）——重点章节：背景、开篇、容量；其余章节按需')
-    expect(text).toContain('- 按需 prds/notes.md（4.0 KB）')
+    expect(text).toContain('- 必读 prds/prd.md（12.3 KB）')
+    expect(text).toContain('- 必读 prds/notes.md（4.0 KB）')
+    expect(text).not.toContain('按需 prds/')
+    expect(text).not.toContain('重点章节')
     expect(text).toContain('- 必读 repos/order-center-a1b2（order-center，分支 feat/export）——与需求相关的模块与现有实现')
     expect(text).toContain('路径不存在或不可读：停下来在「待澄清」中报告——不要假设内容，不要自行创建替代文件。')
-    // 路径引用的本体断言：PRD 章节正文一个字都不进任务书。
+    // 路径引用的本体断言：PRD 章节正文与章节指针一个字都不进任务书。
     expect(text).not.toContain('背景正文全文')
     expect(text).not.toContain('开篇正文')
     expect(text).not.toContain('容量正文')
@@ -277,7 +283,7 @@ describe('buildSow', () => {
 
   it('analysis 输入段诚实缺席：工作区未绑定 / 无 PRD 文档 / 无仓库 / 目录名不可得计数行', () => {
     const unbound = buildSow(baseCtx)
-    expect(unbound).toContain('（工作区未绑定——无 PRD 与仓库可引用，分析只能基于需求描述）')
+    expect(unbound).toContain('（工作区未绑定——无可引用的文档与仓库，分析只能基于需求描述）')
     expect(unbound).not.toContain('PRD 文档（prds/ 目录）')
 
     const emptyWs = buildSow({
@@ -354,7 +360,7 @@ describe('buildSow', () => {
     expect(empty).not.toContain('待裁决提议（已收取未裁决')
   })
 
-  it('split 九节（0007）：标题/目标/快照/输入/参考知识/约束/工作流/输出 + declare plain 骨架逐字（回归锚）', () => {
+  it('split 九节（0007 骨架 + 0009 精简）：标题/目标/快照/输入/参考知识/约束/工作流/输出 + declare plain 骨架逐字（回归锚）', () => {
     const text = buildSow({
       ...baseCtx,
       purpose: 'split',
@@ -375,12 +381,14 @@ describe('buildSow', () => {
     expect(text).toContain('## 约束')
     expect(text).toContain('## 工作流')
     expect(text).toContain('## 输出')
-    // 工作包现状快照（re-split 语境）与标准清单沿用。
+    // 工作包现状快照（re-split 语境）沿用；0009 D2：标准不进快照（基线文档携带）。
     expect(text).toContain('当前阶段：探索规划')
     expect(text).toContain('WP1 导出队列 · 已验收（accepted）')
     expect(text).toContain('WP2 存储层 · 已登记（planned）')
-    expect(text).toContain('C1 十万行导出 30 秒内完成')
-    expect(text).toContain('C2 导出任务可取消')
+    expect(text).not.toContain('C1 十万行导出 30 秒内完成')
+    expect(text).not.toContain('C2 导出任务可取消')
+    // 0009：revision 戳退役。
+    expect(text).not.toContain('此后账本变更不自动同步')
     // 回传轮回归锚：split/dev 的 declare 骨架不携带提议键（共享 plain 面未被殃及）。
     expect(text).toContain('```yaml\n# skyaxis-declare\n# knowledge 条目形如（type: business|convention）：\n#   - type: convention\n#     title: 标题\n#     draft: 内容\nknowledge: []\nstageReady: false\n```')
     expect(text).not.toContain('criteria:')
@@ -391,7 +399,7 @@ describe('buildSow', () => {
     expect(text).not.toContain('[知识注入]')
   })
 
-  it('split 快照升级（0007 盲拆补齐）：定稿状态行 + 发现处置结论三组（带方案）+ 已答澄清 + 待裁决提议勿视为已定；record null 降级', () => {
+  it('split 快照瘦身（0009 D2 唯一真源=基线文档）：标准/发现处置/已答澄清/待裁决提议全部退役；定稿状态行与工作包快照在场；record null 降级', () => {
     const text = buildSow({
       ...baseCtx,
       purpose: 'split',
@@ -399,6 +407,7 @@ describe('buildSow', () => {
         stage: 'plan',
         criteria,
         understandApprovedAt: '2026-10-13T08:00:00.000Z',
+        workPackages: [wp('WP1', { title: '导出队列' })],
         findings: [
           finding('f1', { status: 'open', category: 'risk', severity: 'high', title: '连接池争用' }),
           finding('f2', { status: 'resolved', resolution: '走异步队列', title: '同步导出阻塞' }),
@@ -415,45 +424,56 @@ describe('buildSow', () => {
         },
       }),
     })
+    // 瘦身后的在场项：定稿状态行 + 工作包快照。
     expect(text).toContain('需求理解定稿：已定稿（2026-10-13）——理解阶段的裁决视为已定输入')
-    expect(text).toContain('已有验收标准（拆分的验收面——每条至少被一个工作包覆盖）：')
-    expect(text).toContain('- C1 十万行导出 30 秒内完成')
-    expect(text).toContain('- 未处置：[风险·高] 连接池争用')
-    expect(text).toContain('- 已解决：[冲突·高] 同步导出阻塞 —— 方案：走异步队列')
-    expect(text).toContain('- 不处理：[冲突·高] 历史命名不统一')
-    expect(text).toContain('已答澄清（需求方已回答，视为已定事实）：')
-    expect(text).toContain('- 问：批量上限？ / 已答：百万行')
-    expect(text).toContain('待裁决提议（用户裁决中——勿重复提议、勿视为已定）：')
-    expect(text).toContain('- [风险·低] 提议发现')
-    expect(text).toContain('- 澄清：未答问题')
+    expect(text).toContain('- WP1 导出队列 · 已登记（planned）')
+    // 退役项（0009 D2）：这些真源内容都在基线文档里，任务书不再二次表达。
+    expect(text).not.toContain('已有验收标准')
+    expect(text).not.toContain('- C1 十万行导出 30 秒内完成')
+    expect(text).not.toContain('未处置：[风险·高] 连接池争用')
+    expect(text).not.toContain('已解决：[冲突·高] 同步导出阻塞 —— 方案：走异步队列')
+    expect(text).not.toContain('不处理：[冲突·高] 历史命名不统一')
+    expect(text).not.toContain('已答澄清（需求方已回答，视为已定事实）：')
+    expect(text).not.toContain('待裁决提议（用户裁决中——勿重复提议、勿视为已定）：')
+    expect(text).not.toContain('- [风险·低] 提议发现')
+    expect(text).not.toContain('- 澄清：未答问题')
+    // 约束/工作流/输出引用切换到基线文档（0009 文案对齐）。
+    expect(text).toContain('通读需求基线文档与需求快照')
+    expect(text).toContain('基线文档「验收标准」节逐条 C 编号')
+    expect(text).toContain('（基线文档 FR/C 编号 或 代码 路径:行号）')
+    expect(text).toContain('依据（基线文档 FR/C 编号 / 代码 路径:行号）')
 
     // 未定稿态 + record null 降级。
     const notFinalized = buildSow({ ...baseCtx, purpose: 'split', record: record({ criteria }) })
     expect(notFinalized).toContain('需求理解定稿：未定稿——理解阶段的裁决可能仍在进行')
     const noRecord = buildSow({ ...baseCtx, purpose: 'split', record: null })
-    expect(noRecord).toContain('（工作台记录未建立——尚无标准与发现可用，拆分只能基于需求描述与 PRD）')
+    expect(noRecord).toContain('（工作台记录未建立——尚无基线文档可用，拆分只能基于需求描述）')
   })
 
-  it('split 输入段（0007）：复用 analysis 路径引用——工作区根 + prds/ 重点章节指针 + repos/ 行 + PRD 正文零嵌入', () => {
+  it('split 输入段（0009 D2）：PRD 列表整段退役——工作区根 + 未定稿诚实行 + repos/ 行；PRD 正文与清单零出现', () => {
     const text = buildSow({
       ...baseCtx,
       purpose: 'split',
       requirement: { ...requirement, workspacePath: 'C:\\ws\\repo-a' },
       record: record({ criteria }),
+      // 传入了也被忽略——split 的 PRD 面（清单/焦点/指针）整体退役。
       prdDocumentName: '导出需求.md',
-      prdSections: [{ heading: '导出范围', text: '全文正文不该出现' }, { heading: '性能要求', text: '全文正文不该出现2' }],
+      prdSections: [{ heading: '导出范围', text: '全文正文不该出现' }],
       analysisPrdDocs: [{ name: '导出需求.md', sizeBytes: 2048 }, { name: '其他.md' }],
       analysisRepos: [{ dirName: 'order-svc', poolName: '订单服务', branch: 'feat/export' }],
       analysisUnknownRepos: 1,
     })
     expect(text).toContain('工作区根目录：C:/ws/repo-a（下列相对路径以此为根）')
-    expect(text).toContain('- 必读 prds/导出需求.md（2.0 KB）——重点章节：导出范围、性能要求；其余章节按需')
-    expect(text).toContain('- 按需 prds/其他.md')
+    // 未定稿诚实行（record 无 understandApprovedAt/docHash）。
+    expect(text).toContain('（需求理解未定稿——尚无锚定的需求基线文档；本次拆分以需求描述为唯一需求依据。）')
+    // PRD 清单整段退役：任何 prds/ 行都不出现。
+    expect(text).not.toContain('必读 prds/')
+    expect(text).not.toContain('按需 prds/')
+    expect(text).not.toContain('PRD 文档（prds/ 目录')
+    expect(text).not.toContain('PRD 文档列表未可得')
     expect(text).toContain('- 必读 repos/order-svc（订单服务，分支 feat/export）——与需求相关的模块与现有实现')
     expect(text).toContain('（另有 1 个已关联仓库的克隆目录名暂不可得——可列举 repos/ 目录对照）')
-    // 路径引用纪律（research 0008 推广）：勾选章节的正文绝不嵌入。
     expect(text).not.toContain('全文正文不该出现')
-    expect(text).not.toContain('全文正文不该出现2')
   })
 
   it('consolidate 九节（0008）：标题/目标/快照/输入/参考知识/约束/工作流/输出 + 十节文档模板', () => {
@@ -481,6 +501,8 @@ describe('buildSow', () => {
     expect(text).toContain('## 澄清记录')
     expect(text).toContain('## 假设')
     expect(text).toContain('## 变更记录')
+    // 0009：revision 戳退役（三 AI 语境统一）。
+    expect(text).not.toContain('此后账本变更不自动同步')
   })
 
   it('consolidate 快照嵌全量素材（0008 与 analysis/split 行级摘要的分工）：发现带 detail+方案全文、澄清全文、待裁决禁写、未处置警示', () => {
@@ -546,7 +568,7 @@ describe('buildSow', () => {
     expect(unbound).toContain('（本需求未绑定工作区——无法指定基线文件路径，请在会话内交付文档全文。绑定工作区后重新生成任务书。）')
   })
 
-  it('0008 split 输入段基线行：定稿带锚 ⇒ 首行必读需求基线文档；未定稿/无锚 ⇒ 无该行（依据账本不依据盘）', () => {
+  it('0008/0009 split 输入段基线三态：定稿带锚 ⇒ 必读行；定稿无锚 ⇒ 诚实行；未定稿 ⇒ 诚实行（依据账本不依据盘）', () => {
     const withAnchor = buildSow({
       ...baseCtx,
       purpose: 'split',
@@ -558,14 +580,24 @@ describe('buildSow', () => {
       }),
     })
     expect(withAnchor).toContain('- 必读 .skyaxis/requirements/11111111-1111-4111-8111-111111111111.md——需求基线文档，本拆分的唯一需求真源')
-    // 无锚（未定稿或定稿无文档）⇒ 无该行。
-    const noAnchor = buildSow({
+    expect(withAnchor).not.toContain('尚无锚定的需求基线文档')
+    // 定稿无锚（pre-0008 定稿 / 定稿时工作区无文档）⇒ 诚实行而非静默。
+    const finalizedNoAnchor = buildSow({
       ...baseCtx,
       purpose: 'split',
       requirement: { ...requirement, workspacePath: 'C:\\ws\\repo-a' },
       record: record({ criteria, understandApprovedAt: AT, understandBaseline: { at: AT, criteria: [], findings: [], clarifications: [] } }),
     })
-    expect(noAnchor).not.toContain('需求基线文档')
+    expect(finalizedNoAnchor).not.toContain('唯一需求真源')
+    expect(finalizedNoAnchor).toContain('（需求理解已定稿但未锚定基线文档——定稿时工作区无此文档；本次拆分以需求描述为唯一需求依据。）')
+    // 未定稿 ⇒ 诚实行。
+    const notFinalized = buildSow({
+      ...baseCtx,
+      purpose: 'split',
+      requirement: { ...requirement, workspacePath: 'C:\\ws\\repo-a' },
+      record: record({ criteria }),
+    })
+    expect(notFinalized).toContain('（需求理解未定稿——尚无锚定的需求基线文档；本次拆分以需求描述为唯一需求依据。）')
     // analysis/consolidate purpose 不出该行（专属 split 的下游衔接）。
     const analysisSow = buildSow({
       ...baseCtx,
@@ -574,6 +606,7 @@ describe('buildSow', () => {
       record: record({ criteria, understandApprovedAt: AT, understandBaseline: { at: AT, criteria: [], findings: [], clarifications: [], docHash: 'a'.repeat(64) } }),
     })
     expect(analysisSow).not.toContain('唯一需求真源')
+    expect(analysisSow).not.toContain('尚无锚定的需求基线文档')
   })
 
   it('dev 语境全段（approvedPlanText 有 + includeDeps）：边界/依赖/覆盖标准/已批准计划/依赖摘要/dev declare', () => {
@@ -652,8 +685,8 @@ describe('buildSow', () => {
     expect(buildSow(baseCtx)).not.toContain('[知识注入]')
   })
 
-  it('revision 戳收尾：revision 数 + generatedAt 日期部分', () => {
-    const text = buildSow({ ...baseCtx, revision: 7, generatedAt: '2026-09-29T12:34:56.789Z' })
+  it('revision 戳收尾（0009 收窄为 dev/review 五段路径专属）：revision 数 + generatedAt 日期部分', () => {
+    const text = buildSow({ ...baseCtx, purpose: 'dev', record: record({ stage: 'implement', workPackages: [wp('WP1')] }), revision: 7, generatedAt: '2026-09-29T12:34:56.789Z' })
     expect(text.endsWith('生成于 revision 7 · 2026-09-29 · 此后账本变更不自动同步')).toBe(true)
   })
 })
