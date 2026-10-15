@@ -545,6 +545,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       | 'split.stalePrd'
       | 'split.staleUnderstand'
       | 'split.staleClarifications'
+      | 'split.staleRequirementDoc'
       | 'split.staleReason'
       | 'split.statCovered'
       | 'split.statHole'

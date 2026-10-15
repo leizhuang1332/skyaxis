@@ -107,4 +107,31 @@ describe('splitStaleReasons — 0007 两新臂', () => {
     })
     expect(splitStaleReasons(multi, PRD)).toEqual(['findings', 'understand'])
   })
+
+  it('0008 requirementDoc 臂：重定稿换锚触发；锚未动安静；撤销定稿触发；未定稿双缺安静', () => {
+    const finalize = (docHash: string, at = AT): Partial<WorkbenchRecord> => ({
+      understandApprovedAt: at,
+      understandBaseline: { at, criteria: [], findings: [], clarifications: [], docHash },
+    })
+    // 批准时无锚、批准后首次定稿带锚 ⇒ 触发（且 understand 臂并存）。
+    const finalizedAfter = approved({}, finalize('a'.repeat(64)) as Partial<WorkbenchRecord>)
+    expect(splitStaleReasons(finalizedAfter, PRD)).toEqual(['understand', 'requirementDoc'])
+    // 锚未动（两侧戳与锚都匹配）⇒ 安静。
+    const stable = approved(
+      { understandApprovedAt: AT, requirementDocHash: 'a'.repeat(64) },
+      finalize('a'.repeat(64)) as Partial<WorkbenchRecord>,
+    )
+    expect(splitStaleReasons(stable, PRD)).toEqual([])
+    // 换锚（重新整理后重新定稿）⇒ 双臂触发。
+    const swapped = approved(
+      { understandApprovedAt: '2026-10-10T00:00:00.000Z', requirementDocHash: 'a'.repeat(64) },
+      finalize('b'.repeat(64)) as Partial<WorkbenchRecord>,
+    )
+    expect(splitStaleReasons(swapped, PRD)).toEqual(['understand', 'requirementDoc'])
+    // 批准时带戳带锚、后来撤销定稿（戳与基线一并摘除）⇒ 双臂触发（understand：基线侧戳仍在 ≠ record 侧 undefined——0007 既有语义）。
+    const revoked = approved({ understandApprovedAt: AT, requirementDocHash: 'a'.repeat(64) })
+    expect(splitStaleReasons(revoked, PRD)).toEqual(['understand', 'requirementDoc'])
+    // 未定稿双缺（pre-0008 基线 + 从未定稿）⇒ 安静。
+    expect(splitStaleReasons(approved(), PRD)).toEqual([])
+  })
 })

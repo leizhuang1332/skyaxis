@@ -184,6 +184,7 @@ interface WorkbenchDictionary {
   readonly 'split.staleFindings': string
   readonly 'split.staleUnderstand': string
   readonly 'split.staleClarifications': string
+  readonly 'split.staleRequirementDoc': string
   readonly 'split.stillValid': string
   readonly 'split.reSplit': string
   readonly 'split.reSplitBlocked': string
@@ -698,6 +699,7 @@ const zh: WorkbenchDictionary = {
   'split.staleFindings': '发现处置',
   'split.staleUnderstand': '理解已重新定稿',
   'split.staleClarifications': '澄清答案已变化',
+  'split.staleRequirementDoc': '需求基线文档已变更',
   'split.stillValid': '确认仍有效',
   'split.reSplit': '重新拆分',
   'split.reSplitBlocked': '有工作包已开工（开发中/待验收/已验收），无法重新拆分——请先处理其计划与会话。',
@@ -1185,6 +1187,7 @@ const en: WorkbenchDictionary = {
   'split.staleFindings': 'finding dispositions',
   'split.staleUnderstand': 'understanding re-finalized',
   'split.staleClarifications': 'clarification answers changed',
+  'split.staleRequirementDoc': 'requirement baseline doc changed',
   'split.stillValid': 'Confirm still valid',
   'split.reSplit': 'Re-split',
   'split.reSplitBlocked': 'A work package has started (in dev / built / accepted) and cannot be re-split — resolve its plans and sessions first.',

@@ -482,6 +482,7 @@ describe('workbench: dictionaries', () => {
       'split.staleFindings',
       'split.stalePrd',
       'split.staleReason',
+      'split.staleRequirementDoc',
       'split.staleUnderstand',
       'split.statCovered',
       'split.statHole',

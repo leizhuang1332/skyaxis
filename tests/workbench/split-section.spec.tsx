@@ -193,11 +193,12 @@ describe('SplitSection（S2 拆分清单 + 硬门①）', () => {
     await waitFor(() => expect(controller.revokeSplitApproval).toHaveBeenCalledWith(RID))
   })
 
-  it('0007 stale 两新成因：理解已重新定稿 + 澄清答案已变化，按「 · 」拼接进 stale 行', async () => {
+  it('0007+0008 stale 三新成因：理解已重新定稿 + 澄清答案已变化 + 需求基线文档已变更，按「 · 」拼接进 stale 行', async () => {
     subject(slot({ record: splitRecord({
       splitApprovedAt: AT,
       splitBaseline: { at: AT, prd: [], disposedFindings: 0, understandApprovedAt: '2026-10-10T00:00:00.000Z', answeredClarifications: 0 },
       understandApprovedAt: '2026-10-13T00:00:00.000Z',
+      understandBaseline: { at: '2026-10-13T00:00:00.000Z', criteria: [], findings: [], clarifications: [], docHash: 'b'.repeat(64) },
       analysis: {
         session: { sessionId: 'sess-a', boundAt: AT },
         findings: [],
@@ -206,8 +207,8 @@ describe('SplitSection（S2 拆分清单 + 硬门①）', () => {
       },
     }) }))
     // jsdom 无 PRD fetch ⇒ prdDocs null ⇒ PRD 臂静默；findings 计数持平 ⇒
-    // 只剩 understand + clarifications 两新臂。
-    expect(await screen.findByText(/理解已重新定稿 · 澄清答案已变化/)).toBeTruthy()
+    // understand + clarifications + requirementDoc（无锚基线 vs 带锚定稿）三新臂。
+    expect(await screen.findByText(/理解已重新定稿 · 澄清答案已变化 · 需求基线文档已变更/)).toBeTruthy()
     expect(screen.getByRole('button', { name: workbenchZh['split.stillValid'] })).toBeTruthy()
   })
 

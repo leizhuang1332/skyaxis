@@ -546,6 +546,36 @@ describe('buildSow', () => {
     expect(unbound).toContain('（本需求未绑定工作区——无法指定基线文件路径，请在会话内交付文档全文。绑定工作区后重新生成任务书。）')
   })
 
+  it('0008 split 输入段基线行：定稿带锚 ⇒ 首行必读需求基线文档；未定稿/无锚 ⇒ 无该行（依据账本不依据盘）', () => {
+    const withAnchor = buildSow({
+      ...baseCtx,
+      purpose: 'split',
+      requirement: { ...requirement, workspacePath: 'C:\\ws\\repo-a' },
+      record: record({
+        criteria,
+        understandApprovedAt: AT,
+        understandBaseline: { at: AT, criteria: [], findings: [], clarifications: [], docHash: 'a'.repeat(64) },
+      }),
+    })
+    expect(withAnchor).toContain('- 必读 .skyaxis/requirements/11111111-1111-4111-8111-111111111111.md——需求基线文档，本拆分的唯一需求真源')
+    // 无锚（未定稿或定稿无文档）⇒ 无该行。
+    const noAnchor = buildSow({
+      ...baseCtx,
+      purpose: 'split',
+      requirement: { ...requirement, workspacePath: 'C:\\ws\\repo-a' },
+      record: record({ criteria, understandApprovedAt: AT, understandBaseline: { at: AT, criteria: [], findings: [], clarifications: [] } }),
+    })
+    expect(noAnchor).not.toContain('需求基线文档')
+    // analysis/consolidate purpose 不出该行（专属 split 的下游衔接）。
+    const analysisSow = buildSow({
+      ...baseCtx,
+      purpose: 'analysis',
+      requirement: { ...requirement, workspacePath: 'C:\\ws\\repo-a' },
+      record: record({ criteria, understandApprovedAt: AT, understandBaseline: { at: AT, criteria: [], findings: [], clarifications: [], docHash: 'a'.repeat(64) } }),
+    })
+    expect(analysisSow).not.toContain('唯一需求真源')
+  })
+
   it('dev 语境全段（approvedPlanText 有 + includeDeps）：边界/依赖/覆盖标准/已批准计划/依赖摘要/dev declare', () => {
     const target = wp('WP1', {
       title: '导出队列',

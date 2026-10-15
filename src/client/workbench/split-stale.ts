@@ -39,7 +39,7 @@ export function buildSplitBaseline(prd: readonly PrdDocSummary[]): SplitBaseline
   return { prd: prd.map((doc) => ({ name: doc.name, size: doc.size, modifiedAt: doc.modifiedAt })) }
 }
 
-export type SplitStaleReason = 'prd' | 'findings' | 'understand' | 'clarifications'
+export type SplitStaleReason = 'prd' | 'findings' | 'understand' | 'clarifications' | 'requirementDoc'
 
 /**
  * Why the approved split may be stale. Empty = not stale, OR no baseline to
@@ -74,5 +74,11 @@ export function splitStaleReasons(record: WorkbenchRecord, prd: readonly PrdDocS
   if (record.understandApprovedAt !== baseline.understandApprovedAt) reasons.push('understand')
   const answeredNow = (record.analysis?.clarifications ?? []).filter((row) => row.answer !== undefined).length
   if (answeredNow !== (baseline.answeredClarifications ?? 0)) reasons.push('clarifications')
+  // 0008 D4: the requirement-baseline-doc anchor. Compare is FINALIZE-STATE
+  // only (record.understandBaseline?.docHash vs the approval's snapshot) — a
+  // re-finalize with a fresh doc hash fires; a re-CONSOLIDATION without a
+  // re-finalize, or a manual doc edit, does NOT (pure function, zero disk
+  // reads — the S1 doc card's read-time contentTampered covers those).
+  if (record.understandBaseline?.docHash !== baseline.requirementDocHash) reasons.push('requirementDoc')
   return reasons
 }

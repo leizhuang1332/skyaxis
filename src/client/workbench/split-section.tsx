@@ -29,12 +29,13 @@ type Editing = { kind: 'closed' } | { kind: 'create' } | { kind: 'edit'; workPac
 /** Not-yet-started statuses — a re-split is legal only while every active package is one of these. */
 const RE_SPLITTABLE_STATUSES: readonly WorkbenchWorkPackage['status'][] = ['planned', 'plan-draft', 'plan-approved']
 
-/** Stale reason → copy key (0007: four arms — the ternary became a Record). */
-const STALE_REASON_KEY: Record<'prd' | 'findings' | 'understand' | 'clarifications', Parameters<WorkbenchT>[0]> = {
+/** Stale reason → copy key (0007 four arms; 0008 adds requirementDoc). */
+const STALE_REASON_KEY: Record<'prd' | 'findings' | 'understand' | 'clarifications' | 'requirementDoc', Parameters<WorkbenchT>[0]> = {
   prd: 'split.stalePrd',
   findings: 'split.staleFindings',
   understand: 'split.staleUnderstand',
   clarifications: 'split.staleClarifications',
+  requirementDoc: 'split.staleRequirementDoc',
 }
 
 export function SplitSection(props: {

@@ -543,6 +543,12 @@ function analysisInputBlock(ctx: SowContext): string {
     return lines.join('\n')
   }
   lines.push(`工作区根目录：${toDisplayPath(workspace)}（下列相对路径以此为根）`)
+  // 0008: the finalized requirement baseline doc is the split session's
+  // PRIMARY input — decided by the LEDGER (understandBaseline.docHash present
+  // = a finalized doc was anchored), never by probing the disk.
+  if (ctx.purpose === 'split' && ctx.record?.understandBaseline?.docHash !== undefined) {
+    lines.push(`- 必读 ${requirementDocRelPath(ctx.requirement.id)}——需求基线文档，本拆分的唯一需求真源（验收标准以账本为准，其余需求表达以文档为权威；文档与你所见快照冲突时在报告中列出，不要自行取舍）`)
+  }
   const docs = ctx.analysisPrdDocs
   const focus = ctx.prdDocumentName
   const headings = (ctx.prdSections ?? []).map((section) => (section.heading.length > 0 ? section.heading : PREAMBLE_HEADING))
