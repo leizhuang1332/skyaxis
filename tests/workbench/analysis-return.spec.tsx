@@ -140,6 +140,8 @@ function fakeController(): WorkbenchController & {
     // network-failure face (the honest error hint; these tests assert the
     // watcher and proposals, not the panel body).
     analysisReportContent: vi.fn(async () => undefined),
+    // 0008: the S1 baseline-doc panel mounts alongside the report panel.
+    requirementDocContent: vi.fn(async () => undefined),
     dispose: vi.fn(),
   } as never
 }

@@ -475,6 +475,12 @@ export function createWorkbenchFetcher() {
       return artifactContentResult(await request(`${WORKBENCH_ARTIFACTS_PATH}?${query.toString()}`, { method: 'GET' }, signal))
     },
 
+    /** 0008: the requirement-baseline doc file (kind=requirement-doc face; 404 = honest missing). */
+    async requirementDocContent(requirementId: string, signal?: AbortSignal): Promise<WorkbenchArtifactContentResult> {
+      const query = new URLSearchParams({ kind: 'requirement-doc', requirementId })
+      return artifactContentResult(await request(`${WORKBENCH_ARTIFACTS_PATH}?${query.toString()}`, { method: 'GET' }, signal))
+    },
+
     // --- P3b: declare-block route (fetch / preview / commit) ---
 
     async declareFetch(sessionId: string, signal?: AbortSignal): Promise<DeclareFetchResult> {

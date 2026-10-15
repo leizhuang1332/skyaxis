@@ -27,6 +27,7 @@ import { FindingsSection } from './findings-section.js'
 import { CriteriaSection } from './criteria-section.js'
 import { ClarificationsSection } from './clarifications-section.js'
 import { ReportSection } from './report-section.js'
+import { RequirementDocSection } from './requirement-doc-section.js'
 import { SplitSection } from './split-section.js'
 import { BoardSection } from './board-section.js'
 import { DeliverSection } from './deliver-section.js'
@@ -210,7 +211,7 @@ export function WorkbenchTabBody(props: {
   )
   const [viewing, setViewing] = useState<WorkbenchStage>('understand')
   // SOW modal state — view-owned so every section entry shares one instance.
-  const [sow, setSow] = useState<{ purpose: 'analysis' | 'split' | 'dev' | 'review'; workPackage?: WorkbenchWorkPackage } | null>(null)
+  const [sow, setSow] = useState<{ purpose: 'analysis' | 'split' | 'consolidate' | 'dev' | 'review'; workPackage?: WorkbenchWorkPackage } | null>(null)
   // 挂账轮: artifact-reconciliation modal — view-owned like the SOW instance;
   // phase-independent entry (the scan's data source is the endpoint, not the
   // slot — honesty means surfacing its own failures, not hiding the button).
@@ -221,6 +222,24 @@ export function WorkbenchTabBody(props: {
   const [understandRevokeOpen, setUnderstandRevokeOpen] = useState(false)
   const [understandRevokeAck, setUnderstandRevokeAck] = useState(false)
   const [understandExportOpen, setUnderstandExportOpen] = useState(false)
+  // 0008: the ack modal's doc-presence disclosure. docHash is minted AT
+  // finalize, so it cannot be read off the baseline (empty on first
+  // finalize) — the modal probes the file itself on open (the report-section
+  // existence-fetch precedent; probing ⇒ row not rendered yet).
+  const [understandAckDoc, setUnderstandAckDoc] = useState<'probing' | 'doc' | 'no-doc'>('probing')
+  useEffect(() => {
+    if (!understandApproveOpen) {
+      setUnderstandAckDoc('probing')
+      return undefined
+    }
+    const abort = new AbortController()
+    setUnderstandAckDoc('probing')
+    void controller.requirementDocContent(requirementId, abort.signal).then((result) => {
+      if (abort.signal.aborted) return
+      setUnderstandAckDoc(result !== undefined && result.kind === 'ok' ? 'doc' : 'no-doc')
+    })
+    return () => { abort.abort() }
+  }, [understandApproveOpen, controller, requirementId])
   // Follow the record's stage on first ready (and re-arm on requirement
   // switches); later refreshes never move the user's viewing choice.
   const syncedRef = useRef(false)
@@ -449,6 +468,14 @@ export function WorkbenchTabBody(props: {
                   <button
                     type="button"
                     className={styles.ghostButton}
+                    disabled={slot.busy}
+                    onClick={() => { setSow({ purpose: 'consolidate' }) }}
+                  >
+                    {t('understand.consolidateButton')}
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.ghostButton}
                     disabled={slot.busy || !readiness.exportable}
                     onClick={() => { setUnderstandExportOpen(true) }}
                   >
@@ -459,6 +486,9 @@ export function WorkbenchTabBody(props: {
             ) : null}
             {viewing === 'understand' ? (
               <ReportSection key={`report-${requirementId}`} t={t} controller={controller} requirementId={requirementId} workspacePath={props.requirement.workspacePath.trim()} />
+            ) : null}
+            {viewing === 'understand' ? (
+              <RequirementDocSection key={`reqdoc-${requirementId}`} t={t} controller={controller} requirementId={requirementId} workspacePath={props.requirement.workspacePath.trim()} />
             ) : null}
             {viewing === 'understand' ? (
               <FindingsSection key={`findings-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} onOpenSow={() => { setSow({ purpose: 'analysis' }) }} onRetrySeed={retryAnalysisSeed} seedMiss={analysisDue ? seedMiss : undefined} seedScan={analysisDue ? seedScan : undefined} />
@@ -557,7 +587,8 @@ export function WorkbenchTabBody(props: {
       />
       {/* 0007 定稿软门 — ack-confirm finalize (the split approve-modal shape:
           stats in the description, checkbox-gated confirm; warnings NEVER
-          block — proceeding with known risks is the user's call). */}
+          block — proceeding with known risks is the user's call). 0008 adds
+          the doc-presence disclosure (软门：无文档可定稿，有则盖章即锚定). */}
       <Modal
         open={understandApproveOpen}
         onClose={() => { setUnderstandApproveOpen(false) }}
@@ -581,6 +612,8 @@ export function WorkbenchTabBody(props: {
           </>
         }
       >
+        {understandAckDoc === 'doc' ? <div className={styles.formHint}>{t('understand.ackDocWillAnchor')}</div> : null}
+        {understandAckDoc === 'no-doc' ? <div className={styles.formHint}>{t('understand.ackNoDoc')}</div> : null}
         <div className={styles.ackRow}>
           <input type="checkbox" checked={understandApproveAck} onChange={() => { setUnderstandApproveAck(!understandApproveAck) }} />
           <span>{t('understand.approveAck')}</span>

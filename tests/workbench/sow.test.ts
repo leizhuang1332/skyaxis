@@ -456,6 +456,96 @@ describe('buildSow', () => {
     expect(text).not.toContain('全文正文不该出现2')
   })
 
+  it('consolidate 九节（0008）：标题/目标/快照/输入/参考知识/约束/工作流/输出 + 十节文档模板', () => {
+    const text = buildSow({
+      ...baseCtx,
+      purpose: 'consolidate',
+      record: record({ criteria }),
+    })
+    expect(text).toContain('# skyaxis 需求整理任务书 · 导出功能改造')
+    expect(text).toContain('## 目标')
+    expect(text).toContain('## 需求快照（工作台账本，生成时快照——全量素材，整理的原料）')
+    expect(text).toContain('## 输入（用文件读取能力按路径阅读；不要凭记忆，不要猜）')
+    expect(text).toContain('## 参考知识（工作台注入，已审定）')
+    expect(text).toContain('## 约束')
+    expect(text).toContain('## 工作流')
+    expect(text).toContain('## 输出')
+    // 十节文档模板骨架在场。
+    expect(text).toContain('# 需求基线 · <需求标题>')
+    expect(text).toContain('## 非目标')
+    expect(text).toContain('## 术语表')
+    expect(text).toContain('## 功能需求')
+    expect(text).toContain('## 验收标准')
+    expect(text).toContain('## 边界与异常')
+    expect(text).toContain('## 已裁决风险')
+    expect(text).toContain('## 澄清记录')
+    expect(text).toContain('## 假设')
+    expect(text).toContain('## 变更记录')
+  })
+
+  it('consolidate 快照嵌全量素材（0008 与 analysis/split 行级摘要的分工）：发现带 detail+方案全文、澄清全文、待裁决禁写、未处置警示', () => {
+    const text = buildSow({
+      ...baseCtx,
+      purpose: 'consolidate',
+      record: record({
+        criteria,
+        understandApprovedAt: '2026-10-14T08:00:00.000Z',
+        findings: [
+          finding('f1', { status: 'resolved', resolution: '走异步队列', title: '同步导出阻塞', detail: '现有实现同步拉全量，t_order 超时' }),
+          finding('f2', { status: 'open', title: '连接池争用' }),
+        ],
+        analysis: {
+          session: { sessionId: 'sess-a', boundAt: AT },
+          findings: [{ id: '99999999-9999-4999-8999-999999999999', category: 'risk', severity: 'low', title: '提议发现' }],
+          criteria: [],
+          clarifications: [
+            { id: 'q1', question: '批量上限是十万还是百万？', answer: '百万行，且要可取消', answeredAt: AT },
+            { id: 'q2', question: '未答问题' },
+          ],
+        },
+      }),
+    })
+    // detail 与方案全文进快照（整理需要完整素材）。
+    expect(text).toContain('现有实现同步拉全量，t_order 超时')
+    expect(text).toContain('方案：走异步队列')
+    // 澄清全文。
+    expect(text).toContain('- 问：批量上限是十万还是百万？\n  答：百万行，且要可取消')
+    // 未处置警示 + 待裁决禁写 + 重整理编号纪律。
+    expect(text).toContain('不得在整理中静默解决或弱化')
+    expect(text).toContain('待裁决提议（用户裁决中——一律不得写入文档，视为不存在）')
+    expect(text).toContain('当前已定稿于 2026-10-14——本次为重新整理：保持既有 FR 编号稳定，不回收不重排')
+    // 约束纪律文案（C 对齐 / 澄清回填 / 溯源 / 假设）。
+    expect(text).toContain('验收标准 C 编号与快照逐条对应，不增不删不改号')
+    expect(text).toContain('不留自相矛盾的新旧双表述')
+    expect(text).toContain('PRD#章节 / 发现编号 / 澄清来源')
+    expect(text).toContain('[ASSUMPTION] 标记 + 文末索引')
+    expect(text).not.toContain('criteria:')
+    expect(text).not.toContain('findings 每条')
+  })
+
+  it('consolidate 输入段：全部 PRD 必读（无重点章节指针）；record null 降级；未绑定工作区输出节给会话内交付警示', () => {
+    const text = buildSow({
+      ...baseCtx,
+      purpose: 'consolidate',
+      requirement: { ...requirement, workspacePath: 'C:\\ws\\repo-a' },
+      record: record({ criteria }),
+      analysisPrdDocs: [{ name: '导出需求.md', sizeBytes: 2048 }, { name: '其他.md' }],
+      analysisRepos: [{ dirName: 'order-svc', poolName: '订单服务', branch: 'feat/export' }],
+    })
+    expect(text).toContain('PRD 文档（prds/ 目录，全部通读——整理以原文为底，不能只读节选）：')
+    expect(text).toContain('- 必读 prds/导出需求.md（2.0 KB）')
+    expect(text).toContain('- 必读 prds/其他.md')
+    expect(text).not.toContain('重点章节')
+    expect(text).toContain('.skyaxis/requirements/')
+    expect(text).toContain('整理结束时把完整文档写入基线文件')
+
+    const noRecord = buildSow({ ...baseCtx, purpose: 'consolidate', record: null })
+    expect(noRecord).toContain('（工作台记录未建立——尚无裁决可用，整理只能基于 PRD 原文）')
+
+    const unbound = buildSow({ ...baseCtx, purpose: 'consolidate', record: record({ criteria }) })
+    expect(unbound).toContain('（本需求未绑定工作区——无法指定基线文件路径，请在会话内交付文档全文。绑定工作区后重新生成任务书。）')
+  })
+
   it('dev 语境全段（approvedPlanText 有 + includeDeps）：边界/依赖/覆盖标准/已批准计划/依赖摘要/dev declare', () => {
     const target = wp('WP1', {
       title: '导出队列',

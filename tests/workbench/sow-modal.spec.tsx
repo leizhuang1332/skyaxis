@@ -191,6 +191,28 @@ describe('SowModal（SOW 生成 Modal）', () => {
     expect(previewText(empty)).toContain('（prds/ 目录暂无文档——拆分规划只能基于需求描述与代码）')
   })
 
+  it('0008 consolidate 预览：无章节勾选（loadDoc 链跳过）+ 全必读清单 + 基线文件路径段；正文零嵌入', async () => {
+    const fetchPrdText = vi.fn(async () => '# 背景\n背景正文')
+    const rendered = subject({ purpose: 'consolidate' as never, fetchPrdList: async () => [{ name: 'a.md' }, { name: 'b.md' }], fetchPrdText })
+
+    // consolidate 不拉正文（无章节可勾）——唯一一次 fetch 是列表。
+    await waitFor(() => expect(previewText(rendered)).toContain('# skyaxis 需求整理任务书 · '))
+    expect(fetchPrdText).not.toHaveBeenCalled()
+    // 无勾选面：通读提示行在场，无 combobox / 无章节 checkbox。
+    expect(rendered.getByText(workbenchZh['sow.prdAllHint'])).toBeTruthy()
+    expect(rendered.queryByRole('combobox')).toBeNull()
+    expect(rendered.queryByRole('checkbox', { name: '背景' })).toBeNull()
+    // 全部文档必读（无重点章节指针），正文零嵌入。
+    const text = previewText(rendered)
+    expect(text).toContain('- 必读 prds/a.md')
+    expect(text).toContain('- 必读 prds/b.md')
+    expect(text).not.toContain('重点章节')
+    expect(text).not.toContain('背景正文')
+    // 输出节带基线文件路径 + 十节模板头。
+    expect(text).toContain('.skyaxis/requirements/')
+    expect(text).toContain('# 需求基线 · <需求标题>')
+  })
+
   it('知识命中计数行：{n} 只计 always+keyword，{size}/{cap} KB 一位小数；行渲染 [mode] 标题', async () => {
     const rendered = subject({
       knowledgeRecords: [

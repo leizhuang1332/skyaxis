@@ -149,6 +149,18 @@ interface WorkbenchDictionary {
   readonly 'understand.revokeDescription': string
   readonly 'understand.revokeAck': string
   readonly 'understand.revokeConfirm': string
+  // 0008 需求基线文档轮：整理任务书入口 + ack 文档态披露 + 基线文档卡片
+  readonly 'understand.consolidateButton': string
+  readonly 'understand.ackDocWillAnchor': string
+  readonly 'understand.ackNoDoc': string
+  readonly 'baseline.title': string
+  readonly 'baseline.missing': string
+  readonly 'baseline.noWorkspace': string
+  readonly 'baseline.pathPrefix': string
+  readonly 'baseline.tampered': string
+  readonly 'baseline.refresh': string
+  readonly 'baseline.preview': string
+  readonly 'baseline.loadError': string
   // split.* — S2 breakdown list + hard gate ①
   readonly 'split.sectionTitle': string
   readonly 'split.add': string
@@ -343,6 +355,8 @@ interface WorkbenchDictionary {
   readonly 'sow.workPackageButton': string
   readonly 'sow.title': string
   readonly 'sow.prdGroup': string
+  readonly 'sow.prdGroupConsolidate': string
+  readonly 'sow.prdAllHint': string
   readonly 'sow.prdEmpty': string
   readonly 'sow.prdLoadError': string
   readonly 'sow.prdPreamble': string
@@ -651,6 +665,18 @@ const zh: WorkbenchDictionary = {
   'understand.revokeDescription': '确定撤销需求理解定稿？定稿戳与基线快照将一并移除（活账本的裁决内容不受影响），S2 可能出现「理解已重新定稿」失效提示。',
   'understand.revokeAck': '我确定撤销定稿。',
   'understand.revokeConfirm': '确定撤销',
+  // 0008 需求基线文档轮
+  'understand.consolidateButton': '生成整理任务书',
+  'understand.ackDocWillAnchor': '检测到需求基线文档——定稿将锚定其当前内容（哈希）。此后文档变更会以失效提示披露。',
+  'understand.ackNoDoc': '尚无需求基线文档——可先生成整理任务书（不阻断定稿；无文档的定稿不锚定任何哈希）。',
+  'baseline.title': '需求基线文档',
+  'baseline.missing': '尚未生成——生成整理任务书投递后，AI 会把融合文档写入工作区。',
+  'baseline.noWorkspace': '本需求未绑定工作区——无基线文档可展示。',
+  'baseline.pathPrefix': '路径：',
+  'baseline.tampered': '内容与定稿锚定的版本不一致（可能被外部修改）——以工作台裁决为准，重新整理可刷新。',
+  'baseline.refresh': '刷新',
+  'baseline.preview': '预览需求基线文档',
+  'baseline.loadError': '读取失败，请重试。',
   'split.sectionTitle': '工作包拆分',
   'split.add': '＋ 工作包',
   'split.approve': '批准拆分',
@@ -838,6 +864,8 @@ const zh: WorkbenchDictionary = {
   'sow.workPackageButton': '生成工作包任务书',
   'sow.title': '生成任务书',
   'sow.prdGroup': 'PRD 重点章节',
+  'sow.prdGroupConsolidate': 'PRD 文档',
+  'sow.prdAllHint': '整理需通读全部 PRD 文档（不做章节节选），清单已列入任务书输入段。',
   'sow.prdEmpty': '该需求没有可用的 PRD 文档（在工作区 tab 上传后可用）。',
   'sow.prdLoadError': 'PRD 加载失败',
   'sow.prdPreamble': '（开篇）',
@@ -1124,6 +1152,18 @@ const en: WorkbenchDictionary = {
   'understand.revokeDescription': 'Revoke the understanding finalize? The stamp and baseline snapshot are removed together (live-ledger rulings stay); S2 may then show the understand stale hint.',
   'understand.revokeAck': 'I want to revoke the finalize.',
   'understand.revokeConfirm': 'Revoke',
+  // 0008 requirement baseline doc round
+  'understand.consolidateButton': 'Generate consolidation SOW',
+  'understand.ackDocWillAnchor': 'Requirement baseline doc detected — finalizing will anchor its current content (hash); later changes surface as a stale hint.',
+  'understand.ackNoDoc': 'No requirement baseline doc yet — you may generate the consolidation SOW first (not blocking: a doc-less finalize anchors no hash).',
+  'baseline.title': 'Requirement baseline doc',
+  'baseline.missing': 'Not generated yet — after you deliver the consolidation SOW, the AI writes the merged doc into the workspace.',
+  'baseline.noWorkspace': 'This requirement has no bound workspace — no baseline doc to show.',
+  'baseline.pathPrefix': 'Path: ',
+  'baseline.tampered': 'Content differs from the finalized anchor (possibly edited externally) — the ledger rulings stay authoritative; re-consolidate to refresh.',
+  'baseline.refresh': 'Refresh',
+  'baseline.preview': 'Preview requirement baseline doc',
+  'baseline.loadError': 'Read failed, please retry.',
   'split.sectionTitle': 'Work-package breakdown',
   'split.add': '＋ Work package',
   'split.approve': 'Approve split',
@@ -1311,6 +1351,8 @@ const en: WorkbenchDictionary = {
   'sow.workPackageButton': 'Generate work-package SOW',
   'sow.title': 'Generate statement of work',
   'sow.prdGroup': 'PRD focus sections',
+  'sow.prdGroupConsolidate': 'PRD documents',
+  'sow.prdAllHint': 'Consolidation reads every PRD document wholesale (no section selection) — the listing rides the SOW input block.',
   'sow.prdEmpty': 'No PRD documents available for this requirement (upload one in the workspace tab).',
   'sow.prdLoadError': 'Failed to load the PRD',
   'sow.prdPreamble': '(preamble)',

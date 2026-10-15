@@ -360,6 +360,12 @@ export function createWorkbenchController(store: WorkbenchStore, fetcher: Workbe
       return alive(result) ? result : undefined
     },
 
+    /** 0008: the requirement-baseline doc file (pure read, the analysisReportContent precedent). */
+    requirementDocContent: async (requirementId: string, signal?: AbortSignal) => {
+      const result = await fetcher.requirementDocContent(requirementId, signal)
+      return alive(result) ? result : undefined
+    },
+
     // --- P2: session binding + knowledge candidates (main union mutations) ---
 
     bindSession: (requirementId: string, id: string, sessionId: string, purpose: 'analysis' | 'dev' | 'review', signal?: AbortSignal) =>

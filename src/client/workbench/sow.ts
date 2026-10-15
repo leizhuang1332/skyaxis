@@ -30,7 +30,7 @@ import type {
   WorkbenchStageOrClosed,
   WorkbenchWorkPackage,
 } from '../../workbench-shared/protocol.js'
-import { analysisReportRelPath } from '../../workbench-shared/protocol.js'
+import { analysisReportRelPath, requirementDocRelPath } from '../../workbench-shared/protocol.js'
 import type { RequirementRecord } from '../../requirements-shared/protocol.js'
 
 // ---------------------------------------------------------------------------
@@ -197,7 +197,7 @@ export function knowledgeBytes(picks: readonly WorkbenchKnowledgeRecord[]): numb
 // ---------------------------------------------------------------------------
 
 export interface SowContext {
-  purpose: 'analysis' | 'split' | 'dev' | 'review'
+  purpose: 'analysis' | 'split' | 'consolidate' | 'dev' | 'review'
   requirement: RequirementRecord
   /** null = the workbench record is not established yet (first-use entry). */
   record: WorkbenchRecord | null
@@ -529,7 +529,9 @@ function analysisSnapshotBlock(ctx: SowContext): string {
 function analysisInputBlock(ctx: SowContext): string {
   // 0007: shared by analysis AND split (the purpose noun keeps the analysis
   // bytes IDENTICAL — only the split path reads differently).
-  const noun = ctx.purpose === 'analysis' ? '分析' : '拆分规划'
+  // 0008: consolidate joins — consolidation reads EVERY PRD wholesale (no
+  // key-section pointers), so the docs loop branches before the focus logic.
+  const noun = ctx.purpose === 'analysis' ? '分析' : ctx.purpose === 'consolidate' ? '整理' : '拆分规划'
   const lines = [
     '## 输入（用文件读取能力按路径阅读；不要凭记忆，不要猜）',
   ]
@@ -550,6 +552,14 @@ function analysisInputBlock(ctx: SowContext): string {
     lines.push('（PRD 文档列表未可得——可列举 prds/ 目录确认）')
   } else if (docs.length === 0) {
     lines.push(`（prds/ 目录暂无文档——${noun}只能基于需求描述与代码）`)
+  } else if (ctx.purpose === 'consolidate') {
+    // 0008: consolidation reads every doc WHOLESALE — no focus doc, no
+    // key-section pointers (the section-checkbox face hides in the modal).
+    lines.push('PRD 文档（prds/ 目录，全部通读——整理以原文为底，不能只读节选）：')
+    for (const doc of docs) {
+      const size = doc.sizeBytes !== undefined ? `（${kbSize(doc.sizeBytes)}）` : ''
+      lines.push(`- 必读 prds/${doc.name}${size}`)
+    }
   } else {
     lines.push('PRD 文档（prds/ 目录）：')
     for (const doc of docs) {
@@ -775,6 +785,154 @@ function splitOutputBlock(_ctx: SowContext): string {
 }
 
 // ---------------------------------------------------------------------------
+// Consolidate assembly (0008 需求基线文档轮) — the fifth purpose: the
+// consolidation session MERGES the original PRD with the adjudicated
+// findings/criteria/clarifications (+ knowledge background) into ONE
+// standard-structure requirement baseline doc, the file downstream consumes
+// as THE requirement source of truth. Unlike analysis/split the snapshot
+// embeds FULL-TEXT adjudication material (detail + resolution + whole Q&A) —
+// consolidation needs the complete raw material, not one-line summaries.
+// ---------------------------------------------------------------------------
+
+function consolidateGoalBlock(ctx: SowContext): string {
+  return [
+    '## 目标',
+    `为需求「${ctx.requirement.title}」把已裁决的需求理解整理成一份需求基线文档——以原始 PRD 为底，融合已采纳的分析发现、验收标准与澄清答案，去冗余、补背景、消除歧义，产出一份比原始 PRD 更准确、更完整、更适合后续 AI 会话阅读的标准需求文档。文档读者是后续的拆分/开发会话与需求评审人——他们以这份文档为需求的唯一真源。`,
+    '本阶段不做新的分析、不做拆分规划、不改任何代码——整理是表达，不是再裁决。',
+  ].join('\n')
+}
+
+function consolidateSnapshotBlock(ctx: SowContext): string {
+  const lines = [
+    '## 需求快照（工作台账本，生成时快照——全量素材，整理的原料）',
+    `标题：${ctx.requirement.title}`,
+    `描述：${ctx.requirement.description}`,
+  ]
+  if (ctx.record === null) {
+    lines.push('（工作台记录未建立——尚无裁决可用，整理只能基于 PRD 原文）')
+    return lines.join('\n')
+  }
+  // FULL-TEXT adjudication material — the one place the SOW embeds detail and
+  // resolution (analysis/split keep one-line summaries; consolidation rewrites
+  // the expression, so it needs everything).
+  lines.push('已采纳的验收标准（C 编号即文档验收标准节的编号——逐条对应，不增不删）：')
+  if (ctx.record.criteria.length === 0) lines.push('（尚无）')
+  for (const criterion of ctx.record.criteria) {
+    const source = criterion.sourceSection !== undefined && criterion.sourceSection.length > 0 ? `（出处 ${criterion.sourceSection}）` : ''
+    lines.push(`- ${criterion.id} ${criterion.text}${source}`)
+  }
+  lines.push('分析发现（全部，含处置结论——已解决带方案全文）：')
+  if (ctx.record.findings.length === 0) lines.push('（尚无）')
+  for (const finding of ctx.record.findings) {
+    const plan = finding.status === 'resolved' && finding.resolution !== undefined && finding.resolution.length > 0 ? `；方案：${finding.resolution}` : ''
+    const statusLabel = finding.status === 'open' ? '未处置' : finding.status === 'resolved' ? '已解决' : '不处理'
+    lines.push(`- [${FINDING_CATEGORY_LABEL[finding.category]}·${SEVERITY_LABEL[finding.severity]}] ${finding.title}（${statusLabel}）${finding.detail.length > 0 ? `：${finding.detail}` : ''}${plan}`)
+  }
+  if (ctx.record.findings.some((finding) => finding.status === 'open')) {
+    lines.push('（未处置发现须如实列入文档「已裁决风险」节——不得在整理中静默解决或弱化。）')
+  }
+  const clarifications = ctx.record.analysis?.clarifications ?? []
+  const answered = clarifications.filter((row) => row.answer !== undefined)
+  if (answered.length > 0) {
+    lines.push('已答澄清（需求方已回答——视为已定事实，回填正文并消除原歧义表述）：')
+    for (const row of answered) lines.push(`- 问：${row.question}\n  答：${row.answer}`)
+  }
+  const pendingFindings = ctx.record.analysis?.findings ?? []
+  const pendingCriteria = ctx.record.analysis?.criteria ?? []
+  const pendingClarifications = clarifications.filter((row) => row.answer === undefined)
+  if (pendingFindings.length + pendingCriteria.length + pendingClarifications.length > 0) {
+    lines.push('待裁决提议（用户裁决中——一律不得写入文档，视为不存在）：')
+    for (const row of pendingFindings) lines.push(`- [${FINDING_CATEGORY_LABEL[row.category]}·${SEVERITY_LABEL[row.severity]}] ${row.title}`)
+    for (const row of pendingCriteria) lines.push(`- 标准：${row.text}`)
+    for (const row of pendingClarifications) lines.push(`- 澄清：${row.question}`)
+  }
+  if (ctx.record.understandApprovedAt !== undefined) {
+    lines.push(`（当前已定稿于 ${ctx.record.understandApprovedAt.slice(0, 10)}——本次为重新整理：保持既有 FR 编号稳定，不回收不重排。）`)
+  }
+  return lines.join('\n')
+}
+
+function consolidateConstraintsBlock(ctx: SowContext): string {
+  const workspace = ctx.requirement.workspacePath.trim()
+  const fileChannel = workspace !== ''
+  return [
+    '## 约束',
+    fileChannel
+      ? `- 严格只读：不修改、创建、删除任何文件——唯一例外：把需求基线文档写入「输出」节指定路径（目录不存在则创建，覆盖写）。`
+      : '- 严格只读：不修改、创建、删除任何文件。',
+    '- 不改判：已裁决的发现处置、已采纳的标准、已答的澄清是既定输入——整理只负责表达，不新增裁决、不弱化风险、不替需求方做未做的决定。',
+    '- 澄清回填：已答澄清的答案要融进对应表述并替换原歧义写法——不留自相矛盾的新旧双表述。',
+    '- 编号纪律：验收标准 C 编号与快照逐条对应，不增不删不改号；功能需求 FR 编号一经发布不回收不重排（既有文档存在时保持稳定）。',
+    '- 有据：每条 FR 与验收标准带溯源标注（PRD#章节 / 发现编号 / 澄清来源）；PRD 没有依据、整理中推断的内容显式进「假设」节（内联 [ASSUMPTION] 标记 + 文末索引）。',
+    '- 术语单一：全文同一概念只用同一术语（术语表为唯一来源）；未决问题如实列入 Open Questions，不猜测、不硬凑。',
+  ].join('\n')
+}
+
+const CONSOLIDATE_WORKFLOW = [
+  '## 工作流',
+  '1. 通读全部 PRD 文档与需求快照——先分清：已定事实（标准/处置/已答澄清）、已知风险（含未处置）、PRD 原始表达中的冗余与歧义。',
+  '2. 重组为十节结构（见「输出」）：以 PRD 为底去冗余（重复表述合并、过时表述按已答澄清替换、装饰性文字剔除），把裁决结论融进对应条目。',
+  '3. 逐条标注溯源：FR 与验收标准的每一条注明来自 PRD#章节 / 发现编号 / 澄清来源；推断项标 [ASSUMPTION] 并入文末索引。',
+  '4. 自检可判定性：每条 FR 一句一条、含可观察的行为；歧义形容词（快速/稳定/灵活…）要么量化、要么删除、要么进 Open Questions。',
+  '5. 对照快照核对：C 编号逐条对齐、未处置发现未消失、待裁决提议零出现。',
+].join('\n')
+
+function consolidateOutputBlock(ctx: SowContext): string {
+  const workspace = ctx.requirement.workspacePath.trim()
+  const fileChannel = workspace !== ''
+  const delivery = fileChannel
+    ? `整理结束时把完整文档写入基线文件（markdown，一次成文），路径：${toDisplayPath(workspace)}/${requirementDocRelPath(ctx.requirement.id)}（绝对路径；目录不存在则创建；覆盖写——不追加、不留多份）。文档固定十节结构：`
+    : '（本需求未绑定工作区——无法指定基线文件路径，请在会话内交付文档全文。绑定工作区后重新生成任务书。）'
+  return [
+    '## 输出',
+    delivery,
+    '```markdown',
+    '# 需求基线 · <需求标题>',
+    '> 基线状态：<草稿/已定稿——由工作台定稿盖章管理，此处写「草稿」>',
+    '> 基于 workbench revision <N> 整理 · <日期>',
+    '',
+    '## 背景与目标',
+    '<PRD 意图综述 + 参考知识补充的权威背景；目标用可判定的完成定义收口>',
+    '',
+    '## 非目标',
+    '<明确排除与缓办的事项——去冗余的落点，PRD 未提但整理中判定应排除的进假设节>',
+    '',
+    '## 术语表',
+    '- <术语>：<定义>（全文唯一用词，不得引入同义词）',
+    '',
+    '## 功能需求',
+    '### FR-1 <短名>',
+    '<一句一条：系统 MUST/SHALL <可观察行为>。',
+    '> 溯源：PRD#章节 / 发现 <编号> / 澄清 <编号>；推断处标 [ASSUMPTION: …]>',
+    '',
+    '## 验收标准',
+    '<C 编号与工作台账本逐条对应——每条：判定条件（可观察、可量化），> 溯源：PRD#章节 / 标准采纳',
+    '',
+    '## 边界与异常',
+    '<IF <异常条件> THE SYSTEM SHALL <处置行为>——边界情形与降级行为>',
+    '',
+    '## 已裁决风险',
+    '<[类别·级别] 标题：结论（已解决——方案：… / 不处理 / 未处置——如实标注）>',
+    '',
+    '## 澄清记录',
+    '### 已答（已定事实）',
+    '- 问：<问题> 答：<答案>（已回填正文）',
+    '### Open Questions（未答——待需求方）',
+    '- 问：<问题>（推荐答案：…）',
+    '',
+    '## 假设',
+    '<[ASSUMPTION: …] 内联于正文；本节汇总索引，逐条可被需求方否决>',
+    '',
+    '## 变更记录',
+    '| 日期 | 版本 | 说明 | 来源 |',
+    '```',
+    fileChannel
+      ? '完成自检（全部满足才算收尾）：十节齐全 · C 编号与快照逐条对齐 · 每条 FR/AC 带溯源 · 澄清已回填且无新旧矛盾表述 · 未处置发现如实在场 · 待裁决提议零出现 · [ASSUMPTION] 有索引 · 文档已写入上述路径。'
+      : '完成自检（全部满足才算收尾）：十节齐全 · C 编号与快照逐条对齐 · 每条 FR/AC 带溯源 · 澄清已回填且无新旧矛盾表述 · 未处置发现如实在场 · 待裁决提议零出现 · [ASSUMPTION] 有索引。',
+  ].join('\n')
+}
+
+// ---------------------------------------------------------------------------
 // Document assembly
 // ---------------------------------------------------------------------------
 
@@ -817,6 +975,20 @@ export function buildSow(ctx: SowContext): string {
       splitConstraintsBlock(ctx),
       SPLIT_WORKFLOW,
       splitOutputBlock(ctx),
+    ]
+    return [...blocks, revisionStamp(ctx)].join('\n\n')
+  }
+  if (ctx.purpose === 'consolidate') {
+    // 0008: the same nine-block skeleton, consolidation edition.
+    const blocks = [
+      `# skyaxis 需求整理任务书 · ${ctx.requirement.title}`,
+      consolidateGoalBlock(ctx),
+      consolidateSnapshotBlock(ctx),
+      analysisInputBlock(ctx),
+      knowledgeBlock(ctx, ANALYSIS_KNOWLEDGE_HEADER),
+      consolidateConstraintsBlock(ctx),
+      CONSOLIDATE_WORKFLOW,
+      consolidateOutputBlock(ctx),
     ]
     return [...blocks, revisionStamp(ctx)].join('\n\n')
   }

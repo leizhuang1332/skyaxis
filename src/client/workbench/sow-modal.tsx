@@ -72,7 +72,7 @@ async function defaultPlanText(requirementId: string, workPackage: WorkbenchWork
 export function SowModal(props: {
   t: WorkbenchT
   open: boolean
-  purpose: 'analysis' | 'split' | 'dev' | 'review'
+  purpose: 'analysis' | 'split' | 'consolidate' | 'dev' | 'review'
   requirement: RequirementRecord
   record: WorkbenchRecord | null
   /** Server-filtered requirement ∪ global view (may carry archived rows — filtered active here). */
@@ -183,7 +183,10 @@ export function SowModal(props: {
         return
       }
       setPrdDocs(docs)
-      if (docs[0] !== undefined) loadDoc(docs[0].name, dead)
+      // 0008: consolidate reads every doc wholesale — no focus doc, no
+      // section checkboxes — so the first-doc body chain is skipped (the
+      // listing itself still feeds the input block's all-docs rows).
+      if (purpose !== 'consolidate' && docs[0] !== undefined) loadDoc(docs[0].name, dead)
     })()
     if (purpose === 'dev' && workPackage !== undefined) {
       void (props.fetchPlanText ?? (() => defaultPlanText(requirement.id, workPackage)))()
@@ -310,11 +313,12 @@ export function SowModal(props: {
     prdDocumentName: docName ?? undefined,
     knowledgePicks: selectedKnowledge,
     includeDeps,
-    // Analysis + split inputs ride the same preview (0007: the split SOW
-    // joined the path-reference shape): the full doc listing (path
-    // references — PRD text itself is no longer embedded), the focus doc's
-    // checked sections (heading pointers), and the repo rows above.
-    ...(purpose === 'analysis' || purpose === 'split' ? {
+    // Analysis + split + consolidate inputs ride the same preview (0007: the
+    // split SOW joined the path-reference shape; 0008: consolidate reads all
+    // docs wholesale): the full doc listing (path references — PRD text
+    // itself is never embedded), the focus doc's checked sections (heading
+    // pointers; consolidate ignores them — no focus doc), and the repo rows.
+    ...(purpose === 'analysis' || purpose === 'split' || purpose === 'consolidate' ? {
       analysisPrdDocs: prdDocs,
       analysisRepos: analysisRepoRows,
       analysisUnknownRepos: analysisRepoUnknown,
@@ -400,6 +404,15 @@ export function SowModal(props: {
     >
       <div className={styles.sowGrid}>
         <div className={styles.sowPick}>
+          {/* 0008: consolidate reads every PRD wholesale — no focus doc, no
+              section checkboxes, so the pick group has nothing to pick; the
+              input block's own honest-absence lines carry the listing state. */}
+          {purpose === 'consolidate' ? (
+            <div className={styles.sowGroup}>
+              <div className={styles.sowGroupTitle}>{t('sow.prdGroupConsolidate')}</div>
+              <div className={styles.formHint}>{t('sow.prdAllHint')}</div>
+            </div>
+          ) : (
           <div className={styles.sowGroup}>
             <div className={styles.sowGroupTitle}>{t('sow.prdGroup')}</div>
             {prdError ? <div className={styles.fieldError}>{t('sow.prdLoadError')}</div> : null}
@@ -432,6 +445,7 @@ export function SowModal(props: {
               </label>
             ))}
           </div>
+          )}
 
           <div className={styles.sowGroup}>
             <div className={styles.sowGroupTitle}>

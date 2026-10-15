@@ -87,6 +87,9 @@ function fakeController(): WorkbenchController & { advanceStage: ReturnType<type
     // 文件交付轮: the S1 report panel fetches on mount — undefined = network
     // failure face, the panel's honest error hint (these tests assert the rail).
     analysisReportContent: vi.fn(async () => undefined),
+    // 0008: the S1 baseline-doc panel mounts the same way; the ack modal
+    // probes it on open (undefined = no-doc disclosure).
+    requirementDocContent: vi.fn(async () => undefined),
     dismissBanner: vi.fn(),
     dispose: vi.fn(),
   } as never
@@ -413,5 +416,59 @@ describe('0007 定稿软门：S1 就绪披露 + 定稿/撤销 + 摘要导出', (
     expect(dialog.textContent).toContain('[定稿状态] 未定稿')
     expect(dialog.textContent).toContain('C1　导出走异步')
     expect(dialog.textContent).toContain('账本为真源，导出为分发')
+  })
+
+  it('0008 整理入口：[生成整理任务书] 开 SowModal（consolidate purpose，预览含任务书头与基线文件路径段）', async () => {
+    render(
+      <WorkbenchTabBody
+        t={bindZh()}
+        requirement={requirement}
+        slot={slot({ record: workbenchRecord({ criteria: [{ id: 'C1', text: '导出走异步', coveredBy: [] }] }) })}
+        controller={fakeController()}
+        knowledge={knowledgeState()}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: workbenchZh['understand.consolidateButton'] }))
+    const dialog = await screen.findByRole('dialog', { name: workbenchZh['sow.title'] })
+    await waitFor(() => { expect(dialog.textContent).toContain('# skyaxis 需求整理任务书 · 报价管理：导入导出与数据校验') })
+    // consolidate 语境的输入段（全必读提示行在 modal 侧）。
+    expect(dialog.textContent).toContain(workbenchZh['sow.prdAllHint'])
+  })
+
+  it('0008 ack 文档态探测：无文档 ⇒ 「尚无基线文档」披露行（软门不阻断，确认键照常可用）', async () => {
+    render(
+      <WorkbenchTabBody
+        t={bindZh()}
+        requirement={requirement}
+        slot={slot({ record: workbenchRecord({ criteria: [{ id: 'C1', text: '导出走异步', coveredBy: [] }] }) })}
+        controller={fakeController()} // requirementDocContent ⇒ undefined = no-doc
+        knowledge={knowledgeState()}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: workbenchZh['understand.approveButton'] }))
+    const dialog = screen.getByRole('dialog', { name: workbenchZh['understand.approveTitle'] })
+    await waitFor(() => { expect(dialog.textContent).toContain(workbenchZh['understand.ackNoDoc']) })
+    expect(dialog.textContent).not.toContain(workbenchZh['understand.ackDocWillAnchor'])
+    const confirm = screen.getByRole('button', { name: workbenchZh['understand.approveConfirm'] }) as HTMLButtonElement
+    expect(confirm.disabled).toBe(true) // 勾选门控照旧——软门披露不是阻断
+    fireEvent.click(screen.getByRole('checkbox'))
+    expect(confirm.disabled).toBe(false)
+  })
+
+  it('0008 ack 文档态探测：文档在场 ⇒ 「将锚定」披露行', async () => {
+    const controller = fakeController()
+    controller.requirementDocContent = vi.fn(async () => ({ kind: 'ok' as const, content: '# 需求基线', contentTampered: false }))
+    render(
+      <WorkbenchTabBody
+        t={bindZh()}
+        requirement={requirement}
+        slot={slot({ record: workbenchRecord({ criteria: [{ id: 'C1', text: '导出走异步', coveredBy: [] }] }) })}
+        controller={controller}
+        knowledge={knowledgeState()}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: workbenchZh['understand.approveButton'] }))
+    const dialog = screen.getByRole('dialog', { name: workbenchZh['understand.approveTitle'] })
+    await waitFor(() => { expect(dialog.textContent).toContain(workbenchZh['understand.ackDocWillAnchor']) })
   })
 })
