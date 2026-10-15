@@ -238,6 +238,8 @@ const SplitBaselineSchema = z.object({
   disposedFindings: z.number().int().nonnegative(),
   understandApprovedAt: TimestampSchema.optional(),
   answeredClarifications: z.number().int().nonnegative().optional(),
+  /** 0008 D4: the requirement-baseline doc hash the finalized understand carried (absent = pre-0008 / no doc). */
+  requirementDocHash: z.string().min(1).optional(),
 })
 
 // 0007 定稿软门 — the understand-finalize credential. Sub-fields REQUIRED
@@ -267,6 +269,8 @@ const UnderstandBaselineSchema = z.object({
   criteria: z.array(UnderstandBaselineCriterionSchema),
   findings: z.array(UnderstandBaselineFindingSchema),
   clarifications: z.array(UnderstandBaselineClarificationSchema),
+  /** 0008: disk sha256 of `.skyaxis/requirements/<rid>.md` at finalize (IO-derived, host-minted only). */
+  docHash: z.string().min(1).optional(),
 })
 
 export const WorkbenchRecordSchema = z.object({

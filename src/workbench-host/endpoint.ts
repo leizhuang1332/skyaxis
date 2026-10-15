@@ -42,10 +42,10 @@ import type {
   WorkbenchListResponse,
   WorkbenchRecord,
 } from '../workbench-shared/protocol.js'
-import { planDocPath, reviewDocPath, analysisReportPath } from './artifact-path.js'
+import { planDocPath, reviewDocPath, analysisReportPath, requirementDocPath } from './artifact-path.js'
 import { ArtifactStore, contentHashOf } from './artifact-store.js'
 import { scanWorkbenchArtifacts } from './orphan-scan.js'
-import { applyRecordAction, applyAnalysisSeed, nextReleaseItemId } from './record-actions.js'
+import { applyRecordAction, applyAnalysisSeed, approveUnderstandWith, nextReleaseItemId } from './record-actions.js'
 import { parseDeclare } from './declare-parse.js'
 import { parseReviewFindings } from './review-parse.js'
 import type { SessionDeclareReader } from './declare-reader.js'
@@ -210,6 +210,14 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     // No implicit-create here — seeding requires a prior bindAnalysisSession
     // (the container names the watched session; a missing record has none).
     if (body.action === 'seedAnalysis') return seedAnalysisFlow(body, existing, current.value)
+
+    // approveUnderstand (0008 D4) is the SECOND dedicated flow: its docHash
+    // anchor is IO-derived (the requirement-baseline doc's disk sha256) and
+    // never rides the wire. Unlike seedAnalysis it KEEPS the implicit-create
+    // semantics (an all-zero finalize is the ratified skip path) — the flow
+    // applies it itself and passes `existing` on for the commit tail's append
+    // arm.
+    if (body.action === 'approveUnderstand') return approveUnderstandFlow(body, existing, current.value)
 
     // All business guards (target existence, split lock, state-machine
     // legality, referential integrity) live in the pure action core.
@@ -387,17 +395,57 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     return { status: read.status }
   }
 
-  /** Shared seed tail: unchanged no-op, save, and the mapped error responses. */
+  /**
+   * 0008 D4: approveUnderstand dedicated flow — read the requirement-baseline
+   * doc off disk and hand the pure core its sha256. unarmed / missing ⇒ NO
+   * anchor but the finalize STILL STANDS (软门：无文档可定稿——the ack modal
+   * discloses it, the user has ruled); too-large ⇒ 413 (the doc is there but
+   * unreadable — anchoring nothing would mis-certify "no doc", the
+   * file-is-bad-don't-fallback precedent of 文件交付轮).
+   */
+  async function approveUnderstandFlow(
+    body: { expectedRevision: number; requirementId: string },
+    existing: WorkbenchRecord | undefined,
+    current: { revision: number; records: readonly WorkbenchRecord[] },
+  ): Promise<Response> {
+    const base = existing ?? emptyRecord(body.requirementId) // implicit-create semantics preserved
+    const doc = readRequirementDocFile(body.requirementId)
+    if (doc.status === 'too-large') return errorResponse(413, 'too-large')
+    const applied = approveUnderstandWith(base, doc.status === 'ok' ? doc.sha256 : undefined)
+    return commitSeedResponse(body, applied, current, existing)
+  }
+
+  /** 0008: the requirement-baseline doc read (the analysis-report channel family). */
+  function readRequirementDocFile(requirementId: string): { status: 'ok'; text: string; sha256: string } | { status: 'missing' | 'too-large' | 'unarmed' } {
+    const resolve = services.resolveWorkspacePath
+    if (resolve === undefined) return { status: 'unarmed' }
+    const workspace = resolve(requirementId)
+    if (workspace === '') return { status: 'unarmed' }
+    const read = artifacts.read(requirementDocPath(workspace, requirementId))
+    if (read.status === 'ok') return { status: 'ok', text: read.text, sha256: read.sha256 }
+    return { status: read.status }
+  }
+
+  /**
+   * Shared commit tail: unchanged no-op, save, and the mapped error responses.
+   * 0008: `existing` opts into the APPEND (implicit-create) arm — seedAnalysis
+   * never passes it (its flow 404s without a record, so replace-only held);
+   * approveUnderstand's implicit-create finalize needs the append (the
+   * mutateFlow `existing === undefined ? [...records, next] : map(...)` shape).
+   */
   async function commitSeedResponse(
     body: { expectedRevision: number; requirementId: string },
     applied: ReturnType<typeof applyAnalysisSeed>,
     current: { revision: number; records: readonly WorkbenchRecord[] },
+    existing?: WorkbenchRecord,
   ): Promise<Response> {
     if (!applied.ok) return errorResponse(applied.status, applied.code)
     if (applied.unchanged === true) {
       return json({ ok: true, revision: current.revision, record: applied.record })
     }
-    const nextRecords = current.records.map((candidate) => (candidate.requirementId === body.requirementId ? applied.record : candidate))
+    const nextRecords = existing === undefined && !current.records.some((candidate) => candidate.requirementId === body.requirementId)
+      ? [...current.records, applied.record]
+      : current.records.map((candidate) => (candidate.requirementId === body.requirementId ? applied.record : candidate))
     try {
       const saved = await file.save(body.expectedRevision, nextRecords)
       if (!saved.ok) {
@@ -670,7 +718,7 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     const kind = url.searchParams.get('kind')
     const requirementId = url.searchParams.get('requirementId')
     if (requirementId === null || !REQUIREMENT_ID_RE.test(requirementId)) return errorResponse(400, 'bad-request')
-    if (kind !== 'plan' && kind !== 'review' && kind !== 'analysis-report') return errorResponse(400, 'bad-request')
+    if (kind !== 'plan' && kind !== 'review' && kind !== 'analysis-report' && kind !== 'requirement-doc') return errorResponse(400, 'bad-request')
 
     // 文件交付轮 face: the workspace report file — readable even before a
     // seed lands (the file is the session's delivery; the ledger joins in
@@ -690,6 +738,22 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
       const expectedHash = record?.analysis?.seed?.contentHash
       const contentTampered = expectedHash !== undefined && expectedHash !== reportFile.sha256
       return json({ ok: true, content: reportFile.text, contentTampered })
+    }
+
+    // 0008 face: the requirement-baseline doc — same shape as the analysis
+    // report (file first, readable before any finalize anchors it; the
+    // ledger joins only for tamper compare against understandBaseline.docHash).
+    if (kind === 'requirement-doc') {
+      const doc = readRequirementDocFile(requirementId)
+      if (doc.status !== 'ok') return errorResponse(404, 'not-found')
+      const current = file.load()
+      if (!current.ok) return errorResponse(409, 'unreadable-file')
+      const record = current.value.records.find((candidate) => candidate.requirementId === requirementId)
+      // An unfinalized record has no anchor yet — untampered-silent (the doc
+      // is the deliverable; the anchor only exists once finalized).
+      const expectedHash = record?.understandBaseline?.docHash
+      const contentTampered = expectedHash !== undefined && expectedHash !== doc.sha256
+      return json({ ok: true, content: doc.text, contentTampered })
     }
 
     const current = file.load()

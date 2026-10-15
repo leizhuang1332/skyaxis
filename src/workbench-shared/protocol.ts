@@ -300,6 +300,13 @@ export interface SplitBaseline {
    * compared as 0 (pre-0007 baselines predate clarifications anyway).
    */
   readonly answeredClarifications?: number
+  /**
+   * Requirement-baseline-doc hash at approval (0008 D4): the docHash the
+   * finalized understand carried. Optional per the field-evolution
+   * discipline — pre-0008 approvals carry none, and absent reads as absent
+   * on the compare side (never a false stale).
+   */
+  readonly requirementDocHash?: string
 }
 
 export interface SplitBaselinePrd {
@@ -348,6 +355,40 @@ export interface UnderstandBaseline {
   readonly findings: readonly UnderstandBaselineFinding[]
   /** ANSWERED rows only ({question, answer}) — unanswered rows are not rulings. */
   readonly clarifications: readonly UnderstandBaselineClarification[]
+  /**
+   * 0008: the requirement-baseline DOC's disk sha256 at finalize time (the
+   * approveUnderstand flow reads `.skyaxis/requirements/<rid>.md` and passes
+   * it here — an IO-derived value that never rides the wire). Absent = no
+   * doc (or no workspace) at finalize: the finalize still stands (软门), the
+   * doc simply is not anchored. Tamper compare on the read side: present and
+   * ≠ disk ⇒ contentTampered on the doc card.
+   */
+  readonly docHash?: string
+}
+
+// ---------------------------------------------------------------------------
+// Requirement baseline doc (0008 需求基线文档轮) — the CONSOLIDATED requirement
+// document the consolidation session writes (original PRD condensed + adopted
+// findings/criteria/clarifications + knowledge background merged in; the
+// standard-structure doc downstream consumes as THE requirement source of
+// truth). Same workspace transport convention as the analysis report: the
+// consolidate task book prescribes this path, the session is the SOLE writer,
+// the finalize stamp anchors the disk sha256 (UnderstandBaseline.docHash).
+// Layout frozen at v1 — a change is a breaking migration, revise ADR 0009
+// first.
+// ---------------------------------------------------------------------------
+
+/** Workspace-relative directory for requirement baseline docs (dot-prefix = tool-owned, decisions/0009). */
+export const REQUIREMENT_DOC_DIR = '.skyaxis/requirements'
+
+const REQUIREMENT_DOC_REQUIREMENT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
+/** Display-form workspace-relative doc path `.skyaxis/requirements/<requirementId>.md` (forward slashes). */
+export function requirementDocRelPath(requirementId: string): string {
+  if (!REQUIREMENT_DOC_REQUIREMENT_ID_RE.test(requirementId)) {
+    throw new Error(`requirementDocRelPath: requirementId is not a lowercase uuid: ${JSON.stringify(requirementId)}`)
+  }
+  return `${REQUIREMENT_DOC_DIR}/${requirementId}.md`
 }
 
 // ---------------------------------------------------------------------------
@@ -1762,6 +1803,7 @@ function isSplitBaseline(v: unknown): v is SplitBaseline {
     && typeof r.disposedFindings === 'number'
     && (r.understandApprovedAt === undefined || (isString(r.understandApprovedAt) && r.understandApprovedAt.length > 0))
     && (r.answeredClarifications === undefined || typeof r.answeredClarifications === 'number')
+    && (r.requirementDocHash === undefined || (isString(r.requirementDocHash) && r.requirementDocHash.length > 0))
 }
 
 function isUnderstandBaselineCriterion(v: unknown): v is UnderstandBaselineCriterion {
@@ -1803,6 +1845,7 @@ function isUnderstandBaseline(v: unknown): v is UnderstandBaseline {
     && Array.isArray(r.criteria) && r.criteria.every(isUnderstandBaselineCriterion)
     && Array.isArray(r.findings) && r.findings.every(isUnderstandBaselineFinding)
     && Array.isArray(r.clarifications) && r.clarifications.every(isUnderstandBaselineClarification)
+    && (r.docHash === undefined || (isString(r.docHash) && r.docHash.length > 0))
   )
 }
 

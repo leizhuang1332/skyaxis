@@ -101,6 +101,20 @@ export function analysisReportPath(workspaceRoot: string, requirementId: string)
   return join(workspaceRoot, '.skyaxis', 'analysis', `${requirementId}.md`)
 }
 
+/**
+ * The requirement-baseline doc path (0008 需求基线文档轮, decisions/0009) —
+ * the CONSOLIDATED requirement document the consolidation session writes as
+ * the sole author; the finalize stamp anchors its disk sha256. Same channel
+ * family as the analysis report (session-written workspace deliverable, not
+ * plugin-authored storage). The relative-segment convention's one truth is
+ * requirementDocRelPath (workbench-shared/protocol.ts); this join re-asserts
+ * the uuid gate as defense layer 2.
+ */
+export function requirementDocPath(workspaceRoot: string, requirementId: string): string {
+  assertRequirementId(requirementId)
+  return join(workspaceRoot, '.skyaxis', 'requirements', `${requirementId}.md`)
+}
+
 /** The per-requirement artifact root; plans/ and reviews/ live under it. */
 export function requirementArtifactDir(root: string, requirementId: string): string {
   assertRequirementId(requirementId)

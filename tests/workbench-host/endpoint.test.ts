@@ -2336,3 +2336,79 @@ describe('0007 定稿软门：approveUnderstand / revokeUnderstand + stageReady 
     expect(row2.record.analysis?.seed?.stageReady).toBe(false)
   })
 })
+
+describe('0008 需求基线文档：approveUnderstand 专属 flow + requirement-doc 读面', () => {
+  const body = (action: string, extra: Record<string, unknown>, expectedRevision: number, requirementId = RID) =>
+    ({ expectedRevision, requirementId, action, ...extra })
+
+  /** fileWorkspace 的 requirements/ 变体（0008 文件通道）。 */
+  function docWorkspace(text: string | null): { dir: string; resolve: (requirementId: string) => string } {
+    const dir = mkdtempSync(join(tmpdir(), 'workbench-reqdoc-test-'))
+    dirs.push(dir)
+    if (text !== null) {
+      mkdirSync(join(dir, '.skyaxis', 'requirements'), { recursive: true })
+      writeFileSync(join(dir, '.skyaxis', 'requirements', `${RID}.md`), text, 'utf8')
+    }
+    return { dir, resolve: () => dir }
+  }
+
+  it('专属 flow：文件在 ⇒ docHash = 整份磁盘字节 sha256 落账；隐式建账 + 追加落盘（append 臂）；再定稿 400', async () => {
+    const text = '# 需求基线 · 报价管理\n\n## 背景与目标\n……'
+    const ws = docWorkspace(text)
+    const h = await harness({ resolveWorkspacePath: ws.resolve })
+    const res1 = await h.post(WORKBENCH_PATH, body('approveUnderstand', {}, 0))
+    expect(res1.status).toBe(200)
+    const row1 = await res1.json() as { revision: number; record: WorkbenchRecord }
+    expect(row1.record.understandBaseline?.docHash).toBe(contentHashOf(text))
+    // 盘上真有记录（append 臂——0008 修复点：commitSeedResponse 原为替换-only）。
+    const loaded = h.file.load()
+    expect(loaded.ok && loaded.value.records[0]?.understandBaseline?.docHash).toBe(contentHashOf(text))
+    // 再定稿 400（approve 家族纪律经由专属 flow 照常生效）。
+    expect((await h.post(WORKBENCH_PATH, body('approveUnderstand', {}, 1))).status).toBe(400)
+  })
+
+  it('软门：unarmed / 文件缺失 ⇒ 无 docHash 但定稿照旧成立（200 落盘）', async () => {
+    const unarmed = await harness()
+    const res1 = await unarmed.post(WORKBENCH_PATH, body('approveUnderstand', {}, 0))
+    expect(res1.status).toBe(200)
+    const row1 = await res1.json() as { record: WorkbenchRecord }
+    expect(row1.record.understandBaseline?.docHash).toBeUndefined()
+
+    const ws = docWorkspace(null) // 有工作区但文档缺失
+    const h2 = await harness({ resolveWorkspacePath: ws.resolve })
+    const res2 = await h2.post(WORKBENCH_PATH, body('approveUnderstand', {}, 0))
+    expect(res2.status).toBe(200)
+    const row2 = await res2.json() as { record: WorkbenchRecord }
+    expect(row2.record.understandBaseline?.docHash).toBeUndefined()
+  })
+
+  it('too-large ⇒ 413（文件在但读不了——锚「无文档」是伪证，直披不回落）', async () => {
+    const ws = docWorkspace('x'.repeat(2 * 1024 * 1024 + 1))
+    const h = await harness({ resolveWorkspacePath: ws.resolve })
+    const res = await h.post(WORKBENCH_PATH, body('approveUnderstand', {}, 0))
+    expect(res.status).toBe(413)
+  })
+
+  it('requirement-doc GET：正文 + 未定稿读 untampered-silent + 定稿锚对照翻 contentTampered + 缺失 404', async () => {
+    const text = '# 需求基线 · 报价管理\n\n## 术语表\n- 导出：……'
+    const ws = docWorkspace(text)
+    const h = await harness({ resolveWorkspacePath: ws.resolve })
+    // 未定稿（无锚）⇒ 200 untampered-silent。
+    const read1 = await h.get(`${WORKBENCH_ARTIFACTS_PATH}?kind=requirement-doc&requirementId=${RID}`)
+    expect(read1.status).toBe(200)
+    const body1 = await read1.json() as { ok: boolean; content: string; contentTampered: boolean }
+    expect(body1.content).toContain('## 术语表')
+    expect(body1.contentTampered).toBe(false)
+    // 定稿锚定后手改 ⇒ contentTampered（对照 understandBaseline.docHash）。
+    await h.post(WORKBENCH_PATH, body('approveUnderstand', {}, 0))
+    writeFileSync(join(ws.dir, '.skyaxis', 'requirements', `${RID}.md`), `${text}\n<!-- edited -->`, 'utf8')
+    const read2 = await h.get(`${WORKBENCH_ARTIFACTS_PATH}?kind=requirement-doc&requirementId=${RID}`)
+    expect(((await read2.json()) as { contentTampered: boolean }).contentTampered).toBe(true)
+    // 缺失 / unarmed ⇒ 404（诚实缺失态）。
+    const ws2 = docWorkspace(null)
+    const h2 = await harness({ resolveWorkspacePath: ws2.resolve })
+    expect((await h2.get(`${WORKBENCH_ARTIFACTS_PATH}?kind=requirement-doc&requirementId=${RID}`)).status).toBe(404)
+    const h3 = await harness()
+    expect((await h3.get(`${WORKBENCH_ARTIFACTS_PATH}?kind=requirement-doc&requirementId=${RID}`)).status).toBe(404)
+  })
+})

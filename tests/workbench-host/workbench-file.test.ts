@@ -176,6 +176,25 @@ describe('WorkbenchFileStore', () => {
       expect(isWorkbenchRecord(row)).toBe(true)
     })
 
+    it('round-trips the 0008 doc anchors — understandBaseline.docHash + splitBaseline.requirementDocHash', async () => {
+      const { store } = workbenchFixture()
+      const stamped: WorkbenchRecord = {
+        ...record(),
+        understandApprovedAt: NOW,
+        understandBaseline: { at: NOW, criteria: [], findings: [], clarifications: [], docHash: 'e'.repeat(64) },
+        splitApprovedAt: NOW,
+        splitBaseline: { at: NOW, prd: [], disposedFindings: 0, requirementDocHash: 'e'.repeat(64) },
+      }
+      await store.save(0, [stamped])
+      const loaded = store.load()
+      expect(loaded.ok).toBe(true)
+      if (!loaded.ok) return
+      const row = loaded.value.records[0]!
+      expect(row.understandBaseline?.docHash).toBe('e'.repeat(64))
+      expect(row.splitBaseline?.requirementDocHash).toBe('e'.repeat(64))
+      expect(isWorkbenchRecord(row)).toBe(true)
+    })
+
     it('parses a hand-written legal file (hand-edited yaml stays loadable)', () => {
       const { store, file } = workbenchFixture()
       writeFileSync(

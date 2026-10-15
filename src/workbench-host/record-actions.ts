@@ -274,39 +274,12 @@ export function applyRecordAction(base: WorkbenchRecord, body: WorkbenchMutateRe
   // 0007 定稿软门 — record-level understand stamps, OUTSIDE the split lock
   // (the finalize is the user's own S1 content event; the split contract
   // freezes list × coverage, not the understanding credential — the
-  // confirmRollbackPlan pair is the structural precedent).
-  if (body.action === 'approveUnderstand') {
-    if (base.understandApprovedAt !== undefined) return fail(400, 'bad-request') // approving twice is a client bug, not a state race
-    const at = now()
-    return {
-      ok: true,
-      // The credential snapshot is DERIVED from this same record (zero
-      // payload — it cannot disagree with the ledger). Deliberately LIGHT:
-      // findings carry metadata only (detail/resolution stay in the live
-      // rows), answered clarifications only (answers are the rulings).
-      record: {
-        ...base,
-        understandApprovedAt: at,
-        understandBaseline: {
-          at,
-          criteria: base.criteria.map((criterion) => ({
-            id: criterion.id,
-            text: criterion.text,
-            ...(criterion.sourceSection !== undefined ? { sourceSection: criterion.sourceSection } : {}),
-          })),
-          findings: base.findings.map((finding) => ({
-            id: finding.id,
-            status: finding.status,
-            category: finding.category,
-            severity: finding.severity,
-            title: finding.title,
-          })),
-          clarifications: (base.analysis?.clarifications ?? []).flatMap((row) =>
-            row.answer === undefined ? [] : [{ question: row.question, answer: row.answer }]),
-        },
-      },
-    }
-  }
+  // confirmRollbackPlan pair is the structural precedent). approveUnderstand
+  // itself NO LONGER rides this union (0008 D4): its docHash anchor is an
+  // IO-derived value the endpoint shell reads off disk — the endpoint
+  // dispatches the action to approveUnderstandWith BEFORE reaching here (the
+  // seedAnalysis dedicated-flow pattern); a stray union fallthrough lands on
+  // the generic 400 below by construction.
   if (body.action === 'revokeUnderstand') {
     if (base.understandApprovedAt === undefined) return fail(400, 'bad-request')
     // Stamp + credential strip TOGETHER (the revokeSplitApproval key-strip
@@ -348,6 +321,10 @@ export function applyRecordAction(base: WorkbenchRecord, body: WorkbenchMutateRe
           // armed from the first post-0007 approval on.
           ...(base.understandApprovedAt !== undefined ? { understandApprovedAt: base.understandApprovedAt } : {}),
           answeredClarifications: answeredClarificationsOf(base),
+          // 0008 D4: the requirement-baseline doc hash the (finalized)
+          // understand carried — conditional for the same never-finalized /
+          // pre-0008 semantics.
+          ...(base.understandBaseline?.docHash !== undefined ? { requirementDocHash: base.understandBaseline.docHash } : {}),
         },
       },
     }
@@ -400,12 +377,13 @@ export function applyRecordAction(base: WorkbenchRecord, body: WorkbenchMutateRe
           at,
           prd: body.baseline.prd,
           disposedFindings: base.findings.filter((finding) => finding.status !== 'open').length,
-          // The 0007 arms re-anchor HERE TOO — 确认仍有效 means "checked, the
+          // The 0007/0008 arms re-anchor HERE TOO — 确认仍有效 means "checked, the
           // split stands", which re-baselines every arm to NOW (exactly the
           // prd-snapshot refresh semantics; a finalize that moved before the
           // confirm was part of what the user just checked and accepted).
           ...(base.understandApprovedAt !== undefined ? { understandApprovedAt: base.understandApprovedAt } : {}),
           answeredClarifications: answeredClarificationsOf(base),
+          ...(base.understandBaseline?.docHash !== undefined ? { requirementDocHash: base.understandBaseline.docHash } : {}),
         },
       },
     }
@@ -931,6 +909,49 @@ export function applyRecordAction(base: WorkbenchRecord, body: WorkbenchMutateRe
   }
 
   return fail(400, 'bad-request')
+}
+
+/**
+ * approveUnderstand (0007 定稿软门 → 0008 D4 dedicated core) — the PURE core
+ * of the endpoint's approveUnderstand flow. `docHash` is the disk sha256 of
+ * `.skyaxis/requirements/<rid>.md` read by the SHELL (an IO-derived value
+ * that never rides the wire — the applyAnalysisSeed division of labor);
+ * undefined = no doc / no workspace at finalize: the finalize still stands
+ * (软门), the doc simply is not anchored.
+ *
+ * Guards carried over verbatim: approving twice is a 400 (the approve-family
+ * rule); the credential snapshot is DERIVED from this same record (it cannot
+ * disagree with the ledger) and stays LIGHT — findings metadata only
+ * (detail/resolution live in the live rows), ANSWERED clarifications only.
+ */
+export function approveUnderstandWith(base: WorkbenchRecord, docHash?: string): RecordActionResult {
+  if (base.understandApprovedAt !== undefined) return fail(400, 'bad-request')
+  const at = now()
+  return {
+    ok: true,
+    record: {
+      ...base,
+      understandApprovedAt: at,
+      understandBaseline: {
+        at,
+        criteria: base.criteria.map((criterion) => ({
+          id: criterion.id,
+          text: criterion.text,
+          ...(criterion.sourceSection !== undefined ? { sourceSection: criterion.sourceSection } : {}),
+        })),
+        findings: base.findings.map((finding) => ({
+          id: finding.id,
+          status: finding.status,
+          category: finding.category,
+          severity: finding.severity,
+          title: finding.title,
+        })),
+        clarifications: (base.analysis?.clarifications ?? []).flatMap((row) =>
+          row.answer === undefined ? [] : [{ question: row.question, answer: row.answer }]),
+        ...(docHash !== undefined ? { docHash } : {}),
+      },
+    },
+  }
 }
 
 /**

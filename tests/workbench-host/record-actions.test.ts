@@ -38,7 +38,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { KnowledgeRecord } from '../../src/workbench-host/types.js'
-import { applyAnalysisSeed, applyRecordAction } from '../../src/workbench-host/record-actions.js'
+import { applyAnalysisSeed, applyRecordAction, approveUnderstandWith } from '../../src/workbench-host/record-actions.js'
 import { contentHashOf } from '../../src/workbench-host/artifact-store.js'
 import { isReleaseItemId, isWorkbenchRecord } from '../../src/workbench-shared/protocol.js'
 import type {
@@ -1365,10 +1365,12 @@ describe('0007 定稿软门：approveUnderstand / revokeUnderstand', () => {
         ],
       },
     })
-    const result = applyOk(base, { ...mutate(), action: 'approveUnderstand' })
-    expectIso(result.understandApprovedAt)
-    const baseline = result.understandBaseline
-    expect(baseline?.at).toBe(result.understandApprovedAt)
+    const result = approveUnderstandWith(base)
+    if (!result.ok) throw new Error(`expected ok, got ${result.status} ${result.code}`)
+    expectIso(result.record.understandApprovedAt)
+    const finalized = result.record
+    const baseline = finalized.understandBaseline
+    expect(baseline?.at).toBe(finalized.understandApprovedAt)
     expect(baseline?.criteria).toEqual([{ id: 'C1', text: '准则 C1', sourceSection: 'PRD#3.1' }, { id: 'C2', text: '准则 C2' }])
     expect(baseline?.findings).toEqual([
       { id: 'f1', status: 'resolved', category: 'conflict', severity: 'high', title: '源码冲突' },
@@ -1377,26 +1379,40 @@ describe('0007 定稿软门：approveUnderstand / revokeUnderstand', () => {
     expect(baseline?.clarifications).toEqual([{ question: '批量上限？', answer: '一万行' }]) // 未答行不入
   })
 
-  it('approveUnderstand 全零记录可定稿（跳过理解的合法路径）；已定稿再定稿 → 400', () => {
-    const empty = applyOk(baseRecord(), { ...mutate(), action: 'approveUnderstand' })
+  it('approveUnderstandWith 全零记录可定稿（跳过理解的合法路径）+ docHash 条件落锚；已定稿再定稿 → 400；union 残留走通配 400（0008 D4 专属流防线）', () => {
+    const emptyResult = approveUnderstandWith(baseRecord())
+    if (!emptyResult.ok) throw new Error('expected ok')
+    const empty = emptyResult.record
     expect(empty.understandBaseline?.criteria).toEqual([])
     expect(empty.understandBaseline?.findings).toEqual([])
     expect(empty.understandBaseline?.clarifications).toEqual([])
+    expect(empty.understandBaseline?.docHash).toBeUndefined() // 无文档 ⇒ 无锚（软门）
 
-    expect(applyRecordAction(empty, { ...mutate(), action: 'approveUnderstand' }))
+    // docHash 落锚（0008）。
+    const anchored = approveUnderstandWith(baseRecord(), 'a'.repeat(64))
+    if (!anchored.ok) throw new Error('expected ok')
+    expect(anchored.record.understandBaseline?.docHash).toBe('a'.repeat(64))
+
+    expect(approveUnderstandWith(empty))
       .toEqual({ ok: false, status: 400, code: 'bad-request' }) // approving twice is a client bug
+    // The action no longer rides applyRecordAction (0008 D4 dedicated flow) —
+    // a stray union fallthrough lands on the generic 400 by construction.
+    expect(applyRecordAction(empty, { ...mutate(), action: 'approveUnderstand' }))
+      .toEqual({ ok: false, status: 400, code: 'bad-request' })
   })
 
-  it('approveUnderstand 在 split 锁外：已批准拆分的记录照常可定稿（定稿是内容事件非拆分契约）', () => {
+  it('approveUnderstandWith 在 split 锁外：已批准拆分的记录照常可定稿（定稿是内容事件非拆分契约）', () => {
     const approved = baseRecord({ splitApprovedAt: NOW, workPackages: [wp('WP1')] })
-    const finalized = applyOk(approved, { ...mutate(), action: 'approveUnderstand' })
-    expectIso(finalized.understandApprovedAt)
-    expect(finalized.splitApprovedAt).toBe(NOW) // 拆分契约不动
+    const finalized = approveUnderstandWith(approved)
+    if (!finalized.ok) throw new Error('expected ok')
+    expectIso(finalized.record.understandApprovedAt)
+    expect(finalized.record.splitApprovedAt).toBe(NOW) // 拆分契约不动
   })
 
   it('revokeUnderstand 摘双键（戳+基线一并）；未定稿 → 400', () => {
-    const finalized = applyOk(baseRecord({ criteria: [criterion('C1')] }), { ...mutate(), action: 'approveUnderstand' })
-    const revoked = applyOk(finalized, { ...mutate(), action: 'revokeUnderstand' })
+    const approveResult = approveUnderstandWith(baseRecord({ criteria: [criterion('C1')] }))
+    if (!approveResult.ok) throw new Error('expected ok')
+    const revoked = applyOk(approveResult.record, { ...mutate(), action: 'revokeUnderstand' })
     expect('understandApprovedAt' in revoked).toBe(false)
     expect('understandBaseline' in revoked).toBe(false)
     expect(revoked.criteria).toHaveLength(1) // 活账本内容不动
@@ -1449,6 +1465,29 @@ describe('0007 D3：approveSplit / confirmSplitStillValid 基线两臂', () => {
     const refreshed = applyOk(base, { ...mutate(), action: 'confirmSplitStillValid', baseline: { prd: [] } })
     expect(refreshed.splitBaseline?.understandApprovedAt).toBe(NOW) // 重锚到当前戳
     expect(refreshed.splitBaseline?.answeredClarifications).toBe(1)
+  })
+
+  it('0008 D4：requirementDocHash 第三臂——已定稿且带 docHash 锚落账；无锚/未定稿键缺席；确认仍有效重锚', () => {
+    // 已定稿带锚：approveSplit 与 confirmSplitStillValid 都落 requirementDocHash。
+    const base = baseRecord({
+      understandApprovedAt: NOW,
+      understandBaseline: { at: NOW, criteria: [], findings: [], clarifications: [], docHash: 'd'.repeat(64) },
+      workPackages: [wp('WP1')],
+      splitApprovedAt: NOW,
+      splitBaseline: { at: NOW, prd: [], disposedFindings: 0 },
+    })
+    const reApproved = applyOk(base, { ...mutate(), action: 'confirmSplitStillValid', baseline: { prd: [] } })
+    expect(reApproved.splitBaseline?.requirementDocHash).toBe('d'.repeat(64))
+    // 未定稿 ⇒ 键缺席（非 undefined 赋值）。
+    const unFinalized = applyOk(baseRecord({ workPackages: [wp('WP1')] }), { ...mutate(), action: 'approveSplit', baseline: { prd: [] } })
+    expect('requirementDocHash' in (unFinalized.splitBaseline ?? {})).toBe(false)
+    // 定稿但无文档锚（软门：无文档可定稿）⇒ 键同样缺席。
+    const noDoc = applyOk(baseRecord({
+      understandApprovedAt: NOW,
+      understandBaseline: { at: NOW, criteria: [], findings: [], clarifications: [] },
+      workPackages: [wp('WP1')],
+    }), { ...mutate(), action: 'approveSplit', baseline: { prd: [] } })
+    expect('requirementDocHash' in (noDoc.splitBaseline ?? {})).toBe(false)
   })
 })
 
