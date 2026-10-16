@@ -42,10 +42,10 @@ import type {
   WorkbenchListResponse,
   WorkbenchRecord,
 } from '../workbench-shared/protocol.js'
-import { planDocPath, reviewDocPath, analysisReportPath, requirementDocPath } from './artifact-path.js'
+import { planDocPath, reviewDocPath, analysisReportPath, requirementDocPath, planningDocPath, splitResultPath } from './artifact-path.js'
 import { ArtifactStore, contentHashOf } from './artifact-store.js'
 import { scanWorkbenchArtifacts } from './orphan-scan.js'
-import { applyRecordAction, applyAnalysisSeed, approveUnderstandWith, nextReleaseItemId } from './record-actions.js'
+import { applyRecordAction, applyAnalysisSeed, applySplitSeed, approveUnderstandWith, adoptPlanWith, nextReleaseItemId } from './record-actions.js'
 import { parseDeclare } from './declare-parse.js'
 import { parseReviewFindings } from './review-parse.js'
 import type { SessionDeclareReader } from './declare-reader.js'
@@ -218,6 +218,15 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     // applies it itself and passes `existing` on for the commit tail's append
     // arm.
     if (body.action === 'approveUnderstand') return approveUnderstandFlow(body, existing, current.value)
+
+    // 0012 两步化轮: adoptPlan is the THIRD dedicated flow (its docHash anchor
+    // is IO-derived from the planning doc, approveUnderstand's shape — it
+    // keeps the implicit-create arm the same way); seedSplit is the FOURTH
+    // (the split result file is the ONLY channel — no session-log fallback,
+    // the analysis fallback exists for pre-file deliveries split never had;
+    // no implicit-create — seeding requires a prior bindSplitSession).
+    if (body.action === 'adoptPlan') return adoptPlanFlow(body, existing, current.value)
+    if (body.action === 'seedSplit') return seedSplitFlow(body, existing, current.value)
 
     // All business guards (target existence, split lock, state-machine
     // legality, referential integrity) live in the pure action core.
@@ -424,6 +433,85 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     const read = artifacts.read(requirementDocPath(workspace, requirementId))
     if (read.status === 'ok') return { status: 'ok', text: read.text, sha256: read.sha256 }
     return { status: read.status }
+  }
+
+  /** 0012: the planning-doc read (third member of the channel family). */
+  function readPlanningDocFile(requirementId: string): { status: 'ok'; text: string; sha256: string } | { status: 'missing' | 'too-large' | 'unarmed' } {
+    const resolve = services.resolveWorkspacePath
+    if (resolve === undefined) return { status: 'unarmed' }
+    const workspace = resolve(requirementId)
+    if (workspace === '') return { status: 'unarmed' }
+    const read = artifacts.read(planningDocPath(workspace, requirementId))
+    if (read.status === 'ok') return { status: 'ok', text: read.text, sha256: read.sha256 }
+    return { status: read.status }
+  }
+
+  /** 0012: the split result file read (fourth member of the channel family). */
+  function readSplitResultFile(requirementId: string): { status: 'ok'; text: string; sha256: string } | { status: 'missing' | 'too-large' | 'unarmed' } {
+    const resolve = services.resolveWorkspacePath
+    if (resolve === undefined) return { status: 'unarmed' }
+    const workspace = resolve(requirementId)
+    if (workspace === '') return { status: 'unarmed' }
+    const read = artifacts.read(splitResultPath(workspace, requirementId))
+    if (read.status === 'ok') return { status: 'ok', text: read.text, sha256: read.sha256 }
+    return { status: read.status }
+  }
+
+  /**
+   * 0012: adoptPlan dedicated flow — approveUnderstandFlow's twin verbatim:
+   * read the planning doc off disk and hand the pure core its sha256.
+   * unarmed / missing ⇒ NO anchor but the adoption STILL STANDS (软门：无文档
+   * 可采纳——the ack modal discloses it, the user has ruled); too-large ⇒ 413
+   * (the doc is there but unreadable — anchoring nothing would mis-certify
+   * "no doc", the file-is-bad-don't-fallback precedent).
+   */
+  async function adoptPlanFlow(
+    body: { expectedRevision: number; requirementId: string },
+    existing: WorkbenchRecord | undefined,
+    current: { revision: number; records: readonly WorkbenchRecord[] },
+  ): Promise<Response> {
+    const base = existing ?? emptyRecord(body.requirementId) // implicit-create semantics preserved (an all-zero adoption is a legal first action)
+    const doc = readPlanningDocFile(body.requirementId)
+    if (doc.status === 'too-large') return errorResponse(413, 'too-large')
+    const applied = adoptPlanWith(base, doc.status === 'ok' ? doc.sha256 : undefined)
+    return commitSeedResponse(body, applied, current, existing)
+  }
+
+  /**
+   * 0012: seedSplit dedicated flow — the split result FILE is the only
+   * channel (the session log is never scanned: the analysis fallback exists
+   * for pre-file-channel deliveries, which split never had). Misses answer
+   * 200 zero-write with the actionable reason (the waiting row discloses it
+   * — the seedAnalysis observability discipline); a declare miss or a
+   * syntax break likewise (the retry path stays open).
+   */
+  async function seedSplitFlow(
+    body: { expectedRevision: number; requirementId: string; action: 'seedSplit'; sessionId: string },
+    existing: WorkbenchRecord | undefined,
+    current: { revision: number; records: readonly WorkbenchRecord[] },
+  ): Promise<Response> {
+    if (existing === undefined
+      || existing.splitProposals === undefined
+      || existing.splitProposals.session.sessionId !== body.sessionId) {
+      return errorResponse(404, 'not-found')
+    }
+    const resultFile = readSplitResultFile(existing.requirementId)
+    if (resultFile.status !== 'ok') {
+      return json({
+        ok: true,
+        revision: current.revision,
+        record: existing,
+        seedMissing: resultFile.status === 'missing' ? 'split-file-missing' : 'split-file-too-large',
+      })
+    }
+    const parsed = parseDeclare({ text: resultFile.text, record: existing })
+    if (!parsed.ok) return json({ ok: true, revision: current.revision, record: existing, seedMissing: 'split-file-syntax' })
+    const applied = applySplitSeed(existing, {
+      sessionId: body.sessionId,
+      contentHash: resultFile.sha256,
+      workPackages: parsed.proposals.workPackages,
+    })
+    return commitSeedResponse(body, applied, current)
   }
 
   /**
@@ -718,7 +806,7 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     const kind = url.searchParams.get('kind')
     const requirementId = url.searchParams.get('requirementId')
     if (requirementId === null || !REQUIREMENT_ID_RE.test(requirementId)) return errorResponse(400, 'bad-request')
-    if (kind !== 'plan' && kind !== 'review' && kind !== 'analysis-report' && kind !== 'requirement-doc') return errorResponse(400, 'bad-request')
+    if (kind !== 'plan' && kind !== 'review' && kind !== 'analysis-report' && kind !== 'requirement-doc' && kind !== 'planning-doc' && kind !== 'split-result') return errorResponse(400, 'bad-request')
 
     // 文件交付轮 face: the workspace report file — readable even before a
     // seed lands (the file is the session's delivery; the ledger joins in
@@ -752,6 +840,36 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
       // An unfinalized record has no anchor yet — untampered-silent (the doc
       // is the deliverable; the anchor only exists once finalized).
       const expectedHash = record?.understandBaseline?.docHash
+      const contentTampered = expectedHash !== undefined && expectedHash !== doc.sha256
+      return json({ ok: true, content: doc.text, contentTampered })
+    }
+
+    // 0012 face: the technical planning doc — same shape (file first, readable
+    // before any adoption anchors it; the ledger joins only for tamper compare
+    // against planBaseline.docHash).
+    if (kind === 'planning-doc') {
+      const doc = readPlanningDocFile(requirementId)
+      if (doc.status !== 'ok') return errorResponse(404, 'not-found')
+      const current = file.load()
+      if (!current.ok) return errorResponse(409, 'unreadable-file')
+      const record = current.value.records.find((candidate) => candidate.requirementId === requirementId)
+      // An unadopted record has no anchor yet — untampered-silent (the doc
+      // is the deliverable; the anchor only exists once adopted).
+      const expectedHash = record?.planBaseline?.docHash
+      const contentTampered = expectedHash !== undefined && expectedHash !== doc.sha256
+      return json({ ok: true, content: doc.text, contentTampered })
+    }
+
+    // 0012 face: the split result file — tamper compare against the seed's
+    // contentHash (the disk-bytes sha256 the seed anchored, so like hashes
+    // like; an unseeded container reads untampered-silent).
+    if (kind === 'split-result') {
+      const doc = readSplitResultFile(requirementId)
+      if (doc.status !== 'ok') return errorResponse(404, 'not-found')
+      const current = file.load()
+      if (!current.ok) return errorResponse(409, 'unreadable-file')
+      const record = current.value.records.find((candidate) => candidate.requirementId === requirementId)
+      const expectedHash = record?.splitProposals?.seed?.contentHash
       const contentTampered = expectedHash !== undefined && expectedHash !== doc.sha256
       return json({ ok: true, content: doc.text, contentTampered })
     }

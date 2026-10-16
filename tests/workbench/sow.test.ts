@@ -389,8 +389,11 @@ describe('buildSow', () => {
     expect(text).not.toContain('C2 导出任务可取消')
     // 0009：revision 戳退役。
     expect(text).not.toContain('此后账本变更不自动同步')
-    // 回传轮回归锚：split/dev 的 declare 骨架不携带提议键（共享 plain 面未被殃及）。
-    expect(text).toContain('```yaml\n# skyaxis-declare\n# knowledge 条目形如（type: business|convention）：\n#   - type: convention\n#     title: 标题\n#     draft: 内容\nknowledge: []\nstageReady: false\n```')
+    // 0012 拆分结果文件通道：目标段改「自动收取为待登记提议」口径；unarmed（本 fixture 未绑工作区）
+    // 保留会话内交付原话；declare 骨架升级为 split 专属（workPackages 提议键 + plain 面逐字复用）。
+    expect(text).toContain('建议由工作台自动收取为「待登记提议」，需求负责人逐条裁决登记后再决定是否批准拆分')
+    expect(text).toContain('拆分建议在会话内交付，不写文件')
+    expect(text).toContain('```yaml\n# skyaxis-declare\n# workPackages 每条 = 工作包建议（ref 为建议序号 WP1/WP2…，仅供批内依赖互引；正式编号由工作台登记时分配）：\n#   - ref: WP1\n#     title: 标题（64 字内）\n#     boundary: 边界（做什么/不做什么）\n#     dependsOn: [WP2]   # 批内建议序号，或既有工作包编号\n#     parallel: true     # 可与其他包并行\n#     covers: [C1, C2]   # 覆盖的验收标准编号（基线文档验收标准节）\nworkPackages: []\n# knowledge 条目形如（type: business|convention）：\n#   - type: convention\n#     title: 标题\n#     draft: 内容\nknowledge: []\nstageReady: false\n```')
     expect(text).not.toContain('criteria:')
     expect(text).not.toContain('findings 每条')
     // 五段老形态退役（split 专属）：方括号段头与 PRD 嵌入段不再出现。
@@ -474,6 +477,93 @@ describe('buildSow', () => {
     expect(text).toContain('- 必读 repos/order-svc（订单服务，分支 feat/export）——与需求相关的模块与现有实现')
     expect(text).toContain('（另有 1 个已关联仓库的克隆目录名暂不可得——可列举 repos/ 目录对照）')
     expect(text).not.toContain('全文正文不该出现')
+  })
+
+  it('plan 九节（0012 两步化）：标题/目标/快照/输入（基线行「本次规划」措辞）/参考知识/约束/工作流/输出六节模板；无 declare 块、无 revision 戳', () => {
+    const text = buildSow({
+      ...baseCtx,
+      purpose: 'plan',
+      requirement: { ...requirement, workspacePath: 'C:\\ws\\repo-a' },
+      record: record({
+        stage: 'plan',
+        criteria,
+        understandApprovedAt: '2026-10-13T08:00:00.000Z',
+        understandBaseline: { at: AT, criteria: [], findings: [], clarifications: [], docHash: 'a'.repeat(64) },
+        planAdoptedAt: '2026-10-14T08:00:00.000Z',
+        planBaseline: { at: AT, docHash: 'p'.repeat(64) },
+        workPackages: [wp('WP1', { title: '导出队列' })],
+      }),
+    })
+    expect(text).toContain('# skyaxis 规划任务书 · 导出功能改造')
+    expect(text).toContain('## 目标')
+    expect(text).toContain('## 需求快照（工作台账本，生成时快照）')
+    expect(text).toContain('## 输入（用文件读取能力按路径阅读；不要凭记忆，不要猜）')
+    expect(text).toContain('## 参考知识（工作台注入，已审定）')
+    expect(text).toContain('## 约束')
+    expect(text).toContain('## 工作流')
+    expect(text).toContain('## 输出')
+    // 输入段：基线必读行（plan 措辞）+ 无规划行（规划自己写规划文档，不读自己）。
+    expect(text).toContain(`- 必读 .skyaxis/requirements/${RID}.md——需求基线文档，本次规划的唯一需求真源`)
+    expect(text).not.toContain('必读 .skyaxis/planning/')
+    // 快照：定稿状态行 + 已采纳规划状态行（重新规划语境）+ 工作包快照。
+    expect(text).toContain('需求理解定稿：已定稿（2026-10-13）——理解阶段的裁决视为已定输入')
+    expect(text).toContain('技术规划采纳：已采纳（')
+    expect(text).toContain('- WP1 导出队列 · 已登记（planned）')
+    // 约束：文件通道唯一例外（consolidate 形制）。
+    expect(text).toContain('唯一例外：把技术规划文档写入「输出」节指定路径')
+    // 输出：armed ⇒ 写 .skyaxis/planning/<rid>.md + 六节模板 + 自检尾句。
+    expect(text).toContain(`路径：C:/ws/repo-a/.skyaxis/planning/${RID}.md`)
+    expect(text).toContain('# 技术规划 · <需求标题>')
+    expect(text).toContain('## 现状盘点')
+    expect(text).toContain('## 技术方案')
+    expect(text).toContain('## 改动面')
+    expect(text).toContain('## 风险与开放问题')
+    expect(text).toContain('## 实施顺序草案')
+    expect(text).toContain('## 对拆分的建议原则')
+    expect(text).toContain('文档已写入上述路径')
+    // 整理任务书先例：无 declare 块、无戳。
+    expect(text).not.toContain('skyaxis-declare')
+    expect(text).not.toContain('此后账本变更不自动同步')
+    // unarmed 双态：未绑定工作区 ⇒ 会话内交付警示。
+    const unarmed = buildSow({ ...baseCtx, purpose: 'plan', record: record({ criteria }) })
+    expect(unarmed).toContain('本需求未绑定工作区——无法指定规划文件路径，请在会话内交付文档全文')
+    const noRecord = buildSow({ ...baseCtx, purpose: 'plan', record: null })
+    expect(noRecord).toContain('（工作台记录未建立——尚无基线文档与裁决可用，规划只能基于需求描述）')
+  })
+
+  it('split 输入段规划行三态（0012）：已采纳带锚 ⇒ 必读 .skyaxis/planning/ 行；已采纳无锚 ⇒ 诚实行；未采纳 ⇒ 诚实行（依据账本不依据盘）', () => {
+    const withWorkspace = { ...baseCtx, requirement: { ...requirement, workspacePath: 'C:\\ws\\repo-a' } }
+    const anchored = buildSow({
+      ...withWorkspace,
+      purpose: 'split',
+      record: record({
+        criteria,
+        planAdoptedAt: '2026-10-14T08:00:00.000Z',
+        planBaseline: { at: AT, docHash: 'p'.repeat(64), requirementDocHash: 'r'.repeat(64) },
+      }),
+    })
+    expect(anchored).toContain(`- 必读 .skyaxis/planning/${RID}.md——技术规划文档，本拆分的方案真源`)
+    const adoptedNoAnchor = buildSow({
+      ...withWorkspace,
+      purpose: 'split',
+      record: record({ criteria, planAdoptedAt: '2026-10-14T08:00:00.000Z' }),
+    })
+    expect(adoptedNoAnchor).toContain('（技术规划已采纳但未锚定——采纳时工作区无此文档；本次拆分以基线文档与仓库现状为方案依据。）')
+    const noAdoption = buildSow({ ...withWorkspace, purpose: 'split', record: record({ criteria }) })
+    expect(noAdoption).toContain('（尚无已采纳的技术规划文档——本次拆分以基线文档与仓库现状为方案依据；若规划文档已生成，先在工作台采纳它，再重新生成本任务书。）')
+  })
+
+  it('split 文件交付（0012 armed）：工作区绑定的输出/约束翻转为结果文件通道（绝对路径 + 覆盖写 + 自检尾句）', () => {
+    const text = buildSow({
+      ...baseCtx,
+      purpose: 'split',
+      requirement: { ...requirement, workspacePath: 'C:\\ws\\repo-a' },
+      record: record({ criteria }),
+    })
+    expect(text).toContain('唯一例外：把拆分结果文件写入「输出」节指定路径')
+    expect(text).toContain(`路径：C:/ws/repo-a/.skyaxis/split/${RID}.md`)
+    expect(text).toContain('结果文件已写入上述路径')
+    expect(text).not.toContain('拆分建议在会话内交付，不写文件')
   })
 
   it('consolidate 九节（0008）：标题/目标/快照/输入/参考知识/约束/工作流/输出 + 十节文档模板', () => {

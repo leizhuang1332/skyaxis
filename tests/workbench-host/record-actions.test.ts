@@ -38,7 +38,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { KnowledgeRecord } from '../../src/workbench-host/types.js'
-import { applyAnalysisSeed, applyRecordAction, approveUnderstandWith } from '../../src/workbench-host/record-actions.js'
+import { applyAnalysisSeed, applyRecordAction, applySplitSeed, approveUnderstandWith, adoptPlanWith } from '../../src/workbench-host/record-actions.js'
 import { contentHashOf } from '../../src/workbench-host/artifact-store.js'
 import { isReleaseItemId, isWorkbenchRecord } from '../../src/workbench-shared/protocol.js'
 import type {
@@ -1557,5 +1557,157 @@ describe('0007 isWorkbenchRecord × understand 字段（wire 守卫容忍面）'
     expect(isWorkbenchRecord(row)).toBe(true)
     row.analysis = { session: { sessionId: 's', boundAt: NOW }, seed: { sessionId: 's', contentHash: 'h', seededAt: NOW, findings: 0, criteria: 0, stageReady: 'yes' }, findings: [], criteria: [] }
     expect(isWorkbenchRecord(row)).toBe(false)
+  })
+})
+
+describe('0012 采纳软门：adoptPlanWith / revokePlanAdoption', () => {
+  it('adoptPlanWith 铸 stamp+轻基线：docHash 条件落锚，上游 requirementDocHash 从 understandBaseline 派生；无锚采纳仍成立', () => {
+    const empty = approveUnderstandWith(baseRecord())
+    const adopted = adoptPlanWith(empty.ok ? empty.record : baseRecord())
+    expect(adopted.ok).toBe(true)
+    if (!adopted.ok) return
+    expectIso(adopted.record.planAdoptedAt)
+    expect(adopted.record.planBaseline).toEqual({ at: adopted.record.planBaseline?.at }) // 无 doc/无上游 ⇒ 仅 at
+
+    const withDoc = adoptPlanWith(baseRecord(), 'a'.repeat(64))
+    expect(withDoc.ok && withDoc.record.planBaseline?.docHash).toBe('a'.repeat(64))
+
+    const finalized = approveUnderstandWith(baseRecord(), 'b'.repeat(64))
+    const chained = adoptPlanWith(finalized.ok ? finalized.record : baseRecord(), 'c'.repeat(64))
+    expect(chained.ok && chained.record.planBaseline).toMatchObject({ docHash: 'c'.repeat(64), requirementDocHash: 'b'.repeat(64) })
+  })
+
+  it('重复采纳 → 400（approve 家族）；union 残留 adoptPlan 走通配 400（专属流防线）；采纳在 split 锁外', () => {
+    const once = adoptPlanWith(baseRecord())
+    const twice = adoptPlanWith(once.ok ? once.record : baseRecord())
+    expect(twice).toEqual({ ok: false, status: 400, code: 'bad-request' })
+    expect(applyRecordAction(baseRecord(), { ...mutate(), action: 'adoptPlan' } as WorkbenchMutateRequestBody))
+      .toEqual({ ok: false, status: 400, code: 'bad-request' })
+    const locked = baseRecord({ splitApprovedAt: NOW, planAdoptedAt: undefined })
+    expect(adoptPlanWith(locked).ok).toBe(true) // 锁外——采纳是内容事件
+  })
+
+  it('revokePlanAdoption 摘戳即摘基线（键移除不是置 undefined）；未采纳撤销 → 400', () => {
+    const adopted = adoptPlanWith(baseRecord(), 'a'.repeat(64))
+    const record = adopted.ok ? adopted.record : baseRecord()
+    const revoked = applyRecordAction(record, { ...mutate(), action: 'revokePlanAdoption' })
+    expect(revoked.ok && 'planAdoptedAt' in revoked.record).toBe(false)
+    expect(revoked.ok && 'planBaseline' in revoked.record).toBe(false)
+    expect(applyRecordAction(baseRecord(), { ...mutate(), action: 'revokePlanAdoption' }))
+      .toEqual({ ok: false, status: 400, code: 'bad-request' })
+  })
+})
+
+describe('0012 splitProposals 容器：bind / dismiss / seed / adopt', () => {
+  const proposals = (overrides: Partial<NonNullable<WorkbenchRecord['splitProposals']>> = {}): NonNullable<WorkbenchRecord['splitProposals']> => ({
+    session: { sessionId: 'sess-split', boundAt: NOW },
+    workPackages: [
+      { ref: 'WP1', title: '校验', boundary: 'b1', dependsOn: [], covers: ['C1'] },
+      { ref: 'WP2', title: '导出', boundary: 'b2', dependsOn: ['WP1'], parallel: true, covers: ['C2'] },
+    ],
+    ...overrides,
+  })
+
+  it('bindSplitSession 三臂：同 id 同锚 unchanged / 同 id 补锚 / 新 id 换指针保 seed 保旧批', () => {
+    const base = baseRecord({ splitProposals: proposals() })
+    const same = applyRecordAction(base, { ...mutate(), action: 'bindSplitSession', sessionId: 'sess-split' })
+    expect(same).toMatchObject({ ok: true, unchanged: true })
+    const anchored = applyRecordAction(base, { ...mutate(), action: 'bindSplitSession', sessionId: 'sess-split', anchor: '头部锚' })
+    expect(anchored.ok && anchored.record.splitProposals?.session.anchor).toBe('头部锚')
+    const seeded = baseRecord({ splitProposals: proposals({ seed: { sessionId: 'sess-split', contentHash: 'a'.repeat(64), seededAt: NOW } }) })
+    const swapped = applyRecordAction(seeded, { ...mutate(), action: 'bindSplitSession', sessionId: 'sess-new' })
+    expect(swapped.ok && swapped.record.splitProposals?.session.sessionId).toBe('sess-new')
+    expect(swapped.ok && swapped.record.splitProposals?.seed?.contentHash).toBe('a'.repeat(64)) // 旧 seed 存活
+    expect(swapped.ok && swapped.record.splitProposals?.workPackages).toHaveLength(2) // 旧批存活
+  })
+
+  it('applySplitSeed：容器缺失/会话不匹配 → 404；同 sessionId+hash 幂等 unchanged；新 hash 整批替换未登记行；空批也盖锚', () => {
+    expect(applySplitSeed(baseRecord(), { sessionId: 's', contentHash: 'h', workPackages: [] }))
+      .toEqual({ ok: false, status: 404, code: 'not-found' })
+    const base = baseRecord({ splitProposals: proposals({ seed: { sessionId: 'sess-split', contentHash: 'a'.repeat(64), seededAt: NOW } }) })
+    const noop = applySplitSeed(base, { sessionId: 'sess-split', contentHash: 'a'.repeat(64), workPackages: [] })
+    expect(noop).toMatchObject({ ok: true, unchanged: true })
+    const replaced = applySplitSeed(base, {
+      sessionId: 'sess-split',
+      contentHash: 'b'.repeat(64),
+      workPackages: [{ ref: 'WP9', title: '新批', boundary: '', dependsOn: [], covers: [] }],
+    })
+    expect(replaced.ok && replaced.record.splitProposals?.workPackages.map((row) => row.ref)).toEqual(['WP9'])
+    expect(replaced.ok && replaced.record.splitProposals?.seed?.contentHash).toBe('b'.repeat(64))
+    const empty = applySplitSeed(base, { sessionId: 'sess-split', contentHash: 'c'.repeat(64), workPackages: [] })
+    expect(empty.ok && empty.record.splitProposals?.workPackages).toEqual([])
+    expect(empty.ok && empty.record.splitProposals?.seed?.contentHash).toBe('c'.repeat(64)) // 空批盖锚防重读
+  })
+
+  it('dismissWorkPackageProposal 容器行移除（锁外）；未知 ref → 404', () => {
+    const base = baseRecord({ splitProposals: proposals() })
+    const dismissed = applyRecordAction(base, { ...mutate(), action: 'dismissWorkPackageProposal', ref: 'WP1' })
+    expect(dismissed.ok && dismissed.record.splitProposals?.workPackages.map((row) => row.ref)).toEqual(['WP2'])
+    expect(applyRecordAction(base, { ...mutate(), action: 'dismissWorkPackageProposal', ref: 'WP9' }))
+      .toEqual({ ok: false, status: 404, code: 'not-found' })
+    const locked = baseRecord({ splitApprovedAt: NOW, splitProposals: proposals() })
+    expect(applyRecordAction(locked, { ...mutate(), action: 'dismissWorkPackageProposal', ref: 'WP1' }).ok).toBe(true)
+  })
+
+  it('adoptSplitProposals：host 铸 id（容器序）+ ref→id 依赖重写 + coveredBy 重投影 + 容器行移除；既有 WP1 之上续铸 WP2/WP3', () => {
+    const base = baseRecord({
+      criteria: [criterion('C1'), criterion('C2')],
+      workPackages: [wp('WP1')],
+      splitProposals: proposals({ workPackages: [
+        { ref: 'WP5', title: '校验', boundary: 'b1', dependsOn: [], covers: ['C1'] },
+        { ref: 'WP6', title: '导出', boundary: 'b2', dependsOn: ['WP5', 'WP1'], covers: ['C2'] },
+      ] }),
+    })
+    const adopted = applyRecordAction(base, { ...mutate(), action: 'adoptSplitProposals', refs: ['WP5', 'WP6'] })
+    expect(adopted.ok).toBe(true)
+    if (!adopted.ok) return
+    const ids = adopted.record.workPackages.map((row) => row.id)
+    expect(ids).toEqual(['WP1', 'WP2', 'WP3']) // 续铸不信任 ref
+    expect(adopted.record.workPackages[2].dependsOn).toEqual(['WP2', 'WP1']) // 批内 ref 重写 + 既有 id 直通
+    expect(adopted.record.workPackages[1].order).toBe(2)
+    expect(adopted.record.workPackages[2].order).toBe(3)
+    expect(adopted.record.workPackages[2].status).toBe('planned')
+    expect(adopted.record.splitProposals?.workPackages).toEqual([]) // 已登记行移除
+    expect(adopted.record.criteria[0].coveredBy).toEqual(['WP2']) // 覆盖重投影
+    expect(adopted.record.criteria[1].coveredBy).toEqual(['WP3'])
+  })
+
+  it('adoptSplitProposals 守卫：locked-split 400 / 容器缺失 404 / 未知 ref 400 / 悬空依赖 400 / covers 事后被删 400', () => {
+    const locked = baseRecord({ splitApprovedAt: NOW, splitProposals: proposals() })
+    expect(applyRecordAction(locked, { ...mutate(), action: 'adoptSplitProposals', refs: ['WP1'] }))
+      .toEqual({ ok: false, status: 400, code: 'locked-split' })
+    expect(applyRecordAction(baseRecord(), { ...mutate(), action: 'adoptSplitProposals', refs: ['WP1'] }))
+      .toEqual({ ok: false, status: 404, code: 'not-found' })
+    const base = baseRecord({ criteria: [criterion('C1')], splitProposals: proposals() })
+    expect(applyRecordAction(base, { ...mutate(), action: 'adoptSplitProposals', refs: ['WP1', 'WP9'] }))
+      .toEqual({ ok: false, status: 400, code: 'bad-request' })
+    // 只选 WP2（依赖未选中的 WP1）⇒ 悬空
+    expect(applyRecordAction(base, { ...mutate(), action: 'adoptSplitProposals', refs: ['WP2'] }))
+      .toEqual({ ok: false, status: 400, code: 'bad-request' })
+    // covers 在收取后被删（账本只剩 C1，提议行覆盖 C2）——采纳期兜底
+    const pruned = baseRecord({ criteria: [criterion('C1')], splitProposals: proposals({ workPackages: [
+      { ref: 'WP1', title: '校验', boundary: '', dependsOn: [], covers: ['C2'] },
+    ] }) })
+    expect(applyRecordAction(pruned, { ...mutate(), action: 'adoptSplitProposals', refs: ['WP1'] }))
+      .toEqual({ ok: false, status: 400, code: 'bad-request' })
+  })
+})
+
+describe('0012 splitBaseline 第六臂：planningDocHash 铸入与摘除', () => {
+  it('approveSplit / confirmSplitStillValid 从 planBaseline.docHash 条件铸入；无采纳则缺臂；revoke 随基线摘除', () => {
+    const adopted = baseRecord({
+      criteria: [criterion('C1')],
+      workPackages: [wp('WP1', { covers: ['C1'] })],
+      planAdoptedAt: NOW,
+      planBaseline: { at: NOW, docHash: 'p'.repeat(64), requirementDocHash: 'r'.repeat(64) },
+    })
+    const approved = applyRecordAction(adopted, { ...mutate(), action: 'approveSplit', baseline: { prd: [] } })
+    expect(approved.ok && approved.record.splitBaseline?.planningDocHash).toBe('p'.repeat(64))
+    const noPlan = applyRecordAction(baseRecord({ criteria: [criterion('C1')], workPackages: [wp('WP1', { covers: ['C1'] })] }), { ...mutate(), action: 'approveSplit', baseline: { prd: [] } })
+    expect(noPlan.ok && noPlan.record.splitBaseline && 'planningDocHash' in noPlan.record.splitBaseline).toBe(false)
+    const confirmed = applyRecordAction(approved.ok ? approved.record : adopted, { ...mutate(), action: 'confirmSplitStillValid', baseline: { prd: [] } })
+    expect(confirmed.ok && confirmed.record.splitBaseline?.planningDocHash).toBe('p'.repeat(64))
+    const revoked = applyRecordAction(approved.ok ? approved.record : adopted, { ...mutate(), action: 'revokeSplitApproval' })
+    expect(revoked.ok && revoked.record.splitBaseline).toBeUndefined()
   })
 })

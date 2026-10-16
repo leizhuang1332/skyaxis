@@ -29,6 +29,9 @@ import { ClarificationsSection } from './clarifications-section.js'
 import { ReportSection } from './report-section.js'
 import { RequirementDocSection } from './requirement-doc-section.js'
 import { SplitSection } from './split-section.js'
+import { PlanningSection } from './planning-section.js'
+import { WorkspaceDocSection } from './doc-section.js'
+import { splitResultRelPath } from '../../workbench-shared/protocol.js'
 import { BoardSection } from './board-section.js'
 import { DeliverSection } from './deliver-section.js'
 import { ReviewSection } from './review-section.js'
@@ -211,7 +214,7 @@ export function WorkbenchTabBody(props: {
   )
   const [viewing, setViewing] = useState<WorkbenchStage>('understand')
   // SOW modal state — view-owned so every section entry shares one instance.
-  const [sow, setSow] = useState<{ purpose: 'analysis' | 'split' | 'consolidate' | 'dev' | 'review'; workPackage?: WorkbenchWorkPackage } | null>(null)
+  const [sow, setSow] = useState<{ purpose: 'analysis' | 'plan' | 'split' | 'consolidate' | 'dev' | 'review'; workPackage?: WorkbenchWorkPackage } | null>(null)
   // 挂账轮: artifact-reconciliation modal — view-owned like the SOW instance;
   // phase-independent entry (the scan's data source is the endpoint, not the
   // slot — honesty means surfacing its own failures, not hiding the button).
@@ -352,6 +355,42 @@ export function WorkbenchTabBody(props: {
   const retryAnalysisSeed = (): void => {
     seedAttemptedRef.current = false
     runSeed()
+  }
+
+  // 0012 拆分结果 watcher — the analysis watcher's LEAN twin: the result FILE
+  // is the only channel (no session-log fallback, hence no shell repair and
+  // no title-prefix rebind); RUNNING still closes the gate (never seed
+  // mid-run), the idle flip re-arms, and the miss advisory rides the same
+  // waiting row (the observability discipline).
+  const splitProposals = record?.splitProposals
+  const splitSessionId = splitProposals?.session.sessionId
+  const splitSummary = splitSessionId !== undefined ? sessionSummaries.byId[splitSessionId] : undefined
+  const splitRunning = splitSummary?.running === true
+  const splitDue = splitProposals !== undefined && splitProposals.seed?.sessionId !== splitSessionId
+  const [splitSeedMiss, setSplitSeedMiss] = useState<SeedMissingReason | undefined>(undefined)
+  const splitSeedAttemptedRef = useRef(false)
+  const runSplitSeed = (): void => {
+    if (splitSessionId === undefined) return
+    void controller.seedSplitQuiet(requirementId, splitSessionId).then((outcome) => {
+      setSplitSeedMiss(outcome?.miss)
+    })
+  }
+  useEffect(() => {
+    splitSeedAttemptedRef.current = false
+    setSplitSeedMiss(undefined)
+  }, [requirementId, splitSessionId])
+  useEffect(() => {
+    if (splitRunning) splitSeedAttemptedRef.current = false
+  }, [splitRunning])
+  useEffect(() => {
+    if (!splitDue || splitRunning || splitSessionId === undefined) return
+    if (splitSeedAttemptedRef.current) return
+    splitSeedAttemptedRef.current = true
+    runSplitSeed()
+  }, [requirementId, splitSessionId, splitDue, splitRunning, controller])
+  const retrySplitSeed = (): void => {
+    splitSeedAttemptedRef.current = false
+    runSplitSeed()
   }
 
   const advance = (): void => {
@@ -500,7 +539,47 @@ export function WorkbenchTabBody(props: {
               <ClarificationsSection key={`clarifications-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} onRetrySeed={retryAnalysisSeed} seedMiss={analysisDue ? seedMiss : undefined} seedScan={analysisDue ? seedScan : undefined} />
             ) : null}
             {record !== null && viewing === 'plan' ? (
-              <SplitSection key={`split-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} onOpenSow={() => { setSow({ purpose: 'split' }) }} />
+              <PlanningSection
+                key={`planning-${requirementId}`}
+                t={t}
+                slot={slot}
+                controller={controller}
+                requirementId={requirementId}
+                workspacePath={props.requirement.workspacePath.trim()}
+                record={record}
+                onOpenSow={() => { setSow({ purpose: 'plan' }) }}
+              />
+            ) : null}
+            {record !== null && viewing === 'plan' ? (
+              // 0012 验收驱动补面: the split result FILE's own card (the
+              // human-readable 拆分方案 — fifth instance of the doc-card
+              // family, the planning card's twin). The proposal area below is
+              // this file's MACHINE extraction; the card is the document face
+              // (preview + path disclosure + tamper warning vs the seed锚).
+              <WorkspaceDocSection
+                key={`splitdoc-${requirementId}`}
+                t={t}
+                controller={controller}
+                requirementId={requirementId}
+                workspacePath={props.requirement.workspacePath.trim()}
+                ns="splitResult"
+                displayName={`split/${requirementId.slice(0, 8)}.md`}
+                relPath={splitResultRelPath(requirementId)}
+                fetchContent={controller.splitResultContent}
+              />
+            ) : null}
+            {record !== null && viewing === 'plan' ? (
+              <SplitSection
+                key={`split-${requirementId}`}
+                t={t}
+                slot={slot}
+                controller={controller}
+                requirementId={requirementId}
+                onOpenSow={() => { setSow({ purpose: 'split' }) }}
+                splitSeedDue={splitDue}
+                splitSeedMiss={splitDue ? splitSeedMiss : undefined}
+                onRetrySplitSeed={retrySplitSeed}
+              />
             ) : null}
             {record !== null && viewing === 'implement' ? (
               <BoardSection key={`board-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} sessions={sessionsFace} waitingIds={waitingIds} onOpenSow={(workPackage) => { setSow({ purpose: 'dev', workPackage }) }} />
@@ -568,10 +647,16 @@ export function WorkbenchTabBody(props: {
             busy={slot.busy}
             workPackage={sow?.workPackage}
             deliver={props.deliver}
-            onDelivered={sow !== null && sow.purpose !== 'analysis' ? undefined : (sessionId: string, sowText: string) => {
-              // Analysis delivery is the ONLY auto-watched source (ruling ③)
-              // — bind with the task-book anchor (the SOW head content-addresses
-              // the real conversation if this created session proves a shell).
+            onDelivered={sow !== null && sow.purpose !== 'analysis' && sow.purpose !== 'split' ? undefined : (sessionId: string, sowText: string) => {
+              // Analysis + split deliveries are the auto-watched sources
+              // (ruling ③ shape) — bind with the task-book anchor (provenance
+              // parity; the split channel is file-only, so its anchor is
+              // informational). The planning SOW ('plan') stays UNBOUND — the
+              // 整理任务书 no-return precedent: nothing seeds from it.
+              if (sow === null || sow.purpose === 'split') {
+                void controller.bindSplitSession(requirementId, sessionId, sowText.slice(0, 200))
+                return
+              }
               void controller.bindAnalysisSession(requirementId, sessionId, sowText.slice(0, 200))
             }}
             onClose={() => { setSow(null) }}

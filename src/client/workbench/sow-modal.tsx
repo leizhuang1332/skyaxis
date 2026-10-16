@@ -75,7 +75,7 @@ async function defaultPlanText(requirementId: string, workPackage: WorkbenchWork
 export function SowModal(props: {
   t: WorkbenchT
   open: boolean
-  purpose: 'analysis' | 'split' | 'consolidate' | 'dev' | 'review'
+  purpose: 'analysis' | 'plan' | 'split' | 'consolidate' | 'dev' | 'review'
   requirement: RequirementRecord
   record: WorkbenchRecord | null
   /** Server-filtered requirement ∪ global view (may carry archived rows — filtered active here). */
@@ -181,7 +181,9 @@ export function SowModal(props: {
     void (async () => {
       // 0009 D2: split has no PRD face at all — no listing, no focus doc (the
       // baseline doc line rides the ledger, the input block carries it).
-      if (purpose === 'split') return
+      // 0012: plan joins verbatim (baseline + repos inputs; the planning doc
+      // it WRITES is ledger-decided too).
+      if (purpose === 'split' || purpose === 'plan') return
       let docs: { name: string }[] | null = null
       try {
         docs = await (props.fetchPrdList ?? (() => defaultPrdList(requirement.id)))()
@@ -331,10 +333,11 @@ export function SowModal(props: {
     includeDeps,
     // Analysis + consolidate inputs ride the same preview (0007: the split
     // SOW joined the path-reference shape; 0008: consolidate reads all docs
-    // wholesale; 0009: split takes the repos rows but NO doc listing): the
+    // wholesale; 0009: split takes the repos rows but NO doc listing; 0012:
+    // plan joins the same face — repos rows needed, doc listing unused): the
     // full doc listing (path references — PRD text itself is never embedded)
     // and the repo rows.
-    ...(purpose === 'analysis' || purpose === 'split' || purpose === 'consolidate' ? {
+    ...(purpose === 'analysis' || purpose === 'plan' || purpose === 'split' || purpose === 'consolidate' ? {
       analysisPrdDocs: prdDocs,
       analysisRepos: analysisRepoRows,
       analysisUnknownRepos: analysisRepoUnknown,

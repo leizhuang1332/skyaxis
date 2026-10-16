@@ -301,3 +301,86 @@ describe('S2 已放弃区（回收站化——验收轮三）', () => {
     expect(rendered.queryAllByRole('menuitem')).toHaveLength(0)
   })
 })
+
+describe('0012 SplitSection（拆包提议区 + 规划入口）', () => {
+  const proposalsRecord = (overrides: Partial<WorkbenchRecord> = {}): WorkbenchRecord =>
+    record({
+      criteria: splitCriteria(),
+      splitProposals: {
+        session: { sessionId: 'sess-split', boundAt: AT },
+        workPackages: [
+          { ref: 'WP5', title: '校验包', boundary: '只做校验', dependsOn: [], covers: ['C1'] },
+          { ref: 'WP6', title: '导出包', boundary: '只做导出', dependsOn: ['WP5'], parallel: true, covers: ['C2'] },
+        ],
+      },
+      ...overrides,
+    })
+
+  const subjectWithProps = (s: RequirementWorkbenchState, controller: WorkbenchController, extra: { onOpenPlan?: () => void; splitSeedDue?: boolean; splitSeedMiss?: 'split-file-missing'; onRetrySplitSeed?: () => void }) =>
+    render(
+      <SplitSection
+        t={bindZh()}
+        slot={s}
+        controller={controller}
+        requirementId={RID}
+        onOpenSow={() => { /* noop */ }}
+        {...extra}
+      />,
+    )
+
+  it('提议行渲染（ref/标题/边界/依赖/覆盖/提议 Tag）+ waiting 行带 miss 披露与重试；规划入口不在此节（规划卡专属）', async () => {
+    const onRetrySplitSeed = vi.fn()
+    const controller = fakeController({
+      adoptSplitProposals: vi.fn(async () => true),
+      dismissWorkPackageProposal: vi.fn(async () => true),
+    })
+    subjectWithProps(slot({ record: proposalsRecord() }), controller, { splitSeedDue: true, splitSeedMiss: 'split-file-missing', onRetrySplitSeed })
+
+    expect(screen.getByText(workbenchZh['splitProposal.sectionTitle'])).toBeTruthy()
+    expect(screen.getByText('WP5 校验包')).toBeTruthy()
+    expect(screen.getByText('依赖的工作包：— · 覆盖的验收标准：C1')).toBeTruthy()
+    expect(screen.getAllByText(workbenchZh['splitProposal.proposedTag'])).toHaveLength(2)
+    expect(screen.getByText(workbenchZh['splitProposal.waiting'])).toBeTruthy()
+    expect(screen.getByText(workbenchZh['proposal.seedMissSplitFileMissing'])).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: workbenchZh['splitProposal.retry'] }))
+    expect(onRetrySplitSeed).toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: workbenchZh['sow.planButton'] })).toBeNull()
+  })
+
+  it('勾选登记：未选时 [登记选中] 禁用；勾两条后点击 ⇒ adoptSplitProposals(RID, refs)', async () => {
+    const controller = fakeController({ adoptSplitProposals: vi.fn(async () => true) })
+    subjectWithProps(slot({ record: proposalsRecord() }), controller, {})
+
+    const register = screen.getByRole('button', { name: workbenchZh['splitProposal.adoptSelected'] })
+    expect(register.hasAttribute('disabled')).toBe(true)
+    fireEvent.click(screen.getByRole('checkbox', { name: 'WP5' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'WP6' }))
+    expect(register.hasAttribute('disabled')).toBe(false)
+    fireEvent.click(register)
+    await waitFor(() => expect(controller.adoptSplitProposals).toHaveBeenCalledWith(RID, ['WP5', 'WP6']))
+  })
+
+  it('忽略行 ⇒ dismissWorkPackageProposal(RID, ref)', async () => {
+    const controller = fakeController({ dismissWorkPackageProposal: vi.fn(async () => true) })
+    subjectWithProps(slot({ record: proposalsRecord() }), controller, {})
+    fireEvent.click(screen.getByRole('button', { name: 'WP5' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: workbenchZh['splitProposal.ignore'] }))
+    await waitFor(() => expect(controller.dismissWorkPackageProposal).toHaveBeenCalledWith(RID, 'WP5'))
+  })
+
+  it('locked-split：[登记选中] 禁用 + lockedHint 披露；[忽略] 仍可用（analysis 提议族先例）', async () => {
+    const controller = fakeController({
+      adoptSplitProposals: vi.fn(async () => true),
+      dismissWorkPackageProposal: vi.fn(async () => true),
+    })
+    subjectWithProps(slot({ record: proposalsRecord({ splitApprovedAt: AT, splitBaseline: { at: AT, prd: [], disposedFindings: 0 } }) }), controller, {})
+
+    expect(screen.getByText(workbenchZh['splitProposal.lockedHint'])).toBeTruthy()
+    const register = screen.getByRole('button', { name: workbenchZh['splitProposal.adoptSelected'] })
+    expect(register.hasAttribute('disabled')).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'WP5' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: workbenchZh['splitProposal.ignore'] }))
+    await waitFor(() => expect(controller.dismissWorkPackageProposal).toHaveBeenCalledWith(RID, 'WP5'))
+    expect(controller.adoptSplitProposals).not.toHaveBeenCalled()
+  })
+})

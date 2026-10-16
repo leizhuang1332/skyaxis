@@ -39,7 +39,7 @@ export function buildSplitBaseline(prd: readonly PrdDocSummary[]): SplitBaseline
   return { prd: prd.map((doc) => ({ name: doc.name, size: doc.size, modifiedAt: doc.modifiedAt })) }
 }
 
-export type SplitStaleReason = 'prd' | 'findings' | 'understand' | 'clarifications' | 'requirementDoc'
+export type SplitStaleReason = 'prd' | 'findings' | 'understand' | 'clarifications' | 'requirementDoc' | 'planningDoc'
 
 /**
  * Why the approved split may be stale. Empty = not stale, OR no baseline to
@@ -80,5 +80,12 @@ export function splitStaleReasons(record: WorkbenchRecord, prd: readonly PrdDocS
   // re-finalize, or a manual doc edit, does NOT (pure function, zero disk
   // reads — the S1 doc card's read-time contentTampered covers those).
   if (record.understandBaseline?.docHash !== baseline.requirementDocHash) reasons.push('requirementDoc')
+  // 0012: the planning-doc anchor (the sixth arm, the fifth-arm semantics
+  // verbatim): compare is ADOPTION-STATE only (record.planBaseline?.docHash
+  // vs the approval's planningDocHash snapshot) — a re-adoption after
+  // re-planning fires; revoking the adoption flips the record side to
+  // undefined ≠ the anchored string ⇒ fires; never-adopted-at-approval and
+  // still-not compares equal — quiet.
+  if (record.planBaseline?.docHash !== baseline.planningDocHash) reasons.push('planningDoc')
   return reasons
 }

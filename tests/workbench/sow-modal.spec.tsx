@@ -218,6 +218,37 @@ describe('SowModal（SOW 生成 Modal）', () => {
     expect(previewText(notFinalized)).toContain('（需求理解未定稿——尚无锚定的需求基线文档；本次拆分以需求描述为唯一需求依据。）')
   })
 
+  it('0012 plan 预览：无 PRD 面（列表/正文均不拉）+ 基线必读行（「本次规划」措辞）+ 规划文件路径；无 declare 块、无左组', async () => {
+    const fetchPrdList = vi.fn(async () => [{ name: 'a.md' }])
+    const fetchPrdText = vi.fn(async () => '# 背景\n背景正文')
+    const rendered = subject({
+      purpose: 'plan',
+      record: record({
+        understandApprovedAt: AT,
+        understandBaseline: { at: AT, criteria: [], findings: [], clarifications: [], docHash: 'a'.repeat(64) },
+        planAdoptedAt: AT,
+        planBaseline: { at: AT, docHash: 'p'.repeat(64) },
+      }),
+      fetchPrdList,
+      fetchPrdText,
+    })
+
+    await waitFor(() => expect(previewText(rendered)).toContain('# skyaxis 规划任务书 · '))
+    // plan 与 split 同形：无 PRD 面——列表与正文一次都不拉。
+    expect(fetchPrdList).not.toHaveBeenCalled()
+    expect(fetchPrdText).not.toHaveBeenCalled()
+    const text = previewText(rendered)
+    expect(text).toContain(`- 必读 .skyaxis/requirements/${RID}.md——需求基线文档，本次规划的唯一需求真源`)
+    // 输出段：写规划文件（工作区已绑定 fixture）+ 重新规划状态行；不读自己的产物。
+    expect(text).toContain(`路径：C:/ws/demo/.skyaxis/planning/${RID}.md`)
+    expect(text).toContain('技术规划采纳：已采纳（')
+    expect(text).not.toContain('必读 .skyaxis/planning/')
+    // 整理任务书先例：无 declare 块、无戳。
+    expect(text).not.toContain('skyaxis-declare')
+    expect(text).not.toContain('此后账本变更不自动同步')
+    expect(rendered.queryByRole('combobox')).toBeNull()
+  })
+
   it('0008/0009 consolidate 预览：无左侧 PRD 面（提示组退役）+ 全必读清单 + 基线文件路径段；正文零嵌入', async () => {
     const fetchPrdText = vi.fn(async () => '# 背景\n背景正文')
     const rendered = subject({ purpose: 'consolidate' as never, fetchPrdList: async () => [{ name: 'a.md' }, { name: 'b.md' }], fetchPrdText })

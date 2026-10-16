@@ -890,6 +890,17 @@
   color: var(--dsw-alias-label-secondary);
 }
 
+/* 0012 拆包提议区：与工作包行同形 + 左勾选 + 提议态虚线边（区分已登记行）。 */
+.splitProposalBlock {
+  margin-bottom: 12px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--dsw-alias-border-l3);
+}
+
+.wpRowProposed {
+  border-left: 2px dashed var(--dsw-alias-border-l3);
+}
+
 /* ==========================================================================
  * P2: session strip / knowledge base (S6) / SOW modal.
  * All alias-only; literal px (no --dsw-space tokens).

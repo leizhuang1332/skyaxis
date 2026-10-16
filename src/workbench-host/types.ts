@@ -218,10 +218,53 @@ export const AnalysisProposalsSchema = z.object({
   clarifications: z.array(ProposedClarificationSchema).optional(),
 })
 
+/**
+ * 0012 两步化轮: one pending WORK-PACKAGE proposal (split result file) —
+ * CONTENT only (the analysis-proposal discipline): `ref` is the session's
+ * SUGGESTED ordinal, the real id is host-minted at adopt time. Caps mirror
+ * WorkbenchWorkPackageSchema exactly (save never re-validates; a wider cap
+ * here would poison the next load — the parse-caps-equal-storage-caps rule).
+ */
+export const ProposedWorkPackageSchema = z.object({
+  ref: WorkPackageIdSchema,
+  title: z.string().trim().min(1).max(64),
+  boundary: z.string().max(2000),
+  dependsOn: z.array(WorkPackageIdSchema),
+  parallel: z.boolean().optional(),
+  covers: z.array(CriterionIdSchema),
+})
+
+/** 0012: the 采纳规划 credential — UnderstandBaseline's light twin (hashes only, both optional per the 软门口径). */
+const PlanBaselineSchema = z.object({
+  at: TimestampSchema,
+  docHash: z.string().min(1).optional(),
+  requirementDocHash: z.string().min(1).optional(),
+})
+
+/** 0012: the split-proposal container — AnalysisProposalsSchema's shape, one proposal group, no counters on the seed. */
+export const SplitProposalsSchema = z.object({
+  session: z.object({
+    sessionId: SessionIdSchema,
+    boundAt: TimestampSchema,
+    anchor: z.string().min(1).max(512).optional(),
+  }),
+  seed: z.object({
+    sessionId: SessionIdSchema,
+    contentHash: ContentHashSchema,
+    seededAt: TimestampSchema,
+  }).optional(),
+  workPackages: z.array(ProposedWorkPackageSchema),
+})
+
 const SplitBaselinePrdSchema = z.object({
   name: z.string().min(1).max(256),
   size: z.number().int().nonnegative(),
-  modifiedAt: z.number().int().nonnegative(),
+  // 验收驱动修复: mtimeMs is FRACTIONAL by nature (NTFS 100ns granularity) —
+  // the .int() here rejected the very first real-machine approveSplit that
+  // carried a PRD listing (pre-0006潜伏). The read-side wire guard only ever
+  // checked number; the input/storage faces now match it. Stale compare uses
+  // exact equality, which a float round-trips fine (JSON number).
+  modifiedAt: z.number().nonnegative(),
 })
 
 /**
@@ -240,6 +283,8 @@ const SplitBaselineSchema = z.object({
   answeredClarifications: z.number().int().nonnegative().optional(),
   /** 0008 D4: the requirement-baseline doc hash the finalized understand carried (absent = pre-0008 / no doc). */
   requirementDocHash: z.string().min(1).optional(),
+  /** 0012: the planning-doc hash the adopted planning carried (absent = no adopted planning at approval). */
+  planningDocHash: z.string().min(1).optional(),
 })
 
 // 0007 定稿软门 — the understand-finalize credential. Sub-fields REQUIRED
@@ -287,6 +332,10 @@ export const WorkbenchRecordSchema = z.object({
   understandApprovedAt: TimestampSchema.optional(),
   /** 0007 credential snapshot — minted with the stamp, stripped with it. */
   understandBaseline: UnderstandBaselineSchema.optional(),
+  /** 0012 采纳软门 stamp — host-set-only (adopt/revokePlanAdoption). */
+  planAdoptedAt: TimestampSchema.optional(),
+  /** 0012 adoption credential — minted with the stamp, stripped with it. */
+  planBaseline: PlanBaselineSchema.optional(),
   criteria: z.array(WorkbenchCriterionSchema),
   findings: z.array(WorkbenchFindingSchema),
   workPackages: z.array(WorkbenchWorkPackageSchema),
@@ -295,6 +344,8 @@ export const WorkbenchRecordSchema = z.object({
   knowledgeCandidates: z.array(KnowledgeCandidateSchema),
   /** Analysis-proposal container — optional per the field-evolution discipline. */
   analysis: AnalysisProposalsSchema.optional(),
+  /** 0012: split-proposal container — optional per the field-evolution discipline (absent = no bound split delivery). */
+  splitProposals: SplitProposalsSchema.optional(),
 })
 
 export const WorkbenchFileSchema = z.object({
@@ -684,6 +735,50 @@ const SeedAnalysisSchema = z.object({
   sessionId: SessionIdSchema,
 })
 
+// 0012 两步化轮 — the adoptPlan/seedSplit IO cores mirror the two above:
+// zero payload (the docHash is host-derived) and a bare sessionId. The four
+// plain actions ride the union like their analysis twins.
+const AdoptPlanSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  action: z.literal('adoptPlan'),
+})
+
+const RevokePlanAdoptionSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  action: z.literal('revokePlanAdoption'),
+})
+
+const BindSplitSessionSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  action: z.literal('bindSplitSession'),
+  sessionId: SessionIdSchema,
+  anchor: z.string().min(1).max(512).optional(),
+})
+
+const SeedSplitSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  action: z.literal('seedSplit'),
+  sessionId: SessionIdSchema,
+})
+
+const AdoptSplitProposalsSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  action: z.literal('adoptSplitProposals'),
+  refs: z.array(WorkPackageIdSchema).min(1),
+})
+
+const DismissWorkPackageProposalSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  action: z.literal('dismissWorkPackageProposal'),
+  ref: WorkPackageIdSchema,
+})
+
 const ProposalActionSchema = z.object({
   expectedRevision: z.number().int().nonnegative(),
   requirementId: z.uuid(),
@@ -749,6 +844,12 @@ export const WorkbenchMutateSchema = z.discriminatedUnion('action', [
   DismissCriterionProposalSchema,
   AnswerAnalysisClarificationSchema,
   DismissAnalysisClarificationSchema,
+  AdoptPlanSchema,
+  RevokePlanAdoptionSchema,
+  BindSplitSessionSchema,
+  SeedSplitSchema,
+  AdoptSplitProposalsSchema,
+  DismissWorkPackageProposalSchema,
 ])
 
 // ---------------------------------------------------------------------------

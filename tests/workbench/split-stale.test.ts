@@ -134,4 +134,21 @@ describe('splitStaleReasons — 0007 两新臂', () => {
     // 未定稿双缺（pre-0008 基线 + 从未定稿）⇒ 安静。
     expect(splitStaleReasons(approved(), PRD)).toEqual([])
   })
+
+  it('0012 planningDoc 第六臂：重新采纳换锚触发；撤销采纳（record 侧 undefined ≠ 基线字符串）触发；锚未动安静；双缺（从未采纳）安静', () => {
+    const adopted = (docHash: string): Partial<WorkbenchRecord> => ({
+      planAdoptedAt: AT,
+      planBaseline: { at: AT, docHash },
+    })
+    // 锚未动 ⇒ 安静。
+    expect(splitStaleReasons(approved({ planningDocHash: 'p'.repeat(64) }, adopted('p'.repeat(64))), PRD)).toEqual([])
+    // 重新采纳换锚（重新规划后）⇒ 触发。
+    expect(splitStaleReasons(approved({ planningDocHash: 'p'.repeat(64) }, adopted('q'.repeat(64))), PRD)).toEqual(['planningDoc'])
+    // 撤销采纳（摘戳摘基线，record 侧 undefined）⇒ 触发。
+    expect(splitStaleReasons(approved({ planningDocHash: 'p'.repeat(64) }), PRD)).toEqual(['planningDoc'])
+    // 批准时未采纳且此后仍未采纳（双侧缺）⇒ 安静。
+    expect(splitStaleReasons(approved(), PRD)).toEqual([])
+    // 批准时未采纳、之后才采纳 ⇒ 触发（record 侧出现锚 ≠ 基线 undefined）。
+    expect(splitStaleReasons(approved({}, adopted('p'.repeat(64))), PRD)).toEqual(['planningDoc'])
+  })
 })

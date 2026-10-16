@@ -105,9 +105,9 @@ describe('parseDeclare：整块面', () => {
     expect(result.blockErrorLine).toBe(4)
   })
 
-  it('注释空块 → 空成功（不是错误；proposals 恒在——空集三数组）', () => {
+  it('注释空块 → 空成功（不是错误；proposals 恒在——空集四数组）', () => {
     const result = parseDeclare({ text: fence('# skyaxis-declare\n# 只有注释'), record: record() })
-    expect(result).toEqual({ ok: true, entries: [], skipped: [], stageReady: false, proposals: { findings: [], criteria: [], clarifications: [] } })
+    expect(result).toEqual({ ok: true, entries: [], skipped: [], stageReady: false, proposals: { findings: [], criteria: [], clarifications: [], workPackages: [] } })
   })
 
   it('未知顶层键忽略；stageReady 只认 === true', () => {
@@ -328,10 +328,11 @@ describe('parseDeclare：analysis proposals（回传轮）', () => {
       findings: [{ category: 'risk', severity: 'medium', title: '一条发现' }],
       criteria: [{ text: '一条标准' }],
       clarifications: [],
+      workPackages: [],
     })
 
     const legacy = parseDeclare({ text: fence(GOOD_BLOCK), record: record() })
-    expect(legacy.ok && legacy.proposals).toEqual({ findings: [], criteria: [], clarifications: [] })
+    expect(legacy.ok && legacy.proposals).toEqual({ findings: [], criteria: [], clarifications: [], workPackages: [] })
   })
 
   it('文件交付轮 clarifications：question trim 非空 ≤2000 / recommendation 空白省略 ≤2000 / blocks ≤256；坏行 bad-shape / bad-content / over-cap ×3', () => {
@@ -357,5 +358,97 @@ describe('parseDeclare：analysis proposals（回传轮）', () => {
     ])
     expect(result.skipped.map((row) => row.reason)).toEqual(['bad-shape', 'bad-content', 'over-cap', 'over-cap', 'over-cap'])
     expect(result.skipped.map((row) => row.key)).toEqual(['clarification-2', 'clarification-3', 'clarification-4', 'clarification-5', 'clarification-6'])
+  })
+})
+
+describe('parseDeclare：workPackages 提议（0012 拆分结果文件通道）', () => {
+  /** Parse with a record carrying C1/C2 criteria (covers validation needs them). */
+  const parseWithCriteria = (lines: string[]) => parseDeclare({
+    text: fence(['# skyaxis-declare', ...lines].join('\n')),
+    record: record({ criteria: [
+      { id: 'C1', text: '准则 C1', coveredBy: [] },
+      { id: 'C2', text: '准则 C2', coveredBy: [] },
+    ] }),
+  })
+
+  it('好行全量：ref/title/boundary/parallel/covers 对活账本校验；dependsOn 引批内 ref 与既有账本 id 均可', () => {
+    const result = parseWithCriteria([
+      'workPackages:',
+      '  - ref: WP2',
+      '    title: 数据校验',
+      '    boundary: 做校验，不做导出',
+      '    dependsOn: [WP1]',
+      '    covers: [C1]',
+      '  - ref: WP3',
+      '    title: 数据导出',
+      '    boundary: 只做导出',
+      '    dependsOn: [WP2, WP1]',
+      '    parallel: true',
+      '    covers: [C1, C2]',
+    ])
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.proposals.workPackages).toEqual([
+      { ref: 'WP2', title: '数据校验', boundary: '做校验，不做导出', dependsOn: ['WP1'], covers: ['C1'] },
+      { ref: 'WP3', title: '数据导出', boundary: '只做导出', dependsOn: ['WP2', 'WP1'], parallel: true, covers: ['C1', 'C2'] },
+    ])
+    expect(result.skipped).toEqual([])
+  })
+
+  it('坏行家族（零新枚举值）：非 WP 形 ref / 重复 ref / 坏标题 / 边界超限 / parallel 非布尔 / 悬空依赖 / covers 指向不存在的 C——整行跳过并列出', () => {
+    const result = parseWithCriteria([
+      'workPackages:',
+      '  - ref: WP0',
+      '    title: 前导零',
+      '  - ref: M1',
+      '    title: 非 WP 前缀',
+      '  - ref: WP2',
+      '    title: 第一条',
+      '  - ref: WP2',
+      '    title: 重复 ref',
+      "  - ref: WP3",
+      '    title: ""',
+      '  - ref: WP4',
+      `    title: ${'t'.repeat(65)}`,
+      '  - ref: WP5',
+      '    title: 边界超限',
+      `    boundary: ${'b'.repeat(2001)}`,
+      '  - ref: WP6',
+      '    title: parallel 非布尔',
+      '    parallel: yes-please',
+      '  - ref: WP7',
+      '    title: 悬空依赖',
+      '    dependsOn: [WP9]',
+      '  - ref: WP8',
+      '    title: covers 不存在',
+      '    covers: [C9]',
+    ])
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.proposals.workPackages).toEqual([
+      { ref: 'WP2', title: '第一条', boundary: '', dependsOn: [], covers: [] },
+    ])
+    expect(result.skipped.map((row) => row.reason)).toEqual([
+      'bad-shape', // WP0 前导零
+      'bad-shape', // M1 非 WP 形
+      'bad-shape', // 重复 ref WP2
+      'bad-title', // 空标题
+      'bad-title', // 65 字标题
+      'over-cap', // 边界 2001
+      'bad-shape', // parallel 非布尔
+      'bad-shape', // dependsOn WP9 悬空（批内无、账本无）
+      'bad-shape', // covers C9 不存在
+    ])
+    expect(result.skipped.map((row) => row.key)).toEqual([
+      'workPackage-0', 'workPackage-1', 'workPackage-3', 'workPackage-4',
+      'workPackage-5', 'workPackage-6', 'workPackage-7', 'workPackage-8', 'workPackage-9',
+    ])
+  })
+
+  it('非数组与非对象行静默为空/跳过；旧五键块 workPackages 为空集——S5 导入路径零感知', () => {
+    const stringly = parseDeclare({ text: fence('# skyaxis-declare\nworkPackages: 不是数组'), record: record() })
+    expect(stringly.ok && stringly.proposals.workPackages).toEqual([])
+    const legacy = parseDeclare({ text: fence(GOOD_BLOCK), record: record() })
+    expect(legacy.ok && legacy.proposals.workPackages).toEqual([])
   })
 })

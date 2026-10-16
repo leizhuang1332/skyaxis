@@ -190,6 +190,11 @@ export function createWorkbenchController(store: WorkbenchStore, fetcher: Workbe
       mutate(requirementId, () => fetcher.approveUnderstand(requirementId, slotRevision(requirementId), signal), signal),
     revokeUnderstand: (requirementId: string, signal?: AbortSignal) =>
       mutate(requirementId, () => fetcher.revokeUnderstand(requirementId, slotRevision(requirementId), signal), signal),
+    // 0012 采纳软门 (same shape — the plan-stage content event).
+    adoptPlan: (requirementId: string, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.adoptPlan(requirementId, slotRevision(requirementId), signal), signal),
+    revokePlanAdoption: (requirementId: string, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.revokePlanAdoption(requirementId, slotRevision(requirementId), signal), signal),
     // P5b §7.6 stale reconciliation actions.
     reSplit: (requirementId: string, signal?: AbortSignal) =>
       mutate(requirementId, () => fetcher.reSplit(requirementId, slotRevision(requirementId), signal), signal),
@@ -366,6 +371,18 @@ export function createWorkbenchController(store: WorkbenchStore, fetcher: Workbe
       return alive(result) ? result : undefined
     },
 
+    /** 0012: the technical planning doc file (pure read, the requirementDocContent precedent). */
+    planningDocContent: async (requirementId: string, signal?: AbortSignal) => {
+      const result = await fetcher.planningDocContent(requirementId, signal)
+      return alive(result) ? result : undefined
+    },
+
+    /** 0012: the split result file (pure read, same precedent). */
+    splitResultContent: async (requirementId: string, signal?: AbortSignal) => {
+      const result = await fetcher.splitResultContent(requirementId, signal)
+      return alive(result) ? result : undefined
+    },
+
     // --- P2: session binding + knowledge candidates (main union mutations) ---
 
     bindSession: (requirementId: string, id: string, sessionId: string, purpose: 'analysis' | 'dev' | 'review', signal?: AbortSignal) =>
@@ -423,6 +440,38 @@ export function createWorkbenchController(store: WorkbenchStore, fetcher: Workbe
       mutate(requirementId, () => fetcher.answerAnalysisClarification(requirementId, slotRevision(requirementId), id, answer, signal), signal),
     dismissAnalysisClarification: (requirementId: string, id: string, signal?: AbortSignal) =>
       mutate(requirementId, () => fetcher.dismissAnalysisClarification(requirementId, slotRevision(requirementId), id, signal), signal),
+
+    // --- 0012 两步化: split proposals ---
+
+    /** Delivery success → bind the watched split session (the bindAnalysisSession twin: one bounded 409 retry). */
+    bindSplitSession: async (requirementId: string, sessionId: string, anchor?: string, signal?: AbortSignal): Promise<boolean> => {
+      const first = await mutate(requirementId, () => fetcher.bindSplitSession(requirementId, slotRevision(requirementId), sessionId, anchor, signal), signal)
+      if (first || disposed) return first
+      return mutate(requirementId, () => fetcher.bindSplitSession(requirementId, slotRevision(requirementId), sessionId, anchor, signal), signal)
+    },
+
+    /** Watcher-only seed face (the seedAnalysisQuiet twin — no busy/banner, ok → in-place patch, advisory returned). */
+    seedSplitQuiet: async (requirementId: string, sessionId: string, signal?: AbortSignal): Promise<SeedOutcome | undefined> => {
+      const result = await fetcher.seedSplit(requirementId, slotRevision(requirementId), sessionId, signal)
+      if (!alive(result)) return undefined
+      if (result.kind === 'ok') {
+        patchSlot(requirementId, { revision: result.revision, record: result.record, banner: undefined })
+        return {
+          ...(result.seedMissing !== undefined ? { miss: result.seedMissing } : {}),
+          ...(result.seedScan !== undefined ? { scan: result.seedScan } : {}),
+          ...(result.seedShell === true ? { shell: true } : {}),
+        }
+      }
+      if (result.kind === 'http-error' && (result.status === 409 || result.status === 404)) {
+        await open(requirementId, signal)
+      }
+      return undefined
+    },
+
+    adoptSplitProposals: (requirementId: string, refs: readonly string[], signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.adoptSplitProposals(requirementId, slotRevision(requirementId), refs, signal), signal),
+    dismissWorkPackageProposal: (requirementId: string, ref: string, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.dismissWorkPackageProposal(requirementId, slotRevision(requirementId), ref, signal), signal),
 
     editKnowledgeCandidate: (requirementId: string, id: string, candidate: { title: string; draft: string; type: 'business' | 'convention' }, signal?: AbortSignal) =>
       mutate(requirementId, () => fetcher.editKnowledgeCandidate(requirementId, slotRevision(requirementId), id, candidate, signal), signal),

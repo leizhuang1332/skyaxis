@@ -12,9 +12,9 @@
  */
 import { useEffect, useState, type ReactNode } from 'react'
 import { Modal, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { WorkbenchWorkPackage } from '../../workbench-shared/protocol.js'
+import type { SeedMissingReason, WorkbenchWorkPackage } from '../../workbench-shared/protocol.js'
 import type { PrdDocSummary } from '../../requirements-shared/protocol.js'
-import type { WorkbenchT } from './dictionary.js'
+import { SEED_MISS_KEY, type WorkbenchT } from './dictionary.js'
 import type { WorkbenchController } from './controller.js'
 import type { RequirementWorkbenchState } from './store.js'
 import { RowMenu } from './row-menu.js'
@@ -29,13 +29,14 @@ type Editing = { kind: 'closed' } | { kind: 'create' } | { kind: 'edit'; workPac
 /** Not-yet-started statuses — a re-split is legal only while every active package is one of these. */
 const RE_SPLITTABLE_STATUSES: readonly WorkbenchWorkPackage['status'][] = ['planned', 'plan-draft', 'plan-approved']
 
-/** Stale reason → copy key (0007 four arms; 0008 adds requirementDoc). */
-const STALE_REASON_KEY: Record<'prd' | 'findings' | 'understand' | 'clarifications' | 'requirementDoc', Parameters<WorkbenchT>[0]> = {
+/** Stale reason → copy key (0007 four arms; 0008 adds requirementDoc; 0012 adds planningDoc). */
+const STALE_REASON_KEY: Record<'prd' | 'findings' | 'understand' | 'clarifications' | 'requirementDoc' | 'planningDoc', Parameters<WorkbenchT>[0]> = {
   prd: 'split.stalePrd',
   findings: 'split.staleFindings',
   understand: 'split.staleUnderstand',
   clarifications: 'split.staleClarifications',
   requirementDoc: 'split.staleRequirementDoc',
+  planningDoc: 'split.stalePlanning',
 }
 
 export function SplitSection(props: {
@@ -47,6 +48,10 @@ export function SplitSection(props: {
   onOpenSow?: () => void
   /** Injectable PRD listing (P5b stale baseline); defaults to the requirements fetcher. */
   fetchPrdDocs?: () => Promise<readonly PrdDocSummary[] | null>
+  /** 0012: the split watcher's advisory — due (uncollected) + why-not + retry. */
+  splitSeedDue?: boolean
+  splitSeedMiss?: SeedMissingReason
+  onRetrySplitSeed?: () => void
 }): ReactNode {
   const { t, slot, controller, requirementId } = props
   const record = slot.record
@@ -60,6 +65,8 @@ export function SplitSection(props: {
   const [reSplitOpen, setReSplitOpen] = useState(false)
   const [reSplitAck, setReSplitAck] = useState(false)
   const [pendingRemove, setPendingRemove] = useState<WorkbenchWorkPackage | null>(null)
+  // 0012: the proposal area's checked-ref set (the register-selected input).
+  const [selectedRefs, setSelectedRefs] = useState<ReadonlySet<string>>(new Set())
   // P5b: the PRD listing, pulled once when S2 mounts (view.tsx renders this
   // section only while viewing==='plan'). null = still loading / unavailable
   // ⇒ stale detection degrades to the findings trigger only (honest absence).
@@ -126,6 +133,89 @@ export function SplitSection(props: {
           <button type="button" className={styles.ghostButton} onClick={() => { setEditing({ kind: 'create' }) }}>{t('split.add')}</button>
         )}
       </div>
+      {record.splitProposals !== undefined ? (() => {
+        // 0012 拆包提议区: the split session's collected suggestions — pending
+        // rows awaiting the user's ruling (never counted by badges/stale/matrix;
+        // registering mints real ids, hard gate ① still approves the LIST).
+        // [忽略] stays usable while locked (the dismissFindingProposal family:
+        // dropping a pending row is never a contract change); only registering
+        // is gated.
+        const proposals = record.splitProposals
+        const toggleRef = (ref: string): void => {
+          setSelectedRefs((previous) => {
+            const next = new Set(previous)
+            if (next.has(ref)) next.delete(ref)
+            else next.add(ref)
+            return next
+          })
+        }
+        return (
+          <div className={styles.splitProposalBlock}>
+            <div className={styles.sectionHead}>
+              <div className={styles.sectionTitle}>{t('splitProposal.sectionTitle')}</div>
+              {approved ? <div className={styles.fieldError}>{t('splitProposal.lockedHint')}</div> : null}
+              <button
+                type="button"
+                className={styles.ghostButton}
+                disabled={slot.busy || approved || selectedRefs.size === 0}
+                onClick={() => {
+                  void controller.adoptSplitProposals(requirementId, proposals.workPackages.filter((row) => selectedRefs.has(row.ref)).map((row) => row.ref))
+                  setSelectedRefs(new Set())
+                }}
+              >
+                {t('splitProposal.adoptSelected')}
+              </button>
+            </div>
+            {props.splitSeedDue === true ? (
+              <div className={styles.formHint}>
+                {t('splitProposal.waiting')}
+                {props.splitSeedMiss !== undefined ? (
+                  <div className={styles.fieldError}>{t(SEED_MISS_KEY[props.splitSeedMiss]).replaceAll('{n}', '?')}</div>
+                ) : null}
+                {props.onRetrySplitSeed !== undefined ? (
+                  <button type="button" className={styles.ghostButton} onClick={props.onRetrySplitSeed}>{t('splitProposal.retry')}</button>
+                ) : null}
+              </div>
+            ) : null}
+            {proposals.workPackages.map((row) => (
+              <div key={row.ref} className={`${styles.wpRow} ${styles.wpRowProposed}`}>
+                <input
+                  type="checkbox"
+                  aria-label={row.ref}
+                  checked={selectedRefs.has(row.ref)}
+                  disabled={approved}
+                  onChange={() => { toggleRef(row.ref) }}
+                />
+                <div className={styles.wpRowMain}>
+                  <div className={styles.wpRowTitle}>
+                    {row.ref}　{row.title}
+                    <Tag tone="info">{t('splitProposal.proposedTag')}</Tag>
+                    {row.parallel === true ? <Tag tone="info">{t('wp.parallelTag')}</Tag> : null}
+                  </div>
+                  <div className={styles.wpRowBoundary}>{row.boundary}</div>
+                  <div className={styles.wpRowMeta}>
+                    {t('wp.dependsLabel')}：{row.dependsOn.length > 0 ? row.dependsOn.join(', ') : t('wp.noneMark')}
+                    {' · '}
+                    {t('wp.coversLabel')}：{row.covers.length > 0 ? row.covers.join(', ') : t('wp.noneMark')}
+                  </div>
+                </div>
+                <RowMenu
+                  menuLabel={row.ref}
+                  items={[{ id: 'ignore', label: t('splitProposal.ignore') }]}
+                  onSelect={() => {
+                    void controller.dismissWorkPackageProposal(requirementId, row.ref)
+                    setSelectedRefs((previous) => {
+                      const next = new Set(previous)
+                      next.delete(row.ref)
+                      return next
+                    })
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+        )
+      })() : null}
       {active.map((workPackage) => (
         <div key={workPackage.id} className={styles.wpRow}>
           <div className={styles.wpRowMain}>

@@ -426,3 +426,46 @@ describe('knowledge guards + injection constants (P2)', () => {
     expect(KNOWLEDGE_INJECTION_MAX_BYTES).toBe(8192)
   })
 })
+
+describe('0012 isWorkbenchRecord × plan/split 字段（wire 守卫容忍面）', () => {
+  const planBaseline = { at: AT, docHash: 'a'.repeat(64), requirementDocHash: 'b'.repeat(64) }
+  const splitProposals = {
+    session: { sessionId: 'sess-split', boundAt: AT, anchor: '锚' },
+    seed: { sessionId: 'sess-split', contentHash: 'c'.repeat(64), seededAt: AT },
+    workPackages: [
+      { ref: 'WP1', title: '校验', boundary: 'b', dependsOn: ['WP2'], parallel: true, covers: ['C1'] },
+      { ref: 'WP2', title: '导出', boundary: '', dependsOn: [], covers: [] },
+    ],
+  }
+
+  it('缺席 / 合法形通过；坏形拒绝（空戳 / 坏 ref / dependsOn 非数组）', () => {
+    expect(isWorkbenchRecord(record())).toBe(true) // 缺席
+    expect(isWorkbenchRecord(record({ planAdoptedAt: AT, planBaseline }))).toBe(true)
+    expect(isWorkbenchRecord(record({ splitProposals }))).toBe(true)
+    expect(isWorkbenchRecord(record({ splitProposals: { ...splitProposals, workPackages: [] } }))).toBe(true) // 空批合法
+    expect(isWorkbenchRecord(record({ planAdoptedAt: '' } as unknown as Partial<WorkbenchRecord>))).toBe(false)
+    expect(isWorkbenchRecord(record({ planBaseline: { at: AT, docHash: 42 } as never }))).toBe(false)
+    expect(isWorkbenchRecord(record({ splitProposals: { session: { sessionId: '', boundAt: AT }, workPackages: [] } as never }))).toBe(false)
+    expect(isWorkbenchRecord(record({ splitProposals: { ...splitProposals, workPackages: [{ ref: 'M1', title: 't', boundary: '', dependsOn: [], covers: [] }] } }))).toBe(false) // 非 WP 形 ref
+    expect(isWorkbenchRecord(record({ splitProposals: { ...splitProposals, workPackages: [{ ref: 'WP1', title: 't', boundary: '', dependsOn: 'WP2', covers: [] } as never] } }))).toBe(false) // dependsOn 非数组
+  })
+
+  it('SplitBaseline 第六臂：planningDocHash 合法/缺席通过，空串与非串拒绝', () => {
+    expect(isWorkbenchRecord(record({
+      splitApprovedAt: AT,
+      splitBaseline: { at: AT, prd: [], disposedFindings: 0, planningDocHash: 'p'.repeat(64) },
+    }))).toBe(true)
+    expect(isWorkbenchRecord(record({
+      splitApprovedAt: AT,
+      splitBaseline: { at: AT, prd: [], disposedFindings: 0 },
+    }))).toBe(true)
+    expect(isWorkbenchRecord(record({
+      splitApprovedAt: AT,
+      splitBaseline: { at: AT, prd: [], disposedFindings: 0, planningDocHash: '' },
+    }))).toBe(false)
+    expect(isWorkbenchRecord(record({
+      splitApprovedAt: AT,
+      splitBaseline: { at: AT, prd: [], disposedFindings: 0, planningDocHash: 42 },
+    } as unknown as Partial<WorkbenchRecord>))).toBe(false)
+  })
+})

@@ -413,6 +413,33 @@ export function createWorkbenchFetcher() {
       return this.mutate({ expectedRevision, requirementId, action: 'seedAnalysis', sessionId }, signal)
     },
 
+    // --- 0012 两步化: planning adoption + split proposals (same no-content
+    // discipline — adoptPlan is payload-free, seedSplit reads the file) ---
+
+    async adoptPlan(requirementId: string, expectedRevision: number, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'adoptPlan' }, signal)
+    },
+
+    async revokePlanAdoption(requirementId: string, expectedRevision: number, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'revokePlanAdoption' }, signal)
+    },
+
+    async bindSplitSession(requirementId: string, expectedRevision: number, sessionId: string, anchor?: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'bindSplitSession', sessionId, ...(anchor !== undefined ? { anchor } : {}) }, signal)
+    },
+
+    async seedSplit(requirementId: string, expectedRevision: number, sessionId: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'seedSplit', sessionId }, signal)
+    },
+
+    async adoptSplitProposals(requirementId: string, expectedRevision: number, refs: readonly string[], signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'adoptSplitProposals', refs: [...refs] }, signal)
+    },
+
+    async dismissWorkPackageProposal(requirementId: string, expectedRevision: number, ref: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'dismissWorkPackageProposal', ref }, signal)
+    },
+
     async adoptFindingProposal(requirementId: string, expectedRevision: number, id: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
       return this.mutate({ expectedRevision, requirementId, action: 'adoptFindingProposal', id }, signal)
     },
@@ -478,6 +505,18 @@ export function createWorkbenchFetcher() {
     /** 0008: the requirement-baseline doc file (kind=requirement-doc face; 404 = honest missing). */
     async requirementDocContent(requirementId: string, signal?: AbortSignal): Promise<WorkbenchArtifactContentResult> {
       const query = new URLSearchParams({ kind: 'requirement-doc', requirementId })
+      return artifactContentResult(await request(`${WORKBENCH_ARTIFACTS_PATH}?${query.toString()}`, { method: 'GET' }, signal))
+    },
+
+    /** 0012: the technical planning doc file (kind=planning-doc face; 404 = honest missing). */
+    async planningDocContent(requirementId: string, signal?: AbortSignal): Promise<WorkbenchArtifactContentResult> {
+      const query = new URLSearchParams({ kind: 'planning-doc', requirementId })
+      return artifactContentResult(await request(`${WORKBENCH_ARTIFACTS_PATH}?${query.toString()}`, { method: 'GET' }, signal))
+    },
+
+    /** 0012: the split result file (kind=split-result face; 404 = honest missing). */
+    async splitResultContent(requirementId: string, signal?: AbortSignal): Promise<WorkbenchArtifactContentResult> {
+      const query = new URLSearchParams({ kind: 'split-result', requirementId })
       return artifactContentResult(await request(`${WORKBENCH_ARTIFACTS_PATH}?${query.toString()}`, { method: 'GET' }, signal))
     },
 

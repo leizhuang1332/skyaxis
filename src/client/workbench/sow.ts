@@ -32,7 +32,7 @@ import type {
   WorkbenchStageOrClosed,
   WorkbenchWorkPackage,
 } from '../../workbench-shared/protocol.js'
-import { analysisReportRelPath, requirementDocRelPath } from '../../workbench-shared/protocol.js'
+import { analysisReportRelPath, requirementDocRelPath, planningDocRelPath, splitResultRelPath } from '../../workbench-shared/protocol.js'
 import type { RequirementRecord } from '../../requirements-shared/protocol.js'
 
 // ---------------------------------------------------------------------------
@@ -199,7 +199,7 @@ export function knowledgeBytes(picks: readonly WorkbenchKnowledgeRecord[]): numb
 // ---------------------------------------------------------------------------
 
 export interface SowContext {
-  purpose: 'analysis' | 'split' | 'consolidate' | 'dev' | 'review'
+  purpose: 'analysis' | 'plan' | 'split' | 'consolidate' | 'dev' | 'review'
   requirement: RequirementRecord
   /** null = the workbench record is not established yet (first-use entry). */
   record: WorkbenchRecord | null
@@ -401,6 +401,28 @@ function declareAnalysisSkeleton(): string[] {
   ]
 }
 
+/**
+ * The SPLIT declare skeleton (0012 拆分结果文件通道轮) — the plain shape plus
+ * the workPackages proposal key (declareAnalysisSkeleton's teaching form: YAML
+ * comment rows, never inline commas). The AI's `ref` is a SUGGESTED ordinal
+ * for intra-batch dependency references; the workbench mints the real ids at
+ * registration (decisions/0013 D1 — the four-rights closure: proposals never
+ * register themselves).
+ */
+function declareSplitSkeleton(): string[] {
+  return [
+    '# workPackages 每条 = 工作包建议（ref 为建议序号 WP1/WP2…，仅供批内依赖互引；正式编号由工作台登记时分配）：',
+    '#   - ref: WP1',
+    '#     title: 标题（64 字内）',
+    '#     boundary: 边界（做什么/不做什么）',
+    '#     dependsOn: [WP2]   # 批内建议序号，或既有工作包编号',
+    '#     parallel: true     # 可与其他包并行',
+    '#     covers: [C1, C2]   # 覆盖的验收标准编号（基线文档验收标准节）',
+    'workPackages: []',
+    ...declarePlainSkeleton(),
+  ]
+}
+
 function outputBlock(ctx: SowContext): string {
   // Review purpose gets its OWN convention block (# skyaxis-review + findings),
   // distinct from the declare block — the declare path below stays byte-identical
@@ -540,7 +562,7 @@ function analysisInputBlock(ctx: SowContext): string {
   // drops the PRD listing ENTIRELY: the finalized requirement baseline doc is
   // THE requirement source (0009 D2), so criteria/findings/clarifications
   // never ride the split SOW — the doc carries them.
-  const noun = ctx.purpose === 'analysis' ? '分析' : ctx.purpose === 'consolidate' ? '整理' : '拆分规划'
+  const noun = ctx.purpose === 'analysis' ? '分析' : ctx.purpose === 'consolidate' ? '整理' : ctx.purpose === 'plan' ? '规划' : '拆分规划'
   const lines = [
     '## 输入（用文件读取能力按路径阅读；不要凭记忆，不要猜）',
   ]
@@ -552,20 +574,35 @@ function analysisInputBlock(ctx: SowContext): string {
     return lines.join('\n')
   }
   lines.push(`工作区根目录：${toDisplayPath(workspace)}（下列相对路径以此为根）`)
-  if (ctx.purpose === 'split') {
+  if (ctx.purpose === 'split' || ctx.purpose === 'plan') {
     // 0008: the baseline-doc line is decided by the LEDGER (understandBaseline
     // .docHash present = a finalized doc was anchored), never by probing the
     // disk. 0009 D2: the lean shape holds in EVERY state (user ruling — no
     // pre-finalize fallback snapshot): anchored ⇒ 必读行; finalized-without-
     // anchor (pre-0008 approval / docless at finalize) and 未定稿 ⇒ honest
     // absence lines, the requirement description is the sole requirement
-    // basis.
+    // basis. 0012: 'plan' joins the arm verbatim (its document WRITES the
+    // planning; split additionally READS the adopted one — three states
+    // below, the 0010 D2 honest-line pattern).
     if (ctx.record?.understandBaseline?.docHash !== undefined) {
-      lines.push(`- 必读 ${requirementDocRelPath(ctx.requirement.id)}——需求基线文档，本拆分的唯一需求真源（验收标准以账本为准，其余需求表达以文档为权威；文档与你所见快照冲突时在报告中列出，不要自行取舍）`)
+      lines.push(`- 必读 ${requirementDocRelPath(ctx.requirement.id)}——需求基线文档，${ctx.purpose === 'plan' ? '本次规划' : '本拆分'}的唯一需求真源（验收标准以账本为准，其余需求表达以文档为权威；文档与你所见快照冲突时在报告中列出，不要自行取舍）`)
     } else if (ctx.record?.understandApprovedAt !== undefined) {
-      lines.push('（需求理解已定稿但未锚定基线文档——定稿时工作区无此文档；本次拆分以需求描述为唯一需求依据。）')
+      lines.push(`（需求理解已定稿但未锚定基线文档——定稿时工作区无此文档；${ctx.purpose === 'plan' ? '本次规划' : '本次拆分'}以需求描述为唯一需求依据。）`)
     } else {
-      lines.push('（需求理解未定稿——尚无锚定的需求基线文档；本次拆分以需求描述为唯一需求依据。）')
+      lines.push(`（需求理解未定稿——尚无锚定的需求基线文档；${ctx.purpose === 'plan' ? '本次规划' : '本次拆分'}以需求描述为唯一需求依据。）`)
+    }
+    if (ctx.purpose === 'split') {
+      // 0012: the adopted planning doc is the split's SOLUTION source — the
+      // ledger decides (planBaseline.docHash present = an adopted doc was
+      // anchored), never a disk probe; the honest-absence lines keep the
+      // skip path legal (the 0010 D2 doctrinal push, not a gate).
+      if (ctx.record?.planBaseline?.docHash !== undefined) {
+        lines.push(`- 必读 ${planningDocRelPath(ctx.requirement.id)}——技术规划文档，本拆分的方案真源（拆分服从方案：边界与顺序以它为准；文档与基线文档冲突时在报告中列出，不要自行取舍）`)
+      } else if (ctx.record?.planAdoptedAt !== undefined) {
+        lines.push('（技术规划已采纳但未锚定——采纳时工作区无此文档；本次拆分以基线文档与仓库现状为方案依据。）')
+      } else {
+        lines.push('（尚无已采纳的技术规划文档——本次拆分以基线文档与仓库现状为方案依据；若规划文档已生成，先在工作台采纳它，再重新生成本任务书。）')
+      }
     }
   } else {
     const docs = ctx.analysisPrdDocs
@@ -692,9 +729,9 @@ function analysisOutputBlock(ctx: SowContext): string {
 function splitGoalBlock(ctx: SowContext): string {
   return [
     '## 目标',
-    `为需求「${ctx.requirement.title}」的探索规划阶段做一次只读拆分规划，产出一份工作包清单建议——建议读者是需求负责人，他们将审阅后在工作台录入/修订工作包并决定是否批准拆分。本阶段一个产物：`,
-    '1. 工作包清单建议——每个工作包给出：标题、边界（做什么/不做什么）、依赖关系与可并行性、覆盖的验收标准（Cx 引用）、排序理由与依据。',
-    '本阶段不做方案设计、不做开发计划、不改任何代码——计划与实施是后续阶段的事。拆分质量的判据：边界清晰、依赖最小、每条验收标准至少被一个工作包覆盖。',
+    `为需求「${ctx.requirement.title}」的探索规划阶段做一次只读拆分规划，产出一份工作包清单建议——建议由工作台自动收取为「待登记提议」，需求负责人逐条裁决登记后再决定是否批准拆分。本阶段一个产物：`,
+    '1. 工作包清单建议——每个工作包给出：建议序号（ref）、标题、边界（做什么/不做什么）、依赖关系与可并行性、覆盖的验收标准（Cx 引用）、排序理由与依据。',
+    '本阶段不重新做方案设计——已采纳的技术规划文档在场时以它为方案真源（见「输入」）；不做开发计划、不改任何代码——计划与实施是后续阶段的事。拆分质量的判据：边界清晰、依赖最小、每条验收标准至少被一个工作包覆盖。',
   ].join('\n')
 }
 
@@ -729,11 +766,17 @@ function splitSnapshotBlock(ctx: SowContext): string {
   return lines.join('\n')
 }
 
-function splitConstraintsBlock(_ctx: SowContext): string {
+function splitConstraintsBlock(ctx: SowContext): string {
+  // 0012: with a bound workspace the split result FILE is the delivery — the
+  // one write the task book prescribes (the analysis/consolidate carve-out
+  // form); without one the conversation delivery stands (the honest fallback).
+  const fileChannel = ctx.requirement.workspacePath.trim() !== ''
   return [
     '## 约束',
-    '- 严格只读：不修改、创建、删除任何文件；不建分支、不提交、不推送——拆分建议在会话内交付，不写文件。',
-    '- 不裁决：工作包清单是建议，录入、修订、批准拆分全部由用户在工作台完成；拆分中发现的新风险以发现形式列出（带证据），不要顺手处置。',
+    fileChannel
+      ? '- 严格只读：不修改、创建、删除任何文件；不建分支、不提交、不推送——唯一例外：把拆分结果文件写入「输出」节指定路径（目录不存在则创建，覆盖写）。'
+      : '- 严格只读：不修改、创建、删除任何文件；不建分支、不提交、不推送——拆分建议在会话内交付，不写文件。',
+    '- 不裁决：工作包清单是建议，登记、修订、批准拆分全部由用户在工作台完成；拆分中发现的新风险以发现形式列出（带证据），不要顺手处置。',
     '- 有据：每条边界/依赖/覆盖判断给出依据（基线文档 FR/C 编号 或 代码 路径:行号）；查不到依据的显式标「推测」。',
     '- 有限停止：仅当需求信息不足以划分任何边界时停下来问用户；其余自行给出带取舍说明的方案。',
   ].join('\n')
@@ -749,20 +792,141 @@ const SPLIT_WORKFLOW = [
   '先查后问：能从 PRD、代码、目录里查证的事实自己去查；只有影响拆分形态的取舍留给需求方——提问带推荐方案，而不是自行假设。',
 ].join('\n')
 
-function splitOutputBlock(_ctx: SowContext): string {
+function splitOutputBlock(ctx: SowContext): string {
+  // 0012 拆分结果文件通道: with a bound workspace the result FILE is the
+  // delivery (markdown prose + embedded declare block, written once) — the
+  // workbench seeds the proposals from the file (the conversation stops being
+  // the contract surface, decisions/0007's lesson applied to split). Without
+  // a workspace the conversation delivery stands verbatim.
+  const workspace = ctx.requirement.workspacePath.trim()
+  const fileChannel = workspace !== ''
+  const delivery = fileChannel
+    ? `拆分结束时把完整建议报告（markdown 正文 + 结尾机器可读声明块，一次成文）写入结果文件，路径：${toDisplayPath(workspace)}/${splitResultRelPath(ctx.requirement.id)}（绝对路径；目录不存在则创建；覆盖写——不追加、不留多份）。报告按以下结构：`
+    : '拆分结束时先给出完整建议报告（markdown，会话内交付，不写文件），随后附上机器可读的声明块（条目用缩进键值，勿用行内逗号；块体必须完整包在 ```yaml 围栏内——三个反引号起、三个反引号收，缺围栏无法收取）。报告按以下结构：'
   return [
     '## 输出',
-    '拆分结束时先给出完整建议报告（markdown，会话内交付，不写文件），随后附上机器可读的声明块（条目用缩进键值，勿用行内逗号；块体必须完整包在 ```yaml 围栏内——三个反引号起、三个反引号收，缺围栏无法收取）。报告按以下结构：',
-    '1. 工作包清单——每包一节：建议序号（WP1、WP2…）+ 标题 + 边界（做什么/不做什么）+ 依赖 + 可并行性 + 覆盖标准（Cx）+ 排序理由 + 依据（基线文档 FR/C 编号 / 代码 路径:行号）。',
+    delivery,
+    '1. 工作包清单——每包一节：建议序号（ref，WP1、WP2…——声明块与依赖互引都用它）+ 标题 + 边界（做什么/不做什么）+ 依赖 + 可并行性 + 覆盖标准（Cx）+ 排序理由 + 依据（基线文档 FR/C 编号 / 代码 路径:行号）。',
     '2. 覆盖矩阵——每条验收标准 × 覆盖它的工作包；覆盖不了的标准单独列出并说明。',
     '3. 新发现——拆分过程中发现的新风险/新问题（每条 [类别·级别] 标题 + 证据出处），不要自行处置。',
-    '（工作包由用户审阅后手动录入工作台再批准拆分——你的建议不会被自动导入。）',
+    '（工作包建议由工作台自动收取为「待登记提议」——逐条裁决登记后才成为正式工作包；登记与批准拆分由用户完成，你的建议不会被直接导入。）',
     '```yaml',
     '# skyaxis-declare',
-    ...declarePlainSkeleton(),
+    ...declareSplitSkeleton(),
     '```',
-    '说明：knowledge 只列值得沉淀的知识候选（业务知识/开发约定，入工作台审阅队列）；stageReady 是阶段就绪提议，仅供预览——工作包录入、批准拆分与阶段推进全部由用户完成，不要替用户下结论。',
-    '完成自检（全部满足才算收尾）：每包有边界与依赖 · 覆盖矩阵无未说明空洞 · 每条标准有归属或显式说明无归属 · 新发现逐条带证据 · 声明块已附。',
+    '说明：workPackages 是工作包建议（ref 为建议序号，正式编号由工作台登记时分配——勿把 ref 当作账本既有编号引用账本外的内容）；knowledge 只列值得沉淀的知识候选（业务知识/开发约定，入工作台审阅队列）；stageReady 是阶段就绪提议，仅供预览——工作包登记、批准拆分与阶段推进全部由用户完成，不要替用户下结论。',
+    fileChannel
+      ? '完成自检（全部满足才算收尾）：每包有边界与依赖 · 覆盖矩阵无未说明空洞 · 每条标准有归属或显式说明无归属 · 新发现逐条带证据 · 声明块已附 · 结果文件已写入上述路径。'
+      : '完成自检（全部满足才算收尾）：每包有边界与依赖 · 覆盖矩阵无未说明空洞 · 每条标准有归属或显式说明无归属 · 新发现逐条带证据 · 声明块已附。',
+  ].join('\n')
+}
+
+// ---------------------------------------------------------------------------
+// Plan assembly (0012 两步化轮, decisions/0013 D2) — the 2a exploration step.
+// The split five-piece's twin with ONE divergence: its document WRITES the
+// planning file (consolidateOutputBlock's channel form) and carries NO
+// declare block (the 整理任务书 precedent — pure document delivery, the
+// adoption stamp anchors it, nothing seeds from it).
+// ---------------------------------------------------------------------------
+
+function planGoalBlock(ctx: SowContext): string {
+  return [
+    '## 目标',
+    `为需求「${ctx.requirement.title}」的探索规划阶段做一次只读的技术规划，产出一份技术规划文档——文档读者是需求负责人与后续的拆分会话：负责人审阅后在「工作台」采纳或驳回（驳回即重新生成本任务书再投递），已采纳的文档将被拆分任务书列为必读。本阶段一个产物：`,
+    '1. 技术规划文档——现状盘点、技术方案、改动面、风险与开放问题、实施顺序草案（六节结构见「输出」）。',
+    '本阶段不做工作包拆分清单、不做开发计划、不改任何代码——拆分与实施紧随其后：先有方案再切清单，顺序颠倒会让方案迁就清单而不是清单服从方案。',
+  ].join('\n')
+}
+
+function planSnapshotBlock(ctx: SowContext): string {
+  const lines = [
+    '## 需求快照（工作台账本，生成时快照）',
+    `标题：${ctx.requirement.title}`,
+    `描述：${ctx.requirement.description}`,
+  ]
+  if (ctx.record === null) {
+    lines.push('（工作台记录未建立——尚无基线文档与裁决可用，规划只能基于需求描述）')
+    return lines.join('\n')
+  }
+  lines.push(`当前阶段：${STAGE_LABEL[ctx.record.stage]}`)
+  lines.push(ctx.record.understandApprovedAt !== undefined
+    ? `需求理解定稿：已定稿（${ctx.record.understandApprovedAt.slice(0, 10)}）——理解阶段的裁决视为已定输入`
+    : '需求理解定稿：未定稿——理解阶段的裁决可能仍在进行')
+  if (ctx.record.planAdoptedAt !== undefined) {
+    lines.push(`技术规划采纳：已采纳（${ctx.record.planAdoptedAt.slice(0, 10)}）——本次为重新规划：新文档将覆盖既有规划文件，采纳锚以重新采纳为准`)
+  }
+  if (ctx.record.workPackages.length > 0) {
+    lines.push('现有工作包（重规划语境的参考——现状边界与状态）：')
+    for (const wp of ctx.record.workPackages) {
+      lines.push(`- ${wp.id} ${wp.title} · ${WP_STATUS_LABEL[wp.status]}（${wp.status}）`)
+    }
+  }
+  return lines.join('\n')
+}
+
+function planConstraintsBlock(ctx: SowContext): string {
+  // The consolidate file-channel form verbatim: the planning file is the ONE
+  // write the task book prescribes when armed.
+  const fileChannel = ctx.requirement.workspacePath.trim() !== ''
+  return [
+    '## 约束',
+    fileChannel
+      ? '- 严格只读：不修改、创建、删除任何文件——唯一例外：把技术规划文档写入「输出」节指定路径（目录不存在则创建，覆盖写）。'
+      : '- 严格只读：不修改、创建、删除任何文件。',
+    '- 不裁决：方案是建议，采纳、驳回、拆分登记、阶段推进全部由用户在工作台完成；规划中发现的新风险写入「风险与开放问题」节，不要顺手处置。',
+    '- 有据：现状盘点与改动面的判断给出依据（基线文档 FR/C 编号 或 代码 路径:行号）；查不到依据的显式标「推测」。',
+    '- 有限停止：仅当基线文档与代码现状不足以支撑任何方案取舍时停下来问用户；其余自行给出带取舍说明的方案。',
+  ].join('\n')
+}
+
+const PLAN_WORKFLOW = [
+  '## 工作流',
+  '1. 通读需求基线文档与需求快照——先明确验收面（基线文档「验收标准」节逐条 C 编号）与既定约束（「已裁决风险」节是输入，不是待办）。',
+  '2. 探索与需求相关的模块（限需求相关范围，不做全库漫游）——目录结构、现有实现与可复用件；探察过的文件路径记入文档「现状盘点」（「已探索」必须有清单为证）。',
+  '3. 起草技术方案：候选路径、选型理由（为什么不是另一条路）、总体结构与关键设计决策。',
+  '4. 风险与开放问题：技术风险与缓解、需要需求方拍板的开放问题（每问附推荐答案——把问题措辞成「是」即接受推荐）。',
+  '5. 实施顺序草案：依赖顺序与理由、建议的工作包轮廓（粗粒度边界与并行性——论证材料，正式清单由拆分会话产出并经用户裁决登记）。',
+  '先查后问：能从基线文档、代码、目录里查证的事实自己去查；只有影响方案形态的取舍留给需求方——提问带推荐方案，而不是自行假设。',
+].join('\n')
+
+function planOutputBlock(ctx: SowContext): string {
+  // The consolidateOutputBlock channel form verbatim (file delivery when
+  // armed, conversation delivery otherwise) — six sections, NO declare block
+  // (the 整理任务书 no-return precedent), no revision stamp (0009 D4).
+  const workspace = ctx.requirement.workspacePath.trim()
+  const fileChannel = workspace !== ''
+  const delivery = fileChannel
+    ? `规划结束时把完整文档写入规划文件（markdown，一次成文），路径：${toDisplayPath(workspace)}/${planningDocRelPath(ctx.requirement.id)}（绝对路径；目录不存在则创建；覆盖写——不追加、不留多份）。文档固定六节结构：`
+    : '（本需求未绑定工作区——无法指定规划文件路径，请在会话内交付文档全文。绑定工作区后重新生成任务书。）'
+  return [
+    '## 输出',
+    delivery,
+    '```markdown',
+    '# 技术规划 · <需求标题>',
+    '> 规划状态：草稿（采纳由工作台盖章管理）',
+    '> 基于 workbench revision <N> 生成 · <日期>',
+    '',
+    '## 现状盘点',
+    '<与需求相关的现有实现：模块、接口、数据——逐条注 路径:行号；探察过的文件清单（「已探索」以清单为证）>',
+    '',
+    '## 技术方案',
+    '<候选路径与选型理由（为什么不是另一条路）；总体结构与关键设计决策；与参考知识冲突处显式标注>',
+    '',
+    '## 改动面',
+    '<模块 × 文件级：新增/修改/删除；与现有实现的接缝>',
+    '',
+    '## 风险与开放问题',
+    '<[风险] 标题：影响与缓解；开放问题：问题 + 推荐答案（待需求方）>',
+    '',
+    '## 实施顺序草案',
+    '<依赖顺序与理由；建议的工作包轮廓（粗粒度边界/并行性）——论证材料，正式清单由拆分产出>',
+    '',
+    '## 对拆分的建议原则',
+    '<边界怎么切、什么必须同包、什么必须分包——给拆分会话的约束建议>',
+    '```',
+    fileChannel
+      ? '完成自检（全部满足才算收尾）：六节齐全 · 现状盘点带文件清单与出处 · 方案有取舍理由 · 改动面到文件级 · 开放问题带推荐答案 · 文档已写入上述路径。'
+      : '完成自检（全部满足才算收尾）：六节齐全 · 现状盘点带文件清单与出处 · 方案有取舍理由 · 改动面到文件级 · 开放问题带推荐答案。',
   ].join('\n')
 }
 
@@ -978,6 +1142,21 @@ export function buildSow(ctx: SowContext): string {
       consolidateConstraintsBlock(ctx),
       CONSOLIDATE_WORKFLOW,
       consolidateOutputBlock(ctx),
+    ]
+    return blocks.join('\n\n')
+  }
+  if (ctx.purpose === 'plan') {
+    // 0012 两步化: the 2a exploration SOW — split's twin, document-delivery
+    // output (no declare block, the consolidate no-return precedent).
+    const blocks = [
+      `# skyaxis 规划任务书 · ${ctx.requirement.title}`,
+      planGoalBlock(ctx),
+      planSnapshotBlock(ctx),
+      analysisInputBlock(ctx),
+      knowledgeBlock(ctx, ANALYSIS_KNOWLEDGE_HEADER),
+      planConstraintsBlock(ctx),
+      PLAN_WORKFLOW,
+      planOutputBlock(ctx),
     ]
     return blocks.join('\n\n')
   }

@@ -8,7 +8,7 @@
  * 断言调用）。P1a 单向「什么都不渲染」的守卫已随数据面落地完成其历史使命。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { RequirementRecord } from '../../src/requirements-shared/protocol.js'
 import type { WorkbenchFinding, WorkbenchRecord } from '../../src/workbench-shared/protocol.js'
 import { WORKBENCH_STAGES } from '../../src/workbench-shared/protocol.js'
@@ -90,6 +90,14 @@ function fakeController(): WorkbenchController & { advanceStage: ReturnType<type
     // 0008: the S1 baseline-doc panel mounts the same way; the ack modal
     // probes it on open (undefined = no-doc disclosure).
     requirementDocContent: vi.fn(async () => undefined),
+    // 0012: the S2 planning panel mounts the same way (advance into 'plan'
+    // mounts PlanningSection); the split watcher needs its quiet seed face
+    // (undefined = quiet miss — records without a splitProposals container
+    // never fire it anyway).
+    planningDocContent: vi.fn(async () => undefined),
+    splitResultContent: vi.fn(async () => undefined),
+    seedSplitQuiet: vi.fn(async () => undefined),
+    bindSplitSession: vi.fn(async () => true),
     dismissBanner: vi.fn(),
     dispose: vi.fn(),
   } as never
@@ -474,5 +482,68 @@ describe('0007 定稿软门：S1 就绪披露 + 定稿/撤销 + 摘要导出', (
     fireEvent.click(screen.getByRole('button', { name: workbenchZh['understand.approveButton'] }))
     const dialog = screen.getByRole('dialog', { name: workbenchZh['understand.approveTitle'] })
     await waitFor(() => { expect(dialog.textContent).toContain(workbenchZh['understand.ackDocWillAnchor']) })
+  })
+
+  it('0012 S2 规划入口：stage=plan 时 [生成规划任务书] 开 SowModal（plan purpose，编辑器含规划任务书头；无 declare 块）', async () => {
+    render(
+      <WorkbenchTabBody
+        t={bindZh()}
+        requirement={requirement}
+        slot={slot({ record: workbenchRecord({ stage: 'plan', criteria: [{ id: 'C1', text: '导出走异步', coveredBy: [] }] }) })}
+        controller={fakeController()}
+        knowledge={knowledgeState()}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: workbenchZh['sow.planButton'] }))
+    const dialog = await screen.findByRole('dialog', { name: workbenchZh['sow.title'] })
+    const editor = dialog.querySelector('textarea[data-testid="sow-preview"]') as HTMLTextAreaElement
+    expect(editor).toBeTruthy()
+    await waitFor(() => { expect(editor.value).toContain('# skyaxis 规划任务书 · 报价管理：导入导出与数据校验') })
+    expect(editor.value).not.toContain('skyaxis-declare')
+  })
+
+  it('0012 S2 拆分结果文档卡（验收驱动补面）：拆分会话写入后 ready 卡片 + 点击预览弹窗自跑独立 fetch', async () => {
+    const controller = fakeController()
+    controller.splitResultContent = vi.fn(async () => ({ kind: 'ok' as const, content: '# 拆分方案\n\n## 工作包清单\n…', contentTampered: false }))
+    render(
+      <WorkbenchTabBody
+        t={bindZh()}
+        requirement={requirement}
+        slot={slot({ record: workbenchRecord({ stage: 'plan', criteria: [{ id: 'C1', text: '导出走异步', coveredBy: [] }] }) })}
+        controller={controller}
+        knowledge={knowledgeState()}
+      />,
+    )
+    // 卡片 ready：显示名 + 全路径披露行。
+    const card = await screen.findByRole('button', { name: new RegExp(workbenchZh['splitResult.preview']) })
+    expect(within(card).getByText(`split/${RID.slice(0, 8)}.md`)).toBeTruthy()
+    expect(within(card).getByText(`${workbenchZh['splitResult.pathPrefix']}/ws/.skyaxis/split/${RID}.md`)).toBeTruthy()
+    // 点击开预览：弹窗自跑一次独立 fetch（与行探测合计两次）。
+    expect(screen.queryByRole('dialog')).toBeNull()
+    fireEvent.click(card)
+    const dialog = await screen.findByRole('dialog', { name: workbenchZh['splitResult.title'] })
+    expect(dialog).toBeTruthy()
+    await waitFor(() => expect(controller.splitResultContent).toHaveBeenCalledTimes(2))
+  })
+
+  it('0012 split 投递绑定：投递成功 ⇒ bindSplitSession(RID, sessionId, 任务书头 200 字锚)', async () => {
+    const controller = fakeController()
+    const deliver = vi.fn(async () => ({ ok: true as const, sessionId: 'sess-split-real' }))
+    render(
+      <WorkbenchTabBody
+        t={bindZh()}
+        requirement={requirement}
+        slot={slot({ record: workbenchRecord({ stage: 'plan', criteria: [{ id: 'C1', text: '导出走异步', coveredBy: [] }] }) })}
+        controller={controller}
+        knowledge={knowledgeState()}
+        deliver={deliver}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: workbenchZh['sow.splitButton'] }))
+    const dialog = await screen.findByRole('dialog', { name: workbenchZh['sow.title'] })
+    await waitFor(() => { expect((dialog.querySelector('textarea[data-testid="sow-preview"]') as HTMLTextAreaElement).value).toContain('# skyaxis 拆分任务书') })
+    fireEvent.click(within(dialog).getByRole('button', { name: workbenchZh['sow.deliver'] }))
+    await waitFor(() => expect(deliver).toHaveBeenCalled())
+    await waitFor(() => expect(controller.bindSplitSession).toHaveBeenCalledWith(RID, 'sess-split-real', expect.any(String)))
   })
 })

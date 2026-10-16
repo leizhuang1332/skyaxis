@@ -53,6 +53,9 @@ interface WorkbenchDictionary {
   readonly 'proposal.seedMissReportFileMissing': string
   readonly 'proposal.seedMissReportFileSyntax': string
   readonly 'proposal.seedMissReportFileTooLarge': string
+  readonly 'proposal.seedMissSplitFileMissing': string
+  readonly 'proposal.seedMissSplitFileSyntax': string
+  readonly 'proposal.seedMissSplitFileTooLarge': string
   readonly 'proposal.sourcePrefix': string
   readonly 'proposal.waitingHint': string
   // report.* — 文件交付轮 S1 report panel
@@ -161,6 +164,28 @@ interface WorkbenchDictionary {
   readonly 'baseline.refresh': string
   readonly 'baseline.preview': string
   readonly 'baseline.loadError': string
+  /** 0012 采纳软门（planning 文档卡 = baseline 卡的孪生 + 采纳/撤销/stale 面）。 */
+  readonly 'planning.title': string
+  readonly 'planning.missing': string
+  readonly 'planning.noWorkspace': string
+  readonly 'planning.pathPrefix': string
+  readonly 'planning.tampered': string
+  readonly 'planning.refresh': string
+  readonly 'planning.preview': string
+  readonly 'planning.loadError': string
+  readonly 'planning.adoptButton': string
+  readonly 'planning.adoptTitle': string
+  readonly 'planning.adoptAck': string
+  readonly 'planning.adoptConfirm': string
+  readonly 'planning.ackDocWillAnchor': string
+  readonly 'planning.ackNoDoc': string
+  readonly 'planning.adoptedTag': string
+  readonly 'planning.adoptedAtPrefix': string
+  readonly 'planning.revokeButton': string
+  readonly 'planning.revokeTitle': string
+  readonly 'planning.revokeConfirm': string
+  readonly 'planning.revokeAck': string
+  readonly 'planning.staleBadge': string
   // split.* — S2 breakdown list + hard gate ①
   readonly 'split.sectionTitle': string
   readonly 'split.add': string
@@ -185,6 +210,7 @@ interface WorkbenchDictionary {
   readonly 'split.staleUnderstand': string
   readonly 'split.staleClarifications': string
   readonly 'split.staleRequirementDoc': string
+  readonly 'split.stalePlanning': string
   readonly 'split.stillValid': string
   readonly 'split.reSplit': string
   readonly 'split.reSplitBlocked': string
@@ -195,6 +221,23 @@ interface WorkbenchDictionary {
   readonly 'split.droppedSectionTitle': string
   readonly 'split.droppedTag': string
   readonly 'split.restore': string
+  /** 0012 拆包提议区（splitProposals 容器的 S2 呈现面）。 */
+  readonly 'splitProposal.sectionTitle': string
+  readonly 'splitProposal.waiting': string
+  readonly 'splitProposal.retry': string
+  readonly 'splitProposal.adoptSelected': string
+  readonly 'splitProposal.ignore': string
+  readonly 'splitProposal.lockedHint': string
+  readonly 'splitProposal.proposedTag': string
+  /** 0012 拆分结果文档卡（验收驱动补面——与规划卡同权的第五张文件卡）。 */
+  readonly 'splitResult.title': string
+  readonly 'splitResult.missing': string
+  readonly 'splitResult.noWorkspace': string
+  readonly 'splitResult.pathPrefix': string
+  readonly 'splitResult.tampered': string
+  readonly 'splitResult.refresh': string
+  readonly 'splitResult.preview': string
+  readonly 'splitResult.loadError': string
   // wp.* — work-package form fields
   readonly 'wp.addTitle': string
   readonly 'wp.editTitle': string
@@ -352,6 +395,7 @@ interface WorkbenchDictionary {
   readonly 'knowledge.statRework': string
   readonly 'knowledge.statCycleDays': string
   readonly 'sow.analysisButton': string
+  readonly 'sow.planButton': string
   readonly 'sow.splitButton': string
   readonly 'sow.workPackageButton': string
   readonly 'sow.title': string
@@ -530,7 +574,7 @@ export type WorkbenchT = (key: keyof WorkbenchDictionary) => string
 /** 回传轮: seed zero-write reason → hint key (reuses the declare.fetch* copy —
  *  the S5 modal phrases fit verbatim). The {n} placeholder in blockYamlSyntax
  *  has no line number on this face; renderers replace it with '?'. */
-export const SEED_MISS_KEY: Readonly<Record<'no-service' | 'not-found' | 'unreadable' | 'no-declare-block' | 'yaml-syntax' | 'report-file-missing' | 'report-file-too-large' | 'report-file-syntax', keyof WorkbenchDictionary>> = {
+export const SEED_MISS_KEY: Readonly<Record<'no-service' | 'not-found' | 'unreadable' | 'no-declare-block' | 'yaml-syntax' | 'report-file-missing' | 'report-file-too-large' | 'report-file-syntax' | 'split-file-missing' | 'split-file-too-large' | 'split-file-syntax', keyof WorkbenchDictionary>> = {
   'no-service': 'declare.fetchNoService',
   'not-found': 'declare.fetchNotFound',
   'unreadable': 'declare.fetchUnreadable',
@@ -539,6 +583,9 @@ export const SEED_MISS_KEY: Readonly<Record<'no-service' | 'not-found' | 'unread
   'report-file-missing': 'proposal.seedMissReportFileMissing',
   'report-file-too-large': 'proposal.seedMissReportFileTooLarge',
   'report-file-syntax': 'proposal.seedMissReportFileSyntax',
+  'split-file-missing': 'proposal.seedMissSplitFileMissing',
+  'split-file-too-large': 'proposal.seedMissSplitFileTooLarge',
+  'split-file-syntax': 'proposal.seedMissSplitFileSyntax',
 }
 
 const zh: WorkbenchDictionary = {
@@ -579,6 +626,9 @@ const zh: WorkbenchDictionary = {
   'proposal.seedMissReportFileMissing': '报告文件未找到——任务书规定会话把报告写入工作区 .skyaxis/analysis/ 目录；会话可能尚未写完，或未按指定路径写入（此提示下方的扫描指纹来自会话兜底通道）。',
   'proposal.seedMissReportFileSyntax': '报告文件中无可解析的声明块——yaml 围栏缺失或未闭合，可让会话补写报告文件。',
   'proposal.seedMissReportFileTooLarge': '报告文件超过读取上限（2 MiB）——请让会话精简报告后重新收取。',
+  'proposal.seedMissSplitFileMissing': '拆分结果文件未找到——任务书规定会话把拆分方案写入工作区 .skyaxis/split/ 目录；会话可能尚未写完，或未按指定路径写入。',
+  'proposal.seedMissSplitFileSyntax': '拆分结果文件中无可解析的声明块——yaml 围栏缺失或未闭合，可让会话补写结果文件。',
+  'proposal.seedMissSplitFileTooLarge': '拆分结果文件超过读取上限（2 MiB）——请让会话精简后重新收取。',
   'proposal.sourcePrefix': '来源会话 {id}…',
   'proposal.waitingHint': '分析会话的报告尚未收取——会话收尾后自动收为待裁决行；若会话已被删除，可重新投递。',
   'report.title': '分析报告',
@@ -677,6 +727,27 @@ const zh: WorkbenchDictionary = {
   'baseline.refresh': '刷新',
   'baseline.preview': '预览需求基线文档',
   'baseline.loadError': '读取失败，请重试。',
+  'planning.title': '技术规划文档',
+  'planning.missing': '规划文档未找到——规划会话尚未写入，或未按指定路径写入。',
+  'planning.noWorkspace': '未绑定工作区——规划文档通道未武装，规划在会话内交付。',
+  'planning.pathPrefix': '路径：',
+  'planning.tampered': '文档与采纳锚不一致（磁盘文件在采纳后被改动）。',
+  'planning.refresh': '刷新',
+  'planning.preview': '预览规划文档',
+  'planning.loadError': '规划文档读取失败。',
+  'planning.adoptButton': '采纳规划',
+  'planning.adoptTitle': '采纳技术规划',
+  'planning.adoptAck': '我已审阅规划文档，采纳其为方案真源。',
+  'planning.adoptConfirm': '采纳',
+  'planning.ackDocWillAnchor': '规划文档在场——采纳即锚定其当前内容。',
+  'planning.ackNoDoc': '规划文档不在场（未写入或无工作区）——采纳仍成立，但不锚定文档。',
+  'planning.adoptedTag': '已采纳',
+  'planning.adoptedAtPrefix': '采纳于',
+  'planning.revokeButton': '撤销采纳',
+  'planning.revokeTitle': '撤销规划采纳',
+  'planning.revokeConfirm': '撤销',
+  'planning.revokeAck': '撤销采纳将摘除锚定；拆分任务书回到「尚无已采纳规划」形态。',
+  'planning.staleBadge': '上游基线已变更',
   'split.sectionTitle': '工作包拆分',
   'split.add': '＋ 工作包',
   'split.approve': '批准拆分',
@@ -699,6 +770,7 @@ const zh: WorkbenchDictionary = {
   'split.staleUnderstand': '理解已重新定稿',
   'split.staleClarifications': '澄清答案已变化',
   'split.staleRequirementDoc': '需求基线文档已变更',
+  'split.stalePlanning': '已采纳的技术规划已变更（重新采纳/撤销）',
   'split.stillValid': '确认仍有效',
   'split.reSplit': '重新拆分',
   'split.reSplitBlocked': '有工作包已开工（开发中/待验收/已验收），无法重新拆分——请先处理其计划与会话。',
@@ -709,6 +781,21 @@ const zh: WorkbenchDictionary = {
   'split.droppedSectionTitle': '已放弃的工作包',
   'split.droppedTag': '已放弃',
   'split.restore': '恢复',
+  'splitProposal.sectionTitle': '拆包提议（拆分会话）',
+  'splitProposal.waiting': '拆分结果尚未收取——会话收尾后自动收为待登记提议。',
+  'splitProposal.retry': '重新收取',
+  'splitProposal.adoptSelected': '登记选中',
+  'splitProposal.ignore': '忽略',
+  'splitProposal.lockedHint': '拆分已批准：提议的【登记选中】待解锁（撤销批准/重新拆分后可登记），【忽略】不受影响。',
+  'splitProposal.proposedTag': '提议',
+  'splitResult.title': '拆分结果文档',
+  'splitResult.missing': '拆分结果文件未找到——拆分会话尚未写入，或未按指定路径写入。',
+  'splitResult.noWorkspace': '未绑定工作区——拆分结果文件通道未武装，拆分建议在会话内交付（无法自动收取）。',
+  'splitResult.pathPrefix': '路径：',
+  'splitResult.tampered': '文档与收取锚不一致（磁盘文件在收取后被改动）。',
+  'splitResult.refresh': '刷新',
+  'splitResult.preview': '预览拆分结果文档',
+  'splitResult.loadError': '拆分结果文档读取失败。',
   'wp.addTitle': '新建工作包',
   'wp.editTitle': '编辑工作包',
   'wp.titleLabel': '标题',
@@ -860,6 +947,7 @@ const zh: WorkbenchDictionary = {
   'knowledge.statRework': '返工次数',
   'knowledge.statCycleDays': '周期（天）',
   'sow.analysisButton': '生成分析任务书',
+  'sow.planButton': '生成规划任务书',
   'sow.splitButton': '生成拆分任务书',
   'sow.reviewButton': '生成评审任务书',
   'sow.workPackageButton': '生成工作包任务书',
@@ -1066,6 +1154,9 @@ const en: WorkbenchDictionary = {
   'proposal.seedMissReportFileMissing': 'Report file not found — the task book tells the session to write the report under .skyaxis/analysis/ in the workspace; it may be unfinished or written elsewhere (the scan fingerprint below comes from the session fallback).',
   'proposal.seedMissReportFileSyntax': 'No parseable declare block in the report file — the yaml fence is missing or unclosed; ask the session to rewrite the file.',
   'proposal.seedMissReportFileTooLarge': 'The report file exceeds the read cap (2 MiB) — have the session trim it, then retry.',
+  'proposal.seedMissSplitFileMissing': 'Split result file not found — the task book tells the session to write the split plan under .skyaxis/split/ in the workspace; it may be unfinished or written elsewhere.',
+  'proposal.seedMissSplitFileSyntax': 'No parseable declare block in the split result file — the yaml fence is missing or unclosed; ask the session to rewrite the file.',
+  'proposal.seedMissSplitFileTooLarge': 'The split result file exceeds the read cap (2 MiB) — have the session trim it, then retry.',
   'proposal.sourcePrefix': 'from session {id}…',
   'proposal.waitingHint': 'The analysis session\'s report has not been collected yet — it lands here as pending rows once the session finishes; re-deliver if the session was deleted.',
   'report.title': 'Analysis report',
@@ -1164,6 +1255,27 @@ const en: WorkbenchDictionary = {
   'baseline.refresh': 'Refresh',
   'baseline.preview': 'Preview requirement baseline doc',
   'baseline.loadError': 'Read failed, please retry.',
+  'planning.title': 'Technical planning doc',
+  'planning.missing': 'Planning doc not found — the planning session has not written it yet, or wrote it elsewhere.',
+  'planning.noWorkspace': 'No bound workspace — the planning-doc channel is off; planning is delivered in the conversation.',
+  'planning.pathPrefix': 'Path: ',
+  'planning.tampered': 'The doc disagrees with the adoption anchor (edited on disk after adoption).',
+  'planning.refresh': 'Refresh',
+  'planning.preview': 'Preview planning doc',
+  'planning.loadError': 'Failed to load the planning doc.',
+  'planning.adoptButton': 'Adopt planning',
+  'planning.adoptTitle': 'Adopt technical planning',
+  'planning.adoptAck': 'I have reviewed the planning doc and adopt it as the solution source.',
+  'planning.adoptConfirm': 'Adopt',
+  'planning.ackDocWillAnchor': 'The planning doc is present — adopting anchors its current content.',
+  'planning.ackNoDoc': 'The planning doc is absent (unwritten or no workspace) — the adoption still stands, unanchored.',
+  'planning.adoptedTag': 'Adopted',
+  'planning.adoptedAtPrefix': 'Adopted at',
+  'planning.revokeButton': 'Revoke adoption',
+  'planning.revokeTitle': 'Revoke planning adoption',
+  'planning.revokeConfirm': 'Revoke',
+  'planning.revokeAck': 'Revoking strips the anchor; the split task book returns to the no-adopted-planning form.',
+  'planning.staleBadge': 'Upstream baseline changed',
   'split.sectionTitle': 'Work-package breakdown',
   'split.add': '＋ Work package',
   'split.approve': 'Approve split',
@@ -1186,6 +1298,7 @@ const en: WorkbenchDictionary = {
   'split.staleUnderstand': 'understanding re-finalized',
   'split.staleClarifications': 'clarification answers changed',
   'split.staleRequirementDoc': 'requirement baseline doc changed',
+  'split.stalePlanning': 'the adopted technical planning changed (re-adopted/revoked)',
   'split.stillValid': 'Confirm still valid',
   'split.reSplit': 'Re-split',
   'split.reSplitBlocked': 'A work package has started (in dev / built / accepted) and cannot be re-split — resolve its plans and sessions first.',
@@ -1196,6 +1309,21 @@ const en: WorkbenchDictionary = {
   'split.droppedSectionTitle': 'Dropped work packages',
   'split.droppedTag': 'Dropped',
   'split.restore': 'Restore',
+  'splitProposal.sectionTitle': 'Split proposals (split session)',
+  'splitProposal.waiting': 'The split result has not been collected — it lands as pending proposals once the session finishes.',
+  'splitProposal.retry': 'Retry collection',
+  'splitProposal.adoptSelected': 'Register selected',
+  'splitProposal.ignore': 'Ignore',
+  'splitProposal.lockedHint': 'The split is approved: registering stays locked until the approval is revoked/re-split; ignoring is unaffected.',
+  'splitProposal.proposedTag': 'Proposed',
+  'splitResult.title': 'Split result doc',
+  'splitResult.missing': 'Split result file not found — the split session has not written it yet, or wrote it elsewhere.',
+  'splitResult.noWorkspace': 'No bound workspace — the split-result channel is off; the split plan is delivered in the conversation (no auto-collection).',
+  'splitResult.pathPrefix': 'Path: ',
+  'splitResult.tampered': 'The doc disagrees with the collection anchor (edited on disk after collection).',
+  'splitResult.refresh': 'Refresh',
+  'splitResult.preview': 'Preview split result doc',
+  'splitResult.loadError': 'Failed to load the split result doc.',
   'wp.addTitle': 'New work package',
   'wp.editTitle': 'Edit work package',
   'wp.titleLabel': 'Title',
@@ -1347,6 +1475,7 @@ const en: WorkbenchDictionary = {
   'knowledge.statRework': 'rework count',
   'knowledge.statCycleDays': 'cycle (days)',
   'sow.analysisButton': 'Generate analysis SOW',
+  'sow.planButton': 'Generate planning SOW',
   'sow.splitButton': 'Generate split SOW',
   'sow.reviewButton': 'Generate review SOW',
   'sow.workPackageButton': 'Generate work-package SOW',

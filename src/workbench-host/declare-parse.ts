@@ -17,11 +17,12 @@
  *
  * Known top-level keys only: workPackage / claims / artifacts / knowledge /
  * stageReady + the analysis proposal keys (findings / criteria /
- * clarifications — 回传轮与文件交付轮; they ride proposals[], not entries[]).
- * Unknown keys are ignored silently (YAGNI — the generated SOW skeleton
- * teaches exactly these). The block-level workPackage scopes BOTH built
- * claims and artifacts; absent ⇒ built claims are targetless ('bad-shape')
- * while artifacts import without an owning package.
+ * clarifications — 回传轮与文件交付轮; they ride proposals[], not entries[])
+ * + the split proposal key (workPackages — 0012 拆分结果文件通道轮; same
+ * proposals[] discipline). Unknown keys are ignored silently (YAGNI — the
+ * generated SOW skeleton teaches exactly these). The block-level workPackage
+ * scopes BOTH built claims and artifacts; absent ⇒ built claims are
+ * targetless ('bad-shape') while artifacts import without an owning package.
  */
 import YAML from 'yaml'
 import type {
@@ -41,6 +42,9 @@ import { contentHashOf } from './artifact-store.js'
 import { asString, errorLine, findMarkerFence, isRecord, rowLabel } from './fence.js'
 
 const DECLARE_MARKER = '# skyaxis-declare'
+/** 0012: the suggested-ordinal / criterion-id shapes (the wire id predicates' regexes, parse-local). */
+const WORK_PACKAGE_REF_RE = /^WP[1-9]\d*$/
+const CRITERION_REF_RE = /^C[1-9]\d*$/
 const RELEASE_TYPES: readonly string[] = ['sql', 'config', 'flag', 'mq', 'other']
 const KNOWLEDGE_TYPES: readonly string[] = ['business', 'convention']
 const FINDING_CATEGORIES: readonly string[] = ['feasibility', 'conflict', 'compatibility', 'risk', 'capacity', 'other']
@@ -72,6 +76,21 @@ export interface DeclareClarificationRow {
 }
 
 /**
+ * One parsed WORK-PACKAGE proposal (0012) — content only: `ref` is the
+ * session's suggested ordinal (batch-internal reference, never an id —
+ * adoptSplitProposals mints the real one). Caps equal the storage caps
+ * (title 1..64 / boundary 2000 — the WorkbenchWorkPackageSchema caps).
+ */
+export interface DeclareWorkPackageRow {
+  readonly ref: string
+  readonly title: string
+  readonly boundary: string
+  readonly dependsOn: readonly string[]
+  readonly parallel?: boolean
+  readonly covers: readonly string[]
+}
+
+/**
  * Analysis proposals ride DeclareParseSuccess as a SEPARATE field, never
  * inside entries[]: entries are the S5 import-preview wire face (declare
  * preview response + import modal default-checks every non-duplicate entry),
@@ -83,6 +102,8 @@ export interface DeclareProposals {
   readonly findings: readonly DeclareFindingRow[]
   readonly criteria: readonly DeclareCriterionRow[]
   readonly clarifications: readonly DeclareClarificationRow[]
+  /** 0012: the split session's work-package suggestions (the split result file's declare block). */
+  readonly workPackages: readonly DeclareWorkPackageRow[]
 }
 
 export interface DeclareParseSuccess {
@@ -349,5 +370,91 @@ export function parseDeclare(input: { text: string; record: WorkbenchRecord }): 
     })
   })
 
-  return { ok: true, entries, skipped, stageReady: doc.stageReady === true, proposals: { findings, criteria, clarifications } }
+  // --- work packages (0012 拆分结果文件通道轮) — decisions/0013 D1: covers
+  // are validated against record.criteria HERE (parse time, the claims-row
+  // live-record precedent) and dependsOn against the batch-ref ∪ existing-id
+  // closure; a bad row is SKIPPED and listed, never silently dropped nor
+  // whole-block rejected. Caps equal the storage caps (title 1..64 /
+  // boundary 2000). Zero new skip reasons — bad-shape covers ref/dep/
+  // closure/covers failures, bad-title/over-cap the length caps.
+  const workPackages: DeclareWorkPackageRow[] = []
+  const workPackageRows = Array.isArray(doc.workPackages) ? doc.workPackages : []
+  const seenRefs = new Set<string>()
+  const existingWpIds = new Set(input.record.workPackages.map((workPackage) => workPackage.id))
+  const existingCriterionIds = new Set(input.record.criteria.map((criterion) => criterion.id))
+  // First pass collects the batch's own refs (the closure set deps may cite).
+  const batchRefs = new Set<string>()
+  let refsWellFormed = true
+  for (const row of workPackageRows) {
+    const ref = isRecord(row) ? asString(row.ref)?.trim() : undefined
+    if (ref === undefined || !WORK_PACKAGE_REF_RE.test(ref)) {
+      refsWellFormed = false
+      break
+    }
+    batchRefs.add(ref)
+  }
+  workPackageRows.forEach((row, index) => {
+    const key = `workPackage-${index}`
+    if (!isRecord(row)) {
+      skipped.push(skipOf(key, rowLabel(row), 'bad-shape'))
+      return
+    }
+    const ref = asString(row.ref)?.trim()
+    if (ref === undefined || !WORK_PACKAGE_REF_RE.test(ref)) {
+      skipped.push(skipOf(key, rowLabel(row), 'bad-shape'))
+      return
+    }
+    if (seenRefs.has(ref)) {
+      skipped.push(skipOf(key, ref, 'bad-shape')) // duplicate ref — ambiguity in dependsOn resolution
+      return
+    }
+    const title = asString(row.title)?.trim()
+    if (title === undefined || title.length === 0 || title.length > 64) {
+      skipped.push(skipOf(key, rowLabel(row), 'bad-title'))
+      return
+    }
+    const boundary = asString(row.boundary) ?? ''
+    if (boundary.length > 2000) {
+      skipped.push(skipOf(key, title, 'over-cap'))
+      return
+    }
+    if (row.parallel !== undefined && typeof row.parallel !== 'boolean') {
+      skipped.push(skipOf(key, title, 'bad-shape'))
+      return
+    }
+    const dependsOnRaw = Array.isArray(row.dependsOn) ? row.dependsOn : []
+    const dependsOn: string[] = []
+    for (const dep of dependsOnRaw) {
+      const depRef = asString(dep)?.trim()
+      // refsWellFormed gates the closure set's completeness; a dep must cite a
+      // batch ref OR an existing ledger id (the re-split context cites both).
+      if (depRef === undefined || !WORK_PACKAGE_REF_RE.test(depRef) || !refsWellFormed
+        || (!batchRefs.has(depRef) && !existingWpIds.has(depRef))) {
+        skipped.push(skipOf(key, title, 'bad-shape'))
+        return
+      }
+      dependsOn.push(depRef)
+    }
+    const coversRaw = Array.isArray(row.covers) ? row.covers : []
+    const covers: string[] = []
+    for (const covered of coversRaw) {
+      const coveredId = asString(covered)?.trim()
+      if (coveredId === undefined || !CRITERION_REF_RE.test(coveredId) || !existingCriterionIds.has(coveredId)) {
+        skipped.push(skipOf(key, title, 'bad-shape'))
+        return
+      }
+      covers.push(coveredId)
+    }
+    seenRefs.add(ref)
+    workPackages.push({
+      ref,
+      title,
+      boundary,
+      dependsOn,
+      ...(row.parallel !== undefined ? { parallel: row.parallel } : {}),
+      covers,
+    })
+  })
+
+  return { ok: true, entries, skipped, stageReady: doc.stageReady === true, proposals: { findings, criteria, clarifications, workPackages } }
 }

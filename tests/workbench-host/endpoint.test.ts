@@ -2412,3 +2412,169 @@ describe('0008 需求基线文档：approveUnderstand 专属 flow + requirement-
     expect((await h3.get(`${WORKBENCH_ARTIFACTS_PATH}?kind=requirement-doc&requirementId=${RID}`)).status).toBe(404)
   })
 })
+
+describe('0012 两步化：adoptPlan / seedSplit 专属 flow + planning-doc / split-result 读面', () => {
+  const body = (action: string, extra: Record<string, unknown>, expectedRevision: number, requirementId = RID) =>
+    ({ expectedRevision, requirementId, action, ...extra })
+
+  /** 0012 文件通道：planning/ 与 split/ 两目录按需写入（null = 目录空）。 */
+  function channelWorkspace(files: { planning?: string | null; split?: string | null }): { dir: string; resolve: (requirementId: string) => string } {
+    const dir = mkdtempSync(join(tmpdir(), 'workbench-plan-split-test-'))
+    dirs.push(dir)
+    if (files.planning !== undefined && files.planning !== null) {
+      mkdirSync(join(dir, '.skyaxis', 'planning'), { recursive: true })
+      writeFileSync(join(dir, '.skyaxis', 'planning', `${RID}.md`), files.planning, 'utf8')
+    }
+    if (files.split !== undefined && files.split !== null) {
+      mkdirSync(join(dir, '.skyaxis', 'split'), { recursive: true })
+      writeFileSync(join(dir, '.skyaxis', 'split', `${RID}.md`), files.split, 'utf8')
+    }
+    return { dir, resolve: () => dir }
+  }
+
+  const SPLIT_FILE = [
+    '# 拆分方案',
+    '',
+    '## 工作包清单',
+    '',
+    '```yaml',
+    '# skyaxis-declare',
+    'workPackages:',
+    '  - ref: WP1',
+    '    title: 数据校验',
+    '    boundary: 只做校验',
+    '    covers: [C1]',
+    '  - ref: WP2',
+    '    title: 数据导出',
+    '    dependsOn: [WP1]',
+    '    covers: [C9]',
+    'stageReady: false',
+    '```',
+  ].join('\n')
+
+  const splitContainer = (): Partial<WorkbenchRecord> => ({
+    splitProposals: { session: { sessionId: 'sess-split', boundAt: NOW }, workPackages: [] },
+  })
+
+  it('adoptPlan 专属 flow：文件在 ⇒ docHash 落账 + 隐式建账 append；重复采纳 400；软门（unarmed/缺失 ⇒ 无锚采纳仍成立）', async () => {
+    const text = '# 技术规划 · 报价导出\n\n## 现状盘点\n……'
+    const ws = channelWorkspace({ planning: text })
+    const h = await harness({ resolveWorkspacePath: ws.resolve })
+    const res1 = await h.post(WORKBENCH_PATH, body('adoptPlan', {}, 0))
+    expect(res1.status).toBe(200)
+    const row1 = await res1.json() as { revision: number; record: WorkbenchRecord }
+    expect(row1.record.planBaseline?.docHash).toBe(contentHashOf(text))
+    const loaded = h.file.load()
+    expect(loaded.ok && loaded.value.records[0]?.planAdoptedAt).toBeDefined() // append 臂盘上真有
+    expect((await h.post(WORKBENCH_PATH, body('adoptPlan', {}, 1))).status).toBe(400)
+
+    const unarmed = await harness()
+    const res2 = await unarmed.post(WORKBENCH_PATH, body('adoptPlan', {}, 0))
+    expect(res2.status).toBe(200)
+    expect(((await res2.json()) as { record: WorkbenchRecord }).record.planBaseline?.docHash).toBeUndefined()
+    const ws2 = channelWorkspace({ planning: null }) // 有工作区但文档缺失
+    const h2 = await harness({ resolveWorkspacePath: ws2.resolve })
+    const res3 = await h2.post(WORKBENCH_PATH, body('adoptPlan', {}, 0))
+    expect(res3.status).toBe(200)
+    expect(((await res3.json()) as { record: WorkbenchRecord }).record.planBaseline?.docHash).toBeUndefined()
+  })
+
+  it('adoptPlan too-large ⇒ 413；撤销采纳摘戳摘基线', async () => {
+    const ws = channelWorkspace({ planning: 'x'.repeat(2 * 1024 * 1024 + 1) })
+    const h = await harness({ resolveWorkspacePath: ws.resolve })
+    expect((await h.post(WORKBENCH_PATH, body('adoptPlan', {}, 0))).status).toBe(413)
+    const ws2 = channelWorkspace({ planning: '# 规划' })
+    const h2 = await harness({ resolveWorkspacePath: ws2.resolve })
+    await h2.post(WORKBENCH_PATH, body('adoptPlan', {}, 0))
+    const revoked = await h2.post(WORKBENCH_PATH, body('revokePlanAdoption', {}, 1))
+    expect(revoked.status).toBe(200)
+    expect(((await revoked.json()) as { record: WorkbenchRecord }).record.planAdoptedAt).toBeUndefined()
+  })
+
+  it('planning-doc GET：采纳前 untampered-silent；采纳后手改 ⇒ contentTampered；缺失 ⇒ 404', async () => {
+    const text = '# 技术规划\n\n## 技术方案\n……'
+    const ws = channelWorkspace({ planning: text })
+    const h = await harness({ resolveWorkspacePath: ws.resolve })
+    const read1 = await h.get(`${WORKBENCH_ARTIFACTS_PATH}?kind=planning-doc&requirementId=${RID}`)
+    expect(read1.status).toBe(200)
+    expect(((await read1.json()) as { content: string; contentTampered: boolean }).contentTampered).toBe(false)
+    await h.post(WORKBENCH_PATH, body('adoptPlan', {}, 0))
+    writeFileSync(join(ws.dir, '.skyaxis', 'planning', `${RID}.md`), `${text}\n<!-- edited -->`, 'utf8')
+    const read2 = await h.get(`${WORKBENCH_ARTIFACTS_PATH}?kind=planning-doc&requirementId=${RID}`)
+    expect(((await read2.json()) as { contentTampered: boolean }).contentTampered).toBe(true)
+    const ws2 = channelWorkspace({})
+    const h2 = await harness({ resolveWorkspacePath: ws2.resolve })
+    expect((await h2.get(`${WORKBENCH_ARTIFACTS_PATH}?kind=planning-doc&requirementId=${RID}`)).status).toBe(404)
+  })
+
+  it('seedSplit：容器缺失 404；文件缺失 ⇒ 200 零写 seedMissing；文件在 ⇒ 提议落账（坏行跳过）+ 同 hash 重放 revision 不 bump + 手改（新 hash）替换未登记批', async () => {
+    const ws = channelWorkspace({ split: SPLIT_FILE })
+    const h = await harness({ resolveWorkspacePath: ws.resolve })
+    // 容器缺失（未 bind）⇒ 404。
+    await h.seed([seedRecord(RID, { criteria: [{ id: 'C1', text: 'C1', coveredBy: [] }] })])
+    expect((await h.post(WORKBENCH_PATH, body('seedSplit', { sessionId: 'sess-split' }, 1))).status).toBe(404)
+
+    const bound = await harness({ resolveWorkspacePath: ws.resolve })
+    await bound.seed([seedRecord(RID, { criteria: [{ id: 'C1', text: 'C1', coveredBy: [] }], ...splitContainer() })])
+    // 文件缺失通道 ⇒ 200 零写 + miss 理由。
+    const wsEmpty = channelWorkspace({})
+    const hEmpty = await harness({ resolveWorkspacePath: wsEmpty.resolve })
+    await hEmpty.seed([seedRecord(RID, splitContainer())])
+    const miss = await hEmpty.post(WORKBENCH_PATH, body('seedSplit', { sessionId: 'sess-split' }, 1))
+    expect(miss.status).toBe(200)
+    expect(((await miss.json()) as { seedMissing?: string }).seedMissing).toBe('split-file-missing')
+
+    // 文件在 ⇒ 好行落账（WP2 的 covers C9 不存在 ⇒ 坏行跳过）。
+    const seeded = await bound.post(WORKBENCH_PATH, body('seedSplit', { sessionId: 'sess-split' }, 1))
+    expect(seeded.status).toBe(200)
+    const row = await seeded.json() as { revision: number; record: WorkbenchRecord }
+    expect(row.record.splitProposals?.workPackages.map((wpRow) => wpRow.ref)).toEqual(['WP1'])
+    expect(row.record.splitProposals?.seed?.contentHash).toBe(contentHashOf(SPLIT_FILE))
+    // 同 hash 重放 ⇒ unchanged（revision 不 bump）。
+    const replay = await bound.post(WORKBENCH_PATH, body('seedSplit', { sessionId: 'sess-split' }, row.revision))
+    expect(((await replay.json()) as { revision: number }).revision).toBe(row.revision)
+    // 手改文件（新 hash）⇒ 整批替换。
+    writeFileSync(join(ws.dir, '.skyaxis', 'split', `${RID}.md`), `${SPLIT_FILE}\n<!-- v2 -->`, 'utf8')
+    const replaced = await bound.post(WORKBENCH_PATH, body('seedSplit', { sessionId: 'sess-split' }, row.revision))
+    const row2 = await replaced.json() as { record: WorkbenchRecord }
+    expect(row2.record.splitProposals?.seed?.contentHash).toBe(contentHashOf(`${SPLIT_FILE}\n<!-- v2 -->`))
+  })
+
+  it('验收驱动缺陷修复：approveSplit 的 PRD 快照 mtimeMs 带小数（NTFS 100ns 粒度常态）不再整包 400', async () => {
+    // 实机 payload 复现：1791453084583.359 曾被 SplitBaselinePrdSchema 的
+    // z.number().int() 拒绝——mtimeMs 天然分数，read 侧 wire guard 本就只查
+    // number；输入面与存储面同步放宽（pre-0006 以来潜伏，首个带 PRD 的实机
+    // 批准拆分踩中）。
+    const h = await harness()
+    await h.seed([seedRecord(RID, { criteria: [{ id: 'C1', text: 'C1', coveredBy: [] }], workPackages: [seedWorkPackage('WP1', { covers: ['C1'] })] })])
+    const res = await h.post(WORKBENCH_PATH, body('approveSplit', {
+      baseline: { prd: [{ name: '短信账单扣费网点调整需求.md', size: 11951, modifiedAt: 1791453084583.359 }] },
+    }, 1))
+    expect(res.status).toBe(200)
+    const row = await res.json() as { record: WorkbenchRecord }
+    expect(row.record.splitBaseline?.prd[0]?.modifiedAt).toBe(1791453084583.359)
+  })
+
+  it('seedSplit：无围栏 ⇒ split-file-syntax；会话不匹配 404；split-result GET tampered 对照 seed 锚', async () => {
+    const noFence = channelWorkspace({ split: '# 拆分方案（无声明块）' })
+    const h = await harness({ resolveWorkspacePath: noFence.resolve })
+    await h.seed([seedRecord(RID, splitContainer())])
+    const miss = await h.post(WORKBENCH_PATH, body('seedSplit', { sessionId: 'sess-split' }, 1))
+    expect(((await miss.json()) as { seedMissing?: string }).seedMissing).toBe('split-file-syntax')
+    expect((await h.post(WORKBENCH_PATH, body('seedSplit', { sessionId: 'sess-other' }, 1))).status).toBe(404)
+
+    const ws = channelWorkspace({ split: SPLIT_FILE })
+    const h2 = await harness({ resolveWorkspacePath: ws.resolve })
+    await h2.seed([seedRecord(RID, { criteria: [{ id: 'C1', text: 'C1', coveredBy: [] }], ...splitContainer() })])
+    const read1 = await h2.get(`${WORKBENCH_ARTIFACTS_PATH}?kind=split-result&requirementId=${RID}`)
+    expect(read1.status).toBe(200)
+    expect(((await read1.json()) as { contentTampered: boolean }).contentTampered).toBe(false) // 未 seed ⇒ 无锚静默
+    await h2.post(WORKBENCH_PATH, body('seedSplit', { sessionId: 'sess-split' }, 1))
+    writeFileSync(join(ws.dir, '.skyaxis', 'split', `${RID}.md`), `${SPLIT_FILE}\n<!-- edited -->`, 'utf8')
+    const read2 = await h2.get(`${WORKBENCH_ARTIFACTS_PATH}?kind=split-result&requirementId=${RID}`)
+    expect(((await read2.json()) as { contentTampered: boolean }).contentTampered).toBe(true)
+    const ws2 = channelWorkspace({})
+    const h3 = await harness({ resolveWorkspacePath: ws2.resolve })
+    expect((await h3.get(`${WORKBENCH_ARTIFACTS_PATH}?kind=split-result&requirementId=${RID}`)).status).toBe(404)
+  })
+})

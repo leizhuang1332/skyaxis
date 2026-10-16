@@ -115,6 +115,29 @@ export function requirementDocPath(workspaceRoot: string, requirementId: string)
   return join(workspaceRoot, '.skyaxis', 'requirements', `${requirementId}.md`)
 }
 
+/**
+ * The technical planning doc path (0012 两步化轮, decisions/0013) — the
+ * plan-stage session writes it as the sole author; the adoption stamp
+ * anchors its disk sha256. Third member of the workspace channel family;
+ * relative-segment one truth = planningDocRelPath (protocol.ts), this join
+ * re-asserts the uuid gate as defense layer 2.
+ */
+export function planningDocPath(workspaceRoot: string, requirementId: string): string {
+  assertRequirementId(requirementId)
+  return join(workspaceRoot, '.skyaxis', 'planning', `${requirementId}.md`)
+}
+
+/**
+ * The split result file path (0012, decisions/0013) — the split session's
+ * machine-collectable delivery (markdown + embedded declare block); the
+ * seed anchor references its disk sha256. Fourth member of the family;
+ * relative-segment one truth = splitResultRelPath (protocol.ts).
+ */
+export function splitResultPath(workspaceRoot: string, requirementId: string): string {
+  assertRequirementId(requirementId)
+  return join(workspaceRoot, '.skyaxis', 'split', `${requirementId}.md`)
+}
+
 /** The per-requirement artifact root; plans/ and reviews/ live under it. */
 export function requirementArtifactDir(root: string, requirementId: string): string {
   assertRequirementId(requirementId)

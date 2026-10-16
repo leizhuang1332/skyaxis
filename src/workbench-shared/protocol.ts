@@ -307,6 +307,15 @@ export interface SplitBaseline {
    * on the compare side (never a false stale).
    */
   readonly requirementDocHash?: string
+  /**
+   * Planning-doc hash at approval (0012 两步化轮, decisions/0013 D6 连带):
+   * the planBaseline.docHash the ADOPTED planning carried. Optional per the
+   * field-evolution discipline — approvals without an adopted planning carry
+   * none, and absent reads as absent (never a false stale). Re-adopting a
+   * re-planned doc flips the record side ⇒ stale fires (the fifth-arm
+   * semantics verbatim).
+   */
+  readonly planningDocHash?: string
 }
 
 export interface SplitBaselinePrd {
@@ -367,6 +376,28 @@ export interface UnderstandBaseline {
 }
 
 // ---------------------------------------------------------------------------
+// Plan baseline (0012 两步化轮) — the 采纳规划 credential, minted at
+// adoptPlan. The UnderstandBaseline twin in every discipline: an ANCHOR, not
+// a second truth source (the planning doc itself is the plan's expression;
+// the ledger carries only the user's adoption state); deliberately LIGHT —
+// just the disk sha256 of `.skyaxis/planning/<rid>.md` read by the flow
+// shell (IO-derived, never on the wire) plus the UPSTREAM
+// requirementDocHash snapshot (the planning's own stale arm: the requirement
+// baseline moving after adoption must surface). Both hashes optional:
+// adopting without a workspace / without an anchored requirement baseline
+// still stands (软门 — the honest unanchored adoption, approveUnderstand's
+// unarmed口径 verbatim).
+// ---------------------------------------------------------------------------
+
+export interface PlanBaseline {
+  readonly at: string
+  /** Disk sha256 of the planning doc at adoption — absent = no doc / no workspace then. */
+  readonly docHash?: string
+  /** The requirement baseline's docHash at adoption — absent = upstream was unanchored then. */
+  readonly requirementDocHash?: string
+}
+
+// ---------------------------------------------------------------------------
 // Requirement baseline doc (0008 需求基线文档轮) — the CONSOLIDATED requirement
 // document the consolidation session writes (original PRD condensed + adopted
 // findings/criteria/clarifications + knowledge background merged in; the
@@ -414,6 +445,42 @@ export function analysisReportRelPath(requirementId: string): string {
     throw new Error(`analysisReportRelPath: requirementId is not a lowercase uuid: ${JSON.stringify(requirementId)}`)
   }
   return `${ANALYSIS_REPORT_DIR}/${requirementId}.md`
+}
+
+// ---------------------------------------------------------------------------
+// Planning doc + split result files (0012 两步化轮, decisions/0013) — the
+// third and fourth members of the workspace channel family (analysis report
+// / requirement baseline doc / planning doc / split result). Same transport
+// convention verbatim: the task book prescribes the path, the SESSION is the
+// sole writer, the adoption stamp / seed anchor references the disk sha256.
+// One family, one directory each (user ruling ④). Layout frozen at v1 — a
+// change is a breaking migration, revise ADR 0013 first.
+// ---------------------------------------------------------------------------
+
+/** Workspace-relative directory for technical planning docs (dot-prefix = tool-owned, decisions/0013 D3). */
+export const PLANNING_DOC_DIR = '.skyaxis/planning'
+
+const PLANNING_DOC_REQUIREMENT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
+/** Display-form workspace-relative doc path `.skyaxis/planning/<requirementId>.md` (forward slashes). */
+export function planningDocRelPath(requirementId: string): string {
+  if (!PLANNING_DOC_REQUIREMENT_ID_RE.test(requirementId)) {
+    throw new Error(`planningDocRelPath: requirementId is not a lowercase uuid: ${JSON.stringify(requirementId)}`)
+  }
+  return `${PLANNING_DOC_DIR}/${requirementId}.md`
+}
+
+/** Workspace-relative directory for split result files (dot-prefix = tool-owned, decisions/0013 D3). */
+export const SPLIT_RESULT_DIR = '.skyaxis/split'
+
+const SPLIT_RESULT_REQUIREMENT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
+/** Display-form workspace-relative result path `.skyaxis/split/<requirementId>.md` (forward slashes). */
+export function splitResultRelPath(requirementId: string): string {
+  if (!SPLIT_RESULT_REQUIREMENT_ID_RE.test(requirementId)) {
+    throw new Error(`splitResultRelPath: requirementId is not a lowercase uuid: ${JSON.stringify(requirementId)}`)
+  }
+  return `${SPLIT_RESULT_DIR}/${requirementId}.md`
 }
 
 // ---------------------------------------------------------------------------
@@ -504,6 +571,52 @@ export interface WorkbenchAnalysisProposals {
   readonly clarifications?: readonly WorkbenchProposedClarification[]
 }
 
+// ---------------------------------------------------------------------------
+// Split proposals (0012 拆分结果文件通道轮) — the split session's
+// work-package suggestions, seeded from the split result FILE into the ledger
+// as PENDING rows awaiting the user's ruling. Same epistemics and same
+// container shape as the analysis proposals: rows are HOST-MINTED ONLY
+// (seedSplit reads the file; no client input schema carries proposal
+// content), never counted by badges/stale/matrix, and only the user's
+// adoptSplitProposals promotes (minting the real WP ids — the AI's `ref` is
+// a SUGGESTED ordinal for intra-batch cross-reference, never an id it can
+// forge into the ledger).
+// ---------------------------------------------------------------------------
+
+export interface WorkbenchProposedWorkPackage {
+  /** The session's SUGGESTED ordinal (WP1/WP2…) — batch-internal reference for dependsOn; the host mints the real id at adopt time. */
+  readonly ref: string
+  readonly title: string
+  readonly boundary: string
+  /** Suggested dependencies, as refs into the same batch (validated against the batch closure at parse time). */
+  readonly dependsOn: readonly string[]
+  readonly parallel?: boolean
+  /** Covered criteria ids (Cx) — validated against record.criteria at parse time. */
+  readonly covers: readonly string[]
+}
+
+/**
+ * SINGLE CONTAINER (the analysis twin): `session` is bound at split-SOW
+ * delivery (the pointer swap keeps the old batch until the new seed lands);
+ * `seed` anchors idempotency on the disk sha256 of the split result file;
+ * rows carry no id — batch provenance lives on `seed` alone, and adoption
+ * mints fresh WP sequence ids.
+ */
+export interface WorkbenchSplitProposals {
+  readonly session: {
+    readonly sessionId: string
+    readonly boundAt: string
+    /** Task-book anchor head (~200 chars) — provenance parity with the analysis bind. */
+    readonly anchor?: string
+  }
+  readonly seed?: {
+    readonly sessionId: string
+    readonly contentHash: string
+    readonly seededAt: string
+  }
+  readonly workPackages: readonly WorkbenchProposedWorkPackage[]
+}
+
 export interface WorkbenchRecord {
   /**
    * Join key against requirements.yaml ids — tolerant join, no foreign key
@@ -552,6 +665,17 @@ export interface WorkbenchRecord {
   readonly understandApprovedAt?: string
   /** The credential snapshot minted with the stamp above (see its section note). */
   readonly understandBaseline?: UnderstandBaseline
+  /**
+   * Planning-adoption stamp (0012 采纳软门) — presence = the user has adopted
+   * the technical planning doc `.skyaxis/planning/<rid>.md` as the plan-stage
+   * solution source. Same shape as understandApprovedAt: a CONTENT event
+   * decoupled from `stage`, host-set-only (adoptPlan / revokePlanAdoption),
+   * NOT a gate — the split SOW generates with or without it (an honest
+   * absence line instead of the 必读 row, the 0010 D2 doctrinal push).
+   */
+  readonly planAdoptedAt?: string
+  /** The adoption credential minted with the stamp above (see its section note). */
+  readonly planBaseline?: PlanBaseline
   readonly criteria: readonly WorkbenchCriterion[]
   readonly findings: readonly WorkbenchFinding[]
   readonly workPackages: readonly WorkbenchWorkPackage[]
@@ -563,6 +687,11 @@ export interface WorkbenchRecord {
    * discipline: pre-round records carry none; absent = never delivered.
    */
   readonly analysis?: WorkbenchAnalysisProposals
+  /**
+   * Split-proposal container (0012) — optional per the field-evolution
+   * discipline: absent = no split delivery has been bound yet.
+   */
+  readonly splitProposals?: WorkbenchSplitProposals
 }
 
 // ---------------------------------------------------------------------------
@@ -1035,6 +1164,12 @@ export type WorkbenchMutateRequestBody =
   | DismissCriterionProposalRequest
   | AnswerAnalysisClarificationRequest
   | DismissAnalysisClarificationRequest
+  | AdoptPlanRequest
+  | RevokePlanAdoptionRequest
+  | BindSplitSessionRequest
+  | SeedSplitRequest
+  | AdoptSplitProposalsRequest
+  | DismissWorkPackageProposalRequest
 
 // ---------------------------------------------------------------------------
 // Analysis-proposal actions (回传轮). The input schemas carry NO proposal
@@ -1109,6 +1244,71 @@ export interface DismissAnalysisClarificationRequest {
   readonly requirementId: string
   readonly action: 'dismissAnalysisClarification'
   readonly id: string
+}
+
+// ---------------------------------------------------------------------------
+// Planning-adoption + split-proposal actions (0012 两步化轮, decisions/0013).
+// The analysis-proposal discipline carries over verbatim: NO proposal content
+// rides the wire — adoptPlan's docHash is IO-derived (the flow reads the
+// planning doc off disk), seedSplit's rows come from the split result file,
+// and adoptSplitProposals names only the refs the user checked (the host
+// mints ids, rewrites dependsOn, and re-validates against the live ledger).
+// adoptPlan keeps the implicit-create semantics (an all-zero adoption is a
+// legal first action, the approveUnderstand precedent); seedSplit requires a
+// prior bindSplitSession (the container names the watched session).
+// ---------------------------------------------------------------------------
+
+/** 0012: adopt the planning doc — zero payload, the docHash anchor is host-derived (approveUnderstand's shape). */
+export interface AdoptPlanRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'adoptPlan'
+}
+
+/** 0012: strip the adoption stamp + baseline together (the revokeUnderstand key-strip pattern). */
+export interface RevokePlanAdoptionRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'revokePlanAdoption'
+}
+
+/** 0012: bind the split-SOW delivery's session as the split-proposal source (bindAnalysisSession's shape). */
+export interface BindSplitSessionRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'bindSplitSession'
+  readonly sessionId: string
+  /** Task-book anchor head (~200 chars) — provenance parity with the analysis bind. */
+  readonly anchor?: string
+}
+
+/** 0012: seed the split proposals from the split result FILE (the file is the only channel — no session-log fallback). */
+export interface SeedSplitRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'seedSplit'
+  readonly sessionId: string
+}
+
+/**
+ * 0012: register the CHECKED proposal rows as real work packages. `refs`
+ * names the user's selection (batch-internal suggested ordinals); the host
+ * mints fresh WP ids in container order, rewrites dependsOn refs to minted
+ * ids, and re-validates covers against the live criteria.
+ */
+export interface AdoptSplitProposalsRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'adoptSplitProposals'
+  readonly refs: readonly string[]
+}
+
+/** 0012: drop one pending proposal row without adopting (「忽略」 — the dismiss-proposal family, outside the split lock). */
+export interface DismissWorkPackageProposalRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'dismissWorkPackageProposal'
+  readonly ref: string
 }
 
 // ---------------------------------------------------------------------------
@@ -1373,6 +1573,10 @@ export const KNOWLEDGE_INJECTION_MAX_BYTES = 8 * 1024
 //        body: text/plain markdown → ArtifactWriteResponseOk (reviewId host uuid)
 //   GET  ?kind=plan&requirementId=<uuid>&workPackageId=<M#>&version=<n>
 //   GET  ?kind=review&requirementId=<uuid>&reviewId=<id>
+//   GET  ?kind=planning-doc&requirementId=<uuid>          (0012: file-first, readable
+//        before any adoption anchors it; tamper vs planBaseline.docHash)
+//   GET  ?kind=split-result&requirementId=<uuid>          (0012: file-first; tamper
+//        vs splitProposals.seed.contentHash)
 //        → ArtifactContentResponseOk (404 when the file is missing; hash
 //          mismatch answers 200 + contentTampered, never silently, never
 //          blocking — decisions/0005 细化④)
@@ -1452,6 +1656,7 @@ export interface WorkbenchDetailResponseOk {
  */
 export type SeedMissingReason = DeclareFetchMissing | 'yaml-syntax'
   | 'report-file-missing' | 'report-file-too-large' | 'report-file-syntax'
+  | 'split-file-missing' | 'split-file-too-large' | 'split-file-syntax'
 
 export interface WorkbenchSaveResponseOk {
   readonly ok: true
@@ -1777,6 +1982,48 @@ function isWorkbenchAnalysisProposals(v: unknown): v is WorkbenchAnalysisProposa
   )
 }
 
+function isWorkbenchProposedWorkPackage(v: unknown): v is WorkbenchProposedWorkPackage {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  return (
+    isString(r.ref) && isWorkPackageId(r.ref)
+    && isString(r.title) && r.title.length > 0
+    && isString(r.boundary)
+    && Array.isArray(r.dependsOn) && r.dependsOn.every((dep) => isString(dep) && dep.length > 0)
+    && (r.parallel === undefined || typeof r.parallel === 'boolean')
+    && Array.isArray(r.covers) && r.covers.every((covered) => isString(covered) && covered.length > 0)
+  )
+}
+
+function isWorkbenchSplitProposals(v: unknown): v is WorkbenchSplitProposals {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  const session = typeof r.session === 'object' && r.session !== null ? r.session as Record<string, unknown> : null
+  if (session === null
+    || !isString(session.sessionId) || session.sessionId.length === 0
+    || !isString(session.boundAt)) return false
+  if (session.anchor !== undefined && (!isString(session.anchor) || session.anchor.length === 0 || session.anchor.length > 512)) return false
+  if (r.seed !== undefined) {
+    const s = r.seed as Record<string, unknown>
+    if (
+      !isString(s.sessionId) || s.sessionId.length === 0
+      || !isString(s.contentHash) || s.contentHash.length === 0
+      || !isString(s.seededAt)
+    ) return false
+  }
+  return Array.isArray(r.workPackages) && r.workPackages.every(isWorkbenchProposedWorkPackage)
+}
+
+function isWorkbenchPlanBaseline(v: unknown): v is PlanBaseline {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  return (
+    isString(r.at) && r.at.length > 0
+    && (r.docHash === undefined || (isString(r.docHash) && r.docHash.length > 0))
+    && (r.requirementDocHash === undefined || (isString(r.requirementDocHash) && r.requirementDocHash.length > 0))
+  )
+}
+
 function isWorkbenchStageChange(v: unknown): v is WorkbenchStageChange {
   if (typeof v !== 'object' || v === null) return false
   const r = v as Record<string, unknown>
@@ -1804,6 +2051,7 @@ function isSplitBaseline(v: unknown): v is SplitBaseline {
     && (r.understandApprovedAt === undefined || (isString(r.understandApprovedAt) && r.understandApprovedAt.length > 0))
     && (r.answeredClarifications === undefined || typeof r.answeredClarifications === 'number')
     && (r.requirementDocHash === undefined || (isString(r.requirementDocHash) && r.requirementDocHash.length > 0))
+    && (r.planningDocHash === undefined || (isString(r.planningDocHash) && r.planningDocHash.length > 0))
 }
 
 function isUnderstandBaselineCriterion(v: unknown): v is UnderstandBaselineCriterion {
@@ -1861,6 +2109,8 @@ export function isWorkbenchRecord(v: unknown): v is WorkbenchRecord {
     && (r.splitBaseline === undefined || isSplitBaseline(r.splitBaseline))
     && (r.understandApprovedAt === undefined || (isString(r.understandApprovedAt) && r.understandApprovedAt.length > 0))
     && (r.understandBaseline === undefined || isUnderstandBaseline(r.understandBaseline))
+    && (r.planAdoptedAt === undefined || (isString(r.planAdoptedAt) && r.planAdoptedAt.length > 0))
+    && (r.planBaseline === undefined || isWorkbenchPlanBaseline(r.planBaseline))
     && Array.isArray(r.criteria) && r.criteria.every(isWorkbenchCriterion)
     && Array.isArray(r.findings) && r.findings.every(isWorkbenchFinding)
     && Array.isArray(r.workPackages) && r.workPackages.every(isWorkbenchWorkPackage)
@@ -1868,6 +2118,7 @@ export function isWorkbenchRecord(v: unknown): v is WorkbenchRecord {
     && Array.isArray(r.reviewReports) && r.reviewReports.every(isReviewReportEntry)
     && Array.isArray(r.knowledgeCandidates) && r.knowledgeCandidates.every(isKnowledgeCandidate)
     && (r.analysis === undefined || isWorkbenchAnalysisProposals(r.analysis))
+    && (r.splitProposals === undefined || isWorkbenchSplitProposals(r.splitProposals))
   )
 }
 
@@ -1918,7 +2169,7 @@ export function isWorkbenchSaveResponseOk(v: unknown): v is WorkbenchSaveRespons
   const r = v as Record<string, unknown>
   if (r.ok !== true || typeof r.revision !== 'number' || !isWorkbenchRecord(r.record)) return false
   if (r.seedMissing !== undefined) {
-    const reasons = ['no-service', 'not-found', 'unreadable', 'no-declare-block', 'yaml-syntax', 'report-file-missing', 'report-file-too-large', 'report-file-syntax']
+    const reasons = ['no-service', 'not-found', 'unreadable', 'no-declare-block', 'yaml-syntax', 'report-file-missing', 'report-file-too-large', 'report-file-syntax', 'split-file-missing', 'split-file-too-large', 'split-file-syntax']
     if (typeof r.seedMissing !== 'string' || !reasons.includes(r.seedMissing)) return false
   }
   if (r.seedScan !== undefined && typeof r.seedScan !== 'string') return false

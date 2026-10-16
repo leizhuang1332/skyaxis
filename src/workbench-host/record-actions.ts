@@ -288,6 +288,54 @@ export function applyRecordAction(base: WorkbenchRecord, body: WorkbenchMutateRe
     return { ok: true, record: rest }
   }
 
+  // 0012 采纳软门 — the planning-adoption stamps, OUTSIDE the split lock
+  // (the understand-family precedent: the adoption is the user's own plan-
+  // stage content event; the split contract freezes list × coverage, not the
+  // planning credential). adoptPlan itself rides the endpoint's dedicated
+  // flow (its docHash anchor is IO-derived, the approveUnderstand pattern);
+  // a stray union fallthrough lands on the generic 400 by construction.
+  if (body.action === 'revokePlanAdoption') {
+    if (base.planAdoptedAt === undefined) return fail(400, 'bad-request')
+    const { planAdoptedAt: _stamp, planBaseline: _baseline, ...rest } = base
+    return { ok: true, record: rest }
+  }
+
+  // 0012: split-proposal container pointer + row dismissal — the analysis
+  // family discipline (outside the lock; dismissFindingProposal precedent:
+  // dropping a pending row is never a contract change).
+  if (body.action === 'bindSplitSession') {
+    const anchor = body.anchor ?? base.splitProposals?.session.anchor
+    if (base.splitProposals?.session.sessionId === body.sessionId && base.splitProposals.session.anchor === anchor) {
+      return { ok: true, record: base, unchanged: true }
+    }
+    if (base.splitProposals?.session.sessionId === body.sessionId) {
+      return {
+        ok: true,
+        record: { ...base, splitProposals: { ...base.splitProposals, session: { ...base.splitProposals.session, ...(anchor !== undefined ? { anchor } : {}) } } },
+      }
+    }
+    return {
+      ok: true,
+      record: {
+        ...base,
+        splitProposals: {
+          session: { sessionId: body.sessionId, boundAt: now(), ...(anchor !== undefined ? { anchor } : {}) },
+          ...(base.splitProposals?.seed !== undefined ? { seed: base.splitProposals.seed } : {}),
+          workPackages: base.splitProposals?.workPackages ?? [],
+        },
+      },
+    }
+  }
+  if (body.action === 'dismissWorkPackageProposal') {
+    const container = base.splitProposals
+    if (container === undefined) return fail(404, 'not-found')
+    if (!container.workPackages.some((row) => row.ref === body.ref)) return fail(404, 'not-found')
+    return {
+      ok: true,
+      record: { ...base, splitProposals: { ...container, workPackages: container.workPackages.filter((row) => row.ref !== body.ref) } },
+    }
+  }
+
   // Everything below this line is under the split contract's shadow. (The
   // one analysis-family exception — adoptCriterionProposal — handled above
   // carries its own inline lock check: writing criteria[] IS the frozen
@@ -325,6 +373,10 @@ export function applyRecordAction(base: WorkbenchRecord, body: WorkbenchMutateRe
           // understand carried — conditional for the same never-finalized /
           // pre-0008 semantics.
           ...(base.understandBaseline?.docHash !== undefined ? { requirementDocHash: base.understandBaseline.docHash } : {}),
+          // 0012: the planning-doc hash the (adopted) planning carried — the
+          // sixth stale arm, minted at BOTH baseline sites (approve + confirm-
+          // still-valid re-anchor, the requirementDocHash pattern verbatim).
+          ...(base.planBaseline?.docHash !== undefined ? { planningDocHash: base.planBaseline.docHash } : {}),
         },
       },
     }
@@ -384,6 +436,10 @@ export function applyRecordAction(base: WorkbenchRecord, body: WorkbenchMutateRe
           ...(base.understandApprovedAt !== undefined ? { understandApprovedAt: base.understandApprovedAt } : {}),
           answeredClarifications: answeredClarificationsOf(base),
           ...(base.understandBaseline?.docHash !== undefined ? { requirementDocHash: base.understandBaseline.docHash } : {}),
+          // 0012: the planning-doc hash the (adopted) planning carried — the
+          // sixth stale arm, minted at BOTH baseline sites (approve + confirm-
+          // still-valid re-anchor, the requirementDocHash pattern verbatim).
+          ...(base.planBaseline?.docHash !== undefined ? { planningDocHash: base.planBaseline.docHash } : {}),
         },
       },
     }
@@ -433,6 +489,62 @@ export function applyRecordAction(base: WorkbenchRecord, body: WorkbenchMutateRe
     }
     const workPackages = [...base.workPackages, created]
     return { ok: true, record: { ...base, workPackages, criteria: recomputeCoveredBy(base.criteria, workPackages) } }
+  }
+  if (body.action === 'adoptSplitProposals') {
+    // 0012: register the CHECKED proposal rows as real work packages —
+    // UNDER the split lock (writing workPackages[] is the frozen contract
+    // itself, saveWorkPackage's own gate). Ids are HOST-MINTED in container
+    // order (the AI's ref is never trusted as an id); dependsOn rewrites
+    // batch refs to minted ids, with intra-batch refs taking precedence
+    // over a coincidental existing id (the ref names the batch's own row);
+    // a dep resolving to neither a selected ref nor an existing id is a
+    // dangling reference — 400, never silently dropped (the saveWorkPackage
+    // integrity stance).
+    if (splitLocked) return fail(400, 'locked-split')
+    const container = base.splitProposals
+    if (container === undefined) return fail(404, 'not-found')
+    const refSet = new Set(body.refs)
+    const selected = container.workPackages.filter((row) => refSet.has(row.ref))
+    if (selected.length !== refSet.size) return fail(400, 'bad-request') // a ref the container does not carry
+    const minted = new Map<string, string>()
+    const takenIds = base.workPackages.map((workPackage) => workPackage.id)
+    for (const row of selected) {
+      const id = nextSequenceId([...takenIds, ...minted.values()], 'WP')
+      minted.set(row.ref, id)
+    }
+    for (const row of selected) {
+      const danglingDep = row.dependsOn.some((dep) => !minted.has(dep) && !takenIds.includes(dep))
+      if (danglingDep) return fail(400, 'bad-request')
+      // Parse-time validation already skipped rows with unknown criteria; a
+      // criteria removal SINCE the seed is the only remaining gap — re-check
+      // against the live ledger (the adopt-time backstop).
+      if (row.covers.some((covered) => !base.criteria.some((criterion) => criterion.id === covered))) return fail(400, 'bad-request')
+    }
+    const maxOrder = base.workPackages.reduce((max, workPackage) => Math.max(max, workPackage.order), 0)
+    const createdRows = selected.map((row, index) => ({
+      id: minted.get(row.ref) as string,
+      title: row.title,
+      boundary: row.boundary,
+      order: maxOrder + 1 + index,
+      dependsOn: row.dependsOn.map((dep) => minted.get(dep) ?? dep),
+      ...(row.parallel !== undefined ? { parallel: row.parallel } : {}),
+      covers: [...row.covers],
+      status: 'planned' as const,
+      plans: [],
+      sessions: [],
+      commits: [],
+      acceptances: [],
+    }))
+    const workPackages = [...base.workPackages, ...createdRows]
+    return {
+      ok: true,
+      record: {
+        ...base,
+        workPackages,
+        criteria: recomputeCoveredBy(base.criteria, workPackages),
+        splitProposals: { ...container, workPackages: container.workPackages.filter((row) => !refSet.has(row.ref)) },
+      },
+    }
   }
   if (body.action === 'removeWorkPackage') {
     if (splitLocked) return fail(400, 'locked-split')
@@ -955,6 +1067,33 @@ export function approveUnderstandWith(base: WorkbenchRecord, docHash?: string): 
 }
 
 /**
+ * adoptPlan (0012 采纳软门) — the PURE core of the endpoint's adoptPlan flow,
+ * approveUnderstandWith's twin. `docHash` is the disk sha256 of
+ * `.skyaxis/planning/<rid>.md` read by the SHELL; undefined = no doc / no
+ * workspace at adoption: the adoption still stands (软门), the doc simply is
+ * not anchored. The credential stays LIGHT — no content snapshot at all
+ * (the planning doc IS the content; the ledger needs only the anchors):
+ * the docHash plus the UPSTREAM requirementDocHash (the planning's own
+ * stale arm — a later requirement-baseline move must surface as stale).
+ */
+export function adoptPlanWith(base: WorkbenchRecord, docHash?: string): RecordActionResult {
+  if (base.planAdoptedAt !== undefined) return fail(400, 'bad-request') // approving twice is a client bug (the approve-family rule)
+  const at = now()
+  return {
+    ok: true,
+    record: {
+      ...base,
+      planAdoptedAt: at,
+      planBaseline: {
+        at,
+        ...(docHash !== undefined ? { docHash } : {}),
+        ...(base.understandBaseline?.docHash !== undefined ? { requirementDocHash: base.understandBaseline.docHash } : {}),
+      },
+    },
+  }
+}
+
+/**
  * Identity-field equivalence for the pending-edit no-op short-circuit —
  * mirrors knowledgeRowEquivalent: a byte-identical re-save is not a data
  * change and must not bump the revision. contentHash is derived from
@@ -1066,6 +1205,60 @@ export function applyAnalysisSeed(base: WorkbenchRecord, input: AnalysisSeedInpu
             ...(row.blocks !== undefined ? { blocks: row.blocks } : {}),
           })),
         ],
+      },
+    },
+  }
+}
+
+/**
+ * applySplitSeed (0012 拆分结果文件通道) — the PURE core of seedSplit, the
+ * file-channel-only twin of applyAnalysisSeed: the endpoint shell reads the
+ * split result file and hands the parsed proposals + the disk sha256 here.
+ * Semantics carry over verbatim: an anchor hit (same sessionId AND
+ * contentHash) is an UNCHANGED no-op — adopted/dismissed rows never
+ * resurrect on a watcher replay; any other seed REPLACES the proposal
+ * array wholesale (unregistered proposals belong to the LATEST split;
+ * registered rows live in workPackages[] and are untouched — adoption
+ * REMOVES its rows from the container, so nothing user-owned survives
+ * here to keep). An EMPTY batch still stamps the anchor.
+ */
+export interface SplitSeedInput {
+  readonly sessionId: string
+  readonly contentHash: string
+  readonly workPackages: readonly {
+    readonly ref: string
+    readonly title: string
+    readonly boundary: string
+    readonly dependsOn: readonly string[]
+    readonly parallel?: boolean
+    readonly covers: readonly string[]
+  }[]
+}
+
+export function applySplitSeed(base: WorkbenchRecord, input: SplitSeedInput): RecordActionResult {
+  const container = base.splitProposals
+  if (container === undefined || container.session.sessionId !== input.sessionId) {
+    return fail(404, 'not-found')
+  }
+  if (container.seed !== undefined && container.seed.sessionId === input.sessionId && container.seed.contentHash === input.contentHash) {
+    return { ok: true, record: base, unchanged: true }
+  }
+  const at = now()
+  return {
+    ok: true,
+    record: {
+      ...base,
+      splitProposals: {
+        ...container,
+        seed: { sessionId: input.sessionId, contentHash: input.contentHash, seededAt: at },
+        workPackages: input.workPackages.map((row) => ({
+          ref: row.ref,
+          title: row.title,
+          boundary: row.boundary,
+          dependsOn: [...row.dependsOn],
+          ...(row.parallel !== undefined ? { parallel: row.parallel } : {}),
+          covers: [...row.covers],
+        })),
       },
     },
   }
