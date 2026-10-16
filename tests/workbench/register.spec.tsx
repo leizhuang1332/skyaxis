@@ -14,6 +14,7 @@ import { requirementsMainOptions } from '../../src/client/requirements/register.
 import { createRequirementTabSeats } from '../../src/client/requirements/detail-tabs.js'
 import { createRequirementsController } from '../../src/client/requirements/controller.js'
 import { createRequirementsStore } from '../../src/client/requirements/store.js'
+import { createOpenInAppController } from '../../src/client/requirements/open-in-app-controller.js'
 import { createWorkspaceCapabilities } from '../../src/client/requirements/workspace-tab.js'
 import {
   WORKBENCH_LOCALE_NS,
@@ -639,6 +640,7 @@ describe('workbench: detail seat registration contract', () => {
       t: requirementsT,
       controller: createRequirementsController(createRequirementsStore(), { list: async () => ({ kind: 'network' }), repoTasks: async () => ({ kind: 'ok', tasks: [] }) } as never),
       capabilities: createWorkspaceCapabilities(),
+      openInApp: createOpenInAppController(),
     })
     // 刻意最后注册 requirements 的两个低序 seat：注册顺序 ≠ 呈现顺序。
     core.register({ name: 'requirements.detail.view', id: 'aiWorkbench', order: 40, label: () => t('detail.tab.aiWorkbench') }, createWorkbenchTabSeat({ t, store: createWorkbenchStore(), controller: createWorkbenchController(createWorkbenchStore(), { detail: async () => ({ kind: 'network' }) } as never) }))

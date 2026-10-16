@@ -32,6 +32,7 @@ import { REQUIREMENTS_LOCALE_NS, registerRequirementsDictionaries, type Requirem
 import { createRequirementsController } from './controller.js'
 import { createRequirementTabSeats } from './detail-tabs.js'
 import { createRequirementsFetcher } from './fetcher.js'
+import { createOpenInAppController } from './open-in-app-controller.js'
 import { RequirementsIcon, RequirementsPage } from './view.js'
 import { createRequirementsStore } from './store.js'
 import { createWorkspaceCapabilities } from './workspace-tab.js'
@@ -152,7 +153,16 @@ export function registerRequirementsView(ctx: Context): () => void {
   // Tab seats: inject waits for the declaring register (the main entry
   // above), so order against it never matters. The placeholder seat retired
   // with the workspace tab landing (P3a).
-  const seats = createRequirementTabSeats({ t, controller, capabilities: workspaceCapabilities })
+  const seats = createRequirementTabSeats({
+    t,
+    controller,
+    capabilities: workspaceCapabilities,
+    // One open-in-app controller per plugin life: availability is read lazily
+    // by the split button's mount, the choice persists through the shared
+    // dsh localStorage key (decisions/0014 D2), snapshot stores need no
+    // disposal.
+    openInApp: createOpenInAppController(),
+  })
   const disposeOverview = ctx.slots.inject(REQUIREMENTS_DETAIL_VIEW_SLOT, () =>
     ctx.slots.register(
       { name: REQUIREMENTS_DETAIL_VIEW_SLOT, id: 'overview', order: 10, label: () => t('detail.tab.overview') },
@@ -321,5 +331,42 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       | 'workspace.sectionReposHint'
       | 'workspace.sectionPrd'
       | 'workspace.sectionPrdHint'
+      | 'workspace.openInApp'
+      | 'workspace.openInAppMenu'
+      | 'workspace.openInAppFailed'
+      | 'openIn.app.finder'
+      | 'openIn.app.explorer'
+      | 'openIn.app.filemanager'
+      | 'openIn.app.cursor'
+      | 'openIn.app.vscode'
+      | 'openIn.app.vscodeinsiders'
+      | 'openIn.app.windsurf'
+      | 'openIn.app.zed'
+      | 'openIn.app.sublimetext'
+      | 'openIn.app.xcode'
+      | 'openIn.app.androidstudio'
+      | 'openIn.app.intellij'
+      | 'openIn.app.pycharm'
+      | 'openIn.app.webstorm'
+      | 'openIn.app.phpstorm'
+      | 'openIn.app.goland'
+      | 'openIn.app.rider'
+      | 'openIn.app.rustrover'
+      | 'openIn.app.fork'
+      | 'openIn.app.sourcetree'
+      | 'openIn.app.github'
+      | 'openIn.app.tower'
+      | 'openIn.app.gitkraken'
+      | 'openIn.app.smartgit'
+      | 'openIn.app.sublimemerge'
+      | 'openIn.app.ghostty'
+      | 'openIn.app.warp'
+      | 'openIn.app.iterm'
+      | 'openIn.app.kitty'
+      | 'openIn.app.terminal'
+      | 'openIn.app.windowsterminal'
+      | 'openIn.app.gitbash'
+      | 'openIn.app.gnometerminal'
+      | 'openIn.app.konsole'
   }
 }

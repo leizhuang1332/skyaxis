@@ -38,4 +38,4 @@ pnpm --filter @lz/skyaxis test
 pnpm --filter @lz/skyaxis build
 ```
 
-回归基线为 1117 tests（vitest）。
+回归基线为 1129 tests（vitest）。

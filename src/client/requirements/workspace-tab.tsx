@@ -22,6 +22,8 @@ import type { RequirementRecord } from '../../requirements-shared/protocol.js'
 import type { RequirementsController } from './controller.js'
 import type { RequirementsT } from './dictionary.js'
 import type { WorkspaceStatusResult } from './fetcher.js'
+import { OpenInAppButton } from './open-in-app-button.js'
+import type { OpenInAppFace } from './open-in-app-controller.js'
 import { PrdSection } from './prd-section.js'
 import { ReposSection } from './repos-section.js'
 import styles from './view.module.css'
@@ -60,6 +62,7 @@ export function WorkspaceTabBody(props: {
   requirement: RequirementRecord
   controller: RequirementsController
   capabilities: WorkspaceCapabilities
+  openInApp: OpenInAppFace
 }): ReactNode {
   const { t, requirement, controller } = props
   const caps = useSyncExternalStore(props.capabilities.store.subscribe, props.capabilities.store.getSnapshot)
@@ -267,10 +270,22 @@ export function WorkspaceTabBody(props: {
               {t('workspace.rebind')}
             </Button>
           ) : null}
-          {editing === null && canOpen ? (
-            <Button variant="ghost" size="sm" icon={<IconFolderOpenOutline16 size={16} />} onClick={() => void openDirectory()}>
-              {t('workspace.open')}
-            </Button>
+          {editing === null ? (
+            /* 0014: the open affordance is dsh's open-in-app split button over
+                the host routes; the plain-open button survives as the fallback
+                arm (unanswered-empty capability: SSH, older dsh, renamed
+                routes) — canOpen gating and the decisions/0012 no-'reveal'
+                payload stay exactly as they were. */
+            <OpenInAppButton
+              t={t}
+              controller={props.openInApp}
+              path={requirement.workspacePath}
+              fallback={canOpen ? (
+                <Button variant="ghost" size="sm" icon={<IconFolderOpenOutline16 size={16} />} onClick={() => void openDirectory()}>
+                  {t('workspace.open')}
+                </Button>
+              ) : null}
+            />
           ) : null}
           {editing === null ? (
             <Button variant="ghost" size="sm" onClick={() => void unbind()} title={t('workspace.unbindHint')}>
@@ -362,6 +377,7 @@ export function createWorkspaceTabSeat(options: {
   t: RequirementsT
   controller: RequirementsController
   capabilities: WorkspaceCapabilities
+  openInApp: OpenInAppFace
 }): (props: PropsRuntime<'requirements.detail.view'>) => ReactNode {
   return (props) => <WorkspaceTabBody {...options} requirement={props.requirement} />
 }

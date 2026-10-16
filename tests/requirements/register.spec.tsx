@@ -29,6 +29,7 @@ import {
 import { RequirementsIcon, RequirementsPage } from '../../src/client/requirements/view.js'
 import { createRequirementsController } from '../../src/client/requirements/controller.js'
 import { createRequirementsStore } from '../../src/client/requirements/store.js'
+import { createOpenInAppController } from '../../src/client/requirements/open-in-app-controller.js'
 import { createWorkspaceCapabilities } from '../../src/client/requirements/workspace-tab.js'
 
 /** Real LocaleRuntime register/bind contract, minimal implementation. */
@@ -94,6 +95,40 @@ describe('requirements: dictionaries', () => {
       'form.titlePlaceholder',
       'menu.edit',
       'menu.remove',
+      'openIn.app.androidstudio',
+      'openIn.app.cursor',
+      'openIn.app.explorer',
+      'openIn.app.filemanager',
+      'openIn.app.finder',
+      'openIn.app.fork',
+      'openIn.app.ghostty',
+      'openIn.app.gitbash',
+      'openIn.app.github',
+      'openIn.app.gitkraken',
+      'openIn.app.gnometerminal',
+      'openIn.app.goland',
+      'openIn.app.intellij',
+      'openIn.app.iterm',
+      'openIn.app.kitty',
+      'openIn.app.konsole',
+      'openIn.app.phpstorm',
+      'openIn.app.pycharm',
+      'openIn.app.rider',
+      'openIn.app.rustrover',
+      'openIn.app.smartgit',
+      'openIn.app.sourcetree',
+      'openIn.app.sublimemerge',
+      'openIn.app.sublimetext',
+      'openIn.app.terminal',
+      'openIn.app.tower',
+      'openIn.app.vscode',
+      'openIn.app.vscodeinsiders',
+      'openIn.app.warp',
+      'openIn.app.webstorm',
+      'openIn.app.windowsterminal',
+      'openIn.app.windsurf',
+      'openIn.app.xcode',
+      'openIn.app.zed',
       'page.degraded',
       'page.degradedBackupHint',
       'page.loading',
@@ -181,6 +216,9 @@ describe('requirements: dictionaries', () => {
       'workspace.emptyHint',
       'workspace.invalidPath',
       'workspace.open',
+      'workspace.openInApp',
+      'workspace.openInAppFailed',
+      'workspace.openInAppMenu',
       'workspace.pathLabel',
       'workspace.pickerUnavailable',
       'workspace.rebind',
@@ -244,7 +282,7 @@ describe('requirements: SlotCore registration contract', () => {
     )
     // The tab seats, registered AFTER the declaring entry (SlotCore throws
     // on an undeclared slot; order is fixture-controlled).
-    const seats = createRequirementTabSeats({ t, controller: createRequirementsController(createRequirementsStore(), { list: async () => ({ kind: 'network' }), repoTasks: async () => ({ kind: 'ok', tasks: [] }) } as never), capabilities: createWorkspaceCapabilities() })
+    const seats = createRequirementTabSeats({ t, controller: createRequirementsController(createRequirementsStore(), { list: async () => ({ kind: 'network' }), repoTasks: async () => ({ kind: 'ok', tasks: [] }) } as never), capabilities: createWorkspaceCapabilities(), openInApp: createOpenInAppController() })
     const disposeOverview = core.register(
       { name: 'requirements.detail.view', id: 'overview', order: 10, label: () => t('detail.tab.overview') },
       seats.RequirementOverviewTab,

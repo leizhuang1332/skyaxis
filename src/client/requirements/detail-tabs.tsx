@@ -19,6 +19,7 @@ import type { ReactNode } from 'react'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { RequirementsController } from './controller.js'
 import type { RequirementsT } from './dictionary.js'
+import type { OpenInAppFace } from './open-in-app-controller.js'
 import { createWorkspaceTabSeat, type WorkspaceCapabilities } from './workspace-tab.js'
 import styles from './view.module.css'
 
@@ -31,6 +32,7 @@ export function createRequirementTabSeats(options: {
   t: RequirementsT
   controller: RequirementsController
   capabilities: WorkspaceCapabilities
+  openInApp: OpenInAppFace
 }): {
   RequirementOverviewTab: (props: PropsRuntime<'requirements.detail.view'>) => ReactNode
   RequirementWorkspaceTab: (props: PropsRuntime<'requirements.detail.view'>) => ReactNode

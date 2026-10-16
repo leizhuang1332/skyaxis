@@ -80,6 +80,48 @@ interface RequirementsDictionary {
   readonly 'workspace.sectionReposHint': string
   readonly 'workspace.sectionPrd': string
   readonly 'workspace.sectionPrdHint': string
+  // workspace.* open-in-app split button additions (0014) — {app} is composed
+  // by the caller (the prd.time* '{n}' precedent; RequirementsT has no params).
+  readonly 'workspace.openInApp': string
+  readonly 'workspace.openInAppMenu': string
+  readonly 'workspace.openInAppFailed': string
+  // openIn.app.* — dsh open-in-app catalog labels (0014): self-held product
+  // names (decisions/0014 D4), zh differs from en only for the four OS
+  // surface apps; ids without an entry stay invisible (the dsh filter).
+  readonly 'openIn.app.finder': string
+  readonly 'openIn.app.explorer': string
+  readonly 'openIn.app.filemanager': string
+  readonly 'openIn.app.cursor': string
+  readonly 'openIn.app.vscode': string
+  readonly 'openIn.app.vscodeinsiders': string
+  readonly 'openIn.app.windsurf': string
+  readonly 'openIn.app.zed': string
+  readonly 'openIn.app.sublimetext': string
+  readonly 'openIn.app.xcode': string
+  readonly 'openIn.app.androidstudio': string
+  readonly 'openIn.app.intellij': string
+  readonly 'openIn.app.pycharm': string
+  readonly 'openIn.app.webstorm': string
+  readonly 'openIn.app.phpstorm': string
+  readonly 'openIn.app.goland': string
+  readonly 'openIn.app.rider': string
+  readonly 'openIn.app.rustrover': string
+  readonly 'openIn.app.fork': string
+  readonly 'openIn.app.sourcetree': string
+  readonly 'openIn.app.github': string
+  readonly 'openIn.app.tower': string
+  readonly 'openIn.app.gitkraken': string
+  readonly 'openIn.app.smartgit': string
+  readonly 'openIn.app.sublimemerge': string
+  readonly 'openIn.app.ghostty': string
+  readonly 'openIn.app.warp': string
+  readonly 'openIn.app.iterm': string
+  readonly 'openIn.app.kitty': string
+  readonly 'openIn.app.terminal': string
+  readonly 'openIn.app.windowsterminal': string
+  readonly 'openIn.app.gitbash': string
+  readonly 'openIn.app.gnometerminal': string
+  readonly 'openIn.app.konsole': string
   // repos.* — linked repositories / clone (0003 P3b)
   readonly 'repos.add': string
   readonly 'repos.branchLabel': string
@@ -221,6 +263,43 @@ const zh: RequirementsDictionary = {
   'workspace.sectionReposHint': '设置工作区后可用。',
   'workspace.sectionPrd': 'PRD 文档',
   'workspace.sectionPrdHint': '设置工作区后可用。',
+  'workspace.openInApp': '在 {app} 中打开',
+  'workspace.openInAppMenu': '选择打开方式',
+  'workspace.openInAppFailed': '打开失败',
+  'openIn.app.finder': '访达',
+  'openIn.app.explorer': '文件资源管理器',
+  'openIn.app.filemanager': '文件管理器',
+  'openIn.app.cursor': 'Cursor',
+  'openIn.app.vscode': 'VS Code',
+  'openIn.app.vscodeinsiders': 'VS Code Insiders',
+  'openIn.app.windsurf': 'Windsurf',
+  'openIn.app.zed': 'Zed',
+  'openIn.app.sublimetext': 'Sublime Text',
+  'openIn.app.xcode': 'Xcode',
+  'openIn.app.androidstudio': 'Android Studio',
+  'openIn.app.intellij': 'IntelliJ IDEA',
+  'openIn.app.pycharm': 'PyCharm',
+  'openIn.app.webstorm': 'WebStorm',
+  'openIn.app.phpstorm': 'PhpStorm',
+  'openIn.app.goland': 'GoLand',
+  'openIn.app.rider': 'Rider',
+  'openIn.app.rustrover': 'RustRover',
+  'openIn.app.fork': 'Fork',
+  'openIn.app.sourcetree': 'Sourcetree',
+  'openIn.app.github': 'GitHub Desktop',
+  'openIn.app.tower': 'Tower',
+  'openIn.app.gitkraken': 'GitKraken',
+  'openIn.app.smartgit': 'SmartGit',
+  'openIn.app.sublimemerge': 'Sublime Merge',
+  'openIn.app.ghostty': 'Ghostty',
+  'openIn.app.warp': 'Warp',
+  'openIn.app.iterm': 'iTerm2',
+  'openIn.app.kitty': 'kitty',
+  'openIn.app.terminal': '终端',
+  'openIn.app.windowsterminal': 'Windows Terminal',
+  'openIn.app.gitbash': 'Git Bash',
+  'openIn.app.gnometerminal': 'GNOME Terminal',
+  'openIn.app.konsole': 'Konsole',
   'repos.add': "从仓库池添加",
   'repos.branchLabel': "分支名",
   'repos.branching': "创建分支中",
@@ -353,6 +432,43 @@ const en: RequirementsDictionary = {
   'workspace.sectionReposHint': 'Available after a workspace is set.',
   'workspace.sectionPrd': 'PRD documents',
   'workspace.sectionPrdHint': 'Available after a workspace is set.',
+  'workspace.openInApp': 'Open in {app}',
+  'workspace.openInAppMenu': 'Choose an app to open in',
+  'workspace.openInAppFailed': 'Failed to open',
+  'openIn.app.finder': 'Finder',
+  'openIn.app.explorer': 'File Explorer',
+  'openIn.app.filemanager': 'Files',
+  'openIn.app.cursor': 'Cursor',
+  'openIn.app.vscode': 'VS Code',
+  'openIn.app.vscodeinsiders': 'VS Code Insiders',
+  'openIn.app.windsurf': 'Windsurf',
+  'openIn.app.zed': 'Zed',
+  'openIn.app.sublimetext': 'Sublime Text',
+  'openIn.app.xcode': 'Xcode',
+  'openIn.app.androidstudio': 'Android Studio',
+  'openIn.app.intellij': 'IntelliJ IDEA',
+  'openIn.app.pycharm': 'PyCharm',
+  'openIn.app.webstorm': 'WebStorm',
+  'openIn.app.phpstorm': 'PhpStorm',
+  'openIn.app.goland': 'GoLand',
+  'openIn.app.rider': 'Rider',
+  'openIn.app.rustrover': 'RustRover',
+  'openIn.app.fork': 'Fork',
+  'openIn.app.sourcetree': 'Sourcetree',
+  'openIn.app.github': 'GitHub Desktop',
+  'openIn.app.tower': 'Tower',
+  'openIn.app.gitkraken': 'GitKraken',
+  'openIn.app.smartgit': 'SmartGit',
+  'openIn.app.sublimemerge': 'Sublime Merge',
+  'openIn.app.ghostty': 'Ghostty',
+  'openIn.app.warp': 'Warp',
+  'openIn.app.iterm': 'iTerm2',
+  'openIn.app.kitty': 'kitty',
+  'openIn.app.terminal': 'Terminal',
+  'openIn.app.windowsterminal': 'Windows Terminal',
+  'openIn.app.gitbash': 'Git Bash',
+  'openIn.app.gnometerminal': 'GNOME Terminal',
+  'openIn.app.konsole': 'Konsole',
   'repos.add': "Add from repo pool",
   'repos.branchLabel': "Branch name",
   'repos.branching': "Creating branch",

@@ -7,13 +7,32 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { CloneTaskSnapshot, RequirementRecord } from '../../src/requirements-shared/protocol.js'
 import type { RequirementsController, WorkspaceOutcome } from '../../src/client/requirements/controller.js'
 import type { RequirementsT } from '../../src/client/requirements/dictionary.js'
+import type { OpenInAppFace } from '../../src/client/requirements/open-in-app-controller.js'
 import {
   WorkspaceTabBody,
   createWorkspaceCapabilities,
 } from '../../src/client/requirements/workspace-tab.js'
+
+/**
+ * Open-in-app face with pre-set stores: the default `[]` answer routes every
+ * legacy case through the plain-open fallback arm (the 0011 regression
+ * lock's home); a non-empty list flips the row to the split button.
+ */
+function fakeOpenInApp(apps: readonly string[] | null = []): OpenInAppFace {
+  const appStore = createSnapshotStore<readonly string[] | null>(apps)
+  const choiceStore = createSnapshotStore('')
+  return {
+    apps: appStore,
+    choice: choiceStore,
+    load: vi.fn(async () => {}),
+    choose: (appId: string) => { choiceStore.set(appId) },
+    launch: vi.fn(async () => {}),
+  }
+}
 
 const DICT = {
   zh: {
@@ -35,6 +54,11 @@ const DICT = {
     'workspace.sectionReposHint': '设置工作区后可用（即将上线）。',
     'workspace.sectionPrd': 'PRD 文档',
     'workspace.sectionPrdHint': '设置工作区后可用（即将上线）。',
+    'workspace.openInApp': '在 {app} 中打开',
+    'workspace.openInAppMenu': '选择打开方式',
+    'workspace.openInAppFailed': '打开失败',
+    'openIn.app.explorer': '文件资源管理器',
+    'openIn.app.vscode': 'VS Code',
     'form.cancel': '取消',
     'form.submit': '保存',
     'form.submitting': '保存中…',
@@ -104,20 +128,27 @@ function fakeController(overrides?: {
   } as unknown as RequirementsController
 }
 
-type Subject = { requirement: RequirementRecord; controller: RequirementsController; capabilities?: ReturnType<typeof createWorkspaceCapabilities> }
+type Subject = {
+  requirement: RequirementRecord
+  controller: RequirementsController
+  capabilities?: ReturnType<typeof createWorkspaceCapabilities>
+  openInApp?: OpenInAppFace
+}
 
 function subject(props: Subject) {
   const capabilities = props.capabilities ?? createWorkspaceCapabilities()
+  const openInApp = props.openInApp ?? fakeOpenInApp()
   const element = (requirement: RequirementRecord, controller: RequirementsController) => (
     <WorkspaceTabBody
       t={bindZh()}
       requirement={requirement}
       controller={controller}
       capabilities={capabilities}
+      openInApp={openInApp}
     />
   )
   const utils = render(element(props.requirement, props.controller))
-  return { ...utils, capabilities, element }
+  return { ...utils, capabilities, openInApp, element }
 }
 
 describe('RequirementWorkspaceTab (0003 P3a: workspace binding)', () => {
@@ -271,5 +302,28 @@ describe('RequirementWorkspaceTab (0003 P3a: workspace binding)', () => {
     await waitFor(() => expect(screen.getByText('/old/path')).toBeTruthy())
     expect(screen.queryByRole('button', { name: DICT.zh['workspace.open'] })).toBeNull()
     second.unmount()
+  })
+
+  it('open-in-app split (0014): replaces the plain button, launches through the main click and the menu choice', async () => {
+    const controller = fakeController()
+    const capabilities = createWorkspaceCapabilities()
+    capabilities.setOpener({ canOpenWorkspacePath: vi.fn(async () => ({ ok: true as const, value: true })), openWorkspacePath: vi.fn(async () => ({ ok: true as const, value: { opened: true as const } })) } as never)
+    const openInApp = fakeOpenInApp(['explorer', 'vscode'])
+
+    const { unmount } = subject({ requirement: record('/old/path'), controller, capabilities, openInApp })
+    // The split's main button names the remembered default (menu order head);
+    // the plain fallback arm is gone while the capability answers non-empty.
+    const main = await waitFor(() => screen.getByRole('button', { name: `在 ${DICT.zh['openIn.app.explorer']} 中打开` }))
+    expect(screen.queryByRole('button', { name: DICT.zh['workspace.open'] })).toBeNull()
+    fireEvent.click(main)
+    await waitFor(() => expect(openInApp.launch).toHaveBeenCalledWith('explorer', '/old/path'))
+
+    // Chevron opens the app menu; picking VS Code remembers the choice and
+    // launches it on the same workspace path.
+    fireEvent.click(screen.getByRole('button', { name: DICT.zh['workspace.openInAppMenu'] }))
+    fireEvent.click(await waitFor(() => screen.getByRole('menuitem', { name: DICT.zh['openIn.app.vscode'] })))
+    await waitFor(() => expect(openInApp.launch).toHaveBeenCalledWith('vscode', '/old/path'))
+    expect(openInApp.choice.getSnapshot()).toBe('vscode')
+    unmount()
   })
 })
