@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
 /**
  * SOW 生成 Modal（0006 P2；analysis 重设计 = research 0008；0009 任务书
- * 精简轮）：注入 fake fetchPrdList/fetchPrdText/fetchPlanText/copy——
- * analysis/split/consolidate 无左侧 PRD 组（0009：路径引用全部必读、split
- * 无 PRD 面、正文零嵌入、revision 戳退役），dev/review 保留章节勾选组与
- * 多文档 select；知识命中计数行与默认勾选态、勾选联动知识预览、超上限
- * 禁复制 + 警示、copy 成功/失败、dev 语境 [工作包] 段、0009 可编辑
- * textarea（键入即改、copy 收编辑后全文、恢复生成内容、脏锁不覆盖）。
+ * 精简轮；0015 工作包/评审 PRD 勾选退役轮）：注入 fake fetchPrdList/
+ * fetchPlanText/copy——全部六个 purpose 无左侧 PRD 组（0015：dev/review
+ * 是最后两个持勾选组与多文档 select 的 purpose，本轮退役；fetchPrdText
+ * 文档正文链整体消失）。analysis/consolidate 拉列表出必读行，split/plan/
+ * dev/review 零 PRD 面（列表/正文一次都不拉，基线必读行由账本决定）；
+ * 知识命中计数行与默认勾选态、勾选联动知识预览、超上限禁复制 + 警示、
+ * copy 成功/失败、dev 语境 [工作包] 段、0009 可编辑 textarea（键入即改、
+ * copy 收编辑后全文、恢复生成内容、脏锁不覆盖）。
  *
  * 预览断言走 data-testid 的 textarea value（buildSow 产物是整块字符串）；
  * Modal portal 进 body，afterEach 显式清理。
@@ -101,7 +103,6 @@ function subject(overrides: Partial<SowModalProps> = {}) {
       revision={7}
       onClose={() => { /* noop */ }}
       fetchPrdList={async () => []}
-      fetchPrdText={async () => ''}
       fetchPlanText={async () => undefined}
       copy={async () => true}
       {...overrides}
@@ -118,13 +119,10 @@ const previewText = (rendered: ReturnType<typeof subject>): string =>
   (rendered.getByTestId('sow-preview') as HTMLTextAreaElement).value
 
 describe('SowModal（SOW 生成 Modal）', () => {
-  it('analysis 预览（0009 指针退役）：PRD 路径引用全部必读（正文零嵌入、不拉正文）；无左侧 PRD 组、无 select', async () => {
-    const fetchPrdText = vi.fn(async () => '# 背景\n背景正文\n\n## 方案\n方案正文')
-    const rendered = subject({ fetchPrdList: async () => [{ name: 'a.md' }, { name: 'b.md', sizeBytes: 4096 }], fetchPrdText })
+  it('analysis 预览（0009 指针退役）：PRD 路径引用全部必读（正文零嵌入）；无左侧 PRD 组、无 select', async () => {
+    const rendered = subject({ fetchPrdList: async () => [{ name: 'a.md' }, { name: 'b.md', sizeBytes: 4096 }] })
 
     await waitFor(() => expect(previewText(rendered)).toContain('必读 prds/a.md'))
-    // 0009：无焦点文档链——正文一次都不拉。
-    expect(fetchPrdText).not.toHaveBeenCalled()
     const text = previewText(rendered)
     expect(text).toContain('工作区根目录：C:/ws/demo（下列相对路径以此为根）')
     expect(text).toContain('- 必读 prds/a.md')
@@ -139,50 +137,58 @@ describe('SowModal（SOW 生成 Modal）', () => {
     expect(rendered.queryByRole('checkbox', { name: '背景' })).toBeNull()
   })
 
-  it('多文档 select 切换（0009 起左侧组仅 dev/review）：焦点文档换位、切到 b.md 重取正文并重置全勾', async () => {
-    const fetchPrdText = vi.fn(async (name: string) =>
-      name === 'a.md' ? '# a 标题\na 正文' : '## b 背景\nb 正文')
-    const target = wp('WP1')
+  it('0015 dev/review 预览：无 PRD 面（列表/正文一次都不拉、无 combobox/章节 checkbox）+ 基线必读行（本工作包/本次评审措辞）', async () => {
+    const fetchPrdList = vi.fn(async () => [{ name: 'a.md' }])
+    const anchored = record({
+      stage: 'implement',
+      workPackages: [wp('WP1')],
+      understandApprovedAt: AT,
+      understandBaseline: { at: AT, criteria: [], findings: [], clarifications: [], docHash: 'a'.repeat(64) },
+    })
     const rendered = subject({
       purpose: 'dev',
-      workPackage: target,
-      record: record({ workPackages: [target] }),
-      fetchPrdList: async () => [{ name: 'a.md' }, { name: 'b.md' }],
-      fetchPrdText,
+      workPackage: wp('WP1'),
+      record: anchored,
+      fetchPrdList,
     })
 
-    await waitFor(() => expect(fetchPrdText).toHaveBeenCalledWith('a.md'))
-    await waitFor(() => expect(previewText(rendered)).toContain('[PRD 节选]\n文档：a.md\n\n## a 标题\na 正文'))
-    const select = (await rendered.findByRole('combobox')) as HTMLSelectElement
-    fireEvent.change(select, { target: { value: 'b.md' } })
-    await waitFor(() => expect(fetchPrdText).toHaveBeenCalledWith('b.md'))
-    await waitFor(() => expect(previewText(rendered)).toContain('[PRD 节选]\n文档：b.md\n\n## b 背景\nb 正文'))
-    expect(fetchPrdText).toHaveBeenCalledTimes(2)
+    await waitFor(() => expect(previewText(rendered)).toContain(`- 必读 .skyaxis/requirements/${RID}.md——需求基线文档，本工作包的唯一需求真源`))
+    // 0015：dev 无 PRD 面——列表一次都不拉（fetchPrdText 链已整体退役）。
+    expect(fetchPrdList).not.toHaveBeenCalled()
+    const text = previewText(rendered)
+    expect(text).toContain('[输入]（用文件读取能力按路径阅读；不要凭记忆，不要猜）')
+    expect(text).not.toContain('[PRD 节选]')
+    expect(text).not.toContain('必读 prds/')
+    expect(rendered.queryByRole('combobox')).toBeNull()
+    expect(rendered.queryByRole('checkbox', { name: '背景' })).toBeNull()
+
+    // review 同形：「本次评审」措辞 + 零 PRD 面。
+    rendered.unmount()
+    const review = subject({ purpose: 'review', record: anchored, fetchPrdList })
+    await waitFor(() => expect(previewText(review)).toContain(`- 必读 .skyaxis/requirements/${RID}.md——需求基线文档，本次评审的唯一需求真源`))
+    expect(fetchPrdList).not.toHaveBeenCalled()
+    expect(previewText(review)).not.toContain('[PRD 节选]')
+    expect(review.queryByRole('combobox')).toBeNull()
   })
 
-  it('PRD 列表加载失败/无文档：analysis 无组内 UI（输入段诚实行承载）；dev 组内提示照旧', async () => {
+  it('PRD 列表加载失败/无文档（analysis/consolidate）：无组内 UI（输入段诚实行承载）；dev 零拉取无此面', async () => {
     const rendered = subject({ fetchPrdList: async () => null })
     await waitFor(() => expect(previewText(rendered)).toContain('（PRD 文档列表未可得——可列举 prds/ 目录确认）'))
-    expect(rendered.queryByText(workbenchZh['sow.prdLoadError'])).toBeNull()
     rendered.unmount()
 
     const rendered2 = subject({ fetchPrdList: async () => [] })
     await waitFor(() => expect(previewText(rendered2)).toContain('（prds/ 目录暂无文档——分析只能基于需求描述与代码）'))
-    expect(rendered2.queryByText(workbenchZh['sow.prdEmpty'])).toBeNull()
     rendered2.unmount()
 
-    // dev 语境：左侧组在场，组内提示照旧。
+    // 0015：dev 不拉列表——加载失败与否对 dev 面不可见（基线行由账本决定）。
     const target = wp('WP1')
     const devFail = subject({ purpose: 'dev', workPackage: target, record: record({ workPackages: [target] }), fetchPrdList: async () => null })
-    expect(await devFail.findByText(workbenchZh['sow.prdLoadError'])).toBeTruthy()
-    devFail.unmount()
-    const devEmpty = subject({ purpose: 'dev', workPackage: target, record: record({ workPackages: [target] }), fetchPrdList: async () => [] })
-    expect(await devEmpty.findByText(workbenchZh['sow.prdEmpty'])).toBeTruthy()
+    await waitFor(() => expect(previewText(devFail)).toContain('[输入]（用文件读取能力按路径阅读；不要凭记忆，不要猜）'))
+    expect(previewText(devFail)).toContain('（需求理解未定稿——尚无锚定的需求基线文档；本次开发以需求描述为唯一需求依据。）')
   })
 
-  it('0009 split 预览：无 PRD 面（列表/正文均不拉）+ 定稿带锚基线必读行 + 未定稿诚实行；五段头与正文嵌入退役', async () => {
+  it('0009 split 预览：无 PRD 面（列表不拉）+ 定稿带锚基线必读行 + 未定稿诚实行；五段头与正文嵌入退役', async () => {
     const fetchPrdList = vi.fn(async () => [{ name: 'a.md' }])
-    const fetchPrdText = vi.fn(async () => '# 背景\n背景正文')
     const rendered = subject({
       purpose: 'split',
       record: record({
@@ -190,13 +196,11 @@ describe('SowModal（SOW 生成 Modal）', () => {
         understandBaseline: { at: AT, criteria: [], findings: [], clarifications: [], docHash: 'a'.repeat(64) },
       }),
       fetchPrdList,
-      fetchPrdText,
     })
 
     await waitFor(() => expect(previewText(rendered)).toContain('# skyaxis 拆分任务书 · '))
-    // 0009 D2：split 无 PRD 面——列表与正文一次都不拉。
+    // 0009 D2：split 无 PRD 面——列表一次都不拉。
     expect(fetchPrdList).not.toHaveBeenCalled()
-    expect(fetchPrdText).not.toHaveBeenCalled()
     const text = previewText(rendered)
     expect(text).toContain(`- 必读 .skyaxis/requirements/${RID}.md——需求基线文档，本拆分的唯一需求真源`)
     expect(text).not.toContain('必读 prds/')
@@ -213,14 +217,13 @@ describe('SowModal（SOW 生成 Modal）', () => {
 
     // 未定稿（record null ⇒ 无锚）⇒ 诚实行。
     rendered.unmount()
-    const notFinalized = subject({ purpose: 'split', fetchPrdList, fetchPrdText })
+    const notFinalized = subject({ purpose: 'split', fetchPrdList })
     await waitFor(() => expect(previewText(notFinalized)).toContain('# skyaxis 拆分任务书 · '))
     expect(previewText(notFinalized)).toContain('（需求理解未定稿——尚无锚定的需求基线文档；本次拆分以需求描述为唯一需求依据。）')
   })
 
-  it('0012 plan 预览：无 PRD 面（列表/正文均不拉）+ 基线必读行（「本次规划」措辞）+ 规划文件路径；无 declare 块、无左组', async () => {
+  it('0012 plan 预览：无 PRD 面（列表不拉）+ 基线必读行（「本次规划」措辞）+ 规划文件路径；无 declare 块、无左组', async () => {
     const fetchPrdList = vi.fn(async () => [{ name: 'a.md' }])
-    const fetchPrdText = vi.fn(async () => '# 背景\n背景正文')
     const rendered = subject({
       purpose: 'plan',
       record: record({
@@ -230,13 +233,11 @@ describe('SowModal（SOW 生成 Modal）', () => {
         planBaseline: { at: AT, docHash: 'p'.repeat(64) },
       }),
       fetchPrdList,
-      fetchPrdText,
     })
 
     await waitFor(() => expect(previewText(rendered)).toContain('# skyaxis 规划任务书 · '))
-    // plan 与 split 同形：无 PRD 面——列表与正文一次都不拉。
+    // plan 与 split 同形：无 PRD 面——列表一次都不拉。
     expect(fetchPrdList).not.toHaveBeenCalled()
-    expect(fetchPrdText).not.toHaveBeenCalled()
     const text = previewText(rendered)
     expect(text).toContain(`- 必读 .skyaxis/requirements/${RID}.md——需求基线文档，本次规划的唯一需求真源`)
     // 输出段：写规划文件（工作区已绑定 fixture）+ 重新规划状态行；不读自己的产物。
@@ -250,12 +251,10 @@ describe('SowModal（SOW 生成 Modal）', () => {
   })
 
   it('0008/0009 consolidate 预览：无左侧 PRD 面（提示组退役）+ 全必读清单 + 基线文件路径段；正文零嵌入', async () => {
-    const fetchPrdText = vi.fn(async () => '# 背景\n背景正文')
-    const rendered = subject({ purpose: 'consolidate' as never, fetchPrdList: async () => [{ name: 'a.md' }, { name: 'b.md' }], fetchPrdText })
+    const rendered = subject({ purpose: 'consolidate' as never, fetchPrdList: async () => [{ name: 'a.md' }, { name: 'b.md' }] })
 
-    // consolidate 不拉正文（无章节可勾）——唯一一次 fetch 是列表。
+    // consolidate 无正文链（无章节可勾）——唯一一次 fetch 是列表。
     await waitFor(() => expect(previewText(rendered)).toContain('# skyaxis 需求整理任务书 · '))
-    expect(fetchPrdText).not.toHaveBeenCalled()
     // 0009：左侧 PRD 提示组退役——无 combobox / 无章节 checkbox。
     expect(rendered.queryByRole('combobox')).toBeNull()
     expect(rendered.queryByRole('checkbox', { name: '背景' })).toBeNull()

@@ -1,26 +1,31 @@
 /**
  * SOW generation modal (0006 P2; research 0006 §7.1): left pick column
- * (PRD sections / knowledge hits / dev work-package scope) over a live
- * right EDITOR — the textarea holds the exact text the copy button places
- * on the clipboard, assembled by the pure buildSow and user-editable since
- * 0009 (a dirty edit survives left-column toggles; the 恢复生成内容 button
- * resyncs to the live build).
+ * (knowledge hits / dev work-package scope) over a live right EDITOR — the
+ * textarea holds the exact text the copy button places on the clipboard,
+ * assembled by the pure buildSow and user-editable since 0009 (a dirty edit
+ * survives left-column toggles; the 恢复生成内容 button resyncs to the live
+ * build).
  *
  * 0009 任务书精简轮: the PRD pick group is dev/review-only (their five-block
  * SOW embeds checked sections); analysis/split/consolidate cite paths — the
  * doc listing rides the input block, no focus doc, no section checkboxes.
  * split additionally fetches NO PRD face at all (the finalized requirement
- * baseline doc is THE requirement source — 0009 D2).
+ * baseline doc is THE requirement source — 0009 D2). 0012: plan joins.
+ *
+ * 0015: dev/review join the no-PRD-face arm — the section-checkbox group,
+ * the focus-doc select, and the doc-body chain (fetchPrdText) RETIRE for
+ * every purpose. Only analysis/consolidate still pull the PRD LISTING (the
+ * all-docs 必读 rows); dev/review cite the ledger-decided baseline doc line.
  *
  * All IO is injected (the repos-section cross-module fetcher precedent):
- * PRD list/text default to the requirements fetcher, the approved plan
- * body defaults to the workbench artifacts endpoint, clipboard defaults to
+ * the PRD list defaults to the requirements fetcher, the approved plan body
+ * defaults to the workbench artifacts endpoint, clipboard defaults to
  * writeClipboard. Knowledge rows arrive server-filtered
  * (requirement ∪ global, both statuses) — the active filter + trigger
  * matching happen here via matchKnowledge. Injection caps
  * (KNOWLEDGE_INJECTION_MAX_ENTRIES/BYTES) disable copy with an honest warn.
  *
- * Transient payloads (PRD text, plan body, edited preview) live in
+ * Transient payloads (PRD list, plan body, edited preview) live in
  * component state and die with the dialog — never the store (the plan-body
  * cache precedent).
  */
@@ -41,8 +46,7 @@ import type {
 } from '../../workbench-shared/protocol.js'
 import type { RequirementRecord } from '../../requirements-shared/protocol.js'
 import type { WorkbenchT } from './dictionary.js'
-import { buildSow, knowledgeBytes, matchKnowledge, splitPrdSections } from './sow.js'
-import type { PrdSection } from './sow.js'
+import { buildSow, knowledgeBytes, matchKnowledge } from './sow.js'
 import styles from './view.module.css'
 
 const kbLabel = (bytes: number): string => `${(bytes / 1024).toFixed(1)} KB`
@@ -51,12 +55,6 @@ const kbLabel = (bytes: number): string => `${(bytes / 1024).toFixed(1)} KB`
 async function defaultPrdList(requirementId: string): Promise<{ name: string; sizeBytes?: number }[] | null> {
   const result = await createRequirementsFetcher().prdDocs(requirementId)
   return result.kind === 'ok' ? result.docs.map((doc) => ({ name: doc.name, sizeBytes: doc.size })) : null
-}
-
-/** PRD body, defaulting to the requirements content route (text/plain). */
-async function defaultPrdText(requirementId: string, name: string): Promise<string | null> {
-  const result = await createRequirementsFetcher().prdDocContent(requirementId, name)
-  return result.kind === 'ok' ? result.text : null
 }
 
 /**
@@ -86,7 +84,6 @@ export function SowModal(props: {
   onClose: () => void
   /** sizeBytes optional so injected fakes can list names only. */
   fetchPrdList?: () => Promise<{ name: string; sizeBytes?: number }[] | null>
-  fetchPrdText?: (name: string) => Promise<string | null>
   /** dev context: approved plan body; undefined when none approved. */
   fetchPlanText?: () => Promise<string | undefined>
   copy?: (text: string) => Promise<boolean>
@@ -101,14 +98,9 @@ export function SowModal(props: {
   const { t, open, purpose, requirement, record, knowledgeRecords, revision, workPackage } = props
   const busy = props.busy === true
 
-  // --- PRD state (lazy per open; a stale doc response must not win) ---
+  // --- PRD state (lazy per open; a stale list response must not win) ---
   const prdSeqRef = useRef(0)
   const [prdDocs, setPrdDocs] = useState<readonly { name: string; sizeBytes?: number }[] | null>(null)
-  const [prdError, setPrdError] = useState(false)
-  const [docName, setDocName] = useState<string | null>(null)
-  const [sections, setSections] = useState<readonly PrdSection[]>([])
-  const /** null = default (all checked). */
-    [checkedSections, setCheckedSections] = useState<ReadonlySet<number> | null>(null)
 
   // --- dev plan state ---
   const [planLoaded, setPlanLoaded] = useState(purpose !== 'dev')
@@ -137,38 +129,13 @@ export function SowModal(props: {
   // once the user types, the edit wins until 恢复生成内容 resets to null. ---
   const [editedText, setEditedText] = useState<string | null>(null)
 
-  const loadDoc = (name: string, dead: () => boolean): void => {
-    setDocName(name)
-    void (async () => {
-      let text: string | null = null
-      try {
-        text = await (props.fetchPrdText ?? ((doc: string) => defaultPrdText(requirement.id, doc)))(name)
-      } catch {
-        text = null
-      }
-      if (dead()) return
-      if (text === null) {
-        setPrdError(true)
-        setSections([])
-        setCheckedSections(null)
-        return
-      }
-      setPrdError(false)
-      setSections(splitPrdSections(text))
-      setCheckedSections(null)
-    })()
-  }
-
-  // Open → reset and lazily pull PRD list → first doc body; dev pulls the plan.
+  // Open → reset and lazily pull the PRD listing (analysis/consolidate only);
+  // dev pulls the plan.
   useEffect(() => {
     if (!open) return undefined
     const seq = ++prdSeqRef.current
     const dead = (): boolean => prdSeqRef.current !== seq
     setPrdDocs(null)
-    setPrdError(false)
-    setDocName(null)
-    setSections([])
-    setCheckedSections(null)
     setPlanLoaded(purpose !== 'dev')
     setPlanText(undefined)
     setIncludeBoundaryPlan(true)
@@ -181,9 +148,9 @@ export function SowModal(props: {
     void (async () => {
       // 0009 D2: split has no PRD face at all — no listing, no focus doc (the
       // baseline doc line rides the ledger, the input block carries it).
-      // 0012: plan joins verbatim (baseline + repos inputs; the planning doc
-      // it WRITES is ledger-decided too).
-      if (purpose === 'split' || purpose === 'plan') return
+      // 0012: plan joins verbatim. 0015: dev/review join — the [PRD 节选]
+      // embed retired, the baseline-doc 必读 line + repo rows replace it.
+      if (purpose !== 'analysis' && purpose !== 'consolidate') return
       let docs: { name: string }[] | null = null
       try {
         docs = await (props.fetchPrdList ?? (() => defaultPrdList(requirement.id)))()
@@ -191,16 +158,8 @@ export function SowModal(props: {
         docs = null
       }
       if (dead()) return
-      if (docs === null) {
-        setPrdError(true)
-        return
-      }
+      if (docs === null) return // stays null ⇒ the input block's honest-unknown line
       setPrdDocs(docs)
-      // 0009: the doc-body chain is dev/review only (their five-block SOW
-      // embeds checked sections); analysis/consolidate cite paths — the
-      // listing itself feeds the input block's all-docs rows (the 0008
-      // consolidate skip generalized).
-      if ((purpose === 'dev' || purpose === 'review') && docs[0] !== undefined) loadDoc(docs[0].name, dead)
     })()
     if (purpose === 'dev' && workPackage !== undefined) {
       void (props.fetchPlanText ?? (() => defaultPlanText(requirement.id, workPackage)))()
@@ -293,19 +252,6 @@ export function SowModal(props: {
   const selectedBytes = knowledgeBytes(selectedKnowledge)
   const overLimit = selectedKnowledge.length > KNOWLEDGE_INJECTION_MAX_ENTRIES || selectedBytes > KNOWLEDGE_INJECTION_MAX_BYTES
 
-  const selectedSections = useMemo(
-    () => sections.filter((_, index) => checkedSections === null || checkedSections.has(index)),
-    [sections, checkedSections],
-  )
-
-  const toggleSection = (index: number): void => {
-    const current = checkedSections ?? new Set(sections.map((_, i) => i))
-    const next = new Set(current)
-    if (next.has(index)) next.delete(index)
-    else next.add(index)
-    setCheckedSections(next)
-  }
-
   const toggleKnowledge = (id: string): void => {
     const current = checkedKnowledge ?? defaultKnowledgeIds
     const next = new Set(current)
@@ -323,26 +269,17 @@ export function SowModal(props: {
     generatedAt,
     workPackage: purpose === 'dev' && includeBoundaryPlan ? workPackage : undefined,
     approvedPlanText: purpose === 'dev' && planLoaded ? planText : undefined,
-    // 0009: the embedded-section face is dev/review-only (five-block SOW);
-    // analysis/split/consolidate cite paths instead.
-    ...(purpose === 'dev' || purpose === 'review' ? {
-      prdSections: selectedSections,
-      prdDocumentName: docName ?? undefined,
-    } : {}),
     knowledgePicks: selectedKnowledge,
     includeDeps,
-    // Analysis + consolidate inputs ride the same preview (0007: the split
-    // SOW joined the path-reference shape; 0008: consolidate reads all docs
-    // wholesale; 0009: split takes the repos rows but NO doc listing; 0012:
-    // plan joins the same face — repos rows needed, doc listing unused): the
-    // full doc listing (path references — PRD text itself is never embedded)
-    // and the repo rows.
-    ...(purpose === 'analysis' || purpose === 'plan' || purpose === 'split' || purpose === 'consolidate' ? {
+    // 0015: every purpose cites paths (baseline-doc line + repo rows ride the
+    // input block); only analysis/consolidate carry the prds/ listing
+    // (all-docs 必读 rows). PRD text itself is never embedded anywhere.
+    ...(purpose === 'analysis' || purpose === 'consolidate' ? {
       analysisPrdDocs: prdDocs,
-      analysisRepos: analysisRepoRows,
-      analysisUnknownRepos: analysisRepoUnknown,
     } : {}),
-  }), [purpose, requirement, record, revision, generatedAt, workPackage, includeBoundaryPlan, planLoaded, planText, selectedSections, docName, selectedKnowledge, includeDeps, prdDocs, analysisRepoRows, analysisRepoUnknown])
+    analysisRepos: analysisRepoRows,
+    analysisUnknownRepos: analysisRepoUnknown,
+  }), [purpose, requirement, record, revision, generatedAt, workPackage, includeBoundaryPlan, planLoaded, planText, selectedKnowledge, includeDeps, prdDocs, analysisRepoRows, analysisRepoUnknown])
 
   // The user edit (if any) wins over the live build; copy/deliver/anchors
   // all use THIS text (0009).
@@ -430,46 +367,11 @@ export function SowModal(props: {
     >
       <div className={styles.sowGrid}>
         <div className={styles.sowPick}>
-          {/* 0009: the PRD pick group is dev/review-only — their five-block
-              SOW embeds checked sections. analysis/split/consolidate cite
-              paths instead (the input block's listing carries the state);
-              split has no PRD face at all (baseline doc = THE requirement
-              source). */}
-          {purpose === 'dev' || purpose === 'review' ? (
-            <div className={styles.sowGroup}>
-              <div className={styles.sowGroupTitle}>{t('sow.prdGroup')}</div>
-              {prdError ? <div className={styles.fieldError}>{t('sow.prdLoadError')}</div> : null}
-              {!prdError && prdDocs === null ? <div className={styles.formHint}>{t('page.loading')}</div> : null}
-              {prdDocs !== null && prdDocs.length === 0 ? <div className={styles.formHint}>{t('sow.prdEmpty')}</div> : null}
-              {prdDocs !== null && prdDocs.length > 1 ? (
-                <label className={styles.sowPickRow}>
-                  <span>{t('sow.prdDocLabel')}</span>
-                  <select
-                    value={docName ?? ''}
-                    onChange={(event) => {
-                      const seq = ++prdSeqRef.current
-                      loadDoc(event.target.value, () => prdSeqRef.current !== seq)
-                    }}
-                  >
-                    {prdDocs.map((doc) => (
-                      <option key={doc.name} value={doc.name}>{doc.name}</option>
-                    ))}
-                  </select>
-                </label>
-              ) : null}
-              {sections.map((section, index) => (
-                <label key={index} className={styles.sowPickRow}>
-                  <input
-                    type="checkbox"
-                    checked={checkedSections === null || checkedSections.has(index)}
-                    onChange={() => { toggleSection(index); setCopyFailed(false) }}
-                  />
-                  <span>{section.heading.length > 0 ? section.heading : t('sow.prdPreamble')}</span>
-                </label>
-              ))}
-            </div>
-          ) : null}
-
+          {/* 0015: the PRD pick group (doc select + section checkboxes) is
+              RETIRED — dev/review were its last consumers. Every purpose's
+              requirement basis rides the document's [输入]/## 输入 block:
+              the ledger-decided baseline-doc line (split/plan/dev/review) or
+              the all-docs 必读 listing (analysis/consolidate). */}
           <div className={styles.sowGroup}>
             <div className={styles.sowGroupTitle}>
               {picks.length > 0

@@ -11,14 +11,21 @@
  *
  * Analysis redesign (research 0008; the 挂账轮 after 0006's slices): the
  * analysis purpose gets its OWN nine-block assembly — goal / snapshot /
- * inputs / knowledge / constraints / workflow / output — while split/dev/
- * review keep the original five-block shape untouched (user ruling: this
- * round is analysis-only). The dividing line for reference-vs-embed is
- * physical location: PRDs (prds/) and clone repos (repos/) live INSIDE the
- * delivered session's cwd, so they are cited by path (industry consensus:
- * spec-kit "REQUIRED: Read <path>", Anthropic just-in-time lightweight
- * identifiers, Codex "reference paths only"); the workbench ledger lives
- * outside the workspace, so its data stays an embedded snapshot (P1).
+ * inputs / knowledge / constraints / workflow / output — while dev/review
+ * keep the original five-block shape. The dividing line for reference-vs-
+ * embed is physical location: PRDs (prds/) and clone repos (repos/) live
+ * INSIDE the delivered session's cwd, so they are cited by path (industry
+ * consensus: spec-kit "REQUIRED: Read <path>", Anthropic just-in-time
+ * lightweight identifiers, Codex "reference paths only"); the workbench
+ * ledger lives outside the workspace, so its data stays an embedded
+ * snapshot (P1).
+ *
+ * 0015: dev/review join the path-citation face — the [PRD 节选] embedded
+ * block and its section checkboxes RETIRE for every purpose (0009 retired
+ * analysis/split/consolidate, 0012 plan; this round closes the pair). The
+ * five-block docs gain an [输入] block citing the requirement baseline doc
+ * (ledger-decided, the split/plan 必读 line) + clone-repo rows; the
+ * requirement/WP/criteria snapshot stays embedded (ledger data, P1).
  *
  * Honesty anchor: dev/review documents end with the revision stamp; the
  * three AI-session purposes dropped it in 0009 (conservative trim, user
@@ -34,51 +41,6 @@ import type {
 } from '../../workbench-shared/protocol.js'
 import { analysisReportRelPath, requirementDocRelPath, planningDocRelPath, splitResultRelPath } from '../../workbench-shared/protocol.js'
 import type { RequirementRecord } from '../../requirements-shared/protocol.js'
-
-// ---------------------------------------------------------------------------
-// PRD splitting
-// ---------------------------------------------------------------------------
-
-export interface PrdSection {
-  /** ATX heading text; '' = the pre-first-heading preamble block. */
-  heading: string
-  /** Section body (trimmed). */
-  text: string
-}
-
-/**
- * Split a PRD markdown into ATX-headed sections. Text before the first
- * heading collapses into ONE preamble section (heading ''), omitted when
- * blank; a document with no headings at all is one preamble section; an
- * empty document splits into nothing.
- */
-export function splitPrdSections(markdown: string): PrdSection[] {
-  const sections: PrdSection[] = []
-  let heading = ''
-  let body: string[] | null = null
-  const flush = (): void => {
-    if (body === null) return
-    const text = body.join('\n').trim()
-    if (text.length > 0) sections.push({ heading, text })
-    body = null
-  }
-  for (const line of markdown.split(/\r?\n/)) {
-    if (/^#{1,6}\s+/.test(line)) {
-      flush()
-      heading = line.replace(/^#{1,6}\s+/, '').trim()
-      body = []
-      continue
-    }
-    if (body !== null) body.push(line)
-    else {
-      // Still before the first heading — open the implicit preamble block.
-      heading = ''
-      body = [line]
-    }
-  }
-  flush()
-  return sections
-}
 
 // ---------------------------------------------------------------------------
 // Knowledge matching (research 0006 §7.4 trigger rules, injection face)
@@ -210,30 +172,28 @@ export interface SowContext {
   workPackage?: WorkbenchWorkPackage
   /** dev context: the highest approvedAt plan version's body (absent = none). */
   approvedPlanText?: string
-  /** Checked PRD sections (dev/review five-block path only — the embedded
-   * [PRD 节选] face; the three AI-session purposes cite paths instead). */
-  prdSections?: readonly PrdSection[]
-  prdDocumentName?: string
   /** Selected knowledge rows (in pool order). */
   knowledgePicks?: readonly WorkbenchKnowledgeRecord[]
   /** dev context: append per-dependency summaries. */
   includeDeps?: boolean
   /**
-   * analysis context: the FULL prds/ listing (path-referenced by the inputs
-   * block — every doc the session may read, not just the embedded focus).
-   * null/absent = listing unavailable (loading or failed — the honest
-   * unknown); [] = confirmed empty. sizeBytes is optional because injected
-   * fetchPrdList fakes may omit it.
+   * analysis/consolidate context: the FULL prds/ listing (path-referenced by
+   * the inputs block — every doc the session may read). null/absent =
+   * listing unavailable (loading or failed — the honest unknown); [] =
+   * confirmed empty. sizeBytes is optional because injected fetchPrdList
+   * fakes may omit it. 0015: dev/review/split/plan never fetch a listing —
+   * the ledger-decided baseline-doc line replaces it.
    */
   analysisPrdDocs?: readonly { name: string; sizeBytes?: number }[] | null
   /**
-   * analysis context: linked repos as clone-directory rows. Computed
-   * CALLER-side (pool-name join lives with the fetch), dirName only when the
-   * pool name resolved — unresolved repos ride the count below instead of a
-   * fabricated directory name (honest absence, the contextPaths precedent).
+   * linked repos as clone-directory rows (every purpose's input block).
+   * Computed CALLER-side (pool-name join lives with the fetch), dirName only
+   * when the pool name resolved — unresolved repos ride the count below
+   * instead of a fabricated directory name (honest absence, the
+   * contextPaths precedent).
    */
   analysisRepos?: readonly { dirName: string; poolName?: string; branch: string }[]
-  /** analysis context: linked repos whose clone dir could not be resolved. */
+  /** linked repos whose clone dir could not be resolved. */
   analysisUnknownRepos?: number
 }
 
@@ -275,8 +235,6 @@ const SEVERITY_LABEL: Record<WorkbenchFinding['severity'], string> = {
   low: '低',
 }
 
-const PREAMBLE_HEADING = '开篇'
-
 function requirementBlock(ctx: SowContext): string {
   const lines = ['[需求]', `标题：${ctx.requirement.title}`, `描述：${ctx.requirement.description}`]
   if (ctx.record === null) {
@@ -294,22 +252,6 @@ function requirementBlock(ctx: SowContext): string {
     for (const criterion of ctx.record.criteria) {
       lines.push(`${criterion.id} ${criterion.text}`)
     }
-  }
-  return lines.join('\n')
-}
-
-function prdBlock(ctx: SowContext): string {
-  const sections = ctx.prdSections ?? []
-  const lines = ['[PRD 节选]']
-  if (sections.length === 0) {
-    lines.push('（未选择）')
-    return lines.join('\n')
-  }
-  if (ctx.prdDocumentName !== undefined && ctx.prdDocumentName.length > 0) {
-    lines.push(`文档：${ctx.prdDocumentName}`)
-  }
-  for (const section of sections) {
-    lines.push('', `## ${section.heading.length > 0 ? section.heading : PREAMBLE_HEADING}`, section.text)
   }
   return lines.join('\n')
 }
@@ -552,7 +494,38 @@ function analysisSnapshotBlock(ctx: SowContext): string {
   return lines.join('\n')
 }
 
-function analysisInputBlock(ctx: SowContext): string {
+/** The reading discipline every input block carries in its header. */
+const INPUT_INSTRUCTION = '（用文件读取能力按路径阅读；不要凭记忆，不要猜）'
+
+/** Purpose nouns for the workspace-unbound and prds/-empty honest lines. */
+const INPUT_NOUN: Record<SowContext['purpose'], string> = {
+  analysis: '分析',
+  plan: '规划',
+  split: '拆分规划',
+  consolidate: '整理',
+  dev: '开发',
+  review: '评审',
+}
+
+/** Baseline 必读 line noun — names the consumer of the doc (0015: dev/review
+ * join the split/plan arm; dev reads against ONE work package). Undefined =
+ * the purpose keeps the prds/ listing instead (analysis/consolidate). */
+const BASELINE_CONSUMER: Partial<Record<SowContext['purpose'], string>> = {
+  split: '本拆分',
+  plan: '本次规划',
+  dev: '本工作包',
+  review: '本次评审',
+}
+
+/** Honest-absence line noun (定稿无锚 / 未定稿 two states). */
+const BASELINE_FALLBACK: Partial<Record<SowContext['purpose'], string>> = {
+  split: '本次拆分',
+  plan: '本次规划',
+  dev: '本次开发',
+  review: '本次评审',
+}
+
+function analysisInputBlock(ctx: SowContext, header: string): string {
   // 0007: shared by analysis AND split (the purpose noun keeps the analysis
   // bytes IDENTICAL — only the split path reads differently).
   // 0008: consolidate joins — consolidation reads EVERY PRD wholesale (no
@@ -562,10 +535,13 @@ function analysisInputBlock(ctx: SowContext): string {
   // drops the PRD listing ENTIRELY: the finalized requirement baseline doc is
   // THE requirement source (0009 D2), so criteria/findings/clarifications
   // never ride the split SOW — the doc carries them.
-  const noun = ctx.purpose === 'analysis' ? '分析' : ctx.purpose === 'consolidate' ? '整理' : ctx.purpose === 'plan' ? '规划' : '拆分规划'
-  const lines = [
-    '## 输入（用文件读取能力按路径阅读；不要凭记忆，不要猜）',
-  ]
+  // 0015: dev/review join the baseline arm — their five-block docs carry an
+  // [输入] block of the same rows (header parameterized), and the [PRD 节选]
+  // embedded face retires for good.
+  const noun = INPUT_NOUN[ctx.purpose]
+  const baseline = BASELINE_CONSUMER[ctx.purpose]
+  const fallback = BASELINE_FALLBACK[ctx.purpose]
+  const lines = [header]
   const workspace = ctx.requirement.workspacePath.trim()
   if (workspace === '') {
     // Honest absence — without a bound workspace there are no prds/ or repos/
@@ -574,7 +550,7 @@ function analysisInputBlock(ctx: SowContext): string {
     return lines.join('\n')
   }
   lines.push(`工作区根目录：${toDisplayPath(workspace)}（下列相对路径以此为根）`)
-  if (ctx.purpose === 'split' || ctx.purpose === 'plan') {
+  if (baseline !== undefined) {
     // 0008: the baseline-doc line is decided by the LEDGER (understandBaseline
     // .docHash present = a finalized doc was anchored), never by probing the
     // disk. 0009 D2: the lean shape holds in EVERY state (user ruling — no
@@ -583,13 +559,15 @@ function analysisInputBlock(ctx: SowContext): string {
     // absence lines, the requirement description is the sole requirement
     // basis. 0012: 'plan' joins the arm verbatim (its document WRITES the
     // planning; split additionally READS the adopted one — three states
-    // below, the 0010 D2 honest-line pattern).
+    // below, the 0010 D2 honest-line pattern). 0015: dev/review join — the
+    // requirement baseline doc becomes THEIR requirement truth too (the WP
+    // boundary + covered criteria stay embedded: ledger data, P1).
     if (ctx.record?.understandBaseline?.docHash !== undefined) {
-      lines.push(`- 必读 ${requirementDocRelPath(ctx.requirement.id)}——需求基线文档，${ctx.purpose === 'plan' ? '本次规划' : '本拆分'}的唯一需求真源（验收标准以账本为准，其余需求表达以文档为权威；文档与你所见快照冲突时在报告中列出，不要自行取舍）`)
+      lines.push(`- 必读 ${requirementDocRelPath(ctx.requirement.id)}——需求基线文档，${baseline}的唯一需求真源（验收标准以账本为准，其余需求表达以文档为权威；文档与你所见快照冲突时在报告中列出，不要自行取舍）`)
     } else if (ctx.record?.understandApprovedAt !== undefined) {
-      lines.push(`（需求理解已定稿但未锚定基线文档——定稿时工作区无此文档；${ctx.purpose === 'plan' ? '本次规划' : '本次拆分'}以需求描述为唯一需求依据。）`)
+      lines.push(`（需求理解已定稿但未锚定基线文档——定稿时工作区无此文档；${fallback}以需求描述为唯一需求依据。）`)
     } else {
-      lines.push(`（需求理解未定稿——尚无锚定的需求基线文档；${ctx.purpose === 'plan' ? '本次规划' : '本次拆分'}以需求描述为唯一需求依据。）`)
+      lines.push(`（需求理解未定稿——尚无锚定的需求基线文档；${fallback}以需求描述为唯一需求依据。）`)
     }
     if (ctx.purpose === 'split') {
       // 0012: the adopted planning doc is the split's SOLUTION source — the
@@ -1105,7 +1083,7 @@ export function buildSow(ctx: SowContext): string {
       `# skyaxis 分析任务书 · ${ctx.requirement.title}`,
       analysisGoalBlock(ctx),
       analysisSnapshotBlock(ctx),
-      analysisInputBlock(ctx),
+      analysisInputBlock(ctx, `## 输入${INPUT_INSTRUCTION}`),
       knowledgeBlock(ctx, ANALYSIS_KNOWLEDGE_HEADER),
       analysisConstraintsBlock(ctx),
       ANALYSIS_WORKFLOW,
@@ -1123,7 +1101,7 @@ export function buildSow(ctx: SowContext): string {
       `# skyaxis 拆分任务书 · ${ctx.requirement.title}`,
       splitGoalBlock(ctx),
       splitSnapshotBlock(ctx),
-      analysisInputBlock(ctx),
+      analysisInputBlock(ctx, `## 输入${INPUT_INSTRUCTION}`),
       knowledgeBlock(ctx, ANALYSIS_KNOWLEDGE_HEADER),
       splitConstraintsBlock(ctx),
       SPLIT_WORKFLOW,
@@ -1137,7 +1115,7 @@ export function buildSow(ctx: SowContext): string {
       `# skyaxis 需求整理任务书 · ${ctx.requirement.title}`,
       consolidateGoalBlock(ctx),
       consolidateSnapshotBlock(ctx),
-      analysisInputBlock(ctx),
+      analysisInputBlock(ctx, `## 输入${INPUT_INSTRUCTION}`),
       knowledgeBlock(ctx, ANALYSIS_KNOWLEDGE_HEADER),
       consolidateConstraintsBlock(ctx),
       CONSOLIDATE_WORKFLOW,
@@ -1152,7 +1130,7 @@ export function buildSow(ctx: SowContext): string {
       `# skyaxis 规划任务书 · ${ctx.requirement.title}`,
       planGoalBlock(ctx),
       planSnapshotBlock(ctx),
-      analysisInputBlock(ctx),
+      analysisInputBlock(ctx, `## 输入${INPUT_INSTRUCTION}`),
       knowledgeBlock(ctx, ANALYSIS_KNOWLEDGE_HEADER),
       planConstraintsBlock(ctx),
       PLAN_WORKFLOW,
@@ -1160,9 +1138,13 @@ export function buildSow(ctx: SowContext): string {
     ]
     return blocks.join('\n\n')
   }
+  // 0015: the five-block path (dev/review) carries the SAME input rows the
+  // nine-block purposes do — [PRD 节选] retired, the baseline-doc 必读 line +
+  // clone-repo rows ride an [输入] block; the ledger snapshot (requirement /
+  // WP / criteria / approved plan) stays embedded (P1).
   const blocks = [
     requirementBlock(ctx),
-    prdBlock(ctx),
+    analysisInputBlock(ctx, `[输入]${INPUT_INSTRUCTION}`),
     ctx.purpose === 'dev' && ctx.workPackage !== undefined ? workPackageBlock(ctx) : '',
     knowledgeBlock(ctx, '[知识注入]'),
     outputBlock(ctx),

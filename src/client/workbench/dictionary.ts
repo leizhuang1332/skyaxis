@@ -399,11 +399,6 @@ interface WorkbenchDictionary {
   readonly 'sow.splitButton': string
   readonly 'sow.workPackageButton': string
   readonly 'sow.title': string
-  readonly 'sow.prdGroup': string
-  readonly 'sow.prdEmpty': string
-  readonly 'sow.prdLoadError': string
-  readonly 'sow.prdPreamble': string
-  readonly 'sow.prdDocLabel': string
   readonly 'sow.knowledgeHit': string
   readonly 'sow.knowledgeEmpty': string
   readonly 'sow.knowledgeOverLimit': string
@@ -952,11 +947,6 @@ const zh: WorkbenchDictionary = {
   'sow.reviewButton': '生成评审任务书',
   'sow.workPackageButton': '生成工作包任务书',
   'sow.title': '生成任务书',
-  'sow.prdGroup': 'PRD 重点章节',
-  'sow.prdEmpty': '该需求没有可用的 PRD 文档（在工作区 tab 上传后可用）。',
-  'sow.prdLoadError': 'PRD 加载失败',
-  'sow.prdPreamble': '（开篇）',
-  'sow.prdDocLabel': '文档',
   'sow.knowledgeHit': '命中 {n} · {size} / 上限 {cap}',
   'sow.knowledgeEmpty': '没有命中的知识条目。',
   'sow.knowledgeOverLimit': '超出注入上限（{entries} 条 / {size}）：请取消部分勾选。',
@@ -1480,11 +1470,6 @@ const en: WorkbenchDictionary = {
   'sow.reviewButton': 'Generate review SOW',
   'sow.workPackageButton': 'Generate work-package SOW',
   'sow.title': 'Generate statement of work',
-  'sow.prdGroup': 'PRD focus sections',
-  'sow.prdEmpty': 'No PRD documents available for this requirement (upload one in the workspace tab).',
-  'sow.prdLoadError': 'Failed to load the PRD',
-  'sow.prdPreamble': '(preamble)',
-  'sow.prdDocLabel': 'Document',
   'sow.knowledgeHit': 'matched {n} · {size} / cap {cap}',
   'sow.knowledgeEmpty': 'No matching knowledge entries.',
   'sow.knowledgeOverLimit': 'Over the injection cap ({entries} entries / {size}): uncheck some rows.',
