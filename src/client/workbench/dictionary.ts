@@ -526,6 +526,7 @@ interface WorkbenchDictionary {
   readonly 'declareCard.dismissButton': string
   readonly 'declareCard.retryButton': string
   readonly 'declareCard.importedLine': string
+  readonly 'declareCard.needInDevHint': string
   readonly 'declareCard.dismissedLine': string
   // review.* — S4 评审视图（P4：报告导入 + 手动裁决行 + PRD 覆盖矩阵）
   readonly 'review.sectionTitle': string
@@ -1079,6 +1080,7 @@ const zh: WorkbenchDictionary = {
   'declareCard.dismissButton': '忽略',
   'declareCard.retryButton': '重新收取',
   'declareCard.importedLine': '声明已导入 · 第 {n} 轮 · {at}',
+  'declareCard.needInDevHint': '工作包尚未开始开发——开始开发后可导入声明（标记 built）。',
   'declareCard.dismissedLine': '声明已忽略 · {at}',
   'declare.skip.bad-shape': '行结构不合法',
   'declare.skip.bad-type': 'type 不在允许枚举内',
@@ -1618,6 +1620,7 @@ const en: WorkbenchDictionary = {
   'declareCard.dismissButton': 'Dismiss',
   'declareCard.retryButton': 'Re-collect',
   'declareCard.importedLine': 'Declaration imported · round {n} · {at}',
+  'declareCard.needInDevHint': 'The package has not started development yet — start it first to import (marks built).',
   'declareCard.dismissedLine': 'Declaration dismissed · {at}',
   'declare.skip.bad-shape': 'malformed row',
   'declare.skip.bad-type': 'type outside the allowed enum',

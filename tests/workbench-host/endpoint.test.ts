@@ -2623,7 +2623,7 @@ describe('0016 P1a: seedDevDeclare flow + devDeclare-keyed import + adjudicateDe
   it('seedDevDeclare misses: no-binding / wp-not-in-dev / wp-mismatch / no-declare-block — 200 zero-write with the disclosed reason', async () => {
     const h = await harness()
     const post = async (revision: number, wpId: string, requirementId: string = RID) =>
-      (await (await h.post(WORKBENCH_PATH, { expectedRevision: revision, requirementId, action: 'seedDevDeclare', workPackageId: wpId })).json()) as { ok: true; devSeedMissing?: string }
+      (await (await h.post(WORKBENCH_PATH, { expectedRevision: revision, requirementId, action: 'seedDevDeclare', workPackageId: wpId })).json()) as { ok: true; devSeedMissing?: string; record?: WorkbenchRecord }
     // no binding (WP2 has none)
     let revision = await h.seed([seedRecord(RID, {
       splitApprovedAt: NOW,
@@ -2633,10 +2633,14 @@ describe('0016 P1a: seedDevDeclare flow + devDeclare-keyed import + adjudicateDe
       ],
     })])
     expect((await post(revision, 'WP2')).devSeedMissing).toBe('no-binding')
-    // wp-not-in-dev (WP1 flipped to built between the watcher's pull and the seed)
+    // wp-not-in-dev is GONE (三修): collection lands for built WPs too; the
+    // IMPORT path (markWorkPackageBuilt) enforces the state machine.
     revision = await h.seed([devRecord({ workPackages: [seedWorkPackage('WP1', { status: 'built', sessions: [{ sessionId: 'sess-dev', purpose: 'dev', boundAt: NOW }] })] })], revision)
     h.declareReader.setEngine({ readSession: async () => ({ events: [assistantText(devFence('WP1')) as never] }) })
-    expect((await post(revision, 'WP1')).devSeedMissing).toBe('wp-not-in-dev')
+    const builtSeed = (await (await h.post(WORKBENCH_PATH, { expectedRevision: revision, requirementId: RID, action: 'seedDevDeclare', workPackageId: 'WP1' })).json()) as { ok: true; revision: number; devSeedMissing?: string; record: WorkbenchRecord }
+    expect(builtSeed.devSeedMissing).toBeUndefined()
+    expect(builtSeed.record.devDeclares?.WP1?.adjudication).toBe('pending')
+    revision = builtSeed.revision // the seed wrote — track the fresh revision
     // wp-mismatch (the fence names WP9)
     revision = await h.seed([devRecord()], revision)
     h.declareReader.setEngine({ readSession: async () => ({ events: [assistantText(devFence('WP9')) as never] }) })
@@ -2735,7 +2739,7 @@ describe('0016 P1a: seedDevDeclare flow + devDeclare-keyed import + adjudicateDe
     expect(body.record.workPackages[0]!.sessions.some((row) => row.sessionId === 'sess-dev')).toBe(true)
   })
 
-  it('刀一验收二修：无绑定的 planned WP 同样寻址绑定（关联先行），收取按 in-dev 门披露', async () => {
+  it('刀一验收三修：无绑定的 planned WP 寻址绑定 + 收取一气呵成（in-dev 门仅守导入）', async () => {
     const h = await harness()
     const revision = await h.seed([seedRecord(RID, {
       splitApprovedAt: NOW,
@@ -2748,9 +2752,13 @@ describe('0016 P1a: seedDevDeclare flow + devDeclare-keyed import + adjudicateDe
     const res = await h.post(WORKBENCH_PATH, { expectedRevision: revision, requirementId: RID, action: 'seedDevDeclare', workPackageId: 'WP1' })
     expect(res.status).toBe(200)
     const body = (await res.json()) as { ok: true; revision: number; record: WorkbenchRecord; devSeedMissing?: string }
-    // 关联落账 + 收取被 in-dev 门挡（计划未开始——开始开发后收取）
+    // 关联 + 收取都落账（三修：collection is information-gathering）
     expect(body.record.workPackages[0]!.sessions.some((row) => row.sessionId === 'sess-real-planned' && row.purpose === 'dev')).toBe(true)
-    expect(body.devSeedMissing).toBe('wp-not-in-dev')
+    expect(body.devSeedMissing).toBeUndefined()
+    expect(body.record.devDeclares?.WP1?.adjudication).toBe('pending')
+    // 但 markWorkPackageBuilt（导入路径）仍要求 in-dev——四权不变
+    const importAttempt = await h.post(WORKBENCH_PATH, { expectedRevision: body.revision, requirementId: RID, action: 'markWorkPackageBuilt', id: 'WP1' })
+    expect(importAttempt.status).toBe(400)
   })
 
   it('adjudicateDevDeclare (union): dismiss lands on a pending slot; missing slot 404', async () => {

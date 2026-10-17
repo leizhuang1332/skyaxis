@@ -86,6 +86,8 @@ export function DeclarationCard(props: {
     })
   }
 
+  const notInDev = props.workPackage.status !== 'in-dev' && props.workPackage.status !== 'built' && props.workPackage.status !== 'accepted'
+
   return (
     <div className={styles.formField}>
       <span>{t('declareCard.sectionTitle')}</span>
@@ -96,9 +98,10 @@ export function DeclarationCard(props: {
               .replaceAll('{s}', slotRow.seed.sessionId.slice(0, 8))
               .replaceAll('{at}', slotRow.seed.seededAt.slice(0, 16).replace('T', ' '))}
           </div>
+          {notInDev ? <div className={styles.formHint}>{t('declareCard.needInDevHint')}</div> : null}
           {retryMiss !== undefined ? <div className={styles.fieldError}>{t(DEV_SEED_MISS_KEY[retryMiss])}</div> : null}
         </div>
-        <button type="button" className={styles.primaryButton} disabled={slot.busy} onClick={() => { setImportOpen(true) }}>
+        <button type="button" className={styles.primaryButton} disabled={slot.busy || notInDev} onClick={() => { setImportOpen(true) }}>
           {t('declareCard.importButton')}
         </button>
         <button type="button" className={styles.ghostButton} disabled={slot.busy} onClick={() => { void controller.adjudicateDevDeclare(requirementId, props.workPackage.id) }}>

@@ -601,11 +601,11 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
       }
       targetSession = repaired
     }
-    if (workPackage.status !== 'in-dev') {
-      // The repair-bind above may have landed; seeding itself stays gated
-      // (a built declaration against a not-started WP is out of contract).
-      return json({ ok: true, revision: writeRevision, record, devSeedMissing: 'wp-not-in-dev' })
-    }
+    // 刀一验收三修: the in-dev gate is REMOVED from the seed — collection is
+    // information-gathering, valid wherever the WP lives (the user delivers
+    // dev SOWs before pressing 开始开发). The IMPORT path's markWorkPackageBuilt
+    // still enforces in-dev (the four-power state change). The card surfaces
+    // the collected declaration; the import button disables when not in-dev.
     const read = await services.declareReader.readDeclareText(targetSession)
     if (read.status !== 'ok') {
       return json({ ok: true, revision: writeRevision, record, devSeedMissing: read.reason })

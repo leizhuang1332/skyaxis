@@ -429,7 +429,7 @@ export function WorkbenchTabBody(props: {
   useEffect(() => {
     if (slot.phase !== 'ready' || record === null) return
     for (const workPackage of record.workPackages) {
-      if (workPackage.status !== 'in-dev') continue
+      if (workPackage.status === 'dropped') continue
       const binding = [...workPackage.sessions].reverse().find((row) => row.purpose === 'dev')
       if (binding === undefined) continue
       if (sessionSummaries.byId[binding.sessionId]?.running === true) {

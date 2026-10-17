@@ -1781,10 +1781,17 @@ describe('0016 P1a: dev-declare container — seed core / adjudicate / import st
     expect(seeded2.ok && seeded2.record.devDeclares?.WP2).toBeDefined()
   })
 
-  it('applyDevDeclareSeed guards: wp-not-found 404; not-in-dev 400', () => {
+  it('applyDevDeclareSeed guards: wp-not-found 404; dropped 400; collection valid for any non-dropped status (三修)', () => {
     expect(applyDevDeclareSeed(inDevRecord(), { workPackageId: 'WP9', sessionId: SESS, contentHash: HASH_A })).toEqual({ ok: false, status: 404, code: 'not-found' })
+    const dropped = baseRecord({ splitApprovedAt: NOW, workPackages: [wp('WP1', { status: 'dropped', sessions: devBinding })] })
+    expect(applyDevDeclareSeed(dropped, { workPackageId: 'WP1', sessionId: SESS, contentHash: HASH_A })).toEqual({ ok: false, status: 400, code: 'bad-request' })
+    // planned/built/accepted WPs: collection is information-gathering — seed lands
+    const planned = baseRecord({ splitApprovedAt: NOW, workPackages: [wp('WP1', { status: 'planned', sessions: devBinding })] })
+    const seededPlanned = applyDevDeclareSeed(planned, { workPackageId: 'WP1', sessionId: SESS, contentHash: HASH_A })
+    expect(seededPlanned.ok && seededPlanned.record.devDeclares?.WP1?.adjudication).toBe('pending')
     const built = baseRecord({ splitApprovedAt: NOW, workPackages: [wp('WP1', { status: 'built', sessions: devBinding })] })
-    expect(applyDevDeclareSeed(built, { workPackageId: 'WP1', sessionId: SESS, contentHash: HASH_A })).toEqual({ ok: false, status: 400, code: 'bad-request' })
+    const seededBuilt = applyDevDeclareSeed(built, { workPackageId: 'WP1', sessionId: SESS, contentHash: HASH_A })
+    expect(seededBuilt.ok && seededBuilt.record.devDeclares?.WP1?.adjudication).toBe('pending')
   })
 
   it('adjudicateDevDeclare: pending → dismissed (+adjudicatedAt); repeat → unchanged; imported → 400; no slot → 404', () => {

@@ -1319,9 +1319,7 @@ export interface DevDeclareSeedInput {
 export function applyDevDeclareSeed(base: WorkbenchRecord, input: DevDeclareSeedInput): RecordActionResult {
   const workPackage = base.workPackages.find((candidate) => candidate.id === input.workPackageId)
   if (workPackage === undefined) return fail(404, 'not-found')
-  // True guard re-assertion (the endpoint flow pre-checks for the honest
-  // zero-write miss; reaching here in another state is a client bug).
-  if (workPackage.status !== 'in-dev') return fail(400, 'bad-request')
+  if (workPackage.status === 'dropped') return fail(400, 'bad-request')
   const slot = base.devDeclares?.[input.workPackageId]
   if (slot !== undefined && slot.seed.sessionId === input.sessionId && slot.seed.contentHash === input.contentHash) {
     return { ok: true, record: base, unchanged: true }

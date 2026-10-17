@@ -226,6 +226,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       | 'declareCard.dismissedLine'
       | 'declareCard.importButton'
       | 'declareCard.importedLine'
+      | 'declareCard.needInDevHint'
       | 'declareCard.pendingTitle'
       | 'declareCard.retryButton'
       | 'declareCard.sectionTitle'

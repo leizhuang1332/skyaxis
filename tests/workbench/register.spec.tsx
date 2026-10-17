@@ -158,6 +158,7 @@ describe('workbench: dictionaries', () => {
       'declareCard.dismissedLine',
       'declareCard.importButton',
       'declareCard.importedLine',
+      'declareCard.needInDevHint',
       'declareCard.pendingTitle',
       'declareCard.retryButton',
       'declareCard.sectionTitle',
