@@ -338,6 +338,208 @@
   gap: 4px;
 }
 
+/* ===== 0016 P1b: execution view ===== */
+
+.executionSection {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.executionHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.executionWpTitle {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.executionSummary {
+  color: var(--color-text-tertiary, #888);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 300px;
+}
+
+.executionSpacer {
+  flex: 1;
+}
+
+.executionBody {
+  display: flex;
+  gap: 16px;
+  min-height: 200px;
+}
+
+.executionArchive {
+  flex: 0 0 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-right: 1px solid var(--color-border-primary, #333);
+  padding-right: 16px;
+}
+
+.executionArchiveBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.executionArchiveLabel {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-text-secondary, #aaa);
+  margin-bottom: 2px;
+}
+
+.executionArchiveRow {
+  font-size: 12px;
+  color: var(--color-text-secondary, #aaa);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.executionLive {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.executionEntryList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.executionTurnBoundary {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-text-tertiary, #888);
+  margin-top: 8px;
+  padding-top: 4px;
+  border-top: 1px solid var(--color-border-tertiary, #222);
+}
+
+.executionToolRow,
+.executionTextRow,
+.executionUserRow {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+  padding: 1px 0;
+}
+
+.executionToolIcon {
+  flex-shrink: 0;
+  font-size: 11px;
+}
+
+.executionToolName {
+  flex-shrink: 0;
+  font-weight: 500;
+  font-family: monospace;
+}
+
+.executionToolArgs {
+  color: var(--color-text-tertiary, #888);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
+
+.executionToolResult {
+  color: var(--color-text-tertiary, #888);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 160px;
+}
+
+.executionTextPreview {
+  color: var(--color-text-secondary, #aaa);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.executionUserRow .executionTextPreview {
+  color: var(--color-text-primary, #ddd);
+}
+
+.executionTime {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--color-text-tertiary, #666);
+}
+
+.executionMetrics {
+  font-size: 12px;
+  color: var(--color-text-secondary, #aaa);
+}
+
+.executionUnknown {
+  color: var(--color-text-tertiary, #666);
+}
+
+.executionFileChanges,
+.executionDeliverables {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.executionFileChip {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--color-bg-surface-2, #1a1a2e);
+  border: 1px solid var(--color-border-tertiary, #333);
+  font-family: monospace;
+}
+
+.executionWaitingBar {
+  position: sticky;
+  bottom: 0;
+  padding: 8px 0;
+  background: var(--color-bg-primary, #0d0d1a);
+  display: flex;
+  justify-content: center;
+}
+
+/* ===== 0016 P1b: board card signal line ===== */
+
+.boardCardSignal {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.boardCardLive {
+  color: var(--color-success, #4caf50);
+}
+
+.boardCardElapsed {
+  color: var(--color-text-tertiary, #888);
+}
+
 .findingFieldRow .findingField {
   flex: 1;
 }

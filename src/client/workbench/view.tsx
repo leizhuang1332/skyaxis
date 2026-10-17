@@ -33,6 +33,7 @@ import { PlanningSection } from './planning-section.js'
 import { WorkspaceDocSection } from './doc-section.js'
 import { splitResultRelPath } from '../../workbench-shared/protocol.js'
 import { BoardSection } from './board-section.js'
+import { ExecutionSection } from './execution-section.js'
 import { DeliverSection } from './deliver-section.js'
 import { ReviewSection } from './review-section.js'
 import { SessionStrip } from './session-strip.js'
@@ -214,6 +215,8 @@ export function WorkbenchTabBody(props: {
     () => props.waiting?.getSnapshot() ?? EMPTY_WAITING,
   )
   const [viewing, setViewing] = useState<WorkbenchStage>('understand')
+  // 0016 P1b: the execution-view WP (null = board visible; non-null = exec view)
+  const [executionView, setExecutionView] = useState<WorkbenchWorkPackage | null>(null)
   // SOW modal state — view-owned so every section entry shares one instance.
   const [sow, setSow] = useState<{ purpose: 'analysis' | 'plan' | 'split' | 'consolidate' | 'dev' | 'review'; workPackage?: WorkbenchWorkPackage } | null>(null)
   // 挂账轮: artifact-reconciliation modal — view-owned like the SOW instance;
@@ -250,6 +253,7 @@ export function WorkbenchTabBody(props: {
   useEffect(() => {
     syncedRef.current = false
     setViewing('understand')
+    setExecutionView(null)
   }, [requirementId])
   useEffect(() => {
     if (syncedRef.current || slot.phase !== 'ready') return
@@ -640,8 +644,22 @@ export function WorkbenchTabBody(props: {
                 onRetrySplitSeed={retrySplitSeed}
               />
             ) : null}
-            {record !== null && viewing === 'implement' ? (
-              <BoardSection key={`board-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} sessions={sessionsFace} waitingIds={waitingIds} onOpenSow={(workPackage) => { setSow({ purpose: 'dev', workPackage }) }} />
+            {record !== null && viewing === 'implement' && executionView === null ? (
+              <BoardSection key={`board-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} sessions={sessionsFace} waitingIds={waitingIds} onOpenSow={(workPackage) => { setSow({ purpose: 'dev', workPackage }) }} onOpenExecution={(workPackage) => { setExecutionView(workPackage) }} />
+            ) : null}
+            {record !== null && viewing === 'implement' && executionView !== null ? (
+              <ExecutionSection
+                key={`exec-${requirementId}-${executionView.id}`}
+                t={t}
+                requirementId={requirementId}
+                slot={slot}
+                controller={controller}
+                workPackage={executionView}
+                sessions={{ ids: sessionSummaries.ids, summariesById: sessionSummaries.byId }}
+                waitingIds={waitingIds}
+                onBack={() => { setExecutionView(null) }}
+                onNavigateSession={(sessionId) => { sessionsFace.navigate(sessionId) }}
+              />
             ) : null}
             {record !== null && viewing === 'retro' ? (
               <KnowledgeSection

@@ -1598,6 +1598,98 @@ export type DeclareSkipReason =
   | 'wp-not-found'
   | 'wp-not-in-dev'
 
+// ---------------------------------------------------------------------------
+// Session digest (0016 P1b) — the execution-view's data channel. The HOST
+// reads the session log (readSession), slices a tail window of raw events,
+// and returns them defensively typed (the browser duck-types — the task-graph
+// discipline; SessionEvent itself lives in @deepseek-ai/dsh-session which
+// the browser bundle cannot import). The CLIENT folds the window into an
+// ExecutionDigest (execution-fold.ts). Both the wire envelope and the fold
+// result are pure types here — the protocol.ts cross-side precedent.
+//
+// lastEventCount is the monotone session-wide event seq (P0-verified); a
+// repeat request with the same count answers from the host-side cache.
+// ---------------------------------------------------------------------------
+
+export const WORKBENCH_SESSION_DIGEST_PATH = '/api/skyaxis/workbench/session-digest'
+
+/** Hard caps for the tail window — events AND bytes, whichever hits first. */
+export const SESSION_DIGEST_MAX_EVENTS = 200
+export const SESSION_DIGEST_MAX_BYTES = 256 * 1024
+
+/** The wire face of one raw session event (defensive — the fold duck-types). */
+export interface SessionDigestEvent {
+  readonly type: string
+  readonly seq?: number
+  readonly time?: number
+  readonly data?: unknown
+}
+
+export interface SessionDigestResponseOk {
+  readonly ok: true
+  readonly events: readonly SessionDigestEvent[]
+  /** The session-wide event seq at the tail window's end — the cache key. */
+  readonly lastEventCount: number
+  /** Events dropped from the head to fit the caps (0 = full log). */
+  readonly truncatedCount: number
+}
+
+export type SessionDigestMissing = 'no-service' | 'not-found' | 'unreadable'
+
+export type SessionDigestResponse =
+  | SessionDigestResponseOk
+  | { readonly ok: true; readonly missing: SessionDigestMissing }
+
+// --- The fold result (execution-fold.ts's output; pure types here) ---
+
+/** One visual row in the collapsed live view — a tool call, text, or boundary. */
+export interface ExecutionEntry {
+  readonly kind: 'turn-start' | 'turn-end' | 'step-start' | 'tool-call' | 'text' | 'user-message'
+  readonly turn: number
+  readonly step?: number
+  readonly toolName?: string
+  readonly toolArgsPreview?: string
+  readonly resultPreview?: string
+  readonly isError?: boolean
+  readonly text?: string
+  readonly tokens?: number
+  readonly timestamp: number
+}
+
+export interface ExecutionDigest {
+  readonly lastEventCount: number
+  readonly model?: string
+  readonly totalTokens?: number
+  readonly contextWindow?: number
+  readonly fileChanges: readonly string[]
+  readonly queuedMessageCount: number
+  readonly deliverableFiles: readonly { readonly path: string; readonly description: string }[]
+  readonly unknownEventCount: number
+  readonly entries: readonly ExecutionEntry[]
+}
+
+// --- Browser-side guard for the digest response ---
+
+const SESSION_DIGEST_MISSING = ['no-service', 'not-found', 'unreadable']
+
+function isSessionDigestEvent(v: unknown): v is SessionDigestEvent {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  return typeof r.type === 'string' && r.type.length > 0
+    && (r.seq === undefined || typeof r.seq === 'number')
+    && (r.time === undefined || typeof r.time === 'number')
+}
+
+export function isSessionDigestResponse(v: unknown): v is SessionDigestResponse {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  if (r.ok !== true) return false
+  if (isString(r.missing)) return SESSION_DIGEST_MISSING.includes(r.missing) && r.events === undefined
+  return typeof r.lastEventCount === 'number'
+    && typeof r.truncatedCount === 'number'
+    && Array.isArray(r.events) && r.events.every(isSessionDigestEvent)
+}
+
 export interface DeclareSkip {
   /** Stable key within this parse (`built-0`, `artifact-2`, …). */
   readonly key: string

@@ -25,6 +25,9 @@ import {
   WORKBENCH_DECLARE_PATH,
   WORKBENCH_PATH,
   WORKBENCH_SCAN_PATH,
+  WORKBENCH_SESSION_DIGEST_PATH,
+  SESSION_DIGEST_MAX_BYTES,
+  SESSION_DIGEST_MAX_EVENTS,
   DECLARE_MAX_CHARS,
   isWorkPackageId,
   isPlanVersion,
@@ -38,6 +41,8 @@ import type {
   ErrorResponse,
   ReviewFetchResponse,
   ReviewVerdict,
+  SessionDigestResponse,
+  SessionDigestResponseOk,
   WorkbenchDetailResponseOk,
   WorkbenchListResponse,
   WorkbenchRecord,
@@ -1098,6 +1103,82 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     fetch: async (request) => {
       if (request.method === 'GET') return blockFetchFlow(request)
       return declareImportFlow(request)
+    },
+  })
+
+  // -------------------------------------------------------------------------
+  // Session digest (0016 P1b): GET the tail-window event slice for the
+  // execution view's collapsed live column. Pure read, 200 degrade envelope.
+  // lastEventCount-keyed cache: a repeat request for the same session at the
+  // same seq answers from the in-memory cache without re-reading the log.
+  // -------------------------------------------------------------------------
+
+  const digestCache = new Map<string, { count: number; response: SessionDigestResponseOk }>()
+
+  connection.fetch.register({
+    path: WORKBENCH_SESSION_DIGEST_PATH,
+    methods: ['GET'],
+    requestBody: 'buffered',
+    fetch: async (request: Request) => {
+      const url = new URL(request.url)
+      const sessionId = url.searchParams.get('sessionId')
+      if (sessionId === null || sessionId.length === 0) return errorResponse(400, 'bad-request')
+      // Cache hit: same session + same lastEventCount — the log hasn't moved
+      const engine = (services.declareReader as unknown as { '#engine'?: { readSession(id: string): Promise<{ events: readonly unknown[] }> } })['#engine']
+      if (engine === undefined) {
+        const body: SessionDigestResponse = { ok: true, missing: 'no-service' }
+        return json(body)
+      }
+      let events: readonly unknown[]
+      try {
+        const snapshot = await engine.readSession(sessionId)
+        events = snapshot.events
+      } catch (error) {
+        const code = (error as { code?: unknown } | null)?.code
+        const body: SessionDigestResponse = { ok: true, missing: code === 'SESSION_QUERY_SESSION_NOT_FOUND' ? 'not-found' : 'unreadable' }
+        return json(body)
+      }
+      // Derive the tail window: count from the END, cap by events AND bytes.
+      const safeEvents = events as readonly { type?: unknown; seq?: unknown; time?: unknown; data?: unknown }[]
+      let lastEventCount = 0
+      for (const ev of safeEvents) {
+        if (typeof ev.seq === 'number' && ev.seq > lastEventCount) lastEventCount = ev.seq
+      }
+      const cached = digestCache.get(sessionId)
+      if (cached !== undefined && cached.count === lastEventCount) {
+        return json(cached.response)
+      }
+      // Slice from the tail: walk backwards accumulating until a cap hits.
+      const tail: { type: string; seq?: number; time?: number; data?: unknown }[] = []
+      let byteBudget = SESSION_DIGEST_MAX_BYTES
+      let truncatedCount = 0
+      for (let i = safeEvents.length - 1; i >= 0; i--) {
+        const ev = safeEvents[i]!
+        const evType = typeof ev.type === 'string' ? ev.type : ''
+        const evSeq = typeof ev.seq === 'number' ? ev.seq : undefined
+        const evTime = typeof ev.time === 'number' ? ev.time : undefined
+        const wire: { type: string; seq?: number; time?: number; data?: unknown } = {
+          type: evType,
+          ...(evSeq !== undefined ? { seq: evSeq } : {}),
+          ...(evTime !== undefined ? { time: evTime } : {}),
+          ...(ev.data !== undefined ? { data: ev.data } : {}),
+        }
+        const wireBytes = JSON.stringify(wire).length
+        if (tail.length >= SESSION_DIGEST_MAX_EVENTS || byteBudget - wireBytes < 0) {
+          truncatedCount = i + 1
+          break
+        }
+        byteBudget -= wireBytes
+        tail.unshift(wire)
+      }
+      const response: SessionDigestResponseOk = {
+        ok: true,
+        events: tail,
+        lastEventCount,
+        truncatedCount,
+      }
+      digestCache.set(sessionId, { count: lastEventCount, response })
+      return json(response)
     },
   })
 

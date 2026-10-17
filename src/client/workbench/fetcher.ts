@@ -17,6 +17,7 @@ import {
   WORKBENCH_KNOWLEDGE_PATH,
   WORKBENCH_PATH,
   WORKBENCH_SCAN_PATH,
+  WORKBENCH_SESSION_DIGEST_PATH,
 } from '../../workbench-shared/protocol.js'
 import type {
   ArtifactWriteResponseOk,
@@ -29,6 +30,7 @@ import type {
   ReviewFileExistsRow,
   ReviewFetchResponse,
   SeedMissingReason,
+  SessionDigestResponse,
   SplitBaselinePrd,
   WorkbenchFinding,
   WorkbenchKnowledgeListResponse,
@@ -49,6 +51,7 @@ import {
   isDeclarePreviewResponse,
   isErrorResponse,
   isReviewFetchResponse,
+  isSessionDigestResponse,
   isWorkbenchDetailResponse,
   isWorkbenchKnowledgeListResponse,
   isWorkbenchKnowledgeSaveResponseOk,
@@ -100,6 +103,10 @@ export type WorkbenchArtifactContentResult =
 
 export type DeclareFetchResult =
   | { readonly kind: 'ok'; readonly response: DeclareFetchResponse }
+  | WorkbenchFailure
+
+export type SessionDigestResult =
+  | { readonly kind: 'ok'; readonly response: SessionDigestResponse }
   | WorkbenchFailure
 
 export type ReviewFetchResult =
@@ -552,6 +559,16 @@ export function createWorkbenchFetcher() {
       if (!response.ok) return parseErrorBody(response)
       const parsed: unknown = await response.json()
       if (!isReviewFetchResponse(parsed)) return { kind: 'http-error', status: response.status }
+      return { kind: 'ok', response: parsed }
+    },
+
+    /** 0016 P1b: session-digest tail-window fetch (pure read, the declareFetch precedent). */
+    async sessionDigest(sessionId: string, signal?: AbortSignal): Promise<SessionDigestResult> {
+      const response = await request(`${WORKBENCH_SESSION_DIGEST_PATH}?sessionId=${encodeURIComponent(sessionId)}`, { method: 'GET' }, signal)
+      if ('kind' in response) return response
+      if (!response.ok) return parseErrorBody(response)
+      const parsed: unknown = await response.json()
+      if (!isSessionDigestResponse(parsed)) return { kind: 'http-error', status: response.status }
       return { kind: 'ok', response: parsed }
     },
 

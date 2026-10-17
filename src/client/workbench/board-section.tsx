@@ -41,6 +41,8 @@ export function BoardSection(props: {
   waitingIds?: ReadonlySet<string>
   /** S3 entry: open the work-package SOW modal for the given package. */
   onOpenSow?: (workPackage: WorkbenchWorkPackage) => void
+  /** 0016 P1b: open the execution view for the given package. */
+  onOpenExecution?: (workPackage: WorkbenchWorkPackage) => void
 }): ReactNode {
   const { t, slot, controller, requirementId } = props
   const record = slot.record
@@ -107,6 +109,15 @@ export function BoardSection(props: {
             {column.workPackages.map((workPackage) => {
               const tag = planCardTag(workPackage)
               const tailMissing = tag.kind === 'approved' ? existsOnDisk(workPackage, tag.version) === false : false
+              // 0016 P1b signal line: waiting badge, "complete ready to read"
+              // badge, elapsed time — all derived, zero fake progress
+              const latestDev = [...workPackage.sessions].reverse().find((row) => row.purpose === 'dev')
+              const devSummary = latestDev !== undefined ? props.sessions?.summariesById[latestDev.sessionId] : undefined
+              const isWaiting = latestDev !== undefined && (props.waitingIds?.has(latestDev.sessionId) ?? false)
+              const declareReady = record?.devDeclares?.[workPackage.id]?.adjudication === 'pending'
+              const elapsedMin = workPackage.startedAt !== undefined
+                ? Math.floor((Date.now() - new Date(workPackage.startedAt).getTime()) / 60_000)
+                : undefined
               return (
                 <div key={workPackage.id} className={styles.boardCard}>
                   <button type="button" className={styles.boardCardMain} onClick={() => { setDialogId(workPackage.id) }}>
@@ -119,11 +130,24 @@ export function BoardSection(props: {
                           {t('board.planTag').replaceAll('{n}', String(tag.version))}{tailMissing ? ` · ${t('board.planMissing')}` : ''}
                         </Tag>
                       ) : null}
+                      {isWaiting ? <Tag tone="warning">{t('execution.waitingForYou')}</Tag> : null}
+                      {declareReady ? <Tag tone="success">✓ {t('board.declareReady')}</Tag> : null}
                       <span className={styles.boardCardMetaText}>
                         {t('board.sessions').replaceAll('{n}', String(workPackage.sessions.length))}
                         {workPackage.commits.length > 0 ? ` · ${t('board.commits').replaceAll('{n}', String(workPackage.commits.length))}` : ''}
                       </span>
                     </span>
+                    {/* P1b signal line: live/elapsed indicators, zero-fake-progress */}
+                    {(devSummary?.running === true || elapsedMin !== undefined) && workPackage.status !== 'dropped' ? (
+                      <span className={styles.boardCardSignal}>
+                        {devSummary?.running === true ? <span className={styles.boardCardLive}>● {t('execution.liveRunning')}</span> : null}
+                        {elapsedMin !== undefined && workPackage.status === 'in-dev' ? (
+                          <span className={styles.boardCardElapsed}>
+                            {elapsedMin >= 60 ? `${Math.floor(elapsedMin / 60)}h${elapsedMin % 60}m` : t('execution.minutes').replaceAll('{n}', String(elapsedMin))}
+                          </span>
+                        ) : null}
+                      </span>
+                    ) : null}
                   </button>
                   {workPackage.status === 'built' ? (
                     <div className={styles.boardCardActions}>
@@ -142,6 +166,17 @@ export function BoardSection(props: {
                         onClick={() => { setRejectId(workPackage.id); setRejectNote(''); setRejectError(null) }}
                       >
                         {t('board.reject')}
+                      </button>
+                    </div>
+                  ) : null}
+                  {props.onOpenExecution !== undefined && (workPackage.status === 'in-dev' || workPackage.status === 'built') && latestDev !== undefined ? (
+                    <div className={styles.boardCardActions}>
+                      <button
+                        type="button"
+                        className={styles.ghostButton}
+                        onClick={() => { props.onOpenExecution?.(workPackage) }}
+                      >
+                        {t('board.viewExecution')}
                       </button>
                     </div>
                   ) : null}

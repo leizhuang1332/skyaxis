@@ -297,6 +297,10 @@ export function createWorkbenchController(store: WorkbenchStore, fetcher: Workbe
     reviewFetch: (sessionId: string, signal?: AbortSignal) =>
       fetcher.reviewFetch(sessionId, signal),
 
+    /** 0016 P1b: session-digest tail-window fetch. Pure read, no store, no busy (the declareFetch precedent). */
+    sessionDigest: (sessionId: string, signal?: AbortSignal) =>
+      fetcher.sessionDigest(sessionId, signal),
+
     /** 挂账轮: global orphan/missing/trash reconciliation scan. Pure read, no
      *  store — the scan modal owns loading/failed states and filters rows by
      *  the CURRENT requirement (the join stays client-side by design). */

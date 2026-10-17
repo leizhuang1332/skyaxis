@@ -262,7 +262,9 @@ interface WorkbenchDictionary {
   readonly 'board.drafting': string
   readonly 'board.planTag': string
   readonly 'board.planMissing': string
+  readonly 'board.declareReady': string
   readonly 'board.sessions': string
+  readonly 'board.viewExecution': string
   readonly 'board.commits': string
   readonly 'board.progressAccepted': string
   readonly 'board.progressBuilt': string
@@ -520,6 +522,21 @@ interface WorkbenchDictionary {
   readonly 'declare.skip.wp-not-found': string
   readonly 'declare.skip.wp-not-in-dev': string
   // declareCard.* — 0016 P1a 声明收取卡（dev-declare 槽三态面）
+  // execution.* — 0016 P1b 执行视图
+  readonly 'execution.archiveTitle': string
+  readonly 'execution.backToBoard': string
+  readonly 'execution.filesChanged': string
+  readonly 'execution.jumpToSession': string
+  readonly 'execution.liveRunning': string
+  readonly 'execution.liveTitle': string
+  readonly 'execution.loadError': string
+  readonly 'execution.minutes': string
+  readonly 'execution.model': string
+  readonly 'execution.noSession': string
+  readonly 'execution.queued': string
+  readonly 'execution.tokens': string
+  readonly 'execution.turnN': string
+  readonly 'execution.waitingForYou': string
   readonly 'declareCard.sectionTitle': string
   readonly 'declareCard.pendingTitle': string
   readonly 'declareCard.importButton': string
@@ -830,7 +847,9 @@ const zh: WorkbenchDictionary = {
   'board.drafting': '草拟中',
   'board.planTag': '计划 v{n}',
   'board.planMissing': '计划文件缺失',
+  'board.declareReady': '可收取',
   'board.sessions': '{n} 会话',
+  'board.viewExecution': '查看执行',
   'board.commits': 'commit {n}',
   'board.progressAccepted': '{n}/{m} 已验收',
   'board.progressBuilt': '{n} 待验收',
@@ -1091,6 +1110,22 @@ const zh: WorkbenchDictionary = {
   'declare.skip.bad-envs': '环境列表不合法',
   'declare.skip.wp-not-found': '工作包不存在',
   'declare.skip.wp-not-in-dev': '不可标记 built（拆分未批准或工作包非开发中）',
+  // execution.* — 0016 P1b 执行视图
+  'execution.archiveTitle': '执行档案',
+  'execution.backToBoard': '返回看板',
+  'execution.filesChanged': '{n} 文件变更',
+  'execution.jumpToSession': '跳宿主会话',
+  'execution.liveRunning': '运行中',
+  'execution.liveTitle': '执行直播',
+  'execution.loadError': '会话日志读取失败。',
+  'execution.minutes': '{n} 分钟',
+  'execution.model': '{m}',
+  'execution.noSession': '尚无 dev 会话绑定——投递任务书后可见。',
+  'execution.queued': '{n} 条排队',
+  'execution.tokens': '{n} tokens',
+  'execution.turnN': '—— 第 {n} 轮 ——',
+  'execution.waitingForYou': '等你应答',
+
   // review.* — S4 评审视图（P4）
   'review.sectionTitle': '评审报告',
   'review.importButton': '＋ 导入报告',
@@ -1370,7 +1405,9 @@ const en: WorkbenchDictionary = {
   'board.drafting': 'Drafting',
   'board.planTag': 'Plan v{n}',
   'board.planMissing': 'Plan file missing',
+  'board.declareReady': 'collectable',
   'board.sessions': '{n} sessions',
+  'board.viewExecution': 'View execution',
   'board.commits': 'commit {n}',
   'board.progressAccepted': '{n}/{m} accepted',
   'board.progressBuilt': '{n} to accept',
@@ -1631,6 +1668,21 @@ const en: WorkbenchDictionary = {
   'declare.skip.bad-envs': 'invalid environment list',
   'declare.skip.wp-not-found': 'work package not found',
   'declare.skip.wp-not-in-dev': 'not markable as built (split unapproved or package not in dev)',
+  // execution.* — 0016 P1b execution view
+  'execution.archiveTitle': 'Execution archive',
+  'execution.backToBoard': 'Back to board',
+  'execution.filesChanged': '{n} files changed',
+  'execution.jumpToSession': 'Jump to session',
+  'execution.liveRunning': 'Running',
+  'execution.liveTitle': 'Live view',
+  'execution.loadError': 'Failed to read the session log.',
+  'execution.minutes': '{n} min',
+  'execution.model': '{m}',
+  'execution.noSession': 'No dev session bound yet — visible after delivering a SOW.',
+  'execution.queued': '{n} queued',
+  'execution.tokens': '{n} tokens',
+  'execution.turnN': '—— Turn {n} ——',
+  'execution.waitingForYou': 'Waiting for you',
   // review.* — S4 review view (P4)
   'review.sectionTitle': 'Review reports',
   'review.importButton': '＋ Import report',

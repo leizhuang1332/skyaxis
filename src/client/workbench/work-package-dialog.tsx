@@ -26,7 +26,7 @@ import type { WorkbenchController } from './controller.js'
 import type { RequirementWorkbenchState } from './store.js'
 import styles from './view.module.css'
 
-const STATUS_TAG_TONE: Record<WorkbenchWorkPackage['status'], 'neutral' | 'warning' | 'info' | 'success' | 'quiet'> = {
+export const STATUS_TAG_TONE: Record<WorkbenchWorkPackage['status'], 'neutral' | 'warning' | 'info' | 'success' | 'quiet'> = {
   planned: 'neutral',
   'plan-draft': 'warning',
   'plan-approved': 'info',
@@ -36,7 +36,7 @@ const STATUS_TAG_TONE: Record<WorkbenchWorkPackage['status'], 'neutral' | 'warni
   dropped: 'quiet',
 }
 
-const STATUS_LABEL_KEY: Record<WorkbenchWorkPackage['status'], Parameters<WorkbenchT>[0]> = {
+export const STATUS_LABEL_KEY: Record<WorkbenchWorkPackage['status'], Parameters<WorkbenchT>[0]> = {
   planned: 'detail.statusPlanned',
   'plan-draft': 'detail.statusPlanDraft',
   'plan-approved': 'detail.statusPlanApproved',
