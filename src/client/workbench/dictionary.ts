@@ -501,7 +501,15 @@ interface WorkbenchDictionary {
   readonly 'declare.doneTitle': string
   readonly 'declare.doneCounts': string
   readonly 'declare.staleHint': string
+  readonly 'declare.textChangedHint': string
   readonly 'declare.reparseButton': string
+  readonly 'declare.miss.noService': string
+  readonly 'declare.miss.notFound': string
+  readonly 'declare.miss.unreadable': string
+  readonly 'declare.miss.noDeclareBlock': string
+  readonly 'declare.miss.noBinding': string
+  readonly 'declare.miss.wpNotInDev': string
+  readonly 'declare.miss.wpMismatch': string
   readonly 'declare.skip.bad-shape': string
   readonly 'declare.skip.bad-type': string
   readonly 'declare.skip.bad-severity': string
@@ -511,6 +519,14 @@ interface WorkbenchDictionary {
   readonly 'declare.skip.bad-envs': string
   readonly 'declare.skip.wp-not-found': string
   readonly 'declare.skip.wp-not-in-dev': string
+  // declareCard.* — 0016 P1a 声明收取卡（dev-declare 槽三态面）
+  readonly 'declareCard.sectionTitle': string
+  readonly 'declareCard.pendingTitle': string
+  readonly 'declareCard.importButton': string
+  readonly 'declareCard.dismissButton': string
+  readonly 'declareCard.retryButton': string
+  readonly 'declareCard.importedLine': string
+  readonly 'declareCard.dismissedLine': string
   // review.* — S4 评审视图（P4：报告导入 + 手动裁决行 + PRD 覆盖矩阵）
   readonly 'review.sectionTitle': string
   readonly 'review.importButton': string
@@ -852,7 +868,7 @@ const zh: WorkbenchDictionary = {
   'detail.acceptanceEmpty': '尚无验收记录',
   'detail.acceptancePass': '通过',
   'detail.acceptanceFail': '不通过',
-  'detail.builtSourceManual': '完成声明为手动标记（声明导入通道上线后由声明块接管）',
+  'detail.builtSourceManual': '完成声明可手动标记；绑定会话的声明块会自动收取（见上方「声明收取」），导入后此处标记 built。',
   'detail.returnForEdit': '退回修改',
   'detail.approvePlan': '批准计划',
   'detail.startWork': '开始开发',
@@ -881,7 +897,7 @@ const zh: WorkbenchDictionary = {
   'session.stateWaiting': '待输入',
   'session.stateRunning': '运行中',
   'session.stateIdle': '空闲',
-  'session.stateBlank': '未开始',
+  'session.stateBlank': '空壳会话（投递残留，未开始）',
   'session.stateGone': '会话已不在列表',
   'session.purposeAnalysis': '分析',
   'session.purposeDev': '开发',
@@ -1047,7 +1063,23 @@ const zh: WorkbenchDictionary = {
   'declare.doneTitle': '导入完成',
   'declare.doneCounts': 'built {b} · 上线项 {a} · 知识候选 {k} · 跳过 {s}',
   'declare.staleHint': '预览已过期（账本在预览后发生了变化）——请重新解析。',
+  'declare.textChangedHint': '会话文本已变化（与收取时锚定的内容不一致）——建议重新抓取；确认无误可继续导入。',
   'declare.reparseButton': '重新解析',
+  'declare.miss.noService': '宿主未提供会话读取服务——可手动到 S5 导入声明。',
+  'declare.miss.notFound': '绑定会话不存在或已被清理——可重新关联或手动粘贴。',
+  'declare.miss.unreadable': '会话日志读取失败——稍后重试或手动粘贴。',
+  'declare.miss.noDeclareBlock': '会话尚未输出声明块（可能还没完成）——完成后重试。',
+  'declare.miss.noBinding': '未找到该工作包的任务书会话——投递并发送任务书后重试，或手动关联真实会话。',
+  'declare.miss.wpNotInDev': '工作包不在开发中（未开始或已完成）——开始开发后收取。',
+  'declare.miss.wpMismatch': '声明块指向了别的工作包——未收取。',
+  // declareCard.* — 0016 P1a 声明收取卡
+  'declareCard.sectionTitle': '声明收取',
+  'declareCard.pendingTitle': 'AI 完成声明待处理（来自会话 {s} · 收取于 {at}）',
+  'declareCard.importButton': '导入声明',
+  'declareCard.dismissButton': '忽略',
+  'declareCard.retryButton': '重新收取',
+  'declareCard.importedLine': '声明已导入 · 第 {n} 轮 · {at}',
+  'declareCard.dismissedLine': '声明已忽略 · {at}',
   'declare.skip.bad-shape': '行结构不合法',
   'declare.skip.bad-type': 'type 不在允许枚举内',
   'declare.skip.bad-severity': 'severity 不在 high|medium|low 枚举内',
@@ -1375,7 +1407,7 @@ const en: WorkbenchDictionary = {
   'detail.acceptanceEmpty': 'No acceptance record yet',
   'detail.acceptancePass': 'pass',
   'detail.acceptanceFail': 'fail',
-  'detail.builtSourceManual': 'Completion was marked manually (the declare-block import takes over once it lands)',
+  'detail.builtSourceManual': 'Completion can be marked manually; a bound session\'s declare block is auto-collected (see Declaration above) and marks built on import.',
   'detail.returnForEdit': 'Return for edits',
   'detail.approvePlan': 'Approve plan',
   'detail.startWork': 'Start work',
@@ -1404,7 +1436,7 @@ const en: WorkbenchDictionary = {
   'session.stateWaiting': 'waiting for input',
   'session.stateRunning': 'running',
   'session.stateIdle': 'idle',
-  'session.stateBlank': 'not started',
+  'session.stateBlank': 'shell session (delivery artifact, not started)',
   'session.stateGone': 'session gone',
   'session.purposeAnalysis': 'analysis',
   'session.purposeDev': 'dev',
@@ -1570,7 +1602,23 @@ const en: WorkbenchDictionary = {
   'declare.doneTitle': 'Import complete',
   'declare.doneCounts': 'built {b} · release items {a} · knowledge {k} · skipped {s}',
   'declare.staleHint': 'The preview is stale (the ledger changed after it) — re-parse.',
+  'declare.textChangedHint': 'The session text changed since collection (it disagrees with the anchored content) — re-fetch is advised; import only after verifying.',
   'declare.reparseButton': 'Re-parse',
+  'declare.miss.noService': 'The host does not mount the session-read service — import manually from S5.',
+  'declare.miss.notFound': 'The bound session is gone — rebind or paste manually.',
+  'declare.miss.unreadable': 'Failed to read the session log — retry later or paste.',
+  'declare.miss.noDeclareBlock': 'The session has not emitted a declare block yet (likely unfinished) — retry once done.',
+  'declare.miss.noBinding': 'No task-book session found for this package — deliver and send the SOW first, or bind the real session manually.',
+  'declare.miss.wpNotInDev': 'The package is not in dev (not started or already done) — collect after starting it.',
+  'declare.miss.wpMismatch': 'The declare block names a different package — not collected.',
+  // declareCard.* — 0016 P1a declaration collection card
+  'declareCard.sectionTitle': 'Declaration',
+  'declareCard.pendingTitle': 'AI completion declaration awaiting review (from session {s} · collected {at})',
+  'declareCard.importButton': 'Import declaration',
+  'declareCard.dismissButton': 'Dismiss',
+  'declareCard.retryButton': 'Re-collect',
+  'declareCard.importedLine': 'Declaration imported · round {n} · {at}',
+  'declareCard.dismissedLine': 'Declaration dismissed · {at}',
   'declare.skip.bad-shape': 'malformed row',
   'declare.skip.bad-type': 'type outside the allowed enum',
   'declare.skip.bad-severity': 'severity outside high|medium|low',

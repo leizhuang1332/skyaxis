@@ -38,7 +38,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { KnowledgeRecord } from '../../src/workbench-host/types.js'
-import { applyAnalysisSeed, applyRecordAction, applySplitSeed, approveUnderstandWith, adoptPlanWith } from '../../src/workbench-host/record-actions.js'
+import { applyAnalysisSeed, applyRecordAction, applySplitSeed, applyDevDeclareSeed, stampDevDeclareImported, approveUnderstandWith, adoptPlanWith } from '../../src/workbench-host/record-actions.js'
 import { contentHashOf } from '../../src/workbench-host/artifact-store.js'
 import { isReleaseItemId, isWorkbenchRecord } from '../../src/workbench-shared/protocol.js'
 import type {
@@ -1709,5 +1709,124 @@ describe('0012 splitBaseline 第六臂：planningDocHash 铸入与摘除', () =>
     expect(confirmed.ok && confirmed.record.splitBaseline?.planningDocHash).toBe('p'.repeat(64))
     const revoked = applyRecordAction(approved.ok ? approved.record : adopted, { ...mutate(), action: 'revokeSplitApproval' })
     expect(revoked.ok && revoked.record.splitBaseline).toBeUndefined()
+  })
+})
+
+describe('0016 P1a: dev-declare container — seed core / adjudicate / import stamp / startedAt', () => {
+  const HASH_A = 'a'.repeat(64)
+  const HASH_B = 'b'.repeat(64)
+  const SESS = 'sess-dev-a'
+  const devBinding = [{ sessionId: SESS, purpose: 'dev' as const, boundAt: NOW }]
+
+  const inDevRecord = (devDeclares?: WorkbenchRecord['devDeclares'], extraWp: WorkbenchWorkPackage[] = []): WorkbenchRecord =>
+    baseRecord({
+      splitApprovedAt: NOW,
+      workPackages: [
+        wp('WP1', { status: 'in-dev', sessions: devBinding }),
+        ...extraWp,
+      ],
+      ...(devDeclares !== undefined ? { devDeclares } : {}),
+    })
+
+  it('startWorkPackage stamps startedAt on FIRST start; rework returns keep the original', () => {
+    const base = baseRecord({ splitApprovedAt: NOW, workPackages: [wp('WP1', { status: 'plan-approved', sessions: devBinding })] })
+    const first = applyOk(base, { ...mutate(), action: 'startWorkPackage', id: 'WP1' })
+    expect(first.workPackages[0]!.startedAt).toBeDefined()
+    const at = first.workPackages[0]!.startedAt
+    // built → accept(fail) returns in-dev; startedAt survives untouched (an
+    // append-only audit fact, not a live timer)
+    const built = applyOk(first, { ...mutate(), action: 'markWorkPackageBuilt', id: 'WP1' })
+    const failed = applyOk(built, { ...mutate(), action: 'acceptWorkPackage', id: 'WP1', result: 'fail', note: '返工' })
+    expect(failed.workPackages[0]!.status).toBe('in-dev')
+    expect(failed.workPackages[0]!.startedAt).toBe(at)
+  })
+
+  it('applyDevDeclareSeed: mints a keyed pending slot; anchor hit (session AND hash) is unchanged; a NEW hash re-arms', () => {
+    const seeded = applyDevDeclareSeed(inDevRecord(), { workPackageId: 'WP1', sessionId: SESS, contentHash: HASH_A })
+    expect(seeded.ok).toBe(true)
+    if (!seeded.ok) return
+    expect(seeded.unchanged).toBeUndefined()
+    expect(seeded.record.devDeclares?.WP1).toEqual({
+      seed: { sessionId: SESS, contentHash: HASH_A, seededAt: expect.any(String) },
+      adjudication: 'pending',
+    })
+    // Same session + same hash → unchanged (zero-write, never a miss)
+    const replay = applyDevDeclareSeed(seeded.record, { workPackageId: 'WP1', sessionId: SESS, contentHash: HASH_A })
+    expect(replay.ok && replay.unchanged).toBe(true)
+    // Same session + NEW hash (rework round two) → re-seed replaces the slot
+    const reseeded = applyDevDeclareSeed(seeded.record, { workPackageId: 'WP1', sessionId: SESS, contentHash: HASH_B })
+    expect(reseeded.ok && reseeded.record.devDeclares?.WP1?.seed.contentHash).toBe(HASH_B)
+    expect(reseeded.ok && reseeded.record.devDeclares?.WP1?.adjudication).toBe('pending')
+  })
+
+  it('applyDevDeclareSeed: an imported slot re-arms only on a hash change; keyed isolation — a sibling slot is untouched', () => {
+    const seededRecord = applyDevDeclareSeed(inDevRecord(), { workPackageId: 'WP1', sessionId: SESS, contentHash: HASH_A })
+    if (!seededRecord.ok) throw new Error('seed failed')
+    const imported = stampDevDeclareImported(seededRecord.record, { workPackageId: 'WP1', sessionId: SESS, contentHash: HASH_A })
+    expect('error' in imported).toBe(false)
+    if (!('record' in imported)) return
+    expect(imported.record.devDeclares?.WP1?.adjudication).toBe('imported')
+    // anchor hit on the imported slot → unchanged (no premature re-arm)
+    const slot = imported.record.devDeclares?.WP1
+    if (slot === undefined) throw new Error('no slot')
+    const replay = applyDevDeclareSeed(imported.record, { workPackageId: 'WP1', sessionId: slot.seed.sessionId, contentHash: slot.seed.contentHash })
+    expect(replay.ok && replay.unchanged).toBe(true)
+    // new hash → re-arms pending (the rework loop's collection)
+    const rearmed = applyDevDeclareSeed(imported.record, { workPackageId: 'WP1', sessionId: SESS, contentHash: HASH_B })
+    expect(rearmed.ok && rearmed.record.devDeclares?.WP1?.adjudication).toBe('pending')
+    // sibling isolation: seeding WP2 never touches WP1's slot (对抗修订 #1)
+    const two = inDevRecord(imported.record.devDeclares, [wp('WP2', { status: 'in-dev', sessions: [{ sessionId: 'sess-dev-b', purpose: 'dev' as const, boundAt: NOW }] })])
+    const seeded2 = applyDevDeclareSeed(two, { workPackageId: 'WP2', sessionId: 'sess-dev-b', contentHash: HASH_A })
+    expect(seeded2.ok && seeded2.record.devDeclares?.WP1).toEqual(imported.record.devDeclares?.WP1)
+    expect(seeded2.ok && seeded2.record.devDeclares?.WP2).toBeDefined()
+  })
+
+  it('applyDevDeclareSeed guards: wp-not-found 404; not-in-dev 400', () => {
+    expect(applyDevDeclareSeed(inDevRecord(), { workPackageId: 'WP9', sessionId: SESS, contentHash: HASH_A })).toEqual({ ok: false, status: 404, code: 'not-found' })
+    const built = baseRecord({ splitApprovedAt: NOW, workPackages: [wp('WP1', { status: 'built', sessions: devBinding })] })
+    expect(applyDevDeclareSeed(built, { workPackageId: 'WP1', sessionId: SESS, contentHash: HASH_A })).toEqual({ ok: false, status: 400, code: 'bad-request' })
+  })
+
+  it('adjudicateDevDeclare: pending → dismissed (+adjudicatedAt); repeat → unchanged; imported → 400; no slot → 404', () => {
+    const seededResult = applyDevDeclareSeed(inDevRecord(), { workPackageId: 'WP1', sessionId: SESS, contentHash: HASH_A })
+    if (!seededResult.ok) throw new Error('seed failed')
+    const seeded = seededResult.record
+    const dismissed = applyOk(seeded, { ...mutate(), action: 'adjudicateDevDeclare', workPackageId: 'WP1', adjudication: 'dismissed' })
+    expect(dismissed.devDeclares?.WP1?.adjudication).toBe('dismissed')
+    expect(dismissed.devDeclares?.WP1?.adjudicatedAt).toBeDefined()
+    const again = applyRecordAction(dismissed, { ...mutate(), action: 'adjudicateDevDeclare', workPackageId: 'WP1', adjudication: 'dismissed' })
+    expect(again.ok && again.unchanged).toBe(true)
+    const imported = stampDevDeclareImported(seeded, { workPackageId: 'WP1', sessionId: SESS, contentHash: HASH_A })
+    if (!('record' in imported)) throw new Error('stamp failed')
+    const onImported = applyRecordAction(imported.record, { ...mutate(), action: 'adjudicateDevDeclare', workPackageId: 'WP1', adjudication: 'dismissed' })
+    expect(onImported).toEqual({ ok: false, status: 400, code: 'bad-request' })
+    expect(applyRecordAction(inDevRecord(), { ...mutate(), action: 'adjudicateDevDeclare', workPackageId: 'WP1', adjudication: 'dismissed' })).toEqual({ ok: false, status: 404, code: 'not-found' })
+  })
+
+  it('stampDevDeclareImported: slot flip + receipt append atomically; convergence on retry; seq mints per WP', () => {
+    const seededResult = applyDevDeclareSeed(inDevRecord(), { workPackageId: 'WP1', sessionId: SESS, contentHash: HASH_A })
+    if (!seededResult.ok) throw new Error('seed failed')
+    const seeded = seededResult.record
+    const stamped = stampDevDeclareImported(seeded, { workPackageId: 'WP1', sessionId: SESS, contentHash: HASH_A })
+    expect('error' in stamped).toBe(false)
+    if ('error' in stamped) return
+    expect(stamped.unchanged).toBe(false)
+    expect(stamped.anchorSeq).toBe(1)
+    expect(stamped.record.devDeclares?.WP1?.adjudication).toBe('imported')
+    expect(stamped.record.workPackages[0]!.declarations).toEqual([
+      { seq: 1, at: expect.any(String), sessionId: SESS, contentHash: HASH_A },
+    ])
+    // Retry with the same text converges (no double receipt)
+    const retry = stampDevDeclareImported(stamped.record, { workPackageId: 'WP1', sessionId: SESS, contentHash: HASH_A })
+    expect('record' in retry && retry.unchanged).toBe(true)
+    expect('record' in retry && retry.anchorSeq).toBe(1)
+    // A later round (new hash) mints seq 2
+    const round2Seed = applyDevDeclareSeed(stamped.record, { workPackageId: 'WP1', sessionId: SESS, contentHash: HASH_B })
+    if (!round2Seed.ok) throw new Error('re-seed failed')
+    const round2 = stampDevDeclareImported(round2Seed.record, { workPackageId: 'WP1', sessionId: SESS, contentHash: HASH_B })
+    expect('record' in round2 && round2.anchorSeq).toBe(2)
+    expect('record' in round2 && round2.record.workPackages[0]!.declarations?.length).toBe(2)
+    // Missing slot → the disclosed error
+    expect(stampDevDeclareImported(inDevRecord(), { workPackageId: 'WP1', sessionId: SESS, contentHash: HASH_A })).toEqual({ error: 'slot-not-found' })
   })
 })

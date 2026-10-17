@@ -144,7 +144,7 @@ describe('声明块导入 Modal：粘贴→预览→导入', () => {
     // store revision 在预览后被别处推进到 9 —— 导入仍必须带预览返回的 5。
     fireEvent.click(rendered.getByRole('button', { name: workbenchZh['declare.importSubmit'] }))
     await waitFor(() => expect(controller.declareImport).toHaveBeenCalledTimes(1))
-    expect(controller.declareImport).toHaveBeenCalledWith(RID, DECLARE_TEXT, ['built-0', 'artifact-0'], 5, undefined)
+    expect(controller.declareImport).toHaveBeenCalledWith(RID, DECLARE_TEXT, ['built-0', 'artifact-0'], 5, undefined, undefined)
   })
 
   it('选中为空禁用导入；取消勾选后 payload 随之收缩', async () => {
@@ -162,7 +162,7 @@ describe('声明块导入 Modal：粘贴→预览→导入', () => {
     fireEvent.click(within(dialog).getByLabelText(/导出走异步/)) // 手动勾上 duplicate 条目仍可导入
     expect(importButton().disabled).toBe(false)
     fireEvent.click(importButton())
-    await waitFor(() => expect(controller.declareImport).toHaveBeenCalledWith(RID, DECLARE_TEXT, ['knowledge-0'], 5, undefined))
+    await waitFor(() => expect(controller.declareImport).toHaveBeenCalledWith(RID, DECLARE_TEXT, ['knowledge-0'], 5, undefined, undefined))
   })
 
   it('done 报告：四计数 + skipped 明细', async () => {

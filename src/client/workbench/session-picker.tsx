@@ -49,6 +49,12 @@ export function SessionPicker(props: {
     }
   }, [open])
 
+  // 0016 刀一验收二修: blank sessions are delivery shells / never-started
+  // empties — they can never carry a conversation, so offering them as bind
+  // choices only invites wrong picks (the shells accumulate one per delivery
+  // and pollute the list — the acceptance report's「非 DSH 会话」finding).
+  const selectableRows = rows.filter((row) => !row.blank)
+
   return (
     <Modal
       open={open}
@@ -71,12 +77,12 @@ export function SessionPicker(props: {
     >
       <div className={styles.modalForm}>
         <div className={styles.formHint}>{t('session.pickerHint')}</div>
-        {rows.length === 0 ? (
+        {selectableRows.length === 0 ? (
           <div className={styles.formHint}>{t('session.pickerEmpty')}</div>
         ) : (
           <>
             <div className={styles.pickerList}>
-              {rows.map((row) => {
+              {selectableRows.map((row) => {
                 const bound = boundSessionIds.includes(row.id)
                 return (
                   <label key={row.id} className={bound ? styles.pickerRowDisabled : styles.pickerRow}>

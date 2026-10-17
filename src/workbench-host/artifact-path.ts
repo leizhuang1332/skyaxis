@@ -138,6 +138,34 @@ export function splitResultPath(workspaceRoot: string, requirementId: string): s
   return join(workspaceRoot, '.skyaxis', 'split', `${requirementId}.md`)
 }
 
+/**
+ * Dev-declare snapshot files (0016 P1a, decisions/0016 D12-③ / 修订 #6) — the
+ * HOST-authored fifth member of the workspace channel family: unlike the
+ * four above (SESSION-written deliverables), these snapshots are plugin
+ * copies of the session's declare fence, written best-effort so the full
+ * text survives even after the session log rotates or the session goes
+ * away. Two segments under `.skyaxis/declares/<requirementId>/`:
+ *   <wpId>-pending.md   — overwritten on every (re)seed
+ *   <wpId>-d<seq>.md    — the immutable per-import receipt copy
+ * The workspace-unarmed case is NOT an error (the honest degrade: the slot
+ * anchors the hash alone and the session log stays the text source). No
+ * protocol.ts rel-path twin — these paths never render into a task book.
+ */
+export function devDeclarePendingPath(workspaceRoot: string, requirementId: string, workPackageId: string): string {
+  assertRequirementId(requirementId)
+  assertWorkPackageId(workPackageId)
+  return join(workspaceRoot, '.skyaxis', 'declares', requirementId, `${workPackageId}-pending.md`)
+}
+
+export function devDeclareImportedPath(workspaceRoot: string, requirementId: string, workPackageId: string, seq: number): string {
+  assertRequirementId(requirementId)
+  assertWorkPackageId(workPackageId)
+  if (!Number.isInteger(seq) || seq < 1) {
+    reject('seq', seq, 'not a positive integer (host-assigned)')
+  }
+  return join(workspaceRoot, '.skyaxis', 'declares', requirementId, `${workPackageId}-d${seq}.md`)
+}
+
 /** The per-requirement artifact root; plans/ and reviews/ live under it. */
 export function requirementArtifactDir(root: string, requirementId: string): string {
   assertRequirementId(requirementId)

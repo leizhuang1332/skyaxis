@@ -42,11 +42,11 @@ import type {
   WorkbenchListResponse,
   WorkbenchRecord,
 } from '../workbench-shared/protocol.js'
-import { planDocPath, reviewDocPath, analysisReportPath, requirementDocPath, planningDocPath, splitResultPath } from './artifact-path.js'
+import { planDocPath, reviewDocPath, analysisReportPath, requirementDocPath, planningDocPath, splitResultPath, devDeclarePendingPath, devDeclareImportedPath } from './artifact-path.js'
 import { ArtifactStore, contentHashOf } from './artifact-store.js'
 import { scanWorkbenchArtifacts } from './orphan-scan.js'
-import { applyRecordAction, applyAnalysisSeed, applySplitSeed, approveUnderstandWith, adoptPlanWith, nextReleaseItemId } from './record-actions.js'
-import { parseDeclare } from './declare-parse.js'
+import { applyRecordAction, applyAnalysisSeed, applySplitSeed, approveUnderstandWith, adoptPlanWith, nextReleaseItemId, applyDevDeclareSeed, stampDevDeclareImported } from './record-actions.js'
+import { parseDeclare, findDeclareFence } from './declare-parse.js'
 import { parseReviewFindings } from './review-parse.js'
 import type { SessionDeclareReader } from './declare-reader.js'
 import type { KnowledgeFileStore } from './knowledge-file.js'
@@ -94,6 +94,9 @@ async function readJsonBody(request: Request): Promise<unknown> {
 }
 
 const REQUIREMENT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
+/** 0016: block-level workPackage scope line inside a declare fence body (`workPackage: WP3`). */
+const DEV_DECLARE_SCOPE_RE = /^workPackage:\s*(\S+)\s*$/m
 
 /** Implicit ledger creation (the requirements uuid-fallback family): first action on a requirement mints the empty record. */
 function emptyRecord(requirementId: string): WorkbenchRecord {
@@ -227,6 +230,11 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     // no implicit-create — seeding requires a prior bindSplitSession).
     if (body.action === 'adoptPlan') return adoptPlanFlow(body, existing, current.value)
     if (body.action === 'seedSplit') return seedSplitFlow(body, existing, current.value)
+
+    // 0016 P1a: seedDevDeclare is the FIFTH dedicated flow (the IO chain is
+    // dev-specific: latest dev binding → readSession → fence scope check →
+    // hash; no implicit-create — seeding presupposes a bound in-dev WP).
+    if (body.action === 'seedDevDeclare') return seedDevDeclareFlow(body, existing, current.value)
 
     // All business guards (target existence, split lock, state-machine
     // legality, referential integrity) live in the pure action core.
@@ -512,6 +520,157 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
       workPackages: parsed.proposals.workPackages,
     })
     return commitSeedResponse(body, applied, current)
+  }
+
+  /**
+   * 0016 P1a + 刀一验收二修: seedDevDeclare dedicated flow — the dev-declare
+   * twin of the seed family, with CONTENT-ADDRESSED binding repair. The
+   * chain: the WP's LATEST dev binding (may be none, or a delivery SHELL —
+   * DSH materializes the real conversation under a fresh id, and the LLM
+   * later retitles it away from any marker, so TITLES are not a durable
+   * address) → when the binding is absent or its log is a shell, the host
+   * content-addresses the REAL session via searchSessions over the SOW head
+   * (`# skyaxis 工作包任务书 WP<n>` — the first user message always carries
+   * it verbatim, immune to retitling) and APPENDS the binding (bindSession
+   * real guards; association is valid for any non-dropped WP — the user
+   * generates dev SOWs before pressing 开始开发, and the strip owes them the
+   * live state) → the in-dev gate → fence scope check → hash → seed. Every
+   * non-committing outcome answers 200 ZERO-WRITE with devSeedMissing; a
+   * two-dimensional anchor hit (session AND hash) is an unchanged 200
+   * WITHOUT a miss field — and also repairs a missing/stale pending
+   * snapshot (the planWriteFlow convergence branch). The pending snapshot
+   * write is a POST-COMMIT best-effort tail: workspace-unarmed degrades to
+   * hash-only anchoring (the session log stays the text source, the paste
+   * channel stays alive).
+   */
+  async function seedDevDeclareFlow(
+    body: { expectedRevision: number; requirementId: string; action: 'seedDevDeclare'; workPackageId: string },
+    existing: WorkbenchRecord | undefined,
+    current: { revision: number; records: readonly WorkbenchRecord[] },
+  ): Promise<Response> {
+    if (existing === undefined) return errorResponse(404, 'not-found')
+    let workPackage = existing.workPackages.find((candidate) => candidate.id === body.workPackageId)
+    if (workPackage === undefined) return errorResponse(404, 'not-found')
+    if (workPackage.status === 'dropped') {
+      return json({ ok: true, revision: current.revision, record: existing, devSeedMissing: 'wp-not-in-dev' })
+    }
+    // The revision the flow may WRITE under — the repair-bind's save bumps
+    // it, and the seed save below must ride the FRESH value (the request's
+    // expectedRevision is one behind after any landed bind).
+    let writeRevision = body.expectedRevision
+    // --- resolve the READ TARGET: latest dev binding, shell-repaired or
+    // content-addressed from scratch (the repair-bind lands even for WPs
+    // outside in-dev — the association is valid wherever the WP is).
+    let record = existing
+    let targetSession: string | undefined
+    const binding = [...workPackage.sessions].reverse().find((row) => row.purpose === 'dev')
+    if (binding !== undefined) {
+      const read = await services.declareReader.readDeclareText(binding.sessionId)
+      if (read.status === 'ok') {
+        targetSession = binding.sessionId
+      } else if (!(read.status === 'missing' && read.reason === 'no-declare-block' && read.shell === true)) {
+        return json({ ok: true, revision: current.revision, record: existing, devSeedMissing: read.reason })
+      } // else: the bound log is a delivery shell → fall through to repair
+    }
+    if (targetSession === undefined) {
+      const anchor = `# skyaxis 工作包任务书 ${body.workPackageId}`
+      const repaired = await services.declareReader.findTaskbookSession(anchor, binding?.sessionId ?? '')
+      if (repaired === undefined) {
+        return json({ ok: true, revision: current.revision, record: existing, devSeedMissing: 'no-binding' })
+      }
+      const bound = applyRecordAction(record, {
+        expectedRevision: writeRevision,
+        requirementId: body.requirementId,
+        action: 'bindSession',
+        id: body.workPackageId,
+        sessionId: repaired,
+        purpose: 'dev',
+      })
+      if (!bound.ok) return errorResponse(bound.status, bound.code)
+      if (bound.unchanged !== true) {
+        const savedBind = await file.save(writeRevision, withRecord(current.records, body.requirementId, bound.record))
+        if (!savedBind.ok) {
+          if (savedBind.rejected === 'stale-revision') {
+            return errorResponse(409, 'conflict', { currentRevision: savedBind.currentRevision })
+          }
+          return errorResponse(409, 'unreadable-file')
+        }
+        writeRevision = savedBind.revision
+        record = bound.record
+        workPackage = record.workPackages.find((candidate) => candidate.id === body.workPackageId)!
+      }
+      targetSession = repaired
+    }
+    if (workPackage.status !== 'in-dev') {
+      // The repair-bind above may have landed; seeding itself stays gated
+      // (a built declaration against a not-started WP is out of contract).
+      return json({ ok: true, revision: writeRevision, record, devSeedMissing: 'wp-not-in-dev' })
+    }
+    const read = await services.declareReader.readDeclareText(targetSession)
+    if (read.status !== 'ok') {
+      return json({ ok: true, revision: writeRevision, record, devSeedMissing: read.reason })
+    }
+    const scope = DEV_DECLARE_SCOPE_RE.exec(read.text)?.[1]
+    if (scope !== body.workPackageId) {
+      return json({ ok: true, revision: writeRevision, record, devSeedMissing: 'wp-mismatch' })
+    }
+    const hash = contentHashOf(read.text)
+    const applied = applyDevDeclareSeed(record, {
+      workPackageId: body.workPackageId,
+      sessionId: targetSession,
+      contentHash: hash,
+    })
+    if (!applied.ok) return errorResponse(applied.status, applied.code)
+    if (applied.unchanged === true) {
+      ensureDeclareSnapshot(existing.requirementId, body.workPackageId, 'pending', read.text, hash)
+      return json({ ok: true, revision: writeRevision, record: applied.record })
+    }
+    const nextRecords = current.records.map((candidate) => (candidate.requirementId === body.requirementId ? applied.record : candidate))
+    try {
+      const saved = await file.save(writeRevision, nextRecords)
+      if (!saved.ok) {
+        if (saved.rejected === 'stale-revision') {
+          return errorResponse(409, 'conflict', { currentRevision: saved.currentRevision })
+        }
+        return errorResponse(409, 'unreadable-file')
+      }
+      ensureDeclareSnapshot(existing.requirementId, body.workPackageId, 'pending', read.text, hash)
+      return json({ ok: true, revision: saved.revision, record: applied.record })
+    } catch (error) {
+      log?.(error)
+      return errorResponse(500, 'internal')
+    }
+  }
+
+  /**
+   * Declare-snapshot tail write (0016, best-effort by contract): `pending`
+   * CONVERGES (a missing/stale file is repaired — the planWriteFlow
+   * byte-identical branch), `imported` is a plain post-commit copy whose
+   * failure answers 500 upstream (the ledger is already authoritative; the
+   * receipt file is a distribution artifact). Workspace-unarmed ⇒ silent
+   * no-op (the honest degrade, never an error).
+   */
+  function ensureDeclareSnapshot(
+    requirementId: string,
+    workPackageId: string,
+    kind: 'pending' | { readonly importedSeq: number },
+    text: string,
+    hash: string,
+  ): void {
+    const resolve = services.resolveWorkspacePath
+    if (resolve === undefined) return
+    const workspace = resolve(requirementId)
+    if (workspace === '') return
+    const target = kind === 'pending'
+      ? devDeclarePendingPath(workspace, requirementId, workPackageId)
+      : devDeclareImportedPath(workspace, requirementId, workPackageId, kind.importedSeq)
+    const read = artifacts.read(target)
+    if (read.status === 'ok' && read.sha256 === hash) return
+    try {
+      artifacts.write(target, text)
+    } catch (error) {
+      log?.(error)
+    }
   }
 
   /**
@@ -998,6 +1157,15 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
       return json(preview)
     }
 
+    // 0016 P1a: the devDeclare key rides ONLY the slot's own package — the
+    // fence's block scope must agree (a mismatch is a client wiring bug:
+    // 400, never a silent cross-WP stamp).
+    if (body.devDeclare !== undefined) {
+      const fenceBody = findDeclareFence(body.text)
+      const scope = fenceBody !== null ? DEV_DECLARE_SCOPE_RE.exec(fenceBody)?.[1] : undefined
+      if (scope !== body.devDeclare.workPackageId) return errorResponse(400, 'bad-request')
+    }
+
     if (body.dryRun === true) {
       // Preview only — zero writes (byte-identical file asserted in tests).
       const preview: DeclarePreviewResponseOk = {
@@ -1006,6 +1174,12 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
         entries: parse.entries,
         skipped: parse.skipped,
         stageReady: parse.stageReady,
+        // 0016: advisory drift disclosure — the slot anchored a different
+        // hash than the presented text (「会话文本已变化」; the user confirms
+        // and the commit proceeds, a fresh re-fetch being the honest fix).
+        ...(body.devDeclare !== undefined && declareImportStale(base, body.devDeclare.workPackageId, contentHashOf(body.text))
+          ? { declareStale: true }
+          : {}),
       }
       return json(preview)
     }
@@ -1081,7 +1255,25 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     // The done report carries the COMPLETE outcome: parse-time skips (rows
     // that never were importable) alongside commit-time guard rejections.
     const reportSkipped: readonly DeclareSkip[] = [...parse.skipped, ...skipped]
-    if (applied === 0) {
+    // 0016 P1a: the devDeclare slot's imported flip + the WP's declarations
+    // receipt fold into the SAME record (one atomic save). A slot-error here
+    // is a client wiring bug (no seeded slot for the named package) — 400.
+    // Note the stamp runs even when applied === 0 with a PENDING slot: the
+    // user collected this batch and its entries were already landed or
+    // guard-rejected — adjudicating the batch is the real change (the retry
+    // after a post-save file failure converges through stamp.unchanged).
+    let stamp: { record: WorkbenchRecord; anchorSeq: number; unchanged: boolean } | undefined
+    if (body.devDeclare !== undefined) {
+      const stamped = stampDevDeclareImported(record, {
+        workPackageId: body.devDeclare.workPackageId,
+        sessionId: body.sessionId,
+        contentHash: contentHashOf(body.text),
+      })
+      if ('error' in stamped) return errorResponse(400, 'bad-request')
+      stamp = stamped
+      record = stamped.record
+    }
+    if (applied === 0 && (stamp === undefined || stamp.unchanged)) {
       // Zero real change (nothing selected / all guard-rejected): skip the
       // write entirely — no revision bump, no .bak churn (repos-pool).
       return json({ ok: true, revision: current.value.revision, record, report: { built: 0, artifacts: 0, knowledge: 0, skipped: reportSkipped } })
@@ -1098,6 +1290,11 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
         }
         return errorResponse(409, 'unreadable-file')
       }
+      // 0016: post-commit receipt copy (best-effort by contract — the ledger
+      // is authoritative; a workspace-unarmed requirement simply skips it).
+      if (body.devDeclare !== undefined && stamp !== undefined && !stamp.unchanged) {
+        writeDeclareReceipt(body.requirementId, body.devDeclare.workPackageId, stamp.anchorSeq, body.text)
+      }
       const responseBody: DeclareCommitResponseOk = {
         ok: true,
         revision: saved.revision,
@@ -1110,6 +1307,25 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
       return errorResponse(500, 'internal')
     }
   }
+
+  /** 0016: plain post-commit copy of the imported declare text (no convergence — seq-named files are immutable receipts). */
+  function writeDeclareReceipt(requirementId: string, workPackageId: string, seq: number, text: string): void {
+    const resolve = services.resolveWorkspacePath
+    if (resolve === undefined) return
+    const workspace = resolve(requirementId)
+    if (workspace === '') return
+    try {
+      artifacts.write(devDeclareImportedPath(workspace, requirementId, workPackageId, seq), text)
+    } catch (error) {
+      log?.(error)
+    }
+  }
+}
+
+/** 0016: the slot's seed hash disagrees with the presented text (preview advisory). */
+function declareImportStale(base: WorkbenchRecord, workPackageId: string, hash: string): boolean {
+  const slot = base.devDeclares?.[workPackageId]
+  return slot !== undefined && slot.seed.contentHash !== hash
 }
 
 /** The records array with `next` replacing the requirement's row. */

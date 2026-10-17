@@ -28,6 +28,7 @@ import { createWorkbenchFetcher } from './fetcher.js'
 import { createSowDelivery, type DeliverFace } from './delivery.js'
 import { createWorkbenchTabSeat, type WorkbenchSessionsFace } from './view.js'
 import { createWorkbenchStore } from './store.js'
+import { createDevDeclareWatcher } from './dev-watcher.js'
 import type { WaitingFace } from '../waiting-tracker.js'
 
 /** The detail tab seat id/order (D5 naming, unchanged from P1a). */
@@ -71,6 +72,10 @@ export function registerWorkbenchView(ctx: Context, waiting?: WaitingFace): () =
   // P5a delivery face — undefined in jsdom / conversation-less compositions
   // (honest degrade: the SOW modal then hides its delivery button).
   const deliver = createSowDelivery(ctx)
+  // 0016 P1a: REGISTER-level dev-declare watcher (the waiting-tracker
+  // structural precedent) — global completion signal for requirements
+  // nobody is watching; inert without the sessions face (honest degrade).
+  const devWatcher = createDevDeclareWatcher({ fetcher, controller, sessions })
   const seat = createWorkbenchTabSeat({ t: t satisfies WorkbenchT, store, controller, sessions, waiting, deliver })
 
   const disposeSeat = ctx.slots.inject('requirements.detail.view', () =>
@@ -81,6 +86,7 @@ export function registerWorkbenchView(ctx: Context, waiting?: WaitingFace): () =
 
   return () => {
     disposeSeat()
+    devWatcher.dispose()
     controller.dispose()
   }
 }
@@ -189,6 +195,13 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       | 'declare.groupKnowledge'
       | 'declare.importButton'
       | 'declare.importSubmit'
+      | 'declare.miss.noService'
+      | 'declare.miss.notFound'
+      | 'declare.miss.unreadable'
+      | 'declare.miss.noDeclareBlock'
+      | 'declare.miss.noBinding'
+      | 'declare.miss.wpNotInDev'
+      | 'declare.miss.wpMismatch'
       | 'declare.noBoundSessions'
       | 'declare.parseButton'
       | 'declare.reparseButton'
@@ -206,8 +219,16 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       | 'declare.skippedTitle'
       | 'declare.stageReadyProposal'
       | 'declare.staleHint'
+      | 'declare.textChangedHint'
       | 'declare.textLabel'
       | 'declare.title'
+      | 'declareCard.dismissButton'
+      | 'declareCard.dismissedLine'
+      | 'declareCard.importButton'
+      | 'declareCard.importedLine'
+      | 'declareCard.pendingTitle'
+      | 'declareCard.retryButton'
+      | 'declareCard.sectionTitle'
       | 'detail.acceptanceEmpty'
       | 'detail.acceptanceFail'
       | 'detail.acceptancePass'

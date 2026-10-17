@@ -82,6 +82,10 @@ export function DeclareImportModal(props: {
   controller: WorkbenchController
   /** Optional live-session face — absent (jsdom/tests) ⇒ paste channel only. */
   sessions?: WorkbenchSessionsFace
+  /** 0016 P1a: land this import through a WP's devDeclare slot (slot stamped imported + receipt, atomically). */
+  devDeclare?: { workPackageId: string }
+  /** 0016 P1a: the card's entry preselects the slot's seed session in the fetch dropdown. */
+  preselectSessionId?: string
   onClose: () => void
 }): ReactNode {
   const { t, controller, requirementId, slot } = props
@@ -93,18 +97,19 @@ export function DeclareImportModal(props: {
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   const [parseError, setParseError] = useState<string | null>(null)
 
-  // Reopen resets everything (the repos-pool pick-state reset).
+  // Reopen resets everything (the repos-pool pick-state reset). The card's
+  // preselect rides the reset (an absent preselect keeps the empty option).
   useEffect(() => {
     if (props.open) {
       setText('')
       setPhase({ kind: 'edit' })
       setFetchError(null)
       setFetchBusy(false)
-      setSessionId('')
+      setSessionId(props.preselectSessionId ?? '')
       setSelected(new Set())
       setParseError(null)
     }
-  }, [props.open])
+  }, [props.open, props.preselectSessionId])
 
   const record = slot.record
   const boundSessions = Array.from(new Set(
@@ -138,7 +143,7 @@ export function DeclareImportModal(props: {
     if (text.trim().length === 0) return
     setPhase({ kind: 'parsing' })
     setParseError(null)
-    void controller.declarePreview(requirementId, text).then((result) => {
+    void controller.declarePreview(requirementId, text, props.devDeclare).then((result) => {
       if (result === undefined) return
       if (result.kind !== 'ok') {
         // conflict → stale (the user re-parses against the refreshed
@@ -168,7 +173,7 @@ export function DeclareImportModal(props: {
   const onImport = (): void => {
     if (phase.kind !== 'preview' || selected.size === 0) return
     setPhase({ kind: 'importing' })
-    void controller.declareImport(requirementId, text, [...selected], phase.preview.revision, sessionId !== '' ? sessionId : undefined).then((result) => {
+    void controller.declareImport(requirementId, text, [...selected], phase.preview.revision, sessionId !== '' ? sessionId : undefined, props.devDeclare).then((result) => {
       if (result === undefined) return
       if ('built' in result) {
         setPhase({ kind: 'done', report: result })
@@ -279,6 +284,7 @@ export function DeclareImportModal(props: {
       ) : phase.kind === 'preview' && preview !== null ? (
         <div className={styles.modalForm}>
           {preview.stageReady ? <div className={styles.formHint}>{t('declare.stageReadyProposal')}</div> : null}
+          {preview.declareStale === true ? <div className={styles.sowWarn} role="alert">{t('declare.textChangedHint')}</div> : null}
           {preview.entries.length === 0 ? <div className={styles.formHint}>{t('declare.empty')}</div> : null}
           {groups.map((group) => (
             <div key={group.label} className={styles.formField}>

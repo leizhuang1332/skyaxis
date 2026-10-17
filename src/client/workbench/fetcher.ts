@@ -23,6 +23,7 @@ import type {
   DeclareCommitResponseOk,
   DeclareFetchResponse,
   DeclarePreviewResponseOk,
+  DevDeclareSeedMissing,
   ErrorResponse,
   PlanFileExistsRow,
   ReviewFileExistsRow,
@@ -86,7 +87,7 @@ export type WorkbenchDetailResult =
   | WorkbenchFailure
 
 export type WorkbenchMutateResult =
-  | { readonly kind: 'ok'; readonly revision: number; readonly record: WorkbenchRecord; readonly seedMissing?: SeedMissingReason; readonly seedScan?: string; readonly seedShell?: boolean }
+  | { readonly kind: 'ok'; readonly revision: number; readonly record: WorkbenchRecord; readonly seedMissing?: SeedMissingReason; readonly seedScan?: string; readonly seedShell?: boolean; readonly devSeedMissing?: DevDeclareSeedMissing }
   | WorkbenchFailure
 
 export type WorkbenchArtifactWriteResult =
@@ -191,6 +192,7 @@ export function createWorkbenchFetcher() {
         ...(ok.seedMissing !== undefined ? { seedMissing: ok.seedMissing } : {}),
         ...(ok.seedScan !== undefined ? { seedScan: ok.seedScan } : {}),
         ...(ok.seedShell !== undefined ? { seedShell: ok.seedShell } : {}),
+        ...(ok.devSeedMissing !== undefined ? { devSeedMissing: ok.devSeedMissing } : {}),
       }
     },
 
@@ -464,6 +466,18 @@ export function createWorkbenchFetcher() {
       return this.mutate({ expectedRevision, requirementId, action: 'dismissAnalysisClarification', id }, signal)
     },
 
+    // --- 0016 P1a: dev-declare container (seed names the package only — the
+    // host derives the binding and reads the session; dismiss is the sole
+    // client-writable adjudication) ---
+
+    async seedDevDeclare(requirementId: string, expectedRevision: number, workPackageId: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'seedDevDeclare', workPackageId }, signal)
+    },
+
+    async adjudicateDevDeclare(requirementId: string, expectedRevision: number, workPackageId: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'adjudicateDevDeclare', workPackageId, adjudication: 'dismissed' }, signal)
+    },
+
     async writePlan(requirementId: string, workPackageId: string, text: string, expectedRevision: number, note?: string, signal?: AbortSignal): Promise<WorkbenchArtifactWriteResult> {
       const query = new URLSearchParams({ kind: 'plan', requirementId, workPackageId, expectedRevision: String(expectedRevision) })
       if (note !== undefined) query.set('note', note)
@@ -551,11 +565,17 @@ export function createWorkbenchFetcher() {
       return { kind: 'ok', response: parsed }
     },
 
-    async declarePreview(requirementId: string, expectedRevision: number, text: string, signal?: AbortSignal): Promise<DeclarePreviewResult> {
+    async declarePreview(requirementId: string, expectedRevision: number, text: string, devDeclare?: { workPackageId: string }, signal?: AbortSignal): Promise<DeclarePreviewResult> {
       const response = await request(WORKBENCH_DECLARE_PATH, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ expectedRevision, requirementId, dryRun: true, text }),
+        body: JSON.stringify({
+          expectedRevision,
+          requirementId,
+          dryRun: true,
+          text,
+          ...(devDeclare !== undefined ? { devDeclare: { workPackageId: devDeclare.workPackageId } } : {}),
+        }),
       }, signal)
       if ('kind' in response) return response
       if (!response.ok) return parseErrorBody(response)
@@ -564,7 +584,7 @@ export function createWorkbenchFetcher() {
       return { kind: 'ok', preview: parsed }
     },
 
-    async declareImport(requirementId: string, expectedRevision: number, text: string, selected: readonly string[], sessionId: string | undefined, signal?: AbortSignal): Promise<DeclareImportResult> {
+    async declareImport(requirementId: string, expectedRevision: number, text: string, selected: readonly string[], sessionId: string | undefined, devDeclare?: { workPackageId: string }, signal?: AbortSignal): Promise<DeclareImportResult> {
       const response = await request(WORKBENCH_DECLARE_PATH, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -574,6 +594,7 @@ export function createWorkbenchFetcher() {
           text,
           selected: [...selected],
           ...(sessionId !== undefined ? { sessionId } : {}),
+          ...(devDeclare !== undefined ? { devDeclare: { workPackageId: devDeclare.workPackageId } } : {}),
         }),
       }, signal)
       if ('kind' in response) return response

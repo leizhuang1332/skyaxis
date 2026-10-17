@@ -17,7 +17,7 @@ import type {
   WorkbenchWorkPackage,
 } from '../../src/workbench-shared/protocol.js'
 import type { RequirementRecord } from '../../src/requirements-shared/protocol.js'
-import { buildSow, globToRegExp, knowledgeBytes, matchKnowledge } from '../../src/client/workbench/sow.js'
+import { DEV_SOW_TITLE_WP_RE, buildSow, globToRegExp, knowledgeBytes, matchKnowledge } from '../../src/client/workbench/sow.js'
 
 const RID = '11111111-1111-4111-8111-111111111111'
 const AT = '2026-09-29T08:00:00.000Z'
@@ -790,5 +790,17 @@ describe('buildSow', () => {
   it('revision 戳收尾（0009 收窄为 dev/review 五段路径专属）：revision 数 + generatedAt 日期部分', () => {
     const text = buildSow({ ...baseCtx, purpose: 'dev', record: record({ stage: 'implement', workPackages: [wp('WP1')] }), revision: 7, generatedAt: '2026-09-29T12:34:56.789Z' })
     expect(text.endsWith('生成于 revision 7 · 2026-09-29 · 此后账本变更不自动同步')).toBe(true)
+  })
+
+  it('0016 刀一验收修正：dev 头行带 WP 号（真实会话的 fallback 标题=寻址锚）；review 头行对齐家族形态', () => {
+    const dev = buildSow({ ...baseCtx, purpose: 'dev', record: record({ stage: 'implement', workPackages: [wp('WP1')] }), workPackage: wp('WP1') })
+    expect(dev.startsWith('# skyaxis 工作包任务书 WP1 · 导出功能改造\n')).toBe(true)
+    expect(dev).toContain('[需求]')
+    // 词边界：WP1 的锚不匹配 WP10 的标题（正则 (?!\d)）
+    expect(DEV_SOW_TITLE_WP_RE.test('# skyaxis 工作包任务书 WP1 · 导出功能改造')).toBe(true)
+    expect(DEV_SOW_TITLE_WP_RE.exec('# skyaxis 工作包任务书 WP10 · x')?.[1]).toBe('WP10')
+    expect(DEV_SOW_TITLE_WP_RE.test('# skyaxis 评审任务书 · x')).toBe(false)
+    const review = buildSow({ ...baseCtx, purpose: 'review', record: record({ stage: 'review', workPackages: [wp('WP1')] }) })
+    expect(review.startsWith('# skyaxis 评审任务书 · 导出功能改造\n')).toBe(true)
   })
 })

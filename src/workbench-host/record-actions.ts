@@ -336,6 +336,28 @@ export function applyRecordAction(base: WorkbenchRecord, body: WorkbenchMutateRe
     }
   }
 
+  // 0016 P1a: dev-declare dismissal — the container family's plain action
+  // (outside the lifecycle lock: adjudicating a collected declaration is the
+  // USER's ruling over AI-proposed content, the dismissKnowledgeCandidate
+  // stance, not a state-machine move). 'imported' never rides this union —
+  // the declare-import route stamps it inside its atomic commit.
+  if (body.action === 'adjudicateDevDeclare') {
+    const slot = base.devDeclares?.[body.workPackageId]
+    if (slot === undefined) return fail(404, 'not-found')
+    if (slot.adjudication === 'imported') return fail(400, 'bad-request') // an imported batch is receipted history
+    if (slot.adjudication === 'dismissed') return { ok: true, record: base, unchanged: true }
+    return {
+      ok: true,
+      record: {
+        ...base,
+        devDeclares: {
+          ...base.devDeclares,
+          [body.workPackageId]: { ...slot, adjudication: 'dismissed', adjudicatedAt: now() },
+        },
+      },
+    }
+  }
+
   // Everything below this line is under the split contract's shadow. (The
   // one analysis-family exception — adoptCriterionProposal — handled above
   // carries its own inline lock check: writing criteria[] IS the frozen
@@ -622,7 +644,17 @@ export function applyRecordAction(base: WorkbenchRecord, body: WorkbenchMutateRe
     }
     if (body.action === 'startWorkPackage') {
       if (target.status !== 'plan-approved') return fail(400, 'bad-request')
-      return { ok: true, record: replaceWorkPackage(base, { ...target, status: 'in-dev' }) }
+      // 0016 D12-①: the FIRST start stamps the audit anchor; reopen/rework
+      // returns to in-dev deliberately do NOT refresh it (「第 N 分钟」reads
+      // elapsed since first start — an append-only fact, not a live timer).
+      return {
+        ok: true,
+        record: replaceWorkPackage(base, {
+          ...target,
+          status: 'in-dev',
+          ...(target.startedAt === undefined ? { startedAt: now() } : {}),
+        }),
+      }
     }
     if (body.action === 'markWorkPackageBuilt') {
       if (target.status !== 'in-dev') return fail(400, 'bad-request')
@@ -1262,4 +1294,99 @@ export function applySplitSeed(base: WorkbenchRecord, input: SplitSeedInput): Re
       },
     },
   }
+}
+
+/**
+ * applyDevDeclareSeed (0016 P1a 执行实施显性化轮) — the PURE core of
+ * seedDevDeclare, the per-WP twin of applySplitSeed. The endpoint shell
+ * owns the source IO (latest dev binding → readSession → fence extraction
+ * → hash) and hands {workPackageId, sessionId, contentHash} here.
+ *
+ * Idempotency is TWO-dimensional by design (decisions/0016 修订 #7): the
+ * anchor hits only when BOTH the session and the hash match — a same
+ * session's second round (rework continuation) carries a new hash and
+ * RE-ARMS the slot (the old adjudication is superseded: a fresh batch
+ * belongs to the latest declaration); a hash-identical replay is an
+ * unchanged no-op. The slot replacement is keyed — structurally incapable
+ * of touching any other package's batch (修订 #1).
+ */
+export interface DevDeclareSeedInput {
+  readonly workPackageId: string
+  readonly sessionId: string
+  readonly contentHash: string
+}
+
+export function applyDevDeclareSeed(base: WorkbenchRecord, input: DevDeclareSeedInput): RecordActionResult {
+  const workPackage = base.workPackages.find((candidate) => candidate.id === input.workPackageId)
+  if (workPackage === undefined) return fail(404, 'not-found')
+  // True guard re-assertion (the endpoint flow pre-checks for the honest
+  // zero-write miss; reaching here in another state is a client bug).
+  if (workPackage.status !== 'in-dev') return fail(400, 'bad-request')
+  const slot = base.devDeclares?.[input.workPackageId]
+  if (slot !== undefined && slot.seed.sessionId === input.sessionId && slot.seed.contentHash === input.contentHash) {
+    return { ok: true, record: base, unchanged: true }
+  }
+  return {
+    ok: true,
+    record: {
+      ...base,
+      devDeclares: {
+        ...base.devDeclares,
+        [input.workPackageId]: {
+          seed: { sessionId: input.sessionId, contentHash: input.contentHash, seededAt: now() },
+          adjudication: 'pending',
+        },
+      },
+    },
+  }
+}
+
+/**
+ * stampDevDeclareImported (0016 P1a) — the import route's atomic tail: flip
+ * the slot to 'imported' AND append the WP's declarations receipt in the
+ * SAME record mutation (one ledger save — no「imported without receipt」
+ * middle state). Convergence: when the LAST receipt already carries the
+ * same {sessionId, contentHash} and the slot is imported, the fold is an
+ * unchanged no-op (a retry after a post-save file-write failure must not
+ * double-receipt; the entries' own duplicate guards handle their rows).
+ */
+export interface DevDeclareImportStampInput {
+  readonly workPackageId: string
+  readonly sessionId: string | undefined
+  readonly contentHash: string
+}
+
+export function stampDevDeclareImported(base: WorkbenchRecord, input: DevDeclareImportStampInput): { record: WorkbenchRecord; anchorSeq: number; unchanged: boolean } | { error: 'wp-not-found' | 'slot-not-found' } {
+  const workPackage = base.workPackages.find((candidate) => candidate.id === input.workPackageId)
+  if (workPackage === undefined) return { error: 'wp-not-found' }
+  const slot = base.devDeclares?.[input.workPackageId]
+  if (slot === undefined) return { error: 'slot-not-found' }
+  const receipts = workPackage.declarations ?? []
+  const last = receipts[receipts.length - 1]
+  if (slot.adjudication === 'imported'
+    && last !== undefined
+    && (input.sessionId === undefined || last.sessionId === input.sessionId)
+    && last.contentHash === input.contentHash) {
+    return { record: base, anchorSeq: last.seq, unchanged: true }
+  }
+  const anchorSeq = (last?.seq ?? 0) + 1
+  const stamped: WorkbenchRecord = {
+    ...base,
+    workPackages: base.workPackages.map((candidate) => (candidate.id === input.workPackageId
+      ? {
+        ...candidate,
+        declarations: [...receipts, {
+          seq: anchorSeq,
+          at: now(),
+          sessionId: input.sessionId ?? slot.seed.sessionId,
+          contentHash: input.contentHash,
+        }],
+      }
+      : candidate)),
+    devDeclares: {
+      ...base.devDeclares,
+      [input.workPackageId]: { ...slot, adjudication: 'imported', adjudicatedAt: now() },
+    },
+  }
+  return { record: stamped, anchorSeq, unchanged: false }
 }

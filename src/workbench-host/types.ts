@@ -85,6 +85,17 @@ const AcceptanceSchema = z.object({
   note: z.string().max(2000).optional(),
 })
 
+/**
+ * 0016 D12-②: one import receipt — append-only, host-minted. seq is a
+ * per-WP positive integer the import route assigns (last+1), never recycled.
+ */
+const DeclarationAnchorSchema = z.object({
+  seq: z.number().int().positive(),
+  at: TimestampSchema,
+  sessionId: SessionIdSchema,
+  contentHash: ContentHashSchema,
+})
+
 export const WorkbenchWorkPackageSchema = z.object({
   id: WorkPackageIdSchema,
   title: z.string().trim().min(1).max(64),
@@ -94,10 +105,14 @@ export const WorkbenchWorkPackageSchema = z.object({
   parallel: z.boolean().optional(),
   covers: z.array(CriterionIdSchema),
   status: z.enum(WORK_PACKAGE_STATUS_VALUES),
+  /** 0016 D12-①: startWorkPackage audit stamp — optional per the field-evolution discipline. */
+  startedAt: TimestampSchema.optional(),
   plans: z.array(PlanEntrySchema),
   sessions: z.array(SessionBindingSchema),
   commits: z.array(CommitRefSchema),
   acceptances: z.array(AcceptanceSchema),
+  /** 0016 D12-②: import receipts — optional per the field-evolution discipline. */
+  declarations: z.array(DeclarationAnchorSchema).optional(),
 })
 
 export const WorkbenchFindingSchema = z.object({
@@ -256,6 +271,33 @@ export const SplitProposalsSchema = z.object({
   workPackages: z.array(ProposedWorkPackageSchema),
 })
 
+/**
+ * 0016 D12-③: the per-WP keyed dev-declare container. The record() face
+ * (not z.record()'s inferred index signature) matches the protocol's
+ * Readonly<Record<string, …>>; keys are WP ids (WorkPackageIdSchema on the
+ * read side keeps a poison key from riding the whole file — the R#### lesson).
+ * commits 提议行 optional per the field-evolution discipline (P1a seeds none,
+ * P2b will).
+ */
+const DevDeclareCommitsProposalSchema = z.object({
+  hash: z.string().regex(/^[0-9a-f]{7,40}$/),
+  note: z.string().max(2000),
+  confirmedAt: TimestampSchema.optional(),
+})
+
+export const DevDeclareSlotSchema = z.object({
+  seed: z.object({
+    sessionId: SessionIdSchema,
+    contentHash: ContentHashSchema,
+    seededAt: TimestampSchema,
+  }),
+  adjudication: z.enum(['pending', 'imported', 'dismissed']),
+  adjudicatedAt: TimestampSchema.optional(),
+  commits: z.array(DevDeclareCommitsProposalSchema).optional(),
+})
+
+export const DevDeclaresSchema = z.record(WorkPackageIdSchema, DevDeclareSlotSchema)
+
 const SplitBaselinePrdSchema = z.object({
   name: z.string().min(1).max(256),
   size: z.number().int().nonnegative(),
@@ -346,6 +388,8 @@ export const WorkbenchRecordSchema = z.object({
   analysis: AnalysisProposalsSchema.optional(),
   /** 0012: split-proposal container — optional per the field-evolution discipline (absent = no bound split delivery). */
   splitProposals: SplitProposalsSchema.optional(),
+  /** 0016: per-WP dev-declare container — optional per the field-evolution discipline (absent = never seeded). */
+  devDeclares: DevDeclaresSchema.optional(),
 })
 
 export const WorkbenchFileSchema = z.object({
@@ -779,6 +823,25 @@ const DismissWorkPackageProposalSchema = z.object({
   ref: WorkPackageIdSchema,
 })
 
+// 0016 P1a: dev-declare seed/dismiss. NO slot content rides the wire (the
+// endpoint derives the binding and reads the session itself); the dismiss
+// ruling is the only client-writable adjudication — 'imported' is stamped
+// exclusively by the declare-import route's atomic commit.
+const SeedDevDeclareSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  action: z.literal('seedDevDeclare'),
+  workPackageId: WorkPackageIdSchema,
+})
+
+const AdjudicateDevDeclareSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  action: z.literal('adjudicateDevDeclare'),
+  workPackageId: WorkPackageIdSchema,
+  adjudication: z.literal('dismissed'),
+})
+
 const ProposalActionSchema = z.object({
   expectedRevision: z.number().int().nonnegative(),
   requirementId: z.uuid(),
@@ -850,6 +913,8 @@ export const WorkbenchMutateSchema = z.discriminatedUnion('action', [
   SeedSplitSchema,
   AdoptSplitProposalsSchema,
   DismissWorkPackageProposalSchema,
+  SeedDevDeclareSchema,
+  AdjudicateDevDeclareSchema,
 ])
 
 // ---------------------------------------------------------------------------
@@ -899,6 +964,8 @@ export const DeclareImportSchema = z.object({
   text: z.string().min(1),
   sessionId: SessionIdSchema.optional(),
   selected: z.array(z.string().min(1).max(64)).optional(),
+  /** 0016 P1a: land this import through a WP's devDeclare slot (see protocol.ts). */
+  devDeclare: z.object({ workPackageId: WorkPackageIdSchema }).optional(),
 })
 
 // ---------------------------------------------------------------------------

@@ -1142,7 +1142,17 @@ export function buildSow(ctx: SowContext): string {
   // nine-block purposes do — [PRD 节选] retired, the baseline-doc 必读 line +
   // clone-repo rows ride an [输入] block; the ledger snapshot (requirement /
   // WP / criteria / approved plan) stays embedded (P1).
+  // 0016 刀一验收修正: the five-block purposes gain the family's discriminative
+  // head line (`# skyaxis …任务书`, the analysis/split/plan precedent). For dev
+  // it carries the WP id — DSH's send flow materializes the conversation under
+  // a FRESH id (the created session is a config-only shell that stays blank
+  // forever), so the head becomes the REAL session's fallback title and the
+  // auto-bind pass content-addresses it per WP. The [需求] head cannot serve:
+  // it is byte-identical across a requirement's WPs (decisions/0016 修订 #8).
   const blocks = [
+    ctx.purpose === 'dev'
+      ? devSowTitleLine(ctx.workPackage?.id, ctx.requirement.title)
+      : `# skyaxis 评审任务书 · ${ctx.requirement.title}`,
     requirementBlock(ctx),
     analysisInputBlock(ctx, `[输入]${INPUT_INSTRUCTION}`),
     ctx.purpose === 'dev' && ctx.workPackage !== undefined ? workPackageBlock(ctx) : '',
@@ -1151,3 +1161,20 @@ export function buildSow(ctx: SowContext): string {
   ].filter((block) => block.length > 0)
   return [...blocks, revisionStamp(ctx)].join('\n\n')
 }
+
+/** 0016: the dev SOW head's fixed prefix (one truth for builder + matcher). */
+export const DEV_SOW_TITLE_PREFIX = '# skyaxis 工作包任务书'
+
+/** 0016: the dev SOW's discriminative head — `<prefix> WP<n> · <requirement>`. */
+export function devSowTitleLine(workPackageId: string | undefined, requirementTitle: string): string {
+  return workPackageId !== undefined
+    ? `${DEV_SOW_TITLE_PREFIX} ${workPackageId} · ${requirementTitle}`
+    : `${DEV_SOW_TITLE_PREFIX} · ${requirementTitle}`
+}
+
+/**
+ * 0016: the WP-token matcher over a live session's display title. `(?!\d)`
+ * keeps WP1 from bleeding into WP10; the match's capture IS the workPackageId
+ * (the auto-bind pass's address).
+ */
+export const DEV_SOW_TITLE_WP_RE = /^# skyaxis 工作包任务书 (WP[1-9]\d*)(?!\d)/

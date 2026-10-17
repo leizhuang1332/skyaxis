@@ -2578,3 +2578,191 @@ describe('0012 两步化：adoptPlan / seedSplit 专属 flow + planning-doc / sp
     expect((await h3.get(`${WORKBENCH_ARTIFACTS_PATH}?kind=split-result&requirementId=${RID}`)).status).toBe(404)
   })
 })
+
+describe('0016 P1a: seedDevDeclare flow + devDeclare-keyed import + adjudicateDevDeclare', () => {
+  const devFence = (wp: string, extra: readonly string[] = []): string =>
+    '```yaml\n' + ['# skyaxis-declare', `workPackage: ${wp}`, 'claims:', '  - built: true', ...extra].join('\n') + '\n```'
+  const assistantText = (text: string): SessionEvent =>
+    ({ type: 'assistant/message', seq: 1, time: 0, data: { message: { content: [{ type: 'text', text }] } } }) as unknown as SessionEvent
+  const devRecord = (overrides: Partial<WorkbenchRecord> = {}): WorkbenchRecord =>
+    seedRecord(RID, {
+      splitApprovedAt: NOW,
+      workPackages: [seedWorkPackage('WP1', {
+        status: 'in-dev',
+        sessions: [{ sessionId: 'sess-dev', purpose: 'dev', boundAt: NOW }],
+      })],
+      ...overrides,
+    })
+
+  it('seedDevDeclare: lands a keyed pending slot + writes the workspace pending snapshot; ledger-only when unarmed', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'workbench-declare-ws-'))
+    dirs.push(workspace)
+    const armed = await harness({ resolveWorkspacePath: () => workspace })
+    const revision = await armed.seed([devRecord()])
+    armed.declareReader.setEngine({ readSession: async () => ({ events: [assistantText(devFence('WP1')) as never] }) })
+    const res = await armed.post(WORKBENCH_PATH, { expectedRevision: revision, requirementId: RID, action: 'seedDevDeclare', workPackageId: 'WP1' })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { ok: true; revision: number; record: WorkbenchRecord; devSeedMissing?: string }
+    expect(body.devSeedMissing).toBeUndefined()
+    const slot = body.record.devDeclares?.WP1
+    expect(slot?.adjudication).toBe('pending')
+    expect(slot?.seed.sessionId).toBe('sess-dev')
+    // The pending snapshot carries the exact fence body; its disk sha equals the slot anchor
+    const pendingPath = join(workspace, '.skyaxis', 'declares', RID, 'WP1-pending.md')
+    expect(existsSync(pendingPath)).toBe(true)
+    expect(contentHashOf(readFileSync(pendingPath, 'utf8'))).toBe(slot?.seed.contentHash)
+    // Unarmed (no resolver): the slot still lands, no snapshot, honest degrade
+    const bare = await harness()
+    const rev2 = await bare.seed([devRecord()])
+    bare.declareReader.setEngine({ readSession: async () => ({ events: [assistantText(devFence('WP1')) as never] }) })
+    const res2 = await bare.post(WORKBENCH_PATH, { expectedRevision: rev2, requirementId: RID, action: 'seedDevDeclare', workPackageId: 'WP1' })
+    const body2 = (await res2.json()) as { ok: true; record: WorkbenchRecord }
+    expect(body2.record.devDeclares?.WP1?.adjudication).toBe('pending')
+  })
+
+  it('seedDevDeclare misses: no-binding / wp-not-in-dev / wp-mismatch / no-declare-block — 200 zero-write with the disclosed reason', async () => {
+    const h = await harness()
+    const post = async (revision: number, wpId: string, requirementId: string = RID) =>
+      (await (await h.post(WORKBENCH_PATH, { expectedRevision: revision, requirementId, action: 'seedDevDeclare', workPackageId: wpId })).json()) as { ok: true; devSeedMissing?: string }
+    // no binding (WP2 has none)
+    let revision = await h.seed([seedRecord(RID, {
+      splitApprovedAt: NOW,
+      workPackages: [
+        seedWorkPackage('WP1', { status: 'in-dev', sessions: [{ sessionId: 'sess-dev', purpose: 'dev', boundAt: NOW }] }),
+        seedWorkPackage('WP2', { status: 'in-dev' }),
+      ],
+    })])
+    expect((await post(revision, 'WP2')).devSeedMissing).toBe('no-binding')
+    // wp-not-in-dev (WP1 flipped to built between the watcher's pull and the seed)
+    revision = await h.seed([devRecord({ workPackages: [seedWorkPackage('WP1', { status: 'built', sessions: [{ sessionId: 'sess-dev', purpose: 'dev', boundAt: NOW }] })] })], revision)
+    h.declareReader.setEngine({ readSession: async () => ({ events: [assistantText(devFence('WP1')) as never] }) })
+    expect((await post(revision, 'WP1')).devSeedMissing).toBe('wp-not-in-dev')
+    // wp-mismatch (the fence names WP9)
+    revision = await h.seed([devRecord()], revision)
+    h.declareReader.setEngine({ readSession: async () => ({ events: [assistantText(devFence('WP9')) as never] }) })
+    expect((await post(revision, 'WP1')).devSeedMissing).toBe('wp-mismatch')
+    // no-declare-block — a REAL session (user message present) whose declare
+    // is not written yet; the assistant-only log would read as a shell.
+    h.declareReader.setEngine({ readSession: async () => ({ events: [
+      { type: 'user/message', seq: 0, time: 0, data: { content: [{ type: 'text', text: '# skyaxis 工作包任务书 WP1' }] } } as never,
+      assistantText('干活中，没有声明块') as never,
+    ] }) })
+    expect((await post(revision, 'WP1')).devSeedMissing).toBe('no-declare-block')
+    // 404s: record / WP absent
+    const ghost = await h.post(WORKBENCH_PATH, { expectedRevision: revision, requirementId: GHOST, action: 'seedDevDeclare', workPackageId: 'WP1' })
+    expect(ghost.status).toBe(404)
+    const ghostWp = await h.post(WORKBENCH_PATH, { expectedRevision: revision, requirementId: RID, action: 'seedDevDeclare', workPackageId: 'WP7' })
+    expect(ghostWp.status).toBe(404)
+  })
+
+  it('seedDevDeclare anchor hit: same session + hash → unchanged (no bump, no miss) + pending-file repair', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'workbench-declare-ws-'))
+    dirs.push(workspace)
+    const h = await harness({ resolveWorkspacePath: () => workspace })
+    const revision = await h.seed([devRecord()])
+    h.declareReader.setEngine({ readSession: async () => ({ events: [assistantText(devFence('WP1')) as never] }) })
+    const first = (await (await h.post(WORKBENCH_PATH, { expectedRevision: revision, requirementId: RID, action: 'seedDevDeclare', workPackageId: 'WP1' })).json()) as { ok: true; revision: number; record: WorkbenchRecord }
+    const pendingPath = join(workspace, '.skyaxis', 'declares', RID, 'WP1-pending.md')
+    // Corrupt the pending file, then replay: anchor hit converges and REPAIRS the file
+    writeFileSync(pendingPath, '被外部改坏了')
+    const replay = await h.post(WORKBENCH_PATH, { expectedRevision: first.revision, requirementId: RID, action: 'seedDevDeclare', workPackageId: 'WP1' })
+    const replayBody = (await replay.json()) as { ok: true; revision: number; record: WorkbenchRecord; devSeedMissing?: string }
+    expect(replayBody.devSeedMissing).toBeUndefined()
+    expect(replayBody.revision).toBe(first.revision) // unchanged — no revision bump
+    expect(contentHashOf(readFileSync(pendingPath, 'utf8'))).toBe(replayBody.record.devDeclares?.WP1?.seed.contentHash)
+  })
+
+  it('declare import with the devDeclare key: preview advisory declareStale; commit stamps slot + receipt + d1 file atomically; scope mismatch 400', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'workbench-declare-ws-'))
+    dirs.push(workspace)
+    const h = await harness({ resolveWorkspacePath: () => workspace })
+    const revision = await h.seed([devRecord()])
+    // Seed the slot with content A…
+    h.declareReader.setEngine({ readSession: async () => ({ events: [assistantText(devFence('WP1', ['stageReady: false'])) as never] }) })
+    const seeded = (await (await h.post(WORKBENCH_PATH, { expectedRevision: revision, requirementId: RID, action: 'seedDevDeclare', workPackageId: 'WP1' })).json()) as { ok: true; revision: number; record: WorkbenchRecord }
+    // …then present content B for import: preview discloses declareStale
+    const otherText = devFence('WP1', ['stageReady: false', "# a drift line"])
+    const stalePreview = await h.post(WORKBENCH_DECLARE_PATH, { expectedRevision: seeded.revision, requirementId: RID, dryRun: true, text: otherText, devDeclare: { workPackageId: 'WP1' } })
+    expect(stalePreview.status).toBe(200)
+    expect(((await stalePreview.json()) as { declareStale?: boolean }).declareStale).toBe(true)
+    // The slot's own text previews clean
+    const goodText = readFileSync(join(workspace, '.skyaxis', 'declares', RID, 'WP1-pending.md'), 'utf8')
+    const cleanPreview = await h.post(WORKBENCH_DECLARE_PATH, { expectedRevision: seeded.revision, requirementId: RID, dryRun: true, text: goodText, devDeclare: { workPackageId: 'WP1' } })
+    const cleanPreviewBody = (await cleanPreview.json()) as { declareStale?: boolean; revision: number; entries: { key: string }[] }
+    expect(cleanPreviewBody.declareStale).toBeUndefined()
+    // Scope mismatch: the key names WP2 while the fence scopes WP1 → 400
+    const mismatch = await h.post(WORKBENCH_DECLARE_PATH, { expectedRevision: seeded.revision, requirementId: RID, dryRun: true, text: goodText, devDeclare: { workPackageId: 'WP2' } })
+    expect(mismatch.status).toBe(400)
+    // Commit: built row + slot flip + receipt + d1 file, all in one save
+    const commit = await h.post(WORKBENCH_DECLARE_PATH, {
+      expectedRevision: cleanPreviewBody.revision,
+      requirementId: RID,
+      text: goodText,
+      selected: cleanPreviewBody.entries.map((entry) => entry.key),
+      sessionId: 'sess-dev',
+      devDeclare: { workPackageId: 'WP1' },
+    })
+    expect(commit.status).toBe(200)
+    const committed = (await commit.json()) as { ok: true; revision: number; record: WorkbenchRecord; report: { built: number } }
+    expect(committed.report.built).toBe(1)
+    expect(committed.record.workPackages[0]!.status).toBe('built')
+    expect(committed.record.devDeclares?.WP1?.adjudication).toBe('imported')
+    expect(committed.record.workPackages[0]!.declarations?.[0]?.seq).toBe(1)
+    expect(committed.record.workPackages[0]!.declarations?.[0]?.sessionId).toBe('sess-dev')
+    const receiptPath = join(workspace, '.skyaxis', 'declares', RID, 'WP1-d1.md')
+    expect(existsSync(receiptPath)).toBe(true)
+    expect(contentHashOf(readFileSync(receiptPath, 'utf8'))).toBe(committed.record.devDeclares?.WP1?.seed.contentHash)
+  })
+
+
+  it('刀一验收二修：shell 绑定 → searchSessions 内容寻址真实会话（SOW 头行锚，标题无关）→ 绑定+收取一气呵成', async () => {
+    const h = await harness()
+    const revision = await h.seed([devRecord()]) // WP1 in-dev + shell binding sess-dev
+    h.declareReader.setEngine({
+      readSession: async (id: string) => {
+        if (id === 'sess-dev') return { events: [] as never[] } // config-only shell：无 user 消息、无声明块
+        return { events: [assistantText(devFence('WP1')) as never] }
+      },
+      searchSessions: async () => ({ items: [{ header: { id: 'sess-real', createdAt: 5 } }] }),
+    })
+    const res = await h.post(WORKBENCH_PATH, { expectedRevision: revision, requirementId: RID, action: 'seedDevDeclare', workPackageId: 'WP1' })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { ok: true; revision: number; record: WorkbenchRecord; devSeedMissing?: string }
+    expect(body.devSeedMissing).toBeUndefined()
+    expect(body.record.devDeclares?.WP1?.seed.sessionId).toBe('sess-real')
+    expect(body.record.workPackages[0]!.sessions.some((row) => row.sessionId === 'sess-real' && row.purpose === 'dev')).toBe(true)
+    // shell 行保留（append-only），真实行追加为最新 dev 绑定
+    expect(body.record.workPackages[0]!.sessions.some((row) => row.sessionId === 'sess-dev')).toBe(true)
+  })
+
+  it('刀一验收二修：无绑定的 planned WP 同样寻址绑定（关联先行），收取按 in-dev 门披露', async () => {
+    const h = await harness()
+    const revision = await h.seed([seedRecord(RID, {
+      splitApprovedAt: NOW,
+      workPackages: [seedWorkPackage('WP1', { status: 'planned', sessions: [] })],
+    })])
+    h.declareReader.setEngine({
+      readSession: async () => ({ events: [assistantText(devFence('WP1')) as never] }),
+      searchSessions: async () => ({ items: [{ header: { id: 'sess-real-planned', createdAt: 5 } }] }),
+    })
+    const res = await h.post(WORKBENCH_PATH, { expectedRevision: revision, requirementId: RID, action: 'seedDevDeclare', workPackageId: 'WP1' })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { ok: true; revision: number; record: WorkbenchRecord; devSeedMissing?: string }
+    // 关联落账 + 收取被 in-dev 门挡（计划未开始——开始开发后收取）
+    expect(body.record.workPackages[0]!.sessions.some((row) => row.sessionId === 'sess-real-planned' && row.purpose === 'dev')).toBe(true)
+    expect(body.devSeedMissing).toBe('wp-not-in-dev')
+  })
+
+  it('adjudicateDevDeclare (union): dismiss lands on a pending slot; missing slot 404', async () => {
+    const h = await harness()
+    h.declareReader.setEngine({ readSession: async () => ({ events: [assistantText(devFence('WP1')) as never] }) })
+    const revision = await h.seed([devRecord()])
+    const seeded = (await (await h.post(WORKBENCH_PATH, { expectedRevision: revision, requirementId: RID, action: 'seedDevDeclare', workPackageId: 'WP1' })).json()) as { ok: true; revision: number }
+    const dismissed = await h.post(WORKBENCH_PATH, { expectedRevision: seeded.revision, requirementId: RID, action: 'adjudicateDevDeclare', workPackageId: 'WP1', adjudication: 'dismissed' })
+    expect(dismissed.status).toBe(200)
+    const body = (await dismissed.json()) as { ok: true; revision: number; record: WorkbenchRecord }
+    expect(body.record.devDeclares?.WP1?.adjudication).toBe('dismissed')
+    const noSlot = await h.post(WORKBENCH_PATH, { expectedRevision: body.revision, requirementId: RID, action: 'adjudicateDevDeclare', workPackageId: 'WP2', adjudication: 'dismissed' })
+    expect(noSlot.status).toBe(404)
+  })
+})

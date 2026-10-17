@@ -10,7 +10,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { RequirementRecord } from '../../src/requirements-shared/protocol.js'
-import type { WorkbenchFinding, WorkbenchRecord } from '../../src/workbench-shared/protocol.js'
+import type { WorkbenchFinding, WorkbenchRecord, WorkbenchWorkPackage } from '../../src/workbench-shared/protocol.js'
 import { WORKBENCH_STAGES } from '../../src/workbench-shared/protocol.js'
 import type { WorkbenchT } from '../../src/client/workbench/dictionary.js'
 import { workbenchZh } from '../../src/client/workbench/dictionary.js'
@@ -98,6 +98,9 @@ function fakeController(): WorkbenchController & { advanceStage: ReturnType<type
     splitResultContent: vi.fn(async () => undefined),
     seedSplitQuiet: vi.fn(async () => undefined),
     bindSplitSession: vi.fn(async () => true),
+    // 0016 P1a: the dev-delivery bind + the per-WP mount catch-up quiet seed.
+    bindDevSession: vi.fn(async () => true),
+    seedDevDeclareQuiet: vi.fn(async () => undefined),
     dismissBanner: vi.fn(),
     dispose: vi.fn(),
   } as never
@@ -545,5 +548,82 @@ describe('0007 定稿软门：S1 就绪披露 + 定稿/撤销 + 摘要导出', (
     fireEvent.click(within(dialog).getByRole('button', { name: workbenchZh['sow.deliver'] }))
     await waitFor(() => expect(deliver).toHaveBeenCalled())
     await waitFor(() => expect(controller.bindSplitSession).toHaveBeenCalledWith(RID, 'sess-split-real', expect.any(String)))
+  })
+
+  it('0016 刀一验收修正：dev 投递不再绑定（create 出的是 config-only shell）；标题寻址 pass 绑定真实会话', async () => {
+    const controller = fakeController()
+    const deliver = vi.fn(async () => ({ ok: true as const, sessionId: 'sess-shell' }))
+    // 可控会话面：发送后真实会话以任务书头行为标题物化
+    let listeners: Array<() => void> = []
+    let sessions: Array<{ id: string; displayTitle: string; running: boolean; blank: boolean }> = [
+      { id: 'sess-shell', displayTitle: 'sess-shell', running: false, blank: true },
+    ]
+    const face = {
+      get ids() { return sessions.map((row) => row.id) },
+      get summariesById() {
+        const byId: Record<string, { id: string; displayTitle: string; running: boolean; blank: boolean }> = {}
+        for (const row of sessions) byId[row.id] = { ...row }
+        return byId
+      },
+      subscribe: (listener: () => void) => {
+        listeners.push(listener)
+        return () => { listeners = listeners.filter((candidate) => candidate !== listener) }
+      },
+      navigate: () => {},
+    }
+    const wpRow = (status: WorkbenchWorkPackage['status'], sessions2: Array<{ sessionId: string; purpose: 'dev'; boundAt: string }> = []) =>
+      ({ id: 'WP1', title: '数据导出', boundary: '导出', order: 1, dependsOn: [], covers: [], status, plans: [], sessions: sessions2, commits: [], acceptances: [] })
+    const view = render(
+      <WorkbenchTabBody
+        t={bindZh()}
+        requirement={requirement}
+        slot={slot({ record: workbenchRecord({ stage: 'implement', splitApprovedAt: AT, workPackages: [wpRow('in-dev')] }) })}
+        controller={controller}
+        knowledge={knowledgeState()}
+        deliver={deliver}
+        sessions={face}
+      />,
+    )
+    fireEvent.click(screen.getByRole('tab', { name: /③ 执行实施/ }))
+    const card = await screen.findByRole('button', { name: /WP1/ })
+    fireEvent.click(card)
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: workbenchZh['sow.workPackageButton'] }))
+    const sowDialog = await screen.findByRole('dialog', { name: workbenchZh['sow.title'] })
+    await waitFor(() => { expect((sowDialog.querySelector('textarea[data-testid="sow-preview"]') as HTMLTextAreaElement).value).toContain('# skyaxis 工作包任务书 WP1') })
+    fireEvent.click(within(sowDialog).getByRole('button', { name: workbenchZh['sow.deliver'] }))
+    await waitFor(() => expect(deliver).toHaveBeenCalled())
+    // 投递即 shell——不绑定
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(controller.bindDevSession).not.toHaveBeenCalled()
+    // 用户发送：真实会话物化，fallback 标题=任务书头行 → 翻转后 pass 绑定
+    sessions = [...sessions, { id: 'sess-real', displayTitle: '# skyaxis 工作包任务书 WP1 · 报价管理：导入导出与数据校验', running: true, blank: false }]
+    for (const listener of [...listeners]) listener()
+    await waitFor(() => expect(controller.bindDevSession).toHaveBeenCalledWith(RID, 'WP1', 'sess-real'))
+    // WP10 不被 WP1 的标题误绑（词边界）；已绑定真实会话后不再重复绑
+    expect((controller.bindDevSession as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1)
+    view.unmount()
+  })
+
+  it('0016 P1a 挂载 catch-up：in-dev WP 带 dev 绑定且无槽 ⇒ seedDevDeclareQuiet(RID, WP1) 一次性触发', async () => {
+    const controller = fakeController()
+    render(
+      <WorkbenchTabBody
+        t={bindZh()}
+        requirement={requirement}
+        slot={slot({ record: workbenchRecord({
+          stage: 'implement',
+          splitApprovedAt: AT,
+          workPackages: [{ id: 'WP1', title: '数据导出', boundary: '导出', order: 1, dependsOn: [], covers: [], status: 'in-dev', plans: [], sessions: [{ sessionId: 'sess-dev-x', purpose: 'dev' as const, boundAt: AT }], commits: [], acceptances: [] }],
+        }) })}
+        controller={controller}
+        knowledge={knowledgeState()}
+      />,
+    )
+    await waitFor(() => expect(controller.seedDevDeclareQuiet).toHaveBeenCalledWith(RID, 'WP1'))
+    // one-shot: a re-render of the same snapshot does not re-fire
+    const calls = (controller.seedDevDeclareQuiet as ReturnType<typeof vi.fn>).mock.calls.length
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect((controller.seedDevDeclareQuiet as ReturnType<typeof vi.fn>).mock.calls.length).toBe(calls)
   })
 })

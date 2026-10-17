@@ -329,6 +329,15 @@
   gap: 8px;
 }
 
+/* 0016 P1a: the declaration card's body column (meta line + disclosed miss). */
+.declareCardBody {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .findingFieldRow .findingField {
   flex: 1;
 }

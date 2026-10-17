@@ -38,6 +38,7 @@ import { ReviewSection } from './review-section.js'
 import { SessionStrip } from './session-strip.js'
 import { KnowledgeSection } from './knowledge-section.js'
 import { SowModal } from './sow-modal.js'
+import { devTitleBindTargets } from './dev-watcher.js'
 import { ScanModal } from './scan-modal.js'
 import { SheetExportModal } from './sheet-export-modal.js'
 import { buildUnderstandingSheet } from './understanding-sheet.js'
@@ -393,6 +394,64 @@ export function WorkbenchTabBody(props: {
     runSplitSeed()
   }
 
+  // 0016 刀一验收修正: title-addressed dev-session binding — fires on every
+  // sessions flip (the real session's fallback title lands a beat after the
+  // user sends; the flip re-runs this pass). Pure join (devTitleBindTargets)
+  // + one bounded bind per (WP, session); the register watcher's sweep runs
+  // the same join for requirements nobody is watching.
+  const devBindAttemptedRef = useRef<ReadonlySet<string>>(new Set())
+  useEffect(() => {
+    devBindAttemptedRef.current = new Set()
+  }, [requirementId])
+  useEffect(() => {
+    if (slot.phase !== 'ready' || record === null) return
+    for (const target of devTitleBindTargets(record, { ids: sessionSummaries.ids, summariesById: sessionSummaries.byId })) {
+      const key = `${target.workPackageId}:${target.sessionId}`
+      if (devBindAttemptedRef.current.has(key)) continue
+      const next = new Set(devBindAttemptedRef.current)
+      next.add(key)
+      devBindAttemptedRef.current = next
+      void controller.bindDevSession(requirementId, target.workPackageId, target.sessionId)
+    }
+  }, [slot.phase, record, requirementId, controller, sessionSummaries])
+
+  // 0016 P1a: dev-declare mount catch-up — the REGISTER-level watcher (see
+  // register.tsx / dev-watcher.ts) covers session flips globally; this is the
+  // per-WP one-shot for a tab opened after a missed sweep (the analysis
+  // watcher's mount-catch-up shape). RUNNING WPs skip (never seed mid-run);
+  // a running→idle transition re-arms the flag (the fresh-declaration case
+  // the register watcher also handles — belt and suspenders, both zero-write
+  // when the endpoint anchor already covers the text).
+  const devSeedAttemptedRef = useRef<ReadonlySet<string>>(new Set())
+  useEffect(() => {
+    devSeedAttemptedRef.current = new Set()
+  }, [requirementId])
+  useEffect(() => {
+    if (slot.phase !== 'ready' || record === null) return
+    for (const workPackage of record.workPackages) {
+      if (workPackage.status !== 'in-dev') continue
+      const binding = [...workPackage.sessions].reverse().find((row) => row.purpose === 'dev')
+      if (binding === undefined) continue
+      if (sessionSummaries.byId[binding.sessionId]?.running === true) {
+        // Observed running ⇒ re-arm this WP's one-shot (an idle flip may
+        // carry a fresh declaration).
+        if (devSeedAttemptedRef.current.has(workPackage.id)) {
+          const next = new Set(devSeedAttemptedRef.current)
+          next.delete(workPackage.id)
+          devSeedAttemptedRef.current = next
+        }
+        continue
+      }
+      const slotRow = record.devDeclares?.[workPackage.id]
+      if (slotRow !== undefined && slotRow.seed.sessionId === binding.sessionId && slotRow.adjudication === 'pending') continue
+      if (devSeedAttemptedRef.current.has(workPackage.id)) continue
+      const next = new Set(devSeedAttemptedRef.current)
+      next.add(workPackage.id)
+      devSeedAttemptedRef.current = next
+      void controller.seedDevDeclareQuiet(requirementId, workPackage.id)
+    }
+  }, [slot.phase, record, requirementId, controller, sessionSummaries])
+
   const advance = (): void => {
     if (nextStage === null) return
     void controller.advanceStage(requirementId, nextStage).then((ok) => {
@@ -653,6 +712,11 @@ export function WorkbenchTabBody(props: {
               // parity; the split channel is file-only, so its anchor is
               // informational). The planning SOW ('plan') stays UNBOUND — the
               // 整理任务书 no-return precedent: nothing seeds from it.
+              // 0016 刀一验收修正: dev does NOT bind at delivery — the created
+              // session is a config-only SHELL (DSH's send flow materializes
+              // the real conversation under a fresh id); the title-addressed
+              // bind pass below associates the REAL session once its fallback
+              // title (the SOW head) lands.
               if (sow === null || sow.purpose === 'split') {
                 void controller.bindSplitSession(requirementId, sessionId, sowText.slice(0, 200))
                 return

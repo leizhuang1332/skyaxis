@@ -159,10 +159,25 @@ export interface WorkbenchWorkPackage {
     | 'built'
     | 'accepted'
     | 'dropped'
+  /**
+   * 0016 D12-①: startWorkPackage's user-action audit stamp (the
+   * splitApprovedAt family — a content event, not a live-running state; it
+   * does NOT refresh on reopen/rework returns, so「第 N 分钟」reads elapsed
+   * since FIRST start). Optional per the field-evolution discipline —
+   * pre-0016 rows carry none and the duration line simply hides.
+   */
+  readonly startedAt?: string
   readonly plans: readonly PlanEntry[]
   readonly sessions: readonly WorkbenchSessionBinding[]
   readonly commits: readonly WorkbenchCommitRef[]
   readonly acceptances: readonly WorkbenchAcceptance[]
+  /**
+   * 0016 D12-②: import receipts — append-only, host-minted, stamped in the
+   * SAME ledger save as the built/artifacts/knowledge folding and the slot's
+   * imported flip (atomic — no「imported without a receipt」middle state).
+   * Optional per the field-evolution discipline (pre-0016 rows carry none).
+   */
+  readonly declarations?: readonly WorkbenchDeclarationAnchor[]
 }
 
 export interface WorkbenchFinding {
@@ -617,6 +632,62 @@ export interface WorkbenchSplitProposals {
   readonly workPackages: readonly WorkbenchProposedWorkPackage[]
 }
 
+// ---------------------------------------------------------------------------
+// Dev-declare container (0016 执行实施显性化轮, decisions/0016 D12-③) —
+// per-WP keyed pending-adjudication slots for the dev session's declare
+// block. The analysis/split containers are REQUIREMENT-level (one watched
+// session each); dev declares are WP-level: parallel WPs each own their
+// slot, and the keying makes a cross-WP overwrite structurally impossible
+// (对抗修订 #1 — a watcher replay can never clobber another package's
+// unadjudicated batch). Epistemics carry over from the proposal family:
+// slots are HOST-MINTED ONLY (seedDevDeclare reads the session itself; no
+// client input schema carries slot content), invisible to badges until the
+// user imports/dismisses, and only user actions move the adjudication.
+//
+// The TEXT never rides the ledger (修订 #6, the 0012 single-truth
+// discipline): the slot carries {sessionId, contentHash} only; the full
+// declare text lives in the session log and, best-effort, in the workspace
+// snapshot file .skyaxis/declares/<rid>/<wpId>-pending.md (seed) /
+// <wpId>-d<seq>.md (import) — host sole-writer, path never on the wire,
+// tamper surfaced as a read-time projection. Workspace-unarmed seeding
+// degrades honestly to hash-anchoring alone (the session log stays the
+// text source; the paste channel stays alive).
+//
+// Idempotency is TWO-dimensional (修订 #7): due = seed.sessionId ≠ the WP's
+// latest dev binding OR seed.contentHash ≠ the latest fence hash — a same
+// session's SECOND round (rework continuation) carries a new hash and
+// re-arms the slot; a hash-identical replay is an unchanged no-op (never a
+// miss, never a revision bump).
+// ---------------------------------------------------------------------------
+
+/** P2b commits 提议行 — optional per the field-evolution discipline (P1a seeds none). */
+export interface WorkbenchDevDeclareCommitsProposal {
+  readonly hash: string
+  readonly note: string
+  /** Set by the user's confirm click (P2b) — the only writer of wp.commits[] rows. */
+  readonly confirmedAt?: string
+}
+
+export interface WorkbenchDevDeclareSlot {
+  readonly seed: {
+    readonly sessionId: string
+    readonly contentHash: string
+    readonly seededAt: string
+  }
+  readonly adjudication: 'pending' | 'imported' | 'dismissed'
+  readonly adjudicatedAt?: string
+  /** P2b commits 提议行 — optional per the field-evolution discipline (P1a seeds none). */
+  readonly commits?: readonly WorkbenchDevDeclareCommitsProposal[]
+}
+
+/** One import receipt on the WP — append-only, host-minted (D12-②). */
+export interface WorkbenchDeclarationAnchor {
+  readonly seq: number
+  readonly at: string
+  readonly sessionId: string
+  readonly contentHash: string
+}
+
 export interface WorkbenchRecord {
   /**
    * Join key against requirements.yaml ids — tolerant join, no foreign key
@@ -692,6 +763,11 @@ export interface WorkbenchRecord {
    * discipline: absent = no split delivery has been bound yet.
    */
   readonly splitProposals?: WorkbenchSplitProposals
+  /**
+   * Dev-declare container (0016) — per-WP keyed slots, optional per the
+   * field-evolution discipline: absent = no declare ever seeded.
+   */
+  readonly devDeclares?: Readonly<Record<string, WorkbenchDevDeclareSlot>>
 }
 
 // ---------------------------------------------------------------------------
@@ -1170,6 +1246,8 @@ export type WorkbenchMutateRequestBody =
   | SeedSplitRequest
   | AdoptSplitProposalsRequest
   | DismissWorkPackageProposalRequest
+  | SeedDevDeclareRequest
+  | AdjudicateDevDeclareRequest
 
 // ---------------------------------------------------------------------------
 // Analysis-proposal actions (回传轮). The input schemas carry NO proposal
@@ -1310,6 +1388,49 @@ export interface DismissWorkPackageProposalRequest {
   readonly action: 'dismissWorkPackageProposal'
   readonly ref: string
 }
+
+// ---------------------------------------------------------------------------
+// Dev-declare actions (0016 P1a) — the seed/dismiss pair over the per-WP
+// keyed container. NO slot content rides the wire: seedDevDeclare names only
+// the work package (the endpoint derives the latest dev binding, reads the
+// session, extracts the fence, and hashes — the seedAnalysis division of
+// labor); adjudicateDevDeclare carries the DISMISS ruling only, because the
+// 'imported' arm is stamped exclusively by the declare-import route's atomic
+// commit (never a standalone client action).
+// ---------------------------------------------------------------------------
+
+export interface SeedDevDeclareRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'seedDevDeclare'
+  readonly workPackageId: string
+}
+
+export interface AdjudicateDevDeclareRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'adjudicateDevDeclare'
+  readonly workPackageId: string
+  /** Only 'dismissed' is client-writable — 'imported' belongs to the import route alone. */
+  readonly adjudication: 'dismissed'
+}
+
+/**
+ * Zero-write miss reasons for seedDevDeclare (the seedAnalysis observability
+ * discipline: the watcher row discloses WHY nothing was collected instead of
+ * failing silently). The declare-reader family (no-service/not-found/
+ * unreadable/no-declare-block) plus the dev-specific arms: no dev binding on
+ * the WP, the WP no longer in-dev (a race with the user's acceptance), and
+ * the fence naming a DIFFERENT package than the slot target.
+ */
+export type DevDeclareSeedMissing =
+  | 'no-service'
+  | 'not-found'
+  | 'unreadable'
+  | 'no-declare-block'
+  | 'no-binding'
+  | 'wp-not-in-dev'
+  | 'wp-mismatch'
 
 // ---------------------------------------------------------------------------
 // Knowledge base (P2) — a SEPARATE route with its own action union and its
@@ -1527,6 +1648,13 @@ export interface DeclarePreviewResponseOk {
   /** Whole-block rejection: entries/skipped are empty; the client keeps the text editable. */
   readonly blockError?: 'no-declare-block' | 'yaml-syntax'
   readonly blockErrorLine?: number
+  /**
+   * 0016 P1a, ADVISORY: true when devDeclare was requested and the slot's
+   * seed hash disagrees with the presented text (「会话文本已变化」— the user
+   * confirms and the commit proceeds; a fresh re-fetch is the honest fix).
+   * Never blocks (the same stale-badge discipline as contentTampered).
+   */
+  readonly declareStale?: boolean
 }
 
 export interface DeclareReport {
@@ -1555,6 +1683,14 @@ export interface DeclareImportRequestBody {
   readonly sessionId?: string
   /** Entry keys to import (commit only; unknown keys are ignored). */
   readonly selected?: readonly string[]
+  /**
+   * 0016 P1a: present = this import lands through a WP's devDeclare slot —
+   * the commit stamps the slot 'imported' + appends the declarations anchor
+   * + writes the persistent snapshot file in the SAME ledger save (atomic).
+   * Must equal the block's own workPackage scope (a mismatch is a client
+   * wiring bug, 400 — never a silent cross-WP stamp).
+   */
+  readonly devDeclare?: { readonly workPackageId: string }
 }
 
 /** SOW knowledge-injection caps (client-side assembly v1; mechanism fixed, values adjustable). */
@@ -1667,6 +1803,13 @@ export interface WorkbenchSaveResponseOk {
   readonly seedScan?: string
   /** True when the bound log held NO user message — the delivery SHELL (drives the client-side legacy repair). */
   readonly seedShell?: boolean
+  /**
+   * 0016 P1a: seedDevDeclare's zero-write miss (the devDeclare twin of
+   * seedMissing — its own closed enum so the S3 card's reason→dictionary map
+   * stays exhaustive, the SKIP_REASON_KEY discipline). Only seedDevDeclare
+   * ever sets it; a hash-identical replay is an unchanged 200 WITHOUT it.
+   */
+  readonly devSeedMissing?: DevDeclareSeedMissing
 }
 
 export interface ArtifactWriteResponseOk {
@@ -1828,11 +1971,52 @@ function isWorkbenchWorkPackage(v: unknown): v is WorkbenchWorkPackage {
     && (r.parallel === undefined || typeof r.parallel === 'boolean')
     && Array.isArray(r.covers) && r.covers.every((c) => isString(c) && c.length > 0)
     && isString(r.status) && WORK_PACKAGE_STATUSES.includes(r.status)
+    && (r.startedAt === undefined || (isString(r.startedAt) && r.startedAt.length > 0))
     && Array.isArray(r.plans) && r.plans.every(isPlanEntry)
     && Array.isArray(r.sessions) && r.sessions.every(isWorkbenchSessionBinding)
     && Array.isArray(r.commits) && r.commits.every(isWorkbenchCommitRef)
     && Array.isArray(r.acceptances) && r.acceptances.every(isWorkbenchAcceptance)
+    && (r.declarations === undefined || (Array.isArray(r.declarations) && r.declarations.every(isWorkbenchDeclarationAnchor)))
   )
+}
+
+function isWorkbenchDeclarationAnchor(v: unknown): v is WorkbenchDeclarationAnchor {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  return (
+    typeof r.seq === 'number' && Number.isInteger(r.seq) && r.seq >= 1
+    && isString(r.at) && r.at.length > 0
+    && isString(r.sessionId) && r.sessionId.length > 0
+    && isString(r.contentHash) && r.contentHash.length > 0
+  )
+}
+
+const DEV_DECLARE_ADJUDICATIONS = ['pending', 'imported', 'dismissed']
+
+function isWorkbenchDevDeclareSlot(v: unknown): v is WorkbenchDevDeclareSlot {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  if (typeof r.seed !== 'object' || r.seed === null) return false
+  const seed = r.seed as Record<string, unknown>
+  // Read-side leniency on contentHash (the analysis-container habit):
+  // presence + non-empty string, never format-checked on the wire.
+  if (
+    !isString(seed.sessionId) || seed.sessionId.length === 0
+    || !isString(seed.contentHash) || seed.contentHash.length === 0
+    || !isString(seed.seededAt) || seed.seededAt.length === 0
+  ) return false
+  if (!isString(r.adjudication) || !DEV_DECLARE_ADJUDICATIONS.includes(r.adjudication)) return false
+  if (r.adjudicatedAt !== undefined && (!isString(r.adjudicatedAt) || r.adjudicatedAt.length === 0)) return false
+  if (r.commits !== undefined) {
+    if (!Array.isArray(r.commits)) return false
+    for (const row of r.commits) {
+      if (typeof row !== 'object' || row === null) return false
+      const c = row as Record<string, unknown>
+      if (!isString(c.hash) || c.hash.length === 0 || !isString(c.note)) return false
+      if (c.confirmedAt !== undefined && (!isString(c.confirmedAt) || c.confirmedAt.length === 0)) return false
+    }
+  }
+  return true
 }
 
 function isWorkbenchFinding(v: unknown): v is WorkbenchFinding {
@@ -2119,6 +2303,9 @@ export function isWorkbenchRecord(v: unknown): v is WorkbenchRecord {
     && Array.isArray(r.knowledgeCandidates) && r.knowledgeCandidates.every(isKnowledgeCandidate)
     && (r.analysis === undefined || isWorkbenchAnalysisProposals(r.analysis))
     && (r.splitProposals === undefined || isWorkbenchSplitProposals(r.splitProposals))
+    && (r.devDeclares === undefined
+      || (typeof r.devDeclares === 'object' && r.devDeclares !== null
+        && Object.entries(r.devDeclares).every(([key, slot]) => isWorkPackageId(key) && isWorkbenchDevDeclareSlot(slot))))
   )
 }
 
@@ -2174,6 +2361,10 @@ export function isWorkbenchSaveResponseOk(v: unknown): v is WorkbenchSaveRespons
   }
   if (r.seedScan !== undefined && typeof r.seedScan !== 'string') return false
   if (r.seedShell !== undefined && typeof r.seedShell !== 'boolean') return false
+  if (r.devSeedMissing !== undefined) {
+    const reasons = ['no-service', 'not-found', 'unreadable', 'no-declare-block', 'no-binding', 'wp-not-in-dev', 'wp-mismatch']
+    if (typeof r.devSeedMissing !== 'string' || !reasons.includes(r.devSeedMissing)) return false
+  }
   return true
 }
 
@@ -2378,6 +2569,7 @@ export function isDeclarePreviewResponse(v: unknown): v is DeclarePreviewRespons
   if (!Array.isArray(r.skipped) || !r.skipped.every(isDeclareSkip)) return false
   if (r.blockError !== undefined && r.blockError !== 'no-declare-block' && r.blockError !== 'yaml-syntax') return false
   if (r.blockErrorLine !== undefined && typeof r.blockErrorLine !== 'number') return false
+  if (r.declareStale !== undefined && typeof r.declareStale !== 'boolean') return false
   return true
 }
 

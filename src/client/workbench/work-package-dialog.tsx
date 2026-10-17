@@ -17,6 +17,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { MarkdownText, Modal, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import { SessionPicker } from './session-picker.js'
 import { sessionChipState } from './session-strip.js'
+import { DeclarationCard } from './declaration-card.js'
 import { CopyTextButton } from './copy-text-button.js'
 import { WORKBENCH_ARTIFACT_MAX_CHARS } from '../../workbench-shared/protocol.js'
 import type { WorkbenchWorkPackage } from '../../workbench-shared/protocol.js'
@@ -311,6 +312,17 @@ export function WorkPackageDialog(props: {
 
       <div className={styles.wpDialogSection}>
         <div className={styles.sectionTitle}>{t('detail.acceptanceSection')}</div>
+        {/* 0016 P1a: the collected dev-declare batch's收取卡 — pending feeds
+            the import flow (slot stamped + receipt, atomically); imported/
+            dismissed collapse to receipt lines. No slot ⇒ no card. */}
+        <DeclarationCard
+          t={t}
+          requirementId={requirementId}
+          slot={slot}
+          controller={controller}
+          workPackage={workPackage}
+          sessions={props.sessions}
+        />
         {workPackage.status === 'built' ? (
           <div className={styles.formHint}>{t('detail.builtSourceManual')}</div>
         ) : null}

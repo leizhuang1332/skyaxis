@@ -11,7 +11,7 @@
  * overwriting a newer slot snapshot. Write outcomes update the slot in
  * place; conflict/not-found self-heal by re-pulling the slot.
  */
-import type { SeedMissingReason, WorkbenchFinding, WorkbenchKnowledgeRecord, WorkbenchRecord } from '../../workbench-shared/protocol.js'
+import type { DevDeclareSeedMissing, SeedMissingReason, WorkbenchFinding, WorkbenchKnowledgeRecord, WorkbenchRecord } from '../../workbench-shared/protocol.js'
 import type { WorkbenchStore } from './store.js'
 import type { WorkbenchFailure, WorkbenchFetcher, WorkbenchMutateResult } from './fetcher.js'
 import type { SplitBaselineInput } from './split-stale.js'
@@ -21,6 +21,14 @@ export interface SeedOutcome {
   readonly miss?: SeedMissingReason
   readonly scan?: string
   readonly shell?: boolean
+}
+
+/** seedDevDeclareQuiet outcome — landed = a slot exists after the call (miss = the disclosed zero-write reason);
+ *  revision = the response's post-call value (the register watcher threads it through its sequential sweep). */
+export interface DevSeedOutcome {
+  readonly landed: boolean
+  readonly miss?: DevDeclareSeedMissing
+  readonly revision?: number
 }
 
 /** importReview outcome — ok carries the seeded count + advisory blockError for honest disclosure. */
@@ -310,18 +318,21 @@ export function createWorkbenchController(store: WorkbenchStore, fetcher: Workbe
 
     /** Parse-only preview — dialog-local state, the store is untouched. The
      *  revision is read internally (the CURRENT slot); the anchor rule applies
-     *  to the REAL import, which must carry the revision the dry-run returned. */
-    declarePreview: (requirementId: string, text: string, signal?: AbortSignal) =>
-      fetcher.declarePreview(requirementId, slotRevision(requirementId), text, signal),
+     *  to the REAL import, which must carry the revision the dry-run returned.
+     *  0016: devDeclare threads the WP-slot key through (declareStale advisory). */
+    declarePreview: (requirementId: string, text: string, devDeclare?: { workPackageId: string }, signal?: AbortSignal) =>
+      fetcher.declarePreview(requirementId, slotRevision(requirementId), text, devDeclare, signal),
 
     /**
      * Real import: patches the slot in place on success (the commit response
      * carries the record) and hands the report back for the dialog's done
      * state. conflict/network stay in the RESULT — the dialog owns them.
+     * 0016: devDeclare stamps the slot imported + the declarations receipt
+     * atomically server-side.
      */
-    declareImport: async (requirementId: string, text: string, selected: readonly string[], expectedRevision: number, sessionId: string | undefined, signal?: AbortSignal) => {
+    declareImport: async (requirementId: string, text: string, selected: readonly string[], expectedRevision: number, sessionId: string | undefined, devDeclare?: { workPackageId: string }, signal?: AbortSignal) => {
       patchSlot(requirementId, { busy: true })
-      const result = await fetcher.declareImport(requirementId, expectedRevision, text, selected, sessionId, signal)
+      const result = await fetcher.declareImport(requirementId, expectedRevision, text, selected, sessionId, devDeclare, signal)
       if (!alive(result)) return undefined
       if (result.kind === 'ok') {
         patchSlot(requirementId, { busy: false, revision: result.committed.revision, record: result.committed.record, banner: undefined })
@@ -472,6 +483,64 @@ export function createWorkbenchController(store: WorkbenchStore, fetcher: Workbe
       mutate(requirementId, () => fetcher.adoptSplitProposals(requirementId, slotRevision(requirementId), refs, signal), signal),
     dismissWorkPackageProposal: (requirementId: string, ref: string, signal?: AbortSignal) =>
       mutate(requirementId, () => fetcher.dismissWorkPackageProposal(requirementId, slotRevision(requirementId), ref, signal), signal),
+
+    // --- 0016 P1a: dev-declare container ---
+
+    /** Delivery success → bind the dev session to its WP (the bindAnalysisSession twin: one bounded 409 retry). */
+    bindDevSession: async (requirementId: string, workPackageId: string, sessionId: string, signal?: AbortSignal): Promise<boolean> => {
+      const first = await mutate(requirementId, () => fetcher.bindSession(requirementId, slotRevision(requirementId), workPackageId, sessionId, 'dev', signal), signal)
+      if (first || disposed) return first
+      return mutate(requirementId, () => fetcher.bindSession(requirementId, slotRevision(requirementId), workPackageId, sessionId, 'dev', signal), signal)
+    },
+
+    /** User dismissal of a collected declaration batch (the card's 忽略 button — the mutate channel, unlike the seeds). */
+    adjudicateDevDeclare: (requirementId: string, workPackageId: string, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.adjudicateDevDeclare(requirementId, slotRevision(requirementId), workPackageId, signal), signal),
+
+    /** Card/view quiet seed face (the seedAnalysisQuiet twin): the CURRENT slot's revision, ok → in-place patch, the
+     *  zero-write miss returned for the card's disclosure, 409/404 → open() self-heal. */
+    seedDevDeclareQuiet: async (requirementId: string, workPackageId: string, signal?: AbortSignal): Promise<DevSeedOutcome | undefined> => {
+      const result = await fetcher.seedDevDeclare(requirementId, slotRevision(requirementId), workPackageId, signal)
+      if (!alive(result)) return undefined
+      if (result.kind === 'ok') {
+        patchSlot(requirementId, { revision: result.revision, record: result.record, banner: undefined })
+        return {
+          landed: result.devSeedMissing === undefined,
+          revision: result.revision,
+          ...(result.devSeedMissing !== undefined ? { miss: result.devSeedMissing } : {}),
+        }
+      }
+      if (result.kind === 'http-error' && (result.status === 409 || result.status === 404)) {
+        await open(requirementId, signal)
+      }
+      return undefined
+    },
+
+    /**
+     * REGISTER-LEVEL watcher seed face (decisions/0016 修订 #2 — the global
+     * completion signal must fire for requirements nobody is watching): the
+     * caller supplies the revision it holds (fetcher.list's global value) and
+     * a slot patches ONLY when one already exists — a never-opened requirement
+     * must not gain a phantom 'loading' slot here (the next open() reads the
+     * fresh ledger). 409/network stay silent: the next flip retries. The
+     * response's revision rides the outcome so the watcher's sequential sweep
+     * survives a landed write bumping the file revision.
+     */
+    seedDevDeclareDetached: async (requirementId: string, expectedRevision: number, workPackageId: string, signal?: AbortSignal): Promise<DevSeedOutcome | undefined> => {
+      const result = await fetcher.seedDevDeclare(requirementId, expectedRevision, workPackageId, signal)
+      if (!alive(result)) return undefined
+      if (result.kind === 'ok') {
+        if (store.getSnapshot().byRequirement[requirementId] !== undefined) {
+          patchSlot(requirementId, { revision: result.revision, record: result.record, banner: undefined })
+        }
+        return {
+          landed: result.devSeedMissing === undefined,
+          revision: result.revision,
+          ...(result.devSeedMissing !== undefined ? { miss: result.devSeedMissing } : {}),
+        }
+      }
+      return undefined
+    },
 
     editKnowledgeCandidate: (requirementId: string, id: string, candidate: { title: string; draft: string; type: 'business' | 'convention' }, signal?: AbortSignal) =>
       mutate(requirementId, () => fetcher.editKnowledgeCandidate(requirementId, slotRevision(requirementId), id, candidate, signal), signal),
