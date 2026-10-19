@@ -1261,6 +1261,10 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
         ...(body.devDeclare !== undefined && declareImportStale(base, body.devDeclare.workPackageId, contentHashOf(body.text))
           ? { declareStale: true }
           : {}),
+        // 0016 P2a: advisory delivery metadata (summary / files / verification)
+        ...(parse.declareSummary !== undefined ? { declareSummary: parse.declareSummary } : {}),
+        ...(parse.declareFiles !== undefined ? { declareFiles: parse.declareFiles } : {}),
+        ...(parse.declareVerification !== undefined ? { declareVerification: parse.declareVerification } : {}),
       }
       return json(preview)
     }

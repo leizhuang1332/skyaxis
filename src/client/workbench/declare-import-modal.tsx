@@ -20,7 +20,7 @@
  *    with the user (research §5.1); nothing lands anywhere.
  */
 import { useEffect, useState, type ReactNode } from 'react'
-import { Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Modal, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { DeclareEntry, DeclarePreviewResponseOk, DeclareReport, DeclareSkipReason } from '../../workbench-shared/protocol.js'
 import type { WorkbenchT } from './dictionary.js'
 import type { WorkbenchController } from './controller.js'
@@ -284,6 +284,35 @@ export function DeclareImportModal(props: {
       ) : phase.kind === 'preview' && preview !== null ? (
         <div className={styles.modalForm}>
           {preview.stageReady ? <div className={styles.formHint}>{t('declare.stageReadyProposal')}</div> : null}
+          {/* 0016 P2a: advisory delivery metadata — summary / files / verification */}
+          {preview.declareSummary !== undefined ? <div className={styles.formHint}>{t('declare.evidenceSummary')}{preview.declareSummary}</div> : null}
+          {preview.declareFiles !== undefined && preview.declareFiles.length > 0 ? (
+            <div className={styles.formField}>
+              <span>{t('declare.evidenceFiles')}</span>
+              <div className={styles.executionFileChanges}>
+                {preview.declareFiles.map((file) => <span key={file} className={styles.executionFileChip}>{file.split(/[\\/]/).pop()}</span>)}
+              </div>
+            </div>
+          ) : null}
+          {preview.declareVerification !== undefined && preview.declareVerification.length > 0 ? (
+            <div className={styles.formField}>
+              <span>{t('declare.evidenceVerification')}</span>
+              <ul className={styles.checkList}>
+                {preview.declareVerification.map((v, i) => (
+                  <li key={i} className={styles.checkRow}>
+                    <Tag tone={v.outcome.toLowerCase().includes('pass') || v.outcome.toLowerCase().includes('success') ? 'success' : 'warning'}>
+                      {v.outcome}
+                    </Tag>
+                    {' '}
+                    {v.command}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {preview.declareVerification === undefined || preview.declareVerification.length === 0 ? (
+            <div className={styles.formHint}>{t('declare.noEvidenceHint')}</div>
+          ) : null}
           {preview.declareStale === true ? <div className={styles.sowWarn} role="alert">{t('declare.textChangedHint')}</div> : null}
           {preview.entries.length === 0 ? <div className={styles.formHint}>{t('declare.empty')}</div> : null}
           {groups.map((group) => (

@@ -522,6 +522,13 @@
   justify-content: center;
 }
 
+/* 0016 P2a: the advance-row disclosure (准出披露行). */
+.advanceDisclosure {
+  font-size: 12px;
+  color: var(--color-text-tertiary, #888);
+  margin-right: 8px;
+}
+
 /* ===== 0016 P1c: inbox section ===== */
 
 .inboxSection {

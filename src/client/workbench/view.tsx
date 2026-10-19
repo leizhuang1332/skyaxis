@@ -734,6 +734,16 @@ export function WorkbenchTabBody(props: {
           </div>
           {nextStage !== null ? (
             <div className={styles.advanceRow}>
+              {/* 0016 P2a D5-A: 准出披露行——纯提示不阻断（阶段是指针不是闸门） */}
+              {record !== null && viewing === 'implement' && (() => {
+                const active = record.workPackages.filter((wp) => wp.status !== 'dropped')
+                const unaccepted = active.filter((wp) => wp.status !== 'accepted')
+                return unaccepted.length > 0 ? (
+                  <span className={styles.advanceDisclosure}>
+                    {t('advance.unacceptedCount').replaceAll('{n}', String(unaccepted.length))}
+                  </span>
+                ) : null
+              })()}
               {record !== null && viewing === 'understand' && readiness !== null && !readiness.finalized ? (
                 <button
                   type="button"

@@ -1747,6 +1747,12 @@ export interface DeclarePreviewResponseOk {
    * Never blocks (the same stale-badge discipline as contentTampered).
    */
   readonly declareStale?: boolean
+  /** 0016 P2a, ADVISORY: the declaration's self-described summary (delivery metadata — never gates the import). */
+  readonly declareSummary?: string
+  /** 0016 P2a, ADVISORY: the declaration's file-change list. */
+  readonly declareFiles?: readonly string[]
+  /** 0016 P2a, ADVISORY: the declaration's verification evidence (command + outcome pairs). */
+  readonly declareVerification?: readonly { command: string; outcome: string }[]
 }
 
 export interface DeclareReport {
@@ -2662,6 +2668,16 @@ export function isDeclarePreviewResponse(v: unknown): v is DeclarePreviewRespons
   if (r.blockError !== undefined && r.blockError !== 'no-declare-block' && r.blockError !== 'yaml-syntax') return false
   if (r.blockErrorLine !== undefined && typeof r.blockErrorLine !== 'number') return false
   if (r.declareStale !== undefined && typeof r.declareStale !== 'boolean') return false
+  if (r.declareSummary !== undefined && typeof r.declareSummary !== 'string') return false
+  if (r.declareFiles !== undefined && (!Array.isArray(r.declareFiles) || !r.declareFiles.every(isString))) return false
+  if (r.declareVerification !== undefined) {
+    if (!Array.isArray(r.declareVerification)) return false
+    for (const row of r.declareVerification) {
+      if (typeof row !== 'object' || row === null) return false
+      const v2 = row as Record<string, unknown>
+      if (typeof v2.command !== 'string' || typeof v2.outcome !== 'string') return false
+    }
+  }
   return true
 }
 

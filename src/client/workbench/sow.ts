@@ -394,6 +394,13 @@ function outputBlock(ctx: SowContext): string {
     // IMPLICIT_KEY 整块抛错，模型照抄会让声明块不可解析）。
     lines.push(
       `workPackage: ${ctx.workPackage.id}`,
+      // 0016 P2a: delivery metadata teaching — summary/files/verification
+      '# summary: 一句话总结本次交付做了什么',
+      '# files:',
+      '#   - src/foo.ts',
+      '# verification 每条 = 跑过的验证命令与结果（建议必附——工作台将向用户展示证据）:',
+      '#   - command: npm test',
+      '#     outcome: pass',
       'claims:',
       '  - built: true',
       '# artifacts 条目形如（type: sql|config|flag|mq|other）：',

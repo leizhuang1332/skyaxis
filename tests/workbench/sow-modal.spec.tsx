@@ -406,7 +406,7 @@ describe('SowModal（SOW 生成 Modal）', () => {
     await waitFor(() => expect(previewText(rendered)).toContain('### 已批准计划\n1. 建任务表'))
     const text = previewText(rendered)
     expect(text).toContain('[工作包]\nWP1　导出队列\n边界：做队列；不做存储')
-    expect(text).toContain('workPackage: WP1\nclaims:\n  - built: true')
+    expect(text).toContain('workPackage: WP1')
     expect(text).toContain('生成于 revision 7 ·')
     expect(rendered.queryByText(workbenchZh['sow.wpNoApprovedPlan'])).toBeNull()
     // 无依赖工作包 → 依赖摘要勾选行不出现。

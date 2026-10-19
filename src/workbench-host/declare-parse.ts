@@ -112,6 +112,10 @@ export interface DeclareParseSuccess {
   skipped: readonly DeclareSkip[]
   stageReady: boolean
   readonly proposals: DeclareProposals
+  /** 0016 P2a: advisory delivery metadata (summary / files / verification) — never gates the import. */
+  readonly declareSummary?: string
+  readonly declareFiles?: readonly string[]
+  readonly declareVerification?: readonly { command: string; outcome: string }[]
 }
 
 export interface DeclareParseBlockError {
@@ -456,5 +460,31 @@ export function parseDeclare(input: { text: string; record: WorkbenchRecord }): 
     })
   })
 
-  return { ok: true, entries, skipped, stageReady: doc.stageReady === true, proposals: { findings, criteria, clarifications, workPackages } }
+  // 0016 P2a: advisory delivery metadata — summary / files / verification.
+  // Duck-typed with per-field guards (the skip-don't-invent rule): a missing
+  // or wrong-typed field simply stays absent, never blocks the import.
+  const declareSummary = asString(doc.summary)?.trim() ?? undefined
+  const summary = declareSummary !== undefined && declareSummary.length > 0 ? declareSummary.slice(0, WORKBENCH_INLINE_MAX_CHARS) : undefined
+  const filesRaw = Array.isArray(doc.files) ? doc.files : []
+  const declareFiles = filesRaw
+    .filter((f): f is string => typeof f === 'string' && f.trim().length > 0)
+    .map((f) => f.trim())
+    .slice(0, 50)
+  const verificationRaw = Array.isArray(doc.verification) ? doc.verification : []
+  const declareVerification = verificationRaw
+    .filter((v): v is Record<string, unknown> => isRecord(v))
+    .map((v) => ({ command: asString(v.command)?.trim() ?? '', outcome: asString(v.outcome)?.trim() ?? '' }))
+    .filter((v) => v.command.length > 0)
+    .slice(0, 20)
+
+  return {
+    ok: true,
+    entries,
+    skipped,
+    stageReady: doc.stageReady === true,
+    proposals: { findings, criteria, clarifications, workPackages },
+    ...(summary !== undefined ? { declareSummary: summary } : {}),
+    ...(declareFiles.length > 0 ? { declareFiles } : {}),
+    ...(declareVerification.length > 0 ? { declareVerification } : {}),
+  }
 }

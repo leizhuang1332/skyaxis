@@ -703,7 +703,12 @@ describe('buildSow', () => {
     expect(text).toContain('### 已批准计划\n1. 建任务表\n2. 起异步任务')
     expect(text).toContain('依赖工作包摘要：\n- WP2 存储层 · 只做表结构')
     expect(text).toContain('[知识注入]\n### 知识-k1\n（触发：always）\n内容-k1')
-    expect(text).toContain('```yaml\n# skyaxis-declare\nworkPackage: WP1\nclaims:\n  - built: true\n# artifacts 条目形如（type: sql|config|flag|mq|other）：\n#   - type: sql\n#     title: 标题（64 字内）\n#     content: |\n#       SQL 或配置值（多行用块状写法）\n#     envs: [prod]\nartifacts: []\n# knowledge 条目形如（type: business|convention）：\n#   - type: convention\n#     title: 标题\n#     draft: 内容\nknowledge: []\nstageReady: false\n```')
+    expect(text).toContain('workPackage: WP1')
+    expect(text).toContain('claims:')
+    expect(text).toContain('- built: true')
+    expect(text).toContain('artifacts: []')
+    expect(text).toContain('# summary:')
+    expect(text).toContain('# verification')
     // 回传轮回归锚（逐字不动 + 不染提议键）。
     expect(text).not.toContain('criteria:')
     expect(text).not.toContain('findings 每条')

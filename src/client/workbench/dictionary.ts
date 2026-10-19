@@ -504,6 +504,13 @@ interface WorkbenchDictionary {
   readonly 'declare.doneCounts': string
   readonly 'declare.staleHint': string
   readonly 'declare.textChangedHint': string
+  // 0016 P2a: evidence advisory keys
+  readonly 'declare.evidenceSummary': string
+  readonly 'declare.evidenceFiles': string
+  readonly 'declare.evidenceVerification': string
+  readonly 'declare.noEvidenceHint': string
+  readonly 'declare.completionNotEvidence': string
+  readonly 'advance.unacceptedCount': string
   readonly 'declare.reparseButton': string
   readonly 'declare.miss.noService': string
   readonly 'declare.miss.notFound': string
@@ -1094,6 +1101,13 @@ const zh: WorkbenchDictionary = {
   'declare.doneCounts': 'built {b} · 上线项 {a} · 知识候选 {k} · 跳过 {s}',
   'declare.staleHint': '预览已过期（账本在预览后发生了变化）——请重新解析。',
   'declare.textChangedHint': '会话文本已变化（与收取时锚定的内容不一致）——建议重新抓取；确认无误可继续导入。',
+  // 0016 P2a: evidence advisory
+  'declare.evidenceSummary': '📋 交付自述：',
+  'declare.evidenceFiles': '📁 改动文件',
+  'declare.evidenceVerification': '✅ 验证证据',
+  'declare.noEvidenceHint': '⚠️ 本声明块未附验证证据——完成声明不是证据，建议先看证据再验收。',
+  'declare.completionNotEvidence': '完成声明不是证据——验收前请先查看验证证据与工作区。',
+  'advance.unacceptedCount': '{n} 项未验收',
   'declare.reparseButton': '重新解析',
   'declare.miss.noService': '宿主未提供会话读取服务——可手动到 S5 导入声明。',
   'declare.miss.notFound': '绑定会话不存在或已被清理——可重新关联或手动粘贴。',
@@ -1662,6 +1676,13 @@ const en: WorkbenchDictionary = {
   'declare.doneCounts': 'built {b} · release items {a} · knowledge {k} · skipped {s}',
   'declare.staleHint': 'The preview is stale (the ledger changed after it) — re-parse.',
   'declare.textChangedHint': 'The session text changed since collection (it disagrees with the anchored content) — re-fetch is advised; import only after verifying.',
+  // 0016 P2a: evidence advisory
+  'declare.evidenceSummary': '📋 Summary: ',
+  'declare.evidenceFiles': '📁 Files changed',
+  'declare.evidenceVerification': '✅ Verification evidence',
+  'declare.noEvidenceHint': '⚠️ No verification evidence attached — a completion claim is not evidence; review evidence before accepting.',
+  'declare.completionNotEvidence': 'A completion claim is not evidence — check verification and the workspace before accepting.',
+  'advance.unacceptedCount': '{n} unaccepted',
   'declare.reparseButton': 'Re-parse',
   'declare.miss.noService': 'The host does not mount the session-read service — import manually from S5.',
   'declare.miss.notFound': 'The bound session is gone — rebind or paste manually.',
