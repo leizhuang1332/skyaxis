@@ -537,6 +537,16 @@ interface WorkbenchDictionary {
   readonly 'execution.tokens': string
   readonly 'execution.turnN': string
   readonly 'execution.waitingForYou': string
+  // inbox.* — 0016 P1c 收件箱瘦身段
+  readonly 'inbox.groupPending': string
+  readonly 'inbox.groupStuck': string
+  readonly 'inbox.jumpToSession': string
+  readonly 'inbox.openDetail': string
+  readonly 'inbox.pendingSend': string
+  readonly 'inbox.sectionTitle': string
+  readonly 'inbox.stuckGone': string
+  readonly 'inbox.stuckIdle': string
+  readonly 'inbox.stuckNoBinding': string
   readonly 'declareCard.sectionTitle': string
   readonly 'declareCard.pendingTitle': string
   readonly 'declareCard.importButton': string
@@ -1125,6 +1135,16 @@ const zh: WorkbenchDictionary = {
   'execution.tokens': '{n} tokens',
   'execution.turnN': '—— 第 {n} 轮 ——',
   'execution.waitingForYou': '等你应答',
+  // inbox.* — 0016 P1c 收件箱瘦身段
+  'inbox.groupPending': '待发送',
+  'inbox.groupStuck': '卡哪·存疑',
+  'inbox.jumpToSession': '跳会话',
+  'inbox.openDetail': '查看详情',
+  'inbox.pendingSend': '待发送',
+  'inbox.sectionTitle': '需要你',
+  'inbox.stuckGone': '会话已不在列表',
+  'inbox.stuckIdle': '空闲且无收取记录',
+  'inbox.stuckNoBinding': '无 dev 绑定',
 
   // review.* — S4 评审视图（P4）
   'review.sectionTitle': '评审报告',
@@ -1683,6 +1703,16 @@ const en: WorkbenchDictionary = {
   'execution.tokens': '{n} tokens',
   'execution.turnN': '—— Turn {n} ——',
   'execution.waitingForYou': 'Waiting for you',
+  // inbox.* — 0016 P1c inbox section
+  'inbox.groupPending': 'Pending send',
+  'inbox.groupStuck': 'Stuck',
+  'inbox.jumpToSession': 'Jump',
+  'inbox.openDetail': 'Detail',
+  'inbox.pendingSend': 'Pending send',
+  'inbox.sectionTitle': 'Needs you',
+  'inbox.stuckGone': 'Session gone',
+  'inbox.stuckIdle': 'Idle, nothing collected',
+  'inbox.stuckNoBinding': 'No dev binding',
   // review.* — S4 review view (P4)
   'review.sectionTitle': 'Review reports',
   'review.importButton': '＋ Import report',

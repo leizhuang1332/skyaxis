@@ -34,6 +34,7 @@ import { WorkspaceDocSection } from './doc-section.js'
 import { splitResultRelPath } from '../../workbench-shared/protocol.js'
 import { BoardSection } from './board-section.js'
 import { ExecutionSection } from './execution-section.js'
+import { InboxSection } from './inbox-section.js'
 import { DeliverSection } from './deliver-section.js'
 import { ReviewSection } from './review-section.js'
 import { SessionStrip } from './session-strip.js'
@@ -463,6 +464,26 @@ export function WorkbenchTabBody(props: {
     })
   }
 
+  // 0016 P1c D11-A: focus/visibility 台账刷新——切回 tab 或窗口获焦时重拉当前
+  // 需求的台账，看板对新数据不再依赖写动作自愈。30s 节流共享 demand（短窗口
+  // 内的连续切换只触发一次重拉——单用户本地成本极低但也不白给）。
+  const lastFocusRefreshRef = useRef(0)
+  useEffect(() => {
+    const onVisible = (): void => {
+      if (document.visibilityState !== 'visible') return
+      const now = Date.now()
+      if (now - lastFocusRefreshRef.current < 30_000) return
+      lastFocusRefreshRef.current = now
+      void controller.open(requirementId)
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', onVisible)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', onVisible)
+    }
+  }, [controller, requirementId])
+
   return (
     <div className={styles.workbenchTab}>
       <div className={styles.stageRail} role="tablist" aria-label={t('workbench.railLabel')}>
@@ -642,6 +663,21 @@ export function WorkbenchTabBody(props: {
                 splitSeedDue={splitDue}
                 splitSeedMiss={splitDue ? splitSeedMiss : undefined}
                 onRetrySplitSeed={retrySplitSeed}
+              />
+            ) : null}
+            {record !== null && viewing === 'implement' && executionView === null ? (
+              <InboxSection
+                key={`inbox-${requirementId}`}
+                t={t}
+                record={record}
+                sessions={{ ids: sessionSummaries.ids, summariesById: sessionSummaries.byId }}
+                waitingIds={waitingIds}
+                onNavigateSession={(sessionId) => { sessionsFace.navigate(sessionId) }}
+                onOpenWorkPackage={(wpId) => {
+                  const wp = record.workPackages.find((w) => w.id === wpId)
+                  if (wp !== undefined) setSow({ purpose: 'dev', workPackage: wp })
+                }}
+                onStartWorkPackage={(wpId) => { void controller.startWorkPackage(requirementId, wpId) }}
               />
             ) : null}
             {record !== null && viewing === 'implement' && executionView === null ? (
