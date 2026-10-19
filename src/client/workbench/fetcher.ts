@@ -485,6 +485,10 @@ export function createWorkbenchFetcher() {
       return this.mutate({ expectedRevision, requirementId, action: 'adjudicateDevDeclare', workPackageId, adjudication: 'dismissed' }, signal)
     },
 
+    async confirmDevDeclareCommit(requirementId: string, expectedRevision: number, workPackageId: string, hash: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'confirmDevDeclareCommit', workPackageId, hash }, signal)
+    },
+
     async writePlan(requirementId: string, workPackageId: string, text: string, expectedRevision: number, note?: string, signal?: AbortSignal): Promise<WorkbenchArtifactWriteResult> {
       const query = new URLSearchParams({ kind: 'plan', requirementId, workPackageId, expectedRevision: String(expectedRevision) })
       if (note !== undefined) query.set('note', note)

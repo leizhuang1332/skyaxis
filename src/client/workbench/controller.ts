@@ -501,6 +501,10 @@ export function createWorkbenchController(store: WorkbenchStore, fetcher: Workbe
     adjudicateDevDeclare: (requirementId: string, workPackageId: string, signal?: AbortSignal) =>
       mutate(requirementId, () => fetcher.adjudicateDevDeclare(requirementId, slotRevision(requirementId), workPackageId, signal), signal),
 
+    /** 0016 P2b: confirm one commit proposal — appends to wp.commits[] (four-power: user confirms). */
+    confirmDevDeclareCommit: (requirementId: string, workPackageId: string, hash: string, signal?: AbortSignal) =>
+      mutate(requirementId, () => fetcher.confirmDevDeclareCommit(requirementId, slotRevision(requirementId), workPackageId, hash, signal), signal),
+
     /** Card/view quiet seed face (the seedAnalysisQuiet twin): the CURRENT slot's revision, ok → in-place patch, the
      *  zero-write miss returned for the card's disclosure, 409/404 → open() self-heal. */
     seedDevDeclareQuiet: async (requirementId: string, workPackageId: string, signal?: AbortSignal): Promise<DevSeedOutcome | undefined> => {

@@ -842,6 +842,14 @@ const AdjudicateDevDeclareSchema = z.object({
   adjudication: z.literal('dismissed'),
 })
 
+const ConfirmDevDeclareCommitSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  action: z.literal('confirmDevDeclareCommit'),
+  workPackageId: WorkPackageIdSchema,
+  hash: z.string().regex(/^[0-9a-f]{7,40}$/),
+})
+
 const ProposalActionSchema = z.object({
   expectedRevision: z.number().int().nonnegative(),
   requirementId: z.uuid(),
@@ -915,6 +923,7 @@ export const WorkbenchMutateSchema = z.discriminatedUnion('action', [
   DismissWorkPackageProposalSchema,
   SeedDevDeclareSchema,
   AdjudicateDevDeclareSchema,
+  ConfirmDevDeclareCommitSchema,
 ])
 
 // ---------------------------------------------------------------------------

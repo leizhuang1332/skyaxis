@@ -1248,6 +1248,7 @@ export type WorkbenchMutateRequestBody =
   | DismissWorkPackageProposalRequest
   | SeedDevDeclareRequest
   | AdjudicateDevDeclareRequest
+  | ConfirmDevDeclareCommitRequest
 
 // ---------------------------------------------------------------------------
 // Analysis-proposal actions (回传轮). The input schemas carry NO proposal
@@ -1413,6 +1414,15 @@ export interface AdjudicateDevDeclareRequest {
   readonly workPackageId: string
   /** Only 'dismissed' is client-writable — 'imported' belongs to the import route alone. */
   readonly adjudication: 'dismissed'
+}
+
+/** 0016 P2b: confirm one commit proposal — appends to wp.commits[] + stamps confirmedAt. */
+export interface ConfirmDevDeclareCommitRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'confirmDevDeclareCommit'
+  readonly workPackageId: string
+  readonly hash: string
 }
 
 /**

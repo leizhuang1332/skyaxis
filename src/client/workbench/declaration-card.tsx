@@ -15,6 +15,7 @@
  * slot snapshot — every action goes through the controller faces.
  */
 import { useState, type ReactNode } from 'react'
+import { Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { DevDeclareSeedMissing, WorkbenchWorkPackage } from '../../workbench-shared/protocol.js'
 import type { WorkbenchT } from './dictionary.js'
 import type { WorkbenchController } from './controller.js'
@@ -88,6 +89,10 @@ export function DeclarationCard(props: {
 
   const notInDev = props.workPackage.status !== 'in-dev' && props.workPackage.status !== 'built' && props.workPackage.status !== 'accepted'
 
+  // 0016 P2b: commit proposals from the slot — each gets a confirm button
+  const commitProposals = slotRow.commits ?? []
+  const unconfirmedCommits = commitProposals.filter((c) => c.confirmedAt === undefined)
+
   return (
     <div className={styles.formField}>
       <span>{t('declareCard.sectionTitle')}</span>
@@ -111,6 +116,33 @@ export function DeclarationCard(props: {
           {t('declareCard.retryButton')}
         </button>
       </div>
+      {/* 0016 P2b: commit proposals with confirm buttons —「未校验」标注 */}
+      {commitProposals.length > 0 ? (
+        <div className={styles.inboxGroup}>
+          <span className={styles.inboxGroupLabel}>{t('declareCard.commitsTitle')}</span>
+          {commitProposals.map((commit) => (
+            <div key={commit.hash} className={styles.inboxRow}>
+              <code className={styles.executionFileChip}>{commit.hash.slice(0, 8)}</code>
+              <span className={styles.inboxRowLabel}>{commit.note}</span>
+              {commit.confirmedAt !== undefined ? (
+                <Tag tone="success">✓ {t('declareCard.commitConfirmed')}</Tag>
+              ) : (
+                <>
+                  <Tag tone="warning">{t('declareCard.commitUnverified')}</Tag>
+                  <button
+                    type="button"
+                    className={styles.ghostButton}
+                    disabled={slot.busy}
+                    onClick={() => { void controller.confirmDevDeclareCommit(requirementId, props.workPackage.id, commit.hash) }}
+                  >
+                    {t('declareCard.commitConfirm')}
+                  </button>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : null}
       <DeclareImportModal
         t={t}
         open={importOpen}

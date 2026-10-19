@@ -336,6 +336,12 @@ export function applyRecordAction(base: WorkbenchRecord, body: WorkbenchMutateRe
     }
   }
 
+  // 0016 P2b: commit confirmation — appends to wp.commits[] (four-power:
+  // only the user confirms; the AI's hash is data, the confirm is a ruling).
+  if (body.action === 'confirmDevDeclareCommit') {
+    return confirmDevDeclareCommit(base, body.workPackageId, body.hash)
+  }
+
   // 0016 P1a: dev-declare dismissal — the container family's plain action
   // (outside the lifecycle lock: adjudicating a collected declaration is the
   // USER's ruling over AI-proposed content, the dismissKnowledgeCandidate
@@ -1314,6 +1320,8 @@ export interface DevDeclareSeedInput {
   readonly workPackageId: string
   readonly sessionId: string
   readonly contentHash: string
+  /** 0016 P2b: commit proposals from the declare block — stored in the slot, confirmed by user action. */
+  readonly commits?: readonly { hash: string; note: string }[]
 }
 
 export function applyDevDeclareSeed(base: WorkbenchRecord, input: DevDeclareSeedInput): RecordActionResult {
@@ -1333,6 +1341,48 @@ export function applyDevDeclareSeed(base: WorkbenchRecord, input: DevDeclareSeed
         [input.workPackageId]: {
           seed: { sessionId: input.sessionId, contentHash: input.contentHash, seededAt: now() },
           adjudication: 'pending',
+          ...(input.commits !== undefined && input.commits.length > 0
+            ? { commits: input.commits.map((c) => ({ hash: c.hash, note: c.note })) }
+            : {}),
+        },
+      },
+    },
+  }
+}
+
+/**
+ * 0016 P2b: confirm one commit proposal — appends to wp.commits[] (the dead
+ * field activates) and stamps confirmedAt on the slot's proposal row. The
+ * WRITE is user-only (the four-power discipline); the AI's hash is marked
+ * 「未校验」 in the UI (data quality, not a red line — D3 ruling).
+ */
+export function confirmDevDeclareCommit(
+  base: WorkbenchRecord,
+  workPackageId: string,
+  commitHash: string,
+): RecordActionResult {
+  const workPackage = base.workPackages.find((candidate) => candidate.id === workPackageId)
+  if (workPackage === undefined) return fail(404, 'not-found')
+  const slot = base.devDeclares?.[workPackageId]
+  if (slot === undefined) return fail(404, 'not-found')
+  const proposal = slot.commits?.find((c) => c.hash === commitHash && c.confirmedAt === undefined)
+  if (proposal === undefined) return fail(404, 'not-found')
+  const at = now()
+  return {
+    ok: true,
+    record: {
+      ...base,
+      workPackages: base.workPackages.map((wp) => wp.id === workPackageId
+        ? {
+          ...wp,
+          commits: [...wp.commits, { hash: proposal.hash, note: proposal.note, at }],
+        }
+        : wp),
+      devDeclares: {
+        ...base.devDeclares,
+        [workPackageId]: {
+          ...slot,
+          commits: (slot.commits ?? []).map((c) => c.hash === commitHash ? { ...c, confirmedAt: at } : c),
         },
       },
     },

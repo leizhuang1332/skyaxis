@@ -116,6 +116,8 @@ export interface DeclareParseSuccess {
   readonly declareSummary?: string
   readonly declareFiles?: readonly string[]
   readonly declareVerification?: readonly { command: string; outcome: string }[]
+  /** 0016 P2b: commit proposals — hash+note pairs the user confirms into wp.commits[]（未校验标注）. */
+  readonly declareCommits?: readonly { hash: string; note: string }[]
 }
 
 export interface DeclareParseBlockError {
@@ -477,6 +479,14 @@ export function parseDeclare(input: { text: string; record: WorkbenchRecord }): 
     .filter((v) => v.command.length > 0)
     .slice(0, 20)
 
+  // 0016 P2b: commit proposals — hash+note pairs, individually guarded.
+  const commitsRaw = Array.isArray(doc.commits) ? doc.commits : []
+  const declareCommits = commitsRaw
+    .filter((c): c is Record<string, unknown> => isRecord(c))
+    .map((c) => ({ hash: asString(c.hash)?.trim() ?? '', note: asString(c.note)?.trim() ?? '' }))
+    .filter((c) => /^[0-9a-f]{7,40}$/.test(c.hash)) // git sha pattern guard
+    .slice(0, 20)
+
   return {
     ok: true,
     entries,
@@ -486,5 +496,6 @@ export function parseDeclare(input: { text: string; record: WorkbenchRecord }): 
     ...(summary !== undefined ? { declareSummary: summary } : {}),
     ...(declareFiles.length > 0 ? { declareFiles } : {}),
     ...(declareVerification.length > 0 ? { declareVerification } : {}),
+    ...(declareCommits.length > 0 ? { declareCommits } : {}),
   }
 }

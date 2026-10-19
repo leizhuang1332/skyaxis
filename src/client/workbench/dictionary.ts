@@ -561,6 +561,10 @@ interface WorkbenchDictionary {
   readonly 'declareCard.retryButton': string
   readonly 'declareCard.importedLine': string
   readonly 'declareCard.needInDevHint': string
+  readonly 'declareCard.commitsTitle': string
+  readonly 'declareCard.commitConfirmed': string
+  readonly 'declareCard.commitUnverified': string
+  readonly 'declareCard.commitConfirm': string
   readonly 'declareCard.dismissedLine': string
   // review.* — S4 评审视图（P4：报告导入 + 手动裁决行 + PRD 覆盖矩阵）
   readonly 'review.sectionTitle': string
@@ -1117,6 +1121,10 @@ const zh: WorkbenchDictionary = {
   'declare.miss.wpNotInDev': '工作包不在开发中（未开始或已完成）——开始开发后收取。',
   'declare.miss.wpMismatch': '声明块指向了别的工作包——未收取。',
   // declareCard.* — 0016 P1a 声明收取卡
+  'declareCard.commitsTitle': 'commit 记录（AI 报告，未校验）',
+  'declareCard.commitConfirmed': '已确认',
+  'declareCard.commitUnverified': '未校验',
+  'declareCard.commitConfirm': '确认入账',
   'declareCard.sectionTitle': '声明收取',
   'declareCard.pendingTitle': 'AI 完成声明待处理（来自会话 {s} · 收取于 {at}）',
   'declareCard.importButton': '导入声明',
@@ -1692,6 +1700,10 @@ const en: WorkbenchDictionary = {
   'declare.miss.wpNotInDev': 'The package is not in dev (not started or already done) — collect after starting it.',
   'declare.miss.wpMismatch': 'The declare block names a different package — not collected.',
   // declareCard.* — 0016 P1a declaration collection card
+  'declareCard.commitsTitle': 'Commits (AI-reported, unverified)',
+  'declareCard.commitConfirmed': 'Confirmed',
+  'declareCard.commitUnverified': 'Unverified',
+  'declareCard.commitConfirm': 'Confirm',
   'declareCard.sectionTitle': 'Declaration',
   'declareCard.pendingTitle': 'AI completion declaration awaiting review (from session {s} · collected {at})',
   'declareCard.importButton': 'Import declaration',

@@ -620,10 +620,15 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
       return json({ ok: true, revision: writeRevision, record, devSeedMissing: 'wp-mismatch' })
     }
     const hash = contentHashOf(read.text)
+    // 0016 P2b: parse the fence for commit proposals — a light second parse
+    // (the main parseDeclare call happens in the import flow, not here).
+    const declareParsed = parseDeclare({ text: read.text, record })
+    const seedCommits = declareParsed.ok ? declareParsed.declareCommits : undefined
     const applied = applyDevDeclareSeed(record, {
       workPackageId: body.workPackageId,
       sessionId: targetSession,
       contentHash: hash,
+      ...(seedCommits !== undefined ? { commits: seedCommits } : {}),
     })
     if (!applied.ok) return errorResponse(applied.status, applied.code)
     if (applied.unchanged === true) {
