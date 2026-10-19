@@ -169,7 +169,7 @@ export function BoardSection(props: {
                       </button>
                     </div>
                   ) : null}
-                  {props.onOpenExecution !== undefined && (workPackage.status === 'in-dev' || workPackage.status === 'built') && latestDev !== undefined ? (
+                  {props.onOpenExecution !== undefined && workPackage.status !== 'dropped' && latestDev !== undefined ? (
                     <div className={styles.boardCardActions}>
                       <button
                         type="button"
