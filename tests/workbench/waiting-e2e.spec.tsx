@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
 /**
  * P2b end-to-end chain (acceptance-failure diagnostic): real cordis Context +
- * a uiSession provider + the real tracker + the real seat body. The strip
- * unit tests only ever passed a STATIC Set — this is the first test that
- * proves a live publish re-renders the chip to the amber waiting state.
+ * a uiSession provider + the real tracker + the real seat body. The pure
+ * chip-state tests only ever pass STATIC booleans — this is the test that
+ * proves a live publish re-renders a visible surface to the waiting state.
+ * 0017 修订重锚：会话条退役后，可见承载面改为 S3 看板卡的 waiting 角标
+ * （execution.waitingForYou Tag）与直播行（execution.liveRunning）。
  */
 import { afterEach, describe, expect, it } from 'vitest'
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Context } from '@deepseek-ai/cordis'
 import type { WorkbenchRecord } from '../../src/workbench-shared/protocol.js'
 import type { RequirementRecord } from '../../src/requirements-shared/protocol.js'
@@ -32,6 +34,9 @@ const record: WorkbenchRecord = {
   requirementId: RID,
   stage: 'implement',
   stageHistory: [{ stage: 'implement', at: AT }],
+  // 0017 修订重锚注记：看板（新断言承载面）在硬门①后渲染——strip 是跨阶段面
+  // 从不需要它；重锚后 fixture 必须带 splitApprovedAt。
+  splitApprovedAt: AT,
   criteria: [],
   findings: [],
   workPackages: [{
@@ -64,8 +69,8 @@ const tick = (): Promise<void> => new Promise((resolve) => { setTimeout(resolve,
 
 afterEach(() => { cleanup() })
 
-describe('P2b 端到端：uiSession 发布 → strip 第四态', () => {
-  it('a live publish flips the bound chip to amber 待输入 (and back on removal)', async () => {
+describe('P2b 端到端：uiSession 发布 → 看板 waiting 角标（0017 修订重锚）', () => {
+  it('a live publish flips the WP card to 待输入 tag (and back on removal)', async () => {
     const face = fakeFace()
     const ctx = new Context()
     await ctx.plugin((c: Context) => { c.provide('uiSession', { pendingInteractions: face } as never) }).await()
@@ -95,32 +100,32 @@ describe('P2b 端到端：uiSession 发布 → strip 第四态', () => {
       />,
     )
 
-    // Baseline: running, not waiting.
-    expect(screen.queryByText(workbenchZh['session.stateWaiting'])).toBeNull()
-    expect(screen.getByText(workbenchZh['session.stateRunning'])).toBeTruthy()
+    // ③ 看板在场 + 基线：直播行（running），无 waiting 角标。
+    fireEvent.click(screen.getByRole('tab', { name: /执行实施/ }))
+    await waitFor(() => expect(screen.getByText(`● ${workbenchZh['execution.liveRunning']}`)).toBeTruthy())
+    expect(screen.queryByText(workbenchZh['execution.waitingForYou'])).toBeNull()
 
     // The GUI answerer publishes the pending interaction for this session.
     act(() => {
       face.map.set(SID, { kind: 'question' })
       for (const listener of [...face.listeners]) listener()
     })
-    await waitFor(() => expect(screen.getByText(workbenchZh['session.stateWaiting'])).toBeTruthy())
-    expect(screen.queryByText(workbenchZh['session.stateRunning'])).toBeNull()
+    await waitFor(() => expect(screen.getByText(workbenchZh['execution.waitingForYou'])).toBeTruthy())
 
-    // Answered → removed → back to running (running is still true on the summary).
+    // Answered → removed → back to live-only (running is still true on the summary).
     act(() => {
       face.map.delete(SID)
       for (const listener of [...face.listeners]) listener()
     })
-    await waitFor(() => expect(screen.queryByText(workbenchZh['session.stateWaiting'])).toBeNull())
-    expect(screen.getByText(workbenchZh['session.stateRunning'])).toBeTruthy()
+    await waitFor(() => expect(screen.queryByText(workbenchZh['execution.waitingForYou'])).toBeNull())
+    expect(screen.getByText(`● ${workbenchZh['execution.liveRunning']}`)).toBeTruthy()
 
     tracker.dispose()
   })
 })
 
 describe('P2b seat 穿线回归（验收缺陷 168e80b 的钉子）', () => {
-  it('waiting face reaches the strip THROUGH the seat wrapper (not only via direct Body render)', async () => {
+  it('waiting face reaches the board card THROUGH the seat wrapper (not only via direct Body render)', async () => {
     // The acceptance failure was a dropped prop at the seat boundary:
     // WorkbenchSeat declared waiting but never forwarded it to
     // WorkbenchTabBody. Rendering Body directly (the test above) could not
@@ -151,16 +156,18 @@ describe('P2b seat 穿线回归（验收缺陷 168e80b 的钉子）', () => {
       waiting: tracker,
     })
     render(<Seat requirement={requirement} />)
-    await waitFor(() => expect(screen.getByText(workbenchZh['session.stateRunning'])).toBeTruthy())
+    // 记录到位锚（0017 修订：会话条退役——ready 后点 ③ 看板，直播行为在场见证）。
+    await waitFor(() => expect(screen.getByRole('tab', { name: /执行实施/ })).toBeTruthy())
+    fireEvent.click(screen.getByRole('tab', { name: /执行实施/ }))
+    await waitFor(() => expect(screen.getByText(`● ${workbenchZh['execution.liveRunning']}`)).toBeTruthy())
 
     act(() => {
       face.map.set(SID, { kind: 'question' })
       for (const listener of [...face.listeners]) listener()
     })
-    // Through the seat: the chip must flip to 待输入. Before the fix this
-    // stayed 运行中 forever.
-    await waitFor(() => expect(screen.getByText(workbenchZh['session.stateWaiting'])).toBeTruthy())
-    expect(screen.queryByText(workbenchZh['session.stateRunning'])).toBeNull()
+    // Through the seat: the card must flip to 待输入角标. Before the fix this
+    // stayed live-only forever.
+    await waitFor(() => expect(screen.getByText(workbenchZh['execution.waitingForYou'])).toBeTruthy())
 
     tracker.dispose()
   })

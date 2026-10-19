@@ -9,7 +9,7 @@
  */
 import { useEffect, useState, type ReactNode } from 'react'
 import { Modal, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
-import { sessionChipState } from './session-strip.js'
+import { sessionChipState } from './session-chip.js'
 import type { WorkbenchSessionBinding } from '../../workbench-shared/protocol.js'
 import type { WorkbenchT } from './dictionary.js'
 import styles from './view.module.css'

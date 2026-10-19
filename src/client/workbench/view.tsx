@@ -37,7 +37,6 @@ import { ExecutionSection } from './execution-section.js'
 import { InboxSection } from './inbox-section.js'
 import { DeliverSection } from './deliver-section.js'
 import { ReviewSection } from './review-section.js'
-import { SessionStrip } from './session-strip.js'
 import { KnowledgeSection } from './knowledge-section.js'
 import { SowModal } from './sow-modal.js'
 import { devTitleBindTargets } from './dev-watcher.js'
@@ -157,8 +156,8 @@ function understandReadiness(record: WorkbenchRecord): {
   }
 }
 
-/** The live-session summary face the strip/picker consume (register.tsx owns the real impl; tests inject). */
-export interface SessionStripSummary {
+/** The live-session summary face the dialog/picker/inbox/execution consume (register.tsx owns the real impl; tests inject; ex SessionStripSummary — strip retired 0017). */
+export interface WorkbenchSessionSummary {
   readonly id: string
   readonly displayTitle: string
   readonly running: boolean
@@ -167,7 +166,7 @@ export interface SessionStripSummary {
 
 export interface WorkbenchSessionsFace {
   readonly ids: readonly string[]
-  readonly summariesById: Readonly<Record<string, SessionStripSummary | undefined>>
+  readonly summariesById: Readonly<Record<string, WorkbenchSessionSummary | undefined>>
   subscribe(listener: () => void): () => void
   navigate(sessionId: string): void
 }
@@ -528,20 +527,9 @@ export function WorkbenchTabBody(props: {
             </div>
           ) : null}
           {stage === 'closed' ? <div className={styles.closedNotice}>{t('advance.closed')}</div> : null}
-          {record !== null ? (
-            <SessionStrip
-              t={t}
-              record={record}
-              requirement={{ id: requirementId, title: props.requirement.title }}
-              summaries={sessionSummaries.ids.flatMap((id) => {
-                const summary = sessionSummaries.byId[id]
-                return summary === undefined ? [] : [summary]
-              })}
-              waitingIds={waitingIds}
-              navigableIds={sessionsFace.ids}
-              onNavigate={(sessionId) => { sessionsFace.navigate(sessionId) }}
-            />
-          ) : null}
+          {/* 0017 修订：跨阶段会话条退役（用户裁定——append-only 绑定随 v3 投递
+              即绑持续累积成「chip 墙」）；会话入口收敛为 WP 详情会话行 + 收件箱
+              「跳会话」+ 执行视图「跳宿主会话」。 */}
           <div className={styles.stageView} role="tabpanel" aria-label={t(STAGE_LABEL_KEY[viewing])}>
             {record === null ? (
               <div className={styles.guideSection}>
@@ -681,7 +669,7 @@ export function WorkbenchTabBody(props: {
               />
             ) : null}
             {record !== null && viewing === 'implement' && executionView === null ? (
-              <BoardSection key={`board-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} sessions={sessionsFace} waitingIds={waitingIds} onOpenSow={(workPackage) => { setSow({ purpose: 'dev', workPackage }) }} onOpenExecution={(workPackage) => { setExecutionView(workPackage) }} />
+              <BoardSection key={`board-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} sessions={sessionsFace} waitingIds={waitingIds} onNavigateSession={(sessionId) => { sessionsFace.navigate(sessionId) }} onOpenSow={(workPackage) => { setSow({ purpose: 'dev', workPackage }) }} onOpenExecution={(workPackage) => { setExecutionView(workPackage) }} />
             ) : null}
             {record !== null && viewing === 'implement' && executionView !== null ? (
               <ExecutionSection

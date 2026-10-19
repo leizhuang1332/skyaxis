@@ -165,8 +165,11 @@ describe('seat round-trip: S5 导入声明的 sessions 穿线（P3b 钉）', () 
     const Seat = createWorkbenchTabSeat({ t: (key) => (workbenchZh as unknown as Record<string, string>)[key] ?? key, store, controller, sessions })
     render(<Seat requirement={requirement} />)
 
-    // 记录到位锚：session 条渲染出绑定会话（本夹具无 releaseItems，无徽章可锚）。
-    await waitFor(() => expect(screen.getByText(/WP1·开发 声明会话/)).toBeTruthy())
+    // 记录到位锚（0017 修订：会话条退役）。见证必须是**记录衍生物**——rail 徽章
+    // 「1 工作包」只在 record 就绪（ready + mount-sync 已跑）后渲染；若只看
+    // 「某 tab 被选中」（viewing 初始即 understand，① 首帧就选中）则点击会
+    // 撞进 store 落账前的窗口，被 mount-sync 的 setViewing(stage) 覆盖。
+    await waitFor(() => expect(screen.getByRole('tab', { name: /② 探索规划 1 工作包/ })).toBeTruthy())
     fireEvent.click(screen.getByRole('tab', { name: /交付/ }))
     await waitFor(() => expect(screen.getByText(workbenchZh['release.sectionTitle'])).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: workbenchZh['declare.importButton'] }))
@@ -243,8 +246,9 @@ describe('seat round-trip: S4 评审节穿线（P5b 钉）', () => {
     const Seat = createWorkbenchTabSeat({ t: (key) => (workbenchZh as unknown as Record<string, string>)[key] ?? key, store, controller, sessions })
     render(<Seat requirement={requirement} />)
 
-    // 记录到位锚：session 条渲染出绑定会话。
-    await waitFor(() => expect(screen.getByText(/评审·09-27/)).toBeTruthy())
+    // 记录到位锚（0017 修订：会话条退役）——记录衍生徽章见证（同 S5 钉：
+    // 防点击撞进 store 落账前窗口被 mount-sync 覆盖）。
+    await waitFor(() => expect(screen.getByRole('tab', { name: /② 探索规划 1 工作包/ })).toBeTruthy())
     fireEvent.click(screen.getByRole('tab', { name: /评审/ }))
     await waitFor(() => expect(screen.getByText(workbenchZh['review.sectionTitle'])).toBeTruthy())
 

@@ -14,9 +14,9 @@
  * approved/archived versions only disclose.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { MarkdownText, Modal, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
+import { MarkdownText, Modal, StateDot, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import { SessionPicker } from './session-picker.js'
-import { sessionChipState } from './session-strip.js'
+import { sessionChipState } from './session-chip.js'
 import { DeclarationCard } from './declaration-card.js'
 import { CopyTextButton } from './copy-text-button.js'
 import { WORKBENCH_ARTIFACT_MAX_CHARS } from '../../workbench-shared/protocol.js'
@@ -61,6 +61,8 @@ export function WorkPackageDialog(props: {
   sessions?: { ids: readonly string[]; summariesById: Readonly<Record<string, { id: string; displayTitle: string; running: boolean; blank: boolean } | undefined>> }
   /** SessionIds with a pending approval/question (P2b fourth state). */
   waitingIds?: ReadonlySet<string>
+  /** 0017 修订：会话条退役后 WP 详情是会话入口——行点击跳 DSH 会话页（register.navigate：open+selectPanel 官方尾巴）。 */
+  onNavigateSession?: (sessionId: string) => void
   onOpenSow?: (workPackage: WorkbenchWorkPackage) => void
   onClose: () => void
 }): ReactNode {
@@ -277,18 +279,43 @@ export function WorkPackageDialog(props: {
         {workPackage.sessions.length === 0 ? <div className={styles.formHint}>{t('session.pickerHint')}</div> : null}
         {workPackage.sessions.map((binding) => {
           const summary = props.sessions?.summariesById[binding.sessionId]
+          const chip = summary === undefined ? null : sessionChipState(props.waitingIds?.has(binding.sessionId) ?? false, summary.running, summary.blank)
+          const title = (
+            <>
+              {binding.sessionId.slice(0, 8)} {summary !== undefined ? summary.displayTitle : t('session.stateGone')}
+            </>
+          )
+          const meta = (
+            <div className={styles.findingRowMeta}>
+              {binding.purpose === 'analysis' ? t('session.purposeAnalysis') : binding.purpose === 'dev' ? t('session.purposeDev') : t('session.purposeReview')}
+              {' · '}
+              {chip === null ? t('session.stateGone') : t(chip.labelKey)}
+              {' · '}
+              {t('session.boundAtPrefix')} {binding.boundAt}
+            </div>
+          )
+          // 0017 修订：在场会话行=可点入按钮（跳 DSH 会话页）；消亡绑定（会话已
+          // 离开列表）保持只读行——诚实于死引用，不做假可点。
+          if (summary !== undefined && props.onNavigateSession !== undefined) {
+            return (
+              <button
+                key={binding.sessionId + binding.purpose}
+                type="button"
+                className={`${styles.findingRow} ${styles.sessionRowButton}`}
+                onClick={() => { props.onNavigateSession?.(binding.sessionId) }}
+              >
+                <div className={styles.findingRowTitle}>
+                  <StateDot state={chip?.dot ?? 'idle'} />
+                  {title}
+                </div>
+                {meta}
+              </button>
+            )
+          }
           return (
             <div key={binding.sessionId + binding.purpose} className={styles.findingRow}>
-              <div className={styles.findingRowTitle}>
-                {binding.sessionId.slice(0, 8)} {summary !== undefined ? summary.displayTitle : t('session.stateGone')}
-              </div>
-              <div className={styles.findingRowMeta}>
-                {binding.purpose === 'analysis' ? t('session.purposeAnalysis') : binding.purpose === 'dev' ? t('session.purposeDev') : t('session.purposeReview')}
-                {' · '}
-                {summary === undefined ? t('session.stateGone') : t(sessionChipState(props.waitingIds?.has(binding.sessionId) ?? false, summary.running, summary.blank).labelKey)}
-                {' · '}
-                {t('session.boundAtPrefix')} {binding.boundAt}
-              </div>
+              <div className={styles.findingRowTitle}>{title}</div>
+              {meta}
             </div>
           )
         })}

@@ -499,8 +499,6 @@ describe('workbench: dictionaries', () => {
       'session.stateIdle',
       'session.stateRunning',
       'session.stateWaiting',
-      'session.stripEmptyHint',
-      'session.stripLabel',
       'sheet.copied',
       'sheet.copy',
       'sheet.copyFailed',

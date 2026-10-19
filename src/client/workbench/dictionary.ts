@@ -331,8 +331,6 @@ interface WorkbenchDictionary {
   readonly 'scan.refresh': string
   readonly 'scan.title': string
   readonly 'scan.trash': string
-  readonly 'session.stripLabel': string
-  readonly 'session.stripEmptyHint': string
   readonly 'session.stateWaiting': string
   readonly 'session.stateRunning': string
   readonly 'session.stateIdle': string
@@ -933,8 +931,6 @@ const zh: WorkbenchDictionary = {
   'scan.refresh': '刷新',
   'scan.title': '产物对账（只读）',
   'scan.trash': '.trash（已删除需求）',
-  'session.stripLabel': '关联 session（{n}）',
-  'session.stripEmptyHint': '还没有关联 session：生成任务书 → 粘贴到新会话 → 回来在 S3 详情里关联。',
   'session.stateWaiting': '待输入',
   'session.stateRunning': '运行中',
   'session.stateIdle': '空闲',
@@ -1512,8 +1508,6 @@ const en: WorkbenchDictionary = {
   'scan.refresh': 'Refresh',
   'scan.title': 'Artifact reconciliation (read-only)',
   'scan.trash': '.trash (deleted requirements)',
-  'session.stripLabel': 'Linked sessions ({n})',
-  'session.stripEmptyHint': 'No linked sessions yet: generate a statement of work → paste it into a new session → come back and bind it from the S3 detail dialog.',
   'session.stateWaiting': 'waiting for input',
   'session.stateRunning': 'running',
   'session.stateIdle': 'idle',

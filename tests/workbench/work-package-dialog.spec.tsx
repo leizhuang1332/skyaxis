@@ -113,6 +113,36 @@ const tick = async (): Promise<void> => {
 }
 
 describe('WorkPackageDialog（S3 详情 Modal + 硬门②）', () => {
+  it('0017 修订：会话行=会话入口——在场绑定行可点（onNavigateSession(sessionId)），消亡绑定只读行', () => {
+    const onNavigateSession = vi.fn()
+    const workPackage = wp('WP1', {
+      status: 'in-dev',
+      sessions: [
+        { sessionId: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeffff0000', purpose: 'dev' as const, boundAt: AT },
+        { sessionId: 'deadbeef-1234-4abc-9def-aabbccddeeff', purpose: 'dev' as const, boundAt: AT },
+      ],
+    })
+    render(
+      <WorkPackageDialog
+        t={bindZh()}
+        workPackage={workPackage}
+        slot={slot()}
+        controller={fakeController()}
+        requirementId={RID}
+        sessions={{ ids: ['aaaaaaaa-bbbb-4ccc-8ddd-eeeeffff0000'], summariesById: { 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeffff0000': { id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeffff0000', displayTitle: '会话甲', running: false, blank: false } } }}
+        onNavigateSession={onNavigateSession}
+        onClose={() => { /* noop */ }}
+      />,
+    )
+    const live = screen.getByRole('button', { name: /aaaaaaaa · 会话甲|aaaaaaaa 会话甲/ })
+    fireEvent.click(live)
+    expect(onNavigateSession).toHaveBeenCalledTimes(1)
+    expect(onNavigateSession).toHaveBeenCalledWith('aaaaaaaa-bbbb-4ccc-8ddd-eeeeffff0000')
+    // 消亡绑定（deadbeef 已离开列表）：只读行——不做假可点。
+    expect(screen.queryByRole('button', { name: /deadbeef/ })).toBeNull()
+    expect(screen.getByText(/deadbeef/).textContent).toContain(workbenchZh['session.stateGone'])
+  })
+
   it('打开即拉当前版本正文一次；切换版本 chip 再拉对应版本；缓存命中不重复拉', async () => {
     const controller = fakeController()
     const rendered = subject(draftWp(), controller)

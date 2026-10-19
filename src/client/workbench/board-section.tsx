@@ -39,6 +39,8 @@ export function BoardSection(props: {
   sessions?: { ids: readonly string[]; summariesById: Readonly<Record<string, { id: string; displayTitle: string; running: boolean; blank: boolean } | undefined>> }
   /** SessionIds with a pending approval/question (P2b fourth state). */
   waitingIds?: ReadonlySet<string>
+  /** 0017 修订：WP 详情会话行跳 DSH 会话页（inbox/execution 同款穿线）。 */
+  onNavigateSession?: (sessionId: string) => void
   /** S3 entry: open the work-package SOW modal for the given package. */
   onOpenSow?: (workPackage: WorkbenchWorkPackage) => void
   /** 0016 P1b: open the execution view for the given package. */
@@ -196,6 +198,7 @@ export function BoardSection(props: {
           requirementId={requirementId}
           sessions={props.sessions}
           waitingIds={props.waitingIds}
+          onNavigateSession={props.onNavigateSession}
           onOpenSow={props.onOpenSow}
           onClose={() => { setDialogId(null) }}
         />

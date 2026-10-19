@@ -1158,54 +1158,26 @@
 }
 
 /* ==========================================================================
- * P2: session strip / knowledge base (S6) / SOW modal.
+ * P2: session rows / knowledge base (S6) / SOW modal.
  * All alias-only; literal px (no --dsw-space tokens).
  * ========================================================================== */
 
-/* ---- session strip (cross-stage, below the sticky rail) ---- */
+/* ---- WP 详情会话行（0017 修订：会话条退役，行=会话入口按钮） ---- */
 
-.sessionStrip {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin: -4px 0 12px;
-}
-
-.stripLabel {
-  font-size: 12px;
-  line-height: 18px;
-  color: var(--dsw-alias-label-tertiary);
-}
-
-.sessionChip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 28px;
-  padding: 4px 10px;
-  border: 0.5px solid var(--dsw-alias-border-l2);
-  border-radius: 6px;
-  background: var(--dsw-alias-bg-layer-1);
-  color: var(--dsw-alias-label-primary);
-  font-size: 12px;
-  line-height: 16px;
-  font-family: var(--dsw-font-family);
+/* 在场会话行按钮：叠在 findingRow 上做按钮语义重置 + 悬停反馈。 */
+.sessionRowButton {
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  font-family: inherit;
   cursor: pointer;
 }
 
-.sessionChip:hover {
-  border-color: var(--dsw-alias-border-l3);
-}
-
-.sessionChipGone {
-  composes: sessionChip;
-  cursor: default;
-  color: var(--dsw-alias-label-tertiary);
-}
-
-.sessionChipState {
-  color: var(--dsw-alias-label-tertiary);
+.sessionRowButton:hover {
+  background: var(--dsw-alias-bg-layer-2);
+  border-radius: 6px;
 }
 
 /* ---- session picker (S3 detail dialog) ---- */

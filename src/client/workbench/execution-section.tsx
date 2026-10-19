@@ -19,7 +19,7 @@ import type { WorkbenchT } from './dictionary.js'
 import type { WorkbenchController } from './controller.js'
 import type { RequirementWorkbenchState } from './store.js'
 import { foldExecutionDigest } from './execution-fold.js'
-import { sessionChipState } from './session-strip.js'
+import { sessionChipState } from './session-chip.js'
 import { STATUS_TAG_TONE, STATUS_LABEL_KEY } from './work-package-dialog.js'
 import styles from './view.module.css'
 
