@@ -114,6 +114,9 @@ describe('CriteriaSection（S1 验收标准）', () => {
   it('添加：＋ → Modal 填 text → controller.saveCriterion(rid, { text })（可选键缺席的精确形状）', async () => {
     const { controller } = subject(slot({ record: record() }))
 
+    // 布局重塑轮统一钉：添加入口是 addCard 虚线整卡（与「＋ 手动添加发现」同款），
+    // 不是栏头小 ghost 按钮。
+    expect((screen.getByRole('button', { name: workbenchZh['criteria.add'] }) as HTMLButtonElement).className).toContain('addCard')
     fireEvent.click(screen.getByRole('button', { name: workbenchZh['criteria.add'] }))
     const dialog = screen.getByRole('dialog', { name: workbenchZh['criteria.addTitle'] })
     fireEvent.change(within(dialog).getByLabelText(workbenchZh['criteria.textLabel']), { target: { value: '  导入文件需校验表头  ' } })

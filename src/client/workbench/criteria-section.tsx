@@ -9,8 +9,8 @@
  */
 import { useState, type ReactNode } from 'react'
 import { Modal, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { SeedMissingReason, WorkbenchCriterion } from '../../workbench-shared/protocol.js'
-import { SEED_MISS_KEY, type WorkbenchT } from './dictionary.js'
+import type { WorkbenchCriterion } from '../../workbench-shared/protocol.js'
+import { type WorkbenchT } from './dictionary.js'
 import type { WorkbenchController } from './controller.js'
 import type { RequirementWorkbenchState } from './store.js'
 import { RowMenu } from './row-menu.js'
@@ -23,22 +23,10 @@ export function CriteriaSection(props: {
   slot: RequirementWorkbenchState
   controller: WorkbenchController
   requirementId: string
-  /** 回传轮: manual re-arm of the one-shot seed attempt (the waiting hint's retry button). */
-  onRetrySeed?: () => void
-  /** 回传轮: the last seed attempt's zero-write reason (disclosed under the waiting hint). */
-  seedMiss?: SeedMissingReason
-  /** 回传轮: the no-declare-block miss's scan fingerprint (raw, language-neutral). */
-  seedScan?: string
 }): ReactNode {
   const { t, slot, controller, requirementId } = props
   const criteria = slot.record?.criteria ?? []
   const locked = (slot.record?.splitApprovedAt ?? undefined) !== undefined
-  // 回传轮: pending analysis proposals — adopt UNDER the split lock (ruling
-  // ⑤: writing criteria[] is the frozen 清单×coverage contract, adopt's own
-  // gate mirrors saveCriterion), dismiss stays open (a ruling is never
-  // hostage to the lock). Distinct hint wording from criteria.lockedHint —
-  // that line names the S2 lock cause, this one names the proposal fate.
-  const analysis = slot.record?.analysis
   const [editing, setEditing] = useState<Editing>({ kind: 'closed' })
   const [pendingRemove, setPendingRemove] = useState<WorkbenchCriterion | null>(null)
 
@@ -50,42 +38,8 @@ export function CriteriaSection(props: {
           // The lock's cause lives in S2 (the approved split) — far from here.
           // Silent disappearance would be a mystery; disclose why and how out.
           <div className={styles.formHint}>{t('criteria.lockedHint')}</div>
-        ) : (
-          <button type="button" className={styles.ghostButton} onClick={() => { setEditing({ kind: 'create' }) }}>{t('criteria.add')}</button>
-        )}
+        ) : null}
       </div>
-      {analysis !== undefined && (analysis.criteria.length > 0 || analysis.seed === undefined) ? (
-        <div className={styles.proposalGroup}>
-          <div className={styles.sectionTitle}>{t('proposal.criteriaTitle')}</div>
-          {analysis.criteria.length === 0 && analysis.seed === undefined ? (
-            <div className={styles.formHint}>
-              {t('proposal.waitingHint')}
-              {props.onRetrySeed !== undefined ? (
-                <button type="button" className={styles.ghostButton} disabled={slot.busy} onClick={props.onRetrySeed}>{t('proposal.retry')}</button>
-              ) : null}
-            </div>
-          ) : null}
-          {props.seedMiss !== undefined ? (
-            <div className={styles.fieldError}>{t(SEED_MISS_KEY[props.seedMiss]).replaceAll('{n}', '?')}</div>
-          ) : null}
-          {props.seedScan !== undefined ? (
-            <div className={styles.formHint}>{t('proposal.scanPrefix')}{props.seedScan}</div>
-          ) : null}
-          {locked ? <div className={styles.formHint}>{t('proposal.lockedHint')}</div> : null}
-          {analysis.criteria.map((row) => (
-            <div key={row.id} className={styles.proposalRow}>
-              <div className={styles.proposalRowMain}>
-                <div className={styles.proposalRowTitle}>{row.text}</div>
-                {row.sourceSection !== undefined && row.sourceSection.length > 0 ? <div className={styles.proposalRowDetail}>{row.sourceSection}</div> : null}
-              </div>
-              <div className={styles.proposalRowActions}>
-                <button type="button" className={styles.ghostButton} disabled={slot.busy || locked} onClick={() => { void controller.adoptCriterionProposal(requirementId, row.id) }}>{t('proposal.adopt')}</button>
-                <button type="button" className={styles.ghostButton} disabled={slot.busy} onClick={() => { void controller.dismissCriterionProposal(requirementId, row.id) }}>{t('proposal.dismiss')}</button>
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : null}
       {criteria.map((criterion) => (
         <div key={criterion.id} className={criterion.coveredBy.length === 0 ? `${styles.criterionRow} ${styles.criterionRowHole}` : styles.criterionRow}>
           <div className={styles.criterionRowMain}>
@@ -111,6 +65,11 @@ export function CriteriaSection(props: {
           )}
         </div>
       ))}
+      {/* 布局重塑轮统一：添加入口与「＋ 手动添加发现」同款虚线整卡（头 → 行 → 卡），
+          不再是栏头里的小 ghost 按钮——台账两列的组件语言一致。 */}
+      {locked ? null : (
+        <button type="button" className={styles.addCard} onClick={() => { setEditing({ kind: 'create' }) }}>{t('criteria.add')}</button>
+      )}
       <CriterionFormModal
         key={editing.kind === 'edit' ? editing.criterion.id : editing.kind}
         t={t}

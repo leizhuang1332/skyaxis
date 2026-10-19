@@ -1354,11 +1354,8 @@
   line-height: 18px;
 }
 
-/* S1 SOW entry row (right-aligned; the findings section has no title head). */
-.sowEntryRow {
-  display: flex;
-  justify-content: flex-end;
-}
+/* S1 SOW entry row retired (布局重塑轮): the entry moved to the triptych
+   bar / the record-null guide row / the baseline card head. */
 
 /* ---- S5 deliver (P3a): the release sheet section ---- */
 
@@ -1463,4 +1460,110 @@
 .reportPreviewBody {
   max-height: 70vh;
   overflow-y: auto;
+}
+
+/* ---- S1 triptych (layout reshape): three equal pending-adjudication
+   columns with per-column internal scroll. Grid copies .statGrid (the
+   minmax(0,1fr) floor keeps long titles from blowing the 1/3 track);
+   the body's max-height + overflow-y copies .executionEntryList. ---- */
+
+.triptychZone {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Borderless status row (the framed .gonogo look is carried by Tags and
+   the column chrome instead — one frame per zone, not two). */
+.triptychBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.triptychBarTitle {
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.triptychSpacer {
+  flex: 1;
+}
+
+.triptychColumns {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+/* Column = the .boardCard chrome (border + radius + layer-1 ground) with
+   min-width:0 so the grid track can shrink below content size. */
+.triptychColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.triptychColumnHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* .boardColCount geometry, warn tint — the dissolved warning-Tag signal
+   now rides each column head (badge honesty: only rendered when > 0). */
+.triptychBadge {
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-state-warn-primary);
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 500;
+}
+
+.triptychColumnBody {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+/* At 1/3 page width the row's side-by-side action rail wraps badly;
+   stack the actions under the text (the .wpRowDropped descendant-modifier
+   precedent). */
+.triptychColumnBody .proposalRow {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+/* ---- S1 two-column density rows (docs pair / ledger pair) ---- */
+
+.understandDocsRow {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.understandLedgerRow {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
 }

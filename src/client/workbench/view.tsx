@@ -25,7 +25,7 @@ import type { KnowledgeSliceState, RequirementWorkbenchState, WorkbenchStore } f
 import { knowledgeFor, slotFor } from './store.js'
 import { FindingsSection } from './findings-section.js'
 import { CriteriaSection } from './criteria-section.js'
-import { ClarificationsSection } from './clarifications-section.js'
+import { ProposalsTriptych } from './proposals-triptych.js'
 import { ReportSection } from './report-section.js'
 import { RequirementDocSection } from './requirement-doc-section.js'
 import { SplitSection } from './split-section.js'
@@ -156,6 +156,20 @@ function understandReadiness(record: WorkbenchRecord): {
   }
 }
 
+/**
+ * 布局重塑轮: the S1 next-move derivation — exactly one primary action per
+ * state, in reading order = operation order (sow → adjudicate → finalize →
+ * advance). Advisory only: the soft gate never blocks, so 'adjudicate'
+ * shapes the primary, it does not hide 定稿 (a human may rule "proceed with
+ * known risks" — 0007's standing contract).
+ */
+function understandNextAction(analysis: WorkbenchRecord['analysis'] | undefined, readiness: { pending: number; unanswered: number; finalized: boolean }): 'sow' | 'adjudicate' | 'finalize' | 'advance' {
+  if (analysis === undefined) return 'sow'
+  if (readiness.pending + readiness.unanswered > 0) return 'adjudicate'
+  if (!readiness.finalized) return 'finalize'
+  return 'advance'
+}
+
 /** The live-session summary face the dialog/picker/inbox/execution consume (register.tsx owns the real impl; tests inject; ex SessionStripSummary — strip retired 0017). */
 export interface WorkbenchSessionSummary {
   readonly id: string
@@ -268,6 +282,9 @@ export function WorkbenchTabBody(props: {
   const nextStage = record === null ? null : nextStageOf(stage)
   // 0007 定稿软门 derivations (render-time; null = no record — honest absence).
   const readiness = record === null ? null : understandReadiness(record)
+  // 布局重塑轮: the S1 primary-action tier — null off-stage (other stages
+  // keep the shared advanceButton look).
+  const understandNext = readiness === null || record === null || viewing !== 'understand' ? null : understandNextAction(record.analysis, readiness)
   const understandAckStats = readiness === null || record === null ? '' : [
     t('understand.statCriteria').replaceAll('{n}', String(record.criteria.length)),
     t('understand.statFindings')
@@ -538,16 +555,32 @@ export function WorkbenchTabBody(props: {
                 {viewing === 'understand' ? <div className={styles.guideHint}>{t('empty.firstUseHint')}</div> : null}
               </div>
             ) : null}
+            {record === null && viewing === 'understand' ? (
+              <div className={styles.triptychBar}>
+                {/* 建账前入口（布局重塑轮）：此按钮曾由 FindingsSection 携带；三栏区
+                    record 守卫（view.spec 的 null 态诚实正则不许「待裁决」字样提前出现），
+                    入口迁至 guide 下方保持可达。 */}
+                <button type="button" className={styles.primaryButton} disabled={slot.busy} onClick={() => { setSow({ purpose: 'analysis' }) }}>{t('sow.analysisButton')}</button>
+              </div>
+            ) : null}
             {record !== null && viewing === 'understand' && readiness !== null ? (
-              <div key={`understand-${requirementId}`}>
-                {readiness.finalized ? (
-                  <div className={styles.gonogo}>
-                    <Tag tone="success">{t('understand.approvedTag')}</Tag>
-                    <span className={styles.gonogoText}>
-                      {t('understand.approvedAtPrefix')} · {record.understandApprovedAt?.slice(0, 10)}
-                      {readiness.changedSinceFinalize ? ` —— ${t('understand.bannerChanged')}` : ''}
-                    </span>
-                    <span className={styles.gonogoSpacer} />
+              <div key={`understand-${requirementId}`} className={styles.triptychZone}>
+                {/* 布局重塑轮：阅读顺序 = 操作顺序——待裁决三栏压过报告/文档置顶；
+                    旧 gonogo 计数行解散，p/q 计数改为三栏栏头角标（f 走 rail 角标）。 */}
+                <div className={styles.triptychBar}>
+                  <span className={styles.triptychBarTitle}>{t('triptych.title')}</span>
+                  {readiness.finalized ? (
+                    <>
+                      <Tag tone="success">{t('understand.approvedTag')}</Tag>
+                      <span className={styles.gonogoText}>
+                        {t('understand.approvedAtPrefix')} · {record.understandApprovedAt?.slice(0, 10)}
+                        {readiness.changedSinceFinalize ? ` —— ${t('understand.bannerChanged')}` : ''}
+                      </span>
+                    </>
+                  ) : null}
+                  {readiness.stageReady ? <Tag tone="success">{t('understand.stageReadyTag')}</Tag> : null}
+                  <span className={styles.triptychSpacer} />
+                  {readiness.finalized ? (
                     <button
                       type="button"
                       className={`${styles.ghostButton} ${styles.dangerButton}`}
@@ -556,59 +589,47 @@ export function WorkbenchTabBody(props: {
                     >
                       {t('understand.revoke')}
                     </button>
-                  </div>
-                ) : null}
-                {readiness.pending > 0 || readiness.stageReady ? (
-                  <div className={styles.gonogo}>
-                    {readiness.pending > 0 ? (
-                      <Tag tone="warning">
-                        {t('understand.readyPending')
-                          .replaceAll('{p}', String(readiness.pending))
-                          .replaceAll('{q}', String(readiness.unanswered))
-                          .replaceAll('{f}', String(readiness.openFindings))}
-                      </Tag>
-                    ) : null}
-                    {readiness.stageReady ? <Tag tone="success">{t('understand.stageReadyTag')}</Tag> : null}
-                    <span className={styles.gonogoSpacer} />
-                  </div>
-                ) : null}
+                  ) : null}
+                  {/* 常驻：重投递入口不随会话绑定而消失；下一步是它时实心。 */}
+                  <button
+                    type="button"
+                    className={understandNext === 'sow' ? styles.primaryButton : styles.ghostButton}
+                    disabled={slot.busy}
+                    onClick={() => { setSow({ purpose: 'analysis' }) }}
+                  >
+                    {t('sow.analysisButton')}
+                  </button>
+                </div>
                 {readiness.stageReady ? (
                   <div className={styles.formHint}>{t('declare.stageReadyProposal')}</div>
                 ) : null}
-                <div className={styles.sowEntryRow}>
-                  <button
-                    type="button"
-                    className={styles.ghostButton}
-                    disabled={slot.busy}
-                    onClick={() => { setSow({ purpose: 'consolidate' }) }}
-                  >
-                    {t('understand.consolidateButton')}
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.ghostButton}
-                    disabled={slot.busy || !readiness.exportable}
-                    onClick={() => { setUnderstandExportOpen(true) }}
-                  >
-                    {t('understand.exportButton')}
-                  </button>
-                </div>
+                <ProposalsTriptych
+                  key={`triptych-${requirementId}`}
+                  t={t}
+                  slot={slot}
+                  controller={controller}
+                  requirementId={requirementId}
+                  onRetrySeed={retryAnalysisSeed}
+                  seedMiss={analysisDue ? seedMiss : undefined}
+                  seedScan={analysisDue ? seedScan : undefined}
+                />
               </div>
             ) : null}
             {viewing === 'understand' ? (
-              <ReportSection key={`report-${requirementId}`} t={t} controller={controller} requirementId={requirementId} workspacePath={props.requirement.workspacePath.trim()} />
+              <div className={styles.understandDocsRow}>
+                <ReportSection key={`report-${requirementId}`} t={t} controller={controller} requirementId={requirementId} workspacePath={props.requirement.workspacePath.trim()} />
+                <RequirementDocSection key={`reqdoc-${requirementId}`} t={t} controller={controller} requirementId={requirementId} workspacePath={props.requirement.workspacePath.trim()} headerExtra={record !== null ? (
+                  <button type="button" className={styles.ghostButton} disabled={slot.busy} onClick={() => { setSow({ purpose: 'consolidate' }) }}>{t('understand.consolidateButton')}</button>
+                ) : undefined} />
+              </div>
             ) : null}
             {viewing === 'understand' ? (
-              <RequirementDocSection key={`reqdoc-${requirementId}`} t={t} controller={controller} requirementId={requirementId} workspacePath={props.requirement.workspacePath.trim()} />
-            ) : null}
-            {viewing === 'understand' ? (
-              <FindingsSection key={`findings-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} onOpenSow={() => { setSow({ purpose: 'analysis' }) }} onRetrySeed={retryAnalysisSeed} seedMiss={analysisDue ? seedMiss : undefined} seedScan={analysisDue ? seedScan : undefined} />
-            ) : null}
-            {record !== null && viewing === 'understand' ? (
-              <CriteriaSection key={`criteria-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} onRetrySeed={retryAnalysisSeed} seedMiss={analysisDue ? seedMiss : undefined} seedScan={analysisDue ? seedScan : undefined} />
-            ) : null}
-            {record !== null && viewing === 'understand' ? (
-              <ClarificationsSection key={`clarifications-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} onRetrySeed={retryAnalysisSeed} seedMiss={analysisDue ? seedMiss : undefined} seedScan={analysisDue ? seedScan : undefined} />
+              <div className={styles.understandLedgerRow}>
+                <FindingsSection key={`findings-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} />
+                {record !== null ? (
+                  <CriteriaSection key={`criteria-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} />
+                ) : null}
+              </div>
             ) : null}
             {record !== null && viewing === 'plan' ? (
               <PlanningSection
@@ -732,17 +753,32 @@ export function WorkbenchTabBody(props: {
                   </span>
                 ) : null
               })()}
-              {record !== null && viewing === 'understand' && readiness !== null && !readiness.finalized ? (
+              {record !== null && viewing === 'understand' && readiness !== null ? (
                 <button
                   type="button"
                   className={styles.ghostButton}
+                  disabled={slot.busy || !readiness.exportable}
+                  onClick={() => { setUnderstandExportOpen(true) }}
+                >
+                  {t('understand.exportButton')}
+                </button>
+              ) : null}
+              {record !== null && viewing === 'understand' && readiness !== null && !readiness.finalized ? (
+                <button
+                  type="button"
+                  className={understandNext === 'finalize' ? styles.primaryButton : styles.ghostButton}
                   disabled={slot.busy}
                   onClick={() => { setUnderstandApproveOpen(true); setUnderstandApproveAck(false) }}
                 >
                   {t('understand.approveButton')}
                 </button>
               ) : null}
-              <button type="button" className={styles.advanceButton} disabled={slot.busy} onClick={advance}>
+              <button
+                type="button"
+                className={viewing === 'understand' && readiness?.finalized === true ? styles.primaryButton : styles.advanceButton}
+                disabled={slot.busy}
+                onClick={advance}
+              >
                 {nextStage === 'closed' ? t('advance.close') : `${t('advance.stage')} ${t(STAGE_LABEL_KEY[nextStage])}`}
               </button>
             </div>

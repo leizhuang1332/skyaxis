@@ -6,9 +6,10 @@
  *    一次性；observed running=true 复位一次性旗（同会话续跑第二次机会）；
  *    锚已盖（seed.sessionId === 绑定会话）⇒ 不触发。
  *  - 投递接线：分析任务书投递成功 → onDelivered → bindAnalysisSession。
- *  - S1 两 section 提议子区：行渲染（类别·级别/来源前缀）、采纳/不采
- *    动作、标准提议锁定态（采纳禁用 + 专属提示，驳回照常）、waiting 态
- *    提示（无 seed 且无行）。
+ *  - S1 待裁决三栏（布局重塑轮）：行渲染（类别·级别/来源前缀）、采纳/
+ *    不采动作、标准提议锁定态（采纳禁用 + 专属提示，驳回照常）、waiting
+ *    态提示（无 seed 且无行）、settled 态提示（seed 已盖且空行——推翻旧
+ *    「整组隐退」契约，等高三栏需要可见栏体）。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -20,9 +21,7 @@ import type { WorkbenchController } from '../../src/client/workbench/controller.
 import type { RequirementWorkbenchState } from '../../src/client/workbench/store.js'
 import type { WorkbenchSessionsFace } from '../../src/client/workbench/view.js'
 import { WorkbenchTabBody } from '../../src/client/workbench/view.js'
-import { CriteriaSection } from '../../src/client/workbench/criteria-section.js'
-import { FindingsSection } from '../../src/client/workbench/findings-section.js'
-import { ClarificationsSection } from '../../src/client/workbench/clarifications-section.js'
+import { ProposalsTriptych } from '../../src/client/workbench/proposals-triptych.js'
 
 const RID = '11111111-1111-4111-1111-111111111111'
 const AT = '2026-09-29T08:00:00.000Z'
@@ -304,11 +303,11 @@ describe('回传轮投递接线', () => {
   })
 })
 
-describe('回传轮 S1 提议子区', () => {
-  it('FindingsSection：待裁决行（类别·级别 + 来源前缀 + detail 次行）、采纳/不采动作、waiting 态提示', async () => {
+describe('回传轮 S1 待裁决三栏', () => {
+  it('发现栏：待裁决行（类别·级别 + 来源前缀 + detail 次行）、采纳/不采动作、waiting 态提示', async () => {
     const controller = fakeController()
     render(
-      <FindingsSection t={bindZh()} slot={slot({ record: workbenchRecord({
+      <ProposalsTriptych t={bindZh()} slot={slot({ record: workbenchRecord({
         findings: [{ id: 'f-0', category: 'risk', severity: 'low', title: '正式发现', detail: '', status: 'open', createdAt: AT }],
         analysis: analysisContainer({ seed: { sessionId: 'sess-a', contentHash: SEED_HASH, seededAt: AT, findings: 1, criteria: 1 } }),
       }) }) } controller={controller} requirementId={RID} />,
@@ -320,28 +319,29 @@ describe('回传轮 S1 提议子区', () => {
     expect(within(row as HTMLElement).getByText('证据：PRD#3.2')).toBeTruthy()
     expect(within(row as HTMLElement).getByText('来源会话 sess-a…')).toBeTruthy()
     expect(screen.getByText('待裁决发现提议（分析会话）')).toBeTruthy()
-    expect(screen.queryByText('proposal.waitingHint 的兜底行不该出现')).toBeNull()
+    // 正式发现行归 findings-section（台账列），不进三栏。
+    expect(screen.queryByText('正式发现')).toBeNull()
 
     fireEvent.click(within(row as HTMLElement).getByRole('button', { name: workbenchZh['proposal.adopt'] }))
     expect(controller.adoptFindingProposal).toHaveBeenCalledWith(RID, '77777777-7777-4777-8777-777777777777')
     fireEvent.click(within(row as HTMLElement).getByRole('button', { name: workbenchZh['proposal.dismiss'] }))
     expect(controller.dismissFindingProposal).toHaveBeenCalledWith(RID, '77777777-7777-4777-8777-777777777777')
 
-    // Waiting face: bound but never seeded, no rows yet.
+    // Waiting face: bound but never seeded, no rows yet — all three columns wait.
     cleanup()
-    render(<FindingsSection t={bindZh()} slot={slot({ record: workbenchRecord({ analysis: analysisContainer({ findings: [], criteria: [] }) }) }) } controller={fakeController()} requirementId={RID} />)
-    expect(screen.getByText(workbenchZh['proposal.waitingHint'])).toBeTruthy()
+    render(<ProposalsTriptych t={bindZh()} slot={slot({ record: workbenchRecord({ analysis: analysisContainer({ findings: [], criteria: [] }) }) }) } controller={fakeController()} requirementId={RID} />)
+    expect(screen.getAllByText(workbenchZh['proposal.waitingHint'])).toHaveLength(3)
 
-    // 回传轮 observability: the last zero-write reason discloses under the hint.
+    // 回传轮 observability: the last zero-write reason discloses in every waiting column.
     cleanup()
-    render(<FindingsSection t={bindZh()} slot={slot({ record: workbenchRecord({ analysis: analysisContainer({ findings: [], criteria: [] }) }) }) } controller={fakeController()} requirementId={RID} seedMiss="no-declare-block" />)
-    expect(screen.getByText(workbenchZh['declare.fetchNoBlock'])).toBeTruthy()
+    render(<ProposalsTriptych t={bindZh()} slot={slot({ record: workbenchRecord({ analysis: analysisContainer({ findings: [], criteria: [] }) }) }) } controller={fakeController()} requirementId={RID} seedMiss="no-declare-block" />)
+    expect(screen.getAllByText(workbenchZh['declare.fetchNoBlock'])).toHaveLength(3)
   })
 
-  it('CriteriaSection：提议行与采纳/不采；锁定态采纳禁用 + 专属提示，驳回照常；正式行不受影响', async () => {
+  it('标准栏：提议行与采纳/不采；锁定态采纳禁用 + 专属提示，驳回照常', async () => {
     const controller = fakeController()
     render(
-      <CriteriaSection t={bindZh()} slot={slot({ record: workbenchRecord({
+      <ProposalsTriptych t={bindZh()} slot={slot({ record: workbenchRecord({
         splitApprovedAt: AT,
         criteria: [{ id: 'C1', text: '既有标准', coveredBy: [] }],
         analysis: analysisContainer({ seed: { sessionId: 'sess-a', contentHash: SEED_HASH, seededAt: AT, findings: 1, criteria: 1 } }),
@@ -360,7 +360,7 @@ describe('回传轮 S1 提议子区', () => {
     // Unlocked: adopt enabled and wired.
     cleanup()
     render(
-      <CriteriaSection t={bindZh()} slot={slot({ record: workbenchRecord({
+      <ProposalsTriptych t={bindZh()} slot={slot({ record: workbenchRecord({
         analysis: analysisContainer({ seed: { sessionId: 'sess-a', contentHash: SEED_HASH, seededAt: AT, findings: 1, criteria: 1 } }),
       }) }) } controller={controller} requirementId={RID} />,
     )
@@ -372,11 +372,11 @@ describe('回传轮 S1 提议子区', () => {
   })
 })
 
-describe('文件交付轮 S1 待澄清子区', () => {
-  it('ClarificationsSection：问题行（推荐次行 + 阻塞 meta）、inline 回答 → answerAnalysisClarification、忽略、已答行展示', async () => {
+describe('文件交付轮 S1 待澄清栏', () => {
+  it('待澄清栏：问题行（推荐次行 + 阻塞 meta）、inline 回答 → answerAnalysisClarification、忽略、已答行展示、栏头角标只数未答', async () => {
     const controller = fakeController()
     render(
-      <ClarificationsSection t={bindZh()} slot={slot({ record: workbenchRecord({
+      <ProposalsTriptych t={bindZh()} slot={slot({ record: workbenchRecord({
         analysis: analysisContainer({
           findings: [],
           criteria: [],
@@ -389,7 +389,8 @@ describe('文件交付轮 S1 待澄清子区', () => {
       }) }) } controller={controller} requirementId={RID} />,
     )
 
-    expect(screen.getByText('待澄清（分析会话）')).toBeTruthy()
+    const head = screen.getByText('待澄清（分析会话）').closest('div') as HTMLElement
+    expect(within(head).getByText('1')).toBeTruthy() // 角标只计未答行
     const row = (await screen.findByText('导出上限是十万行还是百万行？')).closest('div[class^="_proposalRow_"]') as HTMLElement
     expect(within(row).getByText('推荐：百万行')).toBeTruthy()
     expect(within(row).getByText('阻塞：F2 / PRD#3.2')).toBeTruthy()
@@ -408,12 +409,13 @@ describe('文件交付轮 S1 待澄清子区', () => {
     expect(controller.dismissAnalysisClarification).toHaveBeenCalledWith(RID, '99999999-9999-4999-8999-999999999999')
   })
 
-  it('空批隐退：seed 已盖且无待澄清行 ⇒ 整组不渲染（waiting 态归 findings/criteria 两组）', () => {
+  it('settled 态（布局重塑轮）：seed 已盖且无待裁决行 ⇒ 三栏栏体各出 settledHint——推翻旧「空批整组隐退」契约（等高三栏需要可见栏体）', () => {
     const { container } = render(
-      <ClarificationsSection t={bindZh()} slot={slot({ record: workbenchRecord({
+      <ProposalsTriptych t={bindZh()} slot={slot({ record: workbenchRecord({
         analysis: analysisContainer({ findings: [], criteria: [], seed: { sessionId: 'sess-a', contentHash: SEED_HASH, seededAt: AT, findings: 0, criteria: 0 } }),
       }) }) } controller={fakeController()} requirementId={RID} />,
     )
-    expect(container.textContent).not.toContain('待澄清（分析会话）')
+    expect(screen.getAllByText(workbenchZh['triptych.settledHint'])).toHaveLength(3)
+    expect(container.textContent).toContain('待澄清（分析会话）')
   })
 })

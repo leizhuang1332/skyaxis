@@ -86,6 +86,7 @@ interface WorkbenchDictionary {
   readonly 'badge.releaseItems': string
   readonly 'badge.candidates': string
   // finding.* — S1 minimal manual loop (dashed action card + inline form)
+  readonly 'finding.sectionTitle': string
   readonly 'finding.add': string
   readonly 'finding.addTitle': string
   readonly 'finding.titleLabel': string
@@ -132,7 +133,9 @@ interface WorkbenchDictionary {
   readonly 'criteria.uncovered': string
   readonly 'criteria.lockedHint': string
   // understand.* — 0007 定稿软门：S1 就绪披露 + 定稿动作 + 撤销 + 摘要导出
-  readonly 'understand.readyPending': string
+  readonly 'triptych.title': string
+  readonly 'triptych.noSessionHint': string
+  readonly 'triptych.settledHint': string
   readonly 'understand.stageReadyTag': string
   readonly 'understand.exportButton': string
   readonly 'understand.exportTitle': string
@@ -701,6 +704,7 @@ const zh: WorkbenchDictionary = {
   'badge.reviewOpen': '待裁决',
   'badge.releaseItems': '上线项',
   'badge.candidates': '待审阅',
+  'finding.sectionTitle': '发现',
   'finding.add': '＋ 手动添加发现',
   'finding.addTitle': '登记发现',
   'finding.titleLabel': '标题',
@@ -742,8 +746,11 @@ const zh: WorkbenchDictionary = {
   'criteria.removeDescription': '确定删除该验收标准？工作包对该标准的覆盖引用将被一并剥离。',
   'criteria.uncovered': '尚无工作包覆盖',
   'criteria.lockedHint': '拆分已批准：验收标准与工作包清单一并锁定，撤销批准后可编辑。',
+  // triptych.* — S1 三栏待裁决区（布局重塑轮）
+  'triptych.title': '待裁决',
+  'triptych.noSessionHint': '尚未绑定分析会话——点击「生成分析任务书」开始本阶段分析。',
+  'triptych.settledHint': '本列暂无待裁决项。',
   // understand.* — 0007 定稿软门
-  'understand.readyPending': '待裁决提议 {p} · 未答澄清 {q} · 未处置发现 {f}',
   'understand.stageReadyTag': '分析会话提议：本阶段就绪',
   'understand.exportButton': '导出理解摘要',
   'understand.exportTitle': '需求理解摘要',
@@ -1278,6 +1285,7 @@ const en: WorkbenchDictionary = {
   'badge.reviewOpen': 'unresolved',
   'badge.releaseItems': 'release items',
   'badge.candidates': 'pending',
+  'finding.sectionTitle': 'Findings',
   'finding.add': '＋ Add a finding',
   'finding.addTitle': 'Record a finding',
   'finding.titleLabel': 'Title',
@@ -1319,8 +1327,11 @@ const en: WorkbenchDictionary = {
   'criteria.removeDescription': 'Remove this criterion? Coverage references from work packages will be stripped along with it.',
   'criteria.uncovered': 'No work package covers this',
   'criteria.lockedHint': 'The split is approved: criteria are locked with the list — revoke the approval to edit.',
+  // triptych.* — S1 pending-adjudication triptych (layout reshape)
+  'triptych.title': 'Pending adjudication',
+  'triptych.noSessionHint': 'No analysis session bound yet — generate the analysis SOW to start this stage.',
+  'triptych.settledHint': 'Nothing pending in this column.',
   // understand.* — 0007 understand finalize (soft gate)
-  'understand.readyPending': 'Pending proposals {p} · unanswered clarifications {q} · open findings {f}',
   'understand.stageReadyTag': 'The analysis session proposes this stage is ready',
   'understand.exportButton': 'Export understanding summary',
   'understand.exportTitle': 'Understanding summary',

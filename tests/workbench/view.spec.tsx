@@ -312,7 +312,7 @@ describe('0007 定稿软门：S1 就绪披露 + 定稿/撤销 + 摘要导出', (
     ...overrides,
   })
 
-  it('就绪区：待裁决/未答/未处置计数行 + stageReady 咨询行并存（Devin 绿灯提议与黄灯欠账并存）；导出按钮在场', () => {
+  it('就绪区（布局重塑轮）：旧 gonogo 计数行解散，p/q 计数改乘三栏栏头角标；stageReady 咨询行与导出按钮并存', () => {
     render(
       <WorkbenchTabBody
         t={bindZh()}
@@ -325,10 +325,52 @@ describe('0007 定稿软门：S1 就绪披露 + 定稿/撤销 + 摘要导出', (
         knowledge={knowledgeState()}
       />,
     )
-    expect(screen.getByText(/待裁决提议 2 · 未答澄清 1 · 未处置发现 1/)).toBeTruthy()
+    // 旧单行计数 Tag 已删（键 understand.readyPending 退役）。
+    expect(screen.queryByText(/待裁决提议/)).toBeNull()
+    // 角标 rides 各栏栏头：发现 1 / 标准 1 / 未答澄清 1。
+    const headText = (title: string): string => (screen.getByText(title).closest('div') as HTMLElement).textContent ?? ''
+    expect(headText(workbenchZh['proposal.findingsTitle'])).toContain('1')
+    expect(headText(workbenchZh['proposal.criteriaTitle'])).toContain('1')
+    expect(headText(workbenchZh['proposal.clarificationsTitle'])).toContain('1')
     expect(screen.getByText(workbenchZh['understand.stageReadyTag'])).toBeTruthy()
     expect(screen.getByText(workbenchZh['declare.stageReadyProposal'])).toBeTruthy()
     expect(screen.getByRole('button', { name: workbenchZh['understand.exportButton'] })).toBeTruthy()
+  })
+
+  it('按钮分层（布局重塑轮）：下一步实心、其余描边——无 analysis ⇒ 生成任务书实心/定稿描边；已定稿 ⇒ 完成本阶段实心/定稿按钮退场', () => {
+    const { unmount } = render(
+      <WorkbenchTabBody
+        t={bindZh()}
+        requirement={requirement}
+        slot={slot({ record: workbenchRecord({ criteria: [{ id: 'C1', text: '标准一', coveredBy: [] }] }) })}
+        controller={fakeController()}
+        knowledge={knowledgeState()}
+      />,
+    )
+    const sow = screen.getByRole('button', { name: workbenchZh['sow.analysisButton'] }) as HTMLButtonElement
+    expect(sow.className).toContain('primaryButton')
+    const approve = screen.getByRole('button', { name: workbenchZh['understand.approveButton'] }) as HTMLButtonElement
+    expect(approve.className).toContain('ghostButton')
+    const advance = screen.getByRole('button', { name: /完成本阶段/ }) as HTMLButtonElement
+    expect(advance.className).toContain('advanceButton')
+    unmount()
+
+    render(
+      <WorkbenchTabBody
+        t={bindZh()}
+        requirement={requirement}
+        slot={slot({ record: workbenchRecord({
+          understandApprovedAt: '2026-10-13T08:00:00.000Z',
+          understandBaseline: { at: '2026-10-13T08:00:00.000Z', criteria: [{ id: 'C1', text: '标准一' }], findings: [], clarifications: [] },
+          criteria: [{ id: 'C1', text: '标准一', coveredBy: [] }],
+        }) })}
+        controller={fakeController()}
+        knowledge={knowledgeState()}
+      />,
+    )
+    expect(screen.queryByRole('button', { name: workbenchZh['understand.approveButton'] })).toBeNull()
+    const advance2 = screen.getByRole('button', { name: /完成本阶段/ }) as HTMLButtonElement
+    expect(advance2.className).toContain('primaryButton')
   })
 
   it('诚实缺席：零记录无定稿/导出动作；有记录零未决 ⇒ 无计数行、导出禁用', () => {

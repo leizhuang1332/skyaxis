@@ -65,6 +65,9 @@ export function WorkspaceDocSection(props: {
   relPath: string
   /** The content read (an arrow-method off the controller — bound by the caller). */
   fetchContent: (requirementId: string, signal?: AbortSignal) => Promise<WorkbenchArtifactContentResult | undefined>
+  /** Optional head slot (布局重塑轮): face-specific actions ride the section
+   *  head — e.g. the baseline face carries its 生成整理任务书 entry here. */
+  headerExtra?: ReactNode
 }): ReactNode {
   const { t, controller, requirementId, workspacePath, ns, displayName, relPath, fetchContent } = props
   const keys = DOC_NS_KEYS[ns]
@@ -96,7 +99,10 @@ export function WorkspaceDocSection(props: {
   if (workspacePath === '') {
     return (
       <div className={styles.findingSection}>
-        <div className={styles.sectionTitle}>{t(keys.title)}</div>
+        <div className={styles.sectionHead}>
+          <div className={styles.sectionTitle}>{t(keys.title)}</div>
+          {props.headerExtra}
+        </div>
         <div className={styles.formHint}>{t(keys.noWorkspace)}</div>
       </div>
     )
@@ -106,6 +112,7 @@ export function WorkspaceDocSection(props: {
     <div className={styles.findingSection}>
       <div className={styles.sectionHead}>
         <div className={styles.sectionTitle}>{t(keys.title)}</div>
+        {props.headerExtra}
         {state.kind === 'missing' || state.kind === 'error' ? (
           <button type="button" className={styles.ghostButton} onClick={() => { setNonce(nonce + 1) }}>{t(keys.refresh)}</button>
         ) : null}

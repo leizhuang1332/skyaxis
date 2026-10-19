@@ -14,6 +14,7 @@
  * Keyed by requirementId at the render site.
  */
 import type { ReactNode } from 'react'
+// headerExtra pass-through (布局重塑轮) — the face's own action rides the card head.
 import { requirementDocRelPath } from '../../workbench-shared/protocol.js'
 import type { WorkbenchT } from './dictionary.js'
 import type { WorkbenchController } from './controller.js'
@@ -28,6 +29,8 @@ export function RequirementDocSection(props: {
   requirementId: string
   /** Bound workspace root ('' = unbound — no file channel, honest hint). */
   workspacePath: string
+  /** Face-specific head action (the 生成整理任务书 entry — its output IS this card's file). */
+  headerExtra?: ReactNode
 }): ReactNode {
   const { t, controller, requirementId, workspacePath } = props
   return (
@@ -36,6 +39,7 @@ export function RequirementDocSection(props: {
       controller={controller}
       requirementId={requirementId}
       workspacePath={workspacePath}
+      headerExtra={props.headerExtra}
       ns="baseline"
       displayName={docDisplayName(requirementId)}
       relPath={requirementDocRelPath(requirementId)}
