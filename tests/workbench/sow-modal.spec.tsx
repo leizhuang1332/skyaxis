@@ -475,6 +475,28 @@ describe('SowModal 投递 v2（P5a）', () => {
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
   })
 
+  it('onDelivered 透传 sent（0017 刀一）：sent:true → 第三参 true；缺省（降级）→ false', async () => {
+    const deliverAuto = vi.fn(async (_text: string, _ws: string | undefined): Promise<{ ok: true; sessionId: string; sent: boolean }> => ({ ok: true, sessionId: 'sess-1', sent: true }))
+    const onDelivered = vi.fn()
+    const rendered = subject({ deliver: deliverAuto, onDelivered })
+    await waitFor(() => expect(previewOf(rendered)).toContain('# skyaxis 分析任务书'))
+
+    fireEvent.click(rendered.getByRole('button', { name: workbenchZh['sow.deliver'] }))
+    await waitFor(() => expect(onDelivered).toHaveBeenCalledTimes(1))
+    expect(onDelivered.mock.calls[0]?.[0]).toBe('sess-1')
+    expect(onDelivered.mock.calls[0]?.[1]).toContain('# skyaxis 分析任务书')
+    expect(onDelivered.mock.calls[0]?.[2]).toBe(true)
+    cleanup()
+
+    const deliverDegraded = vi.fn(async (_text: string, _ws: string | undefined): Promise<{ ok: true; sessionId: string }> => ({ ok: true, sessionId: 'sess-2' }))
+    const onDeliveredDegraded = vi.fn()
+    const renderedD = subject({ deliver: deliverDegraded, onDelivered: onDeliveredDegraded })
+    await waitFor(() => expect(previewOf(renderedD)).toContain('# skyaxis 分析任务书'))
+    fireEvent.click(renderedD.getByRole('button', { name: workbenchZh['sow.deliver'] }))
+    await waitFor(() => expect(onDeliveredDegraded).toHaveBeenCalledTimes(1))
+    expect(onDeliveredDegraded.mock.calls[0]?.[2]).toBe(false)
+  })
+
   it('投递失败：警示行（可复制兜底），窗不关；重试成功后关', async () => {
     const deliver = vi.fn(async (_text: string, _ws: string | undefined): Promise<{ ok: true; sessionId: string } | { ok: false; reason: 'failed' }> => ({ ok: false, reason: 'failed' }))
     const onClose = vi.fn()

@@ -54,9 +54,21 @@ function sessionsFace(ctx: Context): SessionsFace | undefined {
       const address = sessions.subagentAddress(sessionId)
       if (address !== undefined) {
         sessions.openSubagent(address as never)
+      } else if (list.getSnapshot().ids.includes(sessionId)) {
+        sessions.open(sessionId)
+      } else {
         return
       }
-      if (list.getSnapshot().ids.includes(sessionId)) sessions.open(sessionId)
+      // 0017 验收修正（二）: open/openSubagent only SELECT the session — the
+      // official openSession tail (the delivery.ts v2/degrade precedent) must
+      // also return focus to the Conversation main panel, or the jump is
+      // invisible from the requirements workbench tab (panel never switches).
+      try {
+        const layout = (ctx as unknown as { get?: (name: string) => unknown }).get?.('layout') as { selectPanel(panel: string | null): void } | undefined
+        layout?.selectPanel(null)
+      } catch {
+        // A layout service with a different shape never blocks the select.
+      }
     },
   }
 }

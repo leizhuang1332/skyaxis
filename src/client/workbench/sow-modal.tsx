@@ -88,12 +88,14 @@ export function SowModal(props: {
   fetchPlanText?: () => Promise<string | undefined>
   copy?: (text: string) => Promise<boolean>
   /** P5a delivery face — absent ⇒ no delivery button (copy stays the fallback). */
-  deliver?: (text: string, workspacePath: string | undefined) => Promise<{ ok: boolean; sessionId?: string; reason?: 'no-service' | 'failed' }>
+  deliver?: (text: string, workspacePath: string | undefined) => Promise<{ ok: boolean; sessionId?: string; sent?: boolean; reason?: 'no-service' | 'failed' }>
   /** 回传轮: fired with the delivered session's id + the full SOW text right
    *  before close — the view binds the session with the task-book anchor (the
    *  SOW head content-addresses the real conversation when the created
-   *  session proves to be a shell). */
-  onDelivered?: (sessionId: string, sowText: string) => void
+   *  session proves to be a shell). 0017 刀一: `sent` marks the v3 auto-send
+   *  (true) versus the degraded draft tail (false) — the 刀二 dev bind gates
+   *  on it; degraded deliveries must not bind at delivery (0016 修订 #95). */
+  onDelivered?: (sessionId: string, sowText: string, sent: boolean) => void
 }): ReactNode {
   const { t, open, purpose, requirement, record, knowledgeRecords, revision, workPackage } = props
   const busy = props.busy === true
@@ -114,9 +116,10 @@ export function SowModal(props: {
   // --- copy feedback (self-implemented, no useCopyFeedback) ---
   const [copyState, setCopyState] = useState<'idle' | 'busy' | 'copied'>('idle')
   const [copyFailed, setCopyFailed] = useState(false)
-  // P5a delivery state — success CLOSES the modal (the session is open with
-  // the draft prefilled; the user reviews and sends). Failure keeps the
-  // modal with an alert; copy remains the manual fallback.
+  // P5a/0017 delivery state — success CLOSES the modal (v3: the prompt went
+  // out, the workbench stays put; degraded: the session page opened with the
+  // draft and the user sends). Failure keeps the modal with an alert; copy
+  // remains the manual fallback.
   const [deliverState, setDeliverState] = useState<'idle' | 'busy' | 'failed'>('idle')
   const copyTimerRef = useRef<number | null>(null)
   useEffect(() => () => {
@@ -319,7 +322,7 @@ export function SowModal(props: {
     void props.deliver?.(text, requirement.workspacePath).then((outcome) => {
       if (outcome.ok) {
         setDeliverState('idle')
-        if (outcome.sessionId !== undefined) props.onDelivered?.(outcome.sessionId, text)
+        if (outcome.sessionId !== undefined) props.onDelivered?.(outcome.sessionId, text, outcome.sent === true)
         props.onClose()
         return
       }

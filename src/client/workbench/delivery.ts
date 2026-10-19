@@ -1,33 +1,62 @@
 /**
- * SOW delivery v2 (P5a; research 0007 §3.2 user-ratified form): create a new
- * session in the requirement's workspace, prefill the composer draft, leave
- * the SEND key with the user —「人握门禁」. prompt-style auto-send stays out.
+ * SOW delivery v3 (0017 D1; probe-verified on the real machine 2026-10-19):
+ * create the session in the requirement's workspace and PROMPT the task book
+ * straight into it — no open(), no jump, no draft. The modal preview IS the
+ * send consent (the text there has been user-editable since 0009 and the
+ * button honestly reads 投递并发送) — this supersedes the 0007 §3.2 v2
+ * ruling (「人握门禁」: create+setDraft+user presses send) by explicit
+ * re-ratification in decisions/0017; scope of the reversal is delivery only
+ * (0016 D2-A steering verbs stay deep-link-only).
  *
- * Route ruling (source-audited, recorded in milestones): setDraft goes
- * through `ctx.conversation.input.for(actx).setDraft(text)` — the official
- * draft hand-off (the conversation Hero's workspace switch and ui-commands'
- * `input.for(actx).notify` are 100%-isomorphic precedents). The slot-props
- * route is a DEAD END for us: inputActions reaches only components mounted
- * for the CURRENT staged session, and the delivery target is a freshly
- * created (not yet open) session. The ctx route is pure object layer — the
- * InputHub builds the shell lazily, the draft lives in a headless Lexical
- * editor, and the composer renders it on mount AFTER open. setDraft BEFORE
- * open is the official order.
+ * Probe evidence (0017 刀零): prompt into a NEVER-opened created session is
+ * accepted and the created id turns real (the client flips blankBit=false
+ * and fires onEngaged on acceptance — dsh-api-session-controller
+ * client.js:1695-1699). The v2 shell pathology (the real conversation
+ * materializing at a NEW id after the user sent via the conversation Hero —
+ * decisions/0016 修订 #95/#96) never occurs on this path: the Hero is never
+ * involved. Static supports: binding() materializes for any listed session
+ * (resolve()/eligible()), and the SDK itself RPCs into never-opened created
+ * sessions (fork() → binding(childId).session.rename).
  *
- * Access: cordis `ctx.get(name)` reads services WITHOUT the inject-list
- * requirement (cordis/lib/index.js:748; ui-commands' inject array doesn't
- * carry 'conversation' either) — absent services answer undefined and the
- * face degrades honestly. All three faces are structural minimal shapes
- * (packages not in this repo's dependency tree — the PendingInteractionsLike
- * precedent in ../waiting-tracker.ts).
+ * Degrade (0017 D3): a rejected/throwing prompt — or a missing prompt face —
+ * falls back to the v2 tail (setDraft + open + selectPanel), so the task is
+ * never stranded. Degraded deliveries report sent:false; the dev
+ * bind-at-delivery (0017 刀二) gates on sent — a degraded shell may still be
+ * re-materialized elsewhere, title/content addressing repairs it later.
  *
- * Known window (officially accepted, recorded): a draft set before open
- * lives in shell memory only; it persists to localStorage once the user
- * touches the input. Official beforeOpen hand-offs accept the same window.
+ * Workspace attachment (刀一验收修正): the session is created with a
+ * workspaceId resolved from the requirement's workspacePath (live list match
+ * → create-or-resolve registration → honest cwd-only degrade) — cwd-only
+ * sessions never ATTACH and stay invisible in the DSH sidebar's per-workspace
+ * list. See resolveCreateOpts.
+ *
+ * Access: same cordis `ctx.get` discipline as v2 — sessions (create/binding/
+ * scope/open) is required at arm time; conversation (degrade-only now) is
+ * armed reactively via ctx.inject (the machine-verified waiting-tracker
+ * pattern) and resolved again at call time.
  */
 import type { Context } from '@deepseek-ai/cordis'
 
-/** Minimal shape of ctx.conversation.input (package not in store). */
+/** Minimal prompt text part (contract PromptContentPart 的 text 臂). */
+interface PromptTextPart {
+  readonly type: 'text'
+  readonly text: string
+}
+
+/** Minimal RemoteResult error arm (typert-protocol types.d.ts:65-71) — 只判 ok，错误细节不消费。 */
+type PromptResult = { readonly ok: true } | { readonly ok: false }
+
+/** Minimal ISession.prompt face (contract/session.d.ts:81-83). */
+interface SessionPromptFace {
+  prompt(content: PromptTextPart[], mode: 'queue' | 'steer'): Promise<PromptResult>
+}
+
+/** Minimal SessionBinding.session 臂（service.d.ts:103-110 只取消费字段）. */
+interface BindingFace {
+  readonly session?: SessionPromptFace
+}
+
+/** Minimal shape of ctx.conversation.input (degrade 路径专用). */
 interface ConversationInputFace {
   setDraft(text: string): void
 }
@@ -36,14 +65,68 @@ interface ConversationFace {
   input: { for(actx: unknown): ConversationInputFace }
 }
 
-/** Minimal shape of ctx.sessions.create/scope (ISessions members we consume). */
+/** Minimal shape of ctx.sessions.create/binding/scope/open (ISessions 消费面). */
 interface SessionsCreateFace {
-  create(opts?: { cwd?: string }): Promise<string>
+  create(opts?: { cwd?: string; workspaceId?: string }): Promise<string>
+  binding(id: string): BindingFace | undefined
   scope(sessionId: string): unknown
   open(sessionId: string): void
 }
 
-/** Minimal shape of ctx.layout (optional post-open nicety). */
+/** Minimal WorkspaceView (workspace-controller types.d.ts:12-24 消费面). */
+interface WorkspaceViewFace {
+  readonly workspaceId: string
+  readonly path: string
+}
+
+/** Minimal ctx.workspaces face（Service 'workspaces'：controller + list 模型）. */
+interface WorkspacesFace {
+  readonly list?: { getSnapshot(): { readonly items: readonly WorkspaceViewFace[] } }
+  create?(input: { readonly path: string }): Promise<WorkspaceViewFace>
+}
+
+/**
+ * Host-path equality for workspace matching: case-insensitive + separator-
+ * insensitive + trailing-slash-insensitive (zh-CN Win11 实机——台账路径与
+ * WorkspaceView.path 可能差在反斜杠/大小写/尾斜杠；sow.ts:424 反斜杠折叠先例).
+ */
+const sameHostPath = (left: string, right: string): boolean => {
+  const norm = (path: string): string => path.replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase()
+  return norm(left) === norm(right)
+}
+
+/**
+ * Resolve the create opts for the requirement's workspace (刀一验收修正):
+ * sessions created with cwd ONLY never attach to a Workspace — the host's
+ * SessionCommandController.create attaches exclusively on workspaceId
+ * (index.js:586-593), so a cwd-only session is invisible in the DSH
+ * sidebar's per-workspace session list (user acceptance finding
+ * 2026-10-19). Resolve the path against the live workspace list; a miss
+ * REGISTERS it (workspaces.create is create-or-resolve by canonical path —
+ * host index.js:196-213 resolveByPath 先行, idempotent); the face absent or
+ * the registration failing degrades honestly to cwd-only (functional
+ * session, sidebar-invisible — never worse than the pre-fix state).
+ */
+async function resolveCreateOpts(
+  get: ((name: string) => unknown) | undefined,
+  sessions: SessionsCreateFace,
+  workspacePath: string | undefined,
+): Promise<{ cwd?: string; workspaceId?: string } | undefined> {
+  if (workspacePath === undefined || workspacePath === '') return undefined
+  const workspaces = get?.('workspaces') as WorkspacesFace | undefined
+  const items = workspaces?.list?.getSnapshot?.().items
+  const hit = items?.find((row) => sameHostPath(row.path, workspacePath))
+  if (hit !== undefined) return { workspaceId: hit.workspaceId }
+  try {
+    const registered = await workspaces?.create?.({ path: workspacePath })
+    if (registered !== undefined) return { workspaceId: registered.workspaceId }
+  } catch {
+    // Registration refused (invalid/absent directory…) — honest cwd degrade.
+  }
+  return { cwd: workspacePath }
+}
+
+/** Minimal shape of ctx.layout (degrade 尾巴的尽力而为步). */
 interface LayoutFace {
   selectPanel(panel: string | null): void
 }
@@ -51,6 +134,8 @@ interface LayoutFace {
 export interface DeliverOutcome {
   readonly ok: boolean
   readonly sessionId?: string
+  /** true = prompt 已自动发送（v3 主路径）；false/absent = 降级为草稿待手发（v2 尾巴）。 */
+  readonly sent?: boolean
   readonly reason?: 'no-service' | 'failed'
 }
 
@@ -64,25 +149,19 @@ export type DeliverFace = (text: string, workspacePath: string | undefined) => P
  * Assemble the delivery closure from ctx. Returns undefined when the SESSIONS
  * face is absent or malformed (jsdom; compositions without it) — the SOW
  * modal then renders no delivery button (honest no-render).
- *
- * The CONVERSATION face is deliberately NOT required here: cordis `get`
- * answers `undefined` for services whose providing fiber is not yet active
- * (verified: cordis lib/index.js:755-770「or undefined when not (yet)
- * provided」), and skyaxis may apply before the conversation shell does —
- * a register-time check would permanently kill the face. Instead the face
- * is armed REACTIVELY via ctx.inject (the machine-verified waiting-tracker/
- * uiSession pattern) and resolved again at CALL time; a click before the
- * shell is up answers the honest {ok:false, reason:'no-service'}.
- *
  */
 export function createSowDelivery(ctx: Context): DeliverFace | undefined {
-  // ctx.get: no inject requirement; absent ⇒ undefined (see file header).
+  // ctx.get: no inject requirement; absent ⇒ undefined (v2 头注先例).
   const get = (ctx as unknown as { get?: (name: string) => unknown }).get
   const sessions = get?.('sessions') as SessionsCreateFace | undefined
-  if (sessions === undefined || typeof sessions.create !== 'function' || typeof sessions.scope !== 'function' || typeof sessions.open !== 'function') {
+  if (sessions === undefined || typeof sessions.create !== 'function' || typeof sessions.binding !== 'function'
+    || typeof sessions.scope !== 'function' || typeof sessions.open !== 'function') {
     return undefined
   }
 
+  // Conversation is DEGRADE-ONLY in v3 — armed reactively (pre-shell
+  // register timing answered undefined for not-yet-active fibers in v2;
+  // same discipline retained), resolved again at call time.
   let conversation: ConversationFace | undefined = get?.('conversation') as ConversationFace | undefined
   const disposeConversation = ctx.inject(['conversation'], (scope: unknown) => {
     conversation = (scope as { conversation?: ConversationFace }).conversation
@@ -92,26 +171,44 @@ export function createSowDelivery(ctx: Context): DeliverFace | undefined {
   })
 
   return async (text: string, workspacePath: string | undefined): Promise<DeliverOutcome> => {
+    let sessionId: string
     try {
-      // Resolve at CALL time (register-time state may be pre-shell).
-      const conversationFace = conversation ?? get?.('conversation') as ConversationFace | undefined
-      if (conversationFace === undefined || typeof conversationFace.input?.for !== 'function') {
-        return { ok: false, reason: 'no-service' }
+      // 刀一验收修正: workspaceId 优先（挂工作区→侧栏可见），cwd 为诚实降级档.
+      sessionId = await sessions.create(await resolveCreateOpts(get, sessions, workspacePath))
+    } catch {
+      return { ok: false, reason: 'failed' }
+    }
+
+    // v3 main: prompt straight into the never-opened session (刀零实证：
+    // 接受即变实，无 shell 物化、无 Hero 交互).
+    const session = sessions.binding(sessionId)?.session
+    if (session !== undefined && typeof session.prompt === 'function') {
+      try {
+        const admitted = await session.prompt([{ type: 'text', text }], 'queue')
+        if (admitted.ok) return { ok: true, sessionId, sent: true }
+      } catch {
+        // 落入降级尾巴（D3）——任务不中断.
       }
-      // Official four-step (cwd: the requirement workspace; create = create-or-adopt).
-      const sessionId = await sessions.create(workspacePath !== undefined && workspacePath !== '' ? { cwd: workspacePath } : undefined)
+    }
+
+    // Degrade = the v2 tail: draft + open + jump, the user presses send.
+    const conversationFace = conversation ?? get?.('conversation') as ConversationFace | undefined
+    if (conversationFace === undefined || typeof conversationFace.input?.for !== 'function') {
+      return { ok: false, reason: 'no-service' }
+    }
+    try {
       const actx = sessions.scope(sessionId)
       conversationFace.input.for(actx).setDraft(text)
       sessions.open(sessionId)
       // Official openSession tail — return focus to the Conversation main
-      // panel (the delivery started from the workbench tab). Best-effort.
+      // panel. Best-effort.
       try {
         const layout = get?.('layout') as LayoutFace | undefined
         layout?.selectPanel(null)
       } catch {
         // A layout service with a different shape never blocks delivery.
       }
-      return { ok: true, sessionId }
+      return { ok: true, sessionId, sent: false }
     } catch {
       return { ok: false, reason: 'failed' }
     }

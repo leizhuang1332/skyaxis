@@ -770,19 +770,27 @@ export function WorkbenchTabBody(props: {
             busy={slot.busy}
             workPackage={sow?.workPackage}
             deliver={props.deliver}
-            onDelivered={sow !== null && sow.purpose !== 'analysis' && sow.purpose !== 'split' ? undefined : (sessionId: string, sowText: string) => {
+            onDelivered={sow !== null && sow.purpose !== 'analysis' && sow.purpose !== 'split' && sow.purpose !== 'dev' ? undefined : (sessionId: string, sowText: string, sent: boolean) => {
               // Analysis + split deliveries are the auto-watched sources
               // (ruling ③ shape) — bind with the task-book anchor (provenance
               // parity; the split channel is file-only, so its anchor is
               // informational). The planning SOW ('plan') stays UNBOUND — the
               // 整理任务书 no-return precedent: nothing seeds from it.
-              // 0016 刀一验收修正: dev does NOT bind at delivery — the created
-              // session is a config-only SHELL (DSH's send flow materializes
-              // the real conversation under a fresh id); the title-addressed
-              // bind pass below associates the REAL session once its fallback
-              // title (the SOW head) lands.
-              if (sow === null || sow.purpose === 'split') {
+              // 0017 刀二: dev binds AT DELIVERY when the v3 auto-send went
+              // out — the prompted id IS the real session (刀零实证: created
+              // id 直接变实，无 shell 物化). Degraded deliveries (sent=false)
+              // bind nothing here: the v2 shell pathology (0016 修订 #95)
+              // still stands for them; the title-addressed pass below + the
+              // endpoint content addressing repair those.
+              if (sow === null) return
+              if (sow.purpose === 'split') {
                 void controller.bindSplitSession(requirementId, sessionId, sowText.slice(0, 200))
+                return
+              }
+              if (sow.purpose === 'dev') {
+                if (sent && sow.workPackage !== undefined) {
+                  void controller.bindDevSession(requirementId, sow.workPackage.id, sessionId)
+                }
                 return
               }
               void controller.bindAnalysisSession(requirementId, sessionId, sowText.slice(0, 200))

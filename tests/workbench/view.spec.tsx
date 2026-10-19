@@ -550,7 +550,35 @@ describe('0007 定稿软门：S1 就绪披露 + 定稿/撤销 + 摘要导出', (
     await waitFor(() => expect(controller.bindSplitSession).toHaveBeenCalledWith(RID, 'sess-split-real', expect.any(String)))
   })
 
-  it('0016 刀一验收修正：dev 投递不再绑定（create 出的是 config-only shell）；标题寻址 pass 绑定真实会话', async () => {
+  it('0017 刀二：dev v3 投递（sent）⇒ 投递即绑 bindDevSession(RID, WP1, sessionId)——prompted id 即真实会话', async () => {
+    const controller = fakeController()
+    const deliver = vi.fn(async () => ({ ok: true as const, sessionId: 'sess-v3-real', sent: true as const }))
+    render(
+      <WorkbenchTabBody
+        t={bindZh()}
+        requirement={requirement}
+        slot={slot({ record: workbenchRecord({ stage: 'implement', splitApprovedAt: AT, workPackages: [({
+          id: 'WP1', title: '数据导出', boundary: '导出', order: 1, dependsOn: [], covers: [], status: 'in-dev' as const, plans: [], sessions: [], commits: [], acceptances: [],
+        })] }) })}
+        controller={controller}
+        knowledge={knowledgeState()}
+        deliver={deliver}
+      />,
+    )
+    fireEvent.click(screen.getByRole('tab', { name: /③ 执行实施/ }))
+    const card = await screen.findByRole('button', { name: /WP1/ })
+    fireEvent.click(card)
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: workbenchZh['sow.workPackageButton'] }))
+    const sowDialog = await screen.findByRole('dialog', { name: workbenchZh['sow.title'] })
+    await waitFor(() => { expect((sowDialog.querySelector('textarea[data-testid="sow-preview"]') as HTMLTextAreaElement).value).toContain('# skyaxis 工作包任务书 WP1') })
+    fireEvent.click(within(sowDialog).getByRole('button', { name: workbenchZh['sow.deliver'] }))
+    await waitFor(() => expect(deliver).toHaveBeenCalled())
+    await waitFor(() => expect(controller.bindDevSession).toHaveBeenCalledWith(RID, 'WP1', 'sess-v3-real'))
+    expect((controller.bindDevSession as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1)
+  })
+
+  it('0017 刀二：dev 降级投递（sent=false/缺省）不绑定——v2 shell 病理仍在；标题寻址 pass 绑定真实会话（0016 刀一验收修正口径延续）', async () => {
     const controller = fakeController()
     const deliver = vi.fn(async () => ({ ok: true as const, sessionId: 'sess-shell' }))
     // 可控会话面：发送后真实会话以任务书头行为标题物化
