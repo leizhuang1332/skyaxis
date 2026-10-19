@@ -17,9 +17,22 @@ import { workbenchZh } from '../../src/client/workbench/dictionary.js'
 import type { WorkbenchController } from '../../src/client/workbench/controller.js'
 import type { RequirementWorkbenchState } from '../../src/client/workbench/store.js'
 import { SplitSection } from '../../src/client/workbench/split-section.js'
+import { SplitProposals } from '../../src/client/workbench/split-proposals.js'
+import { WorkbenchTabBody } from '../../src/client/workbench/view.js'
+import type { RequirementRecord } from '../../src/requirements-shared/protocol.js'
 
 const RID = '11111111-1111-4111-8111-111111111111'
 const AT = '2026-09-29T08:00:00.000Z'
+
+const requirement: RequirementRecord = {
+  id: RID,
+  title: '拆分改造',
+  description: '',
+  workspacePath: 'C:\\ws\\需求',
+  linkedRepos: [],
+  createdAt: AT,
+  updatedAt: AT,
+}
 
 const bindZh = (): WorkbenchT => (key) => (workbenchZh as unknown as Record<string, string>)[key] ?? key
 
@@ -168,21 +181,36 @@ describe('SplitSection（S2 拆分清单 + 硬门①）', () => {
     await waitFor(() => expect(controller.approveSplit).toHaveBeenCalledWith(RID, { prd: [] }))
   })
 
-  it('批准后：行只读（无行 Menu 锚/无＋工作包/无批准按钮）+ gonogo 横幅（已批准 Tag + 统计 + 撤销）', () => {
+  it('批准后：行只读（无行 Menu 锚/无＋工作包/无批准按钮）；横幅与撤销已上移顶栏（布局轮）', () => {
     subject(slot({ record: splitRecord({ splitApprovedAt: AT }) }))
 
     expect(screen.queryByRole('button', { name: 'WP1' })).toBeNull()
     expect(screen.queryByText(workbenchZh['split.add'])).toBeNull()
     expect(screen.queryByRole('button', { name: workbenchZh['split.approve'] })).toBeNull()
-
-    expect(screen.getByText(workbenchZh['split.approvedTag'])).toBeTruthy()
-    expect(screen.getByText(new RegExp(`^${workbenchZh['split.approvedAtPrefix']} ${AT} · 2 个工作包`))).toBeTruthy()
-    expect(screen.getByRole('button', { name: workbenchZh['split.revoke'] })).toBeTruthy()
+    // 布局轮：approved 横幅（Tag + 统计 + 撤销）移 view 顶栏——台账节内不再渲染。
+    expect(screen.queryByText(workbenchZh['split.approvedTag'])).toBeNull()
+    expect(screen.queryByRole('button', { name: workbenchZh['split.revoke'] })).toBeNull()
   })
 
-  it('撤销流：确认键 ack 未勾禁用，勾选后 controller.revokeSplitApproval 落盘', async () => {
-    const { controller } = subject(slot({ record: splitRecord({ splitApprovedAt: AT }) }))
-
+  it('撤销流（顶栏，WorkbenchTabBody 挂载）：已批准 Tag + 日期·统计行 + [撤销批准] ack 门控 → revokeSplitApproval 落盘', async () => {
+    const controller = fakeController({
+      // 首帧 understand 阶段的 S1 文档卡也会 mount 探测（stage-sync 次帧才切 plan）。
+      analysisReportContent: vi.fn(async () => undefined),
+      requirementDocContent: vi.fn(async () => undefined),
+      planningDocContent: vi.fn(async () => undefined),
+      splitResultContent: vi.fn(async () => undefined),
+    })
+    render(
+      <WorkbenchTabBody
+        t={bindZh()}
+        requirement={requirement}
+        slot={slot({ record: splitRecord({ splitApprovedAt: AT }) })}
+        controller={controller}
+        knowledge={{ phase: 'ready', revision: 1, records: [] }}
+      />,
+    )
+    expect(screen.getByText(workbenchZh['split.approvedTag'])).toBeTruthy()
+    expect(screen.getByText(new RegExp(`^${workbenchZh['split.approvedAtPrefix']} ${AT.slice(0, 10)} · 2 个工作包`))).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: workbenchZh['split.revoke'] }))
     const dialog = screen.getByRole('dialog', { name: workbenchZh['split.revokeTitle'] })
     const confirm = within(dialog).getByRole('button', { name: workbenchZh['split.revokeConfirm'] }) as HTMLButtonElement
@@ -302,7 +330,7 @@ describe('S2 已放弃区（回收站化——验收轮三）', () => {
   })
 })
 
-describe('0012 SplitSection（拆包提议区 + 规划入口）', () => {
+describe('0012 拆包提议栏（SplitProposals——布局轮自 split-section 迁出自立）', () => {
   const proposalsRecord = (overrides: Partial<WorkbenchRecord> = {}): WorkbenchRecord =>
     record({
       criteria: splitCriteria(),
@@ -316,19 +344,18 @@ describe('0012 SplitSection（拆包提议区 + 规划入口）', () => {
       ...overrides,
     })
 
-  const subjectWithProps = (s: RequirementWorkbenchState, controller: WorkbenchController, extra: { onOpenPlan?: () => void; splitSeedDue?: boolean; splitSeedMiss?: 'split-file-missing'; onRetrySplitSeed?: () => void }) =>
+  const subjectWithProps = (s: RequirementWorkbenchState, controller: WorkbenchController, extra: { splitSeedDue?: boolean; splitSeedMiss?: 'split-file-missing'; onRetrySplitSeed?: () => void }) =>
     render(
-      <SplitSection
+      <SplitProposals
         t={bindZh()}
         slot={s}
         controller={controller}
         requirementId={RID}
-        onOpenSow={() => { /* noop */ }}
         {...extra}
       />,
     )
 
-  it('提议行渲染（ref/标题/边界/依赖/覆盖/提议 Tag）+ waiting 行带 miss 披露与重试；规划入口不在此节（规划卡专属）', async () => {
+  it('提议行渲染（ref/标题/边界/依赖/覆盖/提议 Tag + 栏头角标）+ waiting 行带 miss 披露与重试；SOW 入口不在此栏（顶栏专属）', async () => {
     const onRetrySplitSeed = vi.fn()
     const controller = fakeController({
       adoptSplitProposals: vi.fn(async () => true),
@@ -337,6 +364,8 @@ describe('0012 SplitSection（拆包提议区 + 规划入口）', () => {
     subjectWithProps(slot({ record: proposalsRecord() }), controller, { splitSeedDue: true, splitSeedMiss: 'split-file-missing', onRetrySplitSeed })
 
     expect(screen.getByText(workbenchZh['splitProposal.sectionTitle'])).toBeTruthy()
+    // 布局轮：栏头角标 rides 标题同头（2 条待裁决）。
+    expect((screen.getByText(workbenchZh['splitProposal.sectionTitle']).closest('div') as HTMLElement).textContent).toContain('2')
     expect(screen.getByText('WP5 校验包')).toBeTruthy()
     expect(screen.getByText('依赖的工作包：— · 覆盖的验收标准：C1')).toBeTruthy()
     expect(screen.getAllByText(workbenchZh['splitProposal.proposedTag'])).toHaveLength(2)

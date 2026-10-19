@@ -90,8 +90,9 @@ function fakeController(): WorkbenchController & { advanceStage: ReturnType<type
     // 0008: the S1 baseline-doc panel mounts the same way; the ack modal
     // probes it on open (undefined = no-doc disclosure).
     requirementDocContent: vi.fn(async () => undefined),
-    // 0012: the S2 planning panel mounts the same way (advance into 'plan'
-    // mounts PlanningSection); the split watcher needs its quiet seed face
+    // 0012: the S2 planning doc card mounts the same way (advance into 'plan'
+    // mounts the view-level plan zone + docs pair — 布局轮 dissolved
+    // PlanningSection); the split watcher needs its quiet seed face
     // (undefined = quiet miss — records without a splitProposals container
     // never fire it anyway).
     planningDocContent: vi.fn(async () => undefined),
@@ -569,6 +570,30 @@ describe('0007 定稿软门：S1 就绪披露 + 定稿/撤销 + 摘要导出', (
     const dialog = await screen.findByRole('dialog', { name: workbenchZh['splitResult.title'] })
     expect(dialog).toBeTruthy()
     await waitFor(() => expect(controller.splitResultContent).toHaveBeenCalledTimes(2))
+  })
+
+  it('布局轮 S2 分层（planNextAction）：已批准拆分 ⇒ 顶栏已批准 Tag + 完成本阶段实心、双任务书描边', () => {
+    render(
+      <WorkbenchTabBody
+        t={bindZh()}
+        requirement={requirement}
+        slot={slot({ record: workbenchRecord({
+          stage: 'plan',
+          planAdoptedAt: AT,
+          splitApprovedAt: AT,
+          criteria: [{ id: 'C1', text: '导出走异步', coveredBy: ['WP1'] }],
+          workPackages: [({
+            id: 'WP1', title: '数据导出', boundary: '导出', order: 1, dependsOn: [], covers: ['C1'], status: 'planned' as const, plans: [], sessions: [], commits: [], acceptances: [],
+          })],
+        }) })}
+        controller={fakeController()}
+        knowledge={knowledgeState()}
+      />,
+    )
+    expect(screen.getByText(workbenchZh['split.approvedTag'])).toBeTruthy()
+    expect((screen.getByRole('button', { name: /完成本阶段/ }) as HTMLButtonElement).className).toContain('primaryButton')
+    expect((screen.getByRole('button', { name: workbenchZh['sow.planButton'] }) as HTMLButtonElement).className).toContain('ghostButton')
+    expect((screen.getByRole('button', { name: workbenchZh['sow.splitButton'] }) as HTMLButtonElement).className).toContain('ghostButton')
   })
 
   it('0012 split 投递绑定：投递成功 ⇒ bindSplitSession(RID, sessionId, 任务书头 200 字锚)', async () => {

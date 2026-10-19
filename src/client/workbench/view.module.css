@@ -1146,13 +1146,9 @@
   color: var(--dsw-alias-label-secondary);
 }
 
-/* 0012 拆包提议区：与工作包行同形 + 左勾选 + 提议态虚线边（区分已登记行）。 */
-.splitProposalBlock {
-  margin-bottom: 12px;
-  padding-top: 8px;
-  border-top: 1px dashed var(--dsw-alias-border-l3);
-}
-
+/* 0012 拆包提议行：与工作包行同形 + 左勾选 + 提议态虚线边（区分已登记行）。
+   .splitProposalBlock retired (布局轮): the proposal block moved to
+   split-proposals.tsx and now wears the triptych column chrome. */
 .wpRowProposed {
   border-left: 2px dashed var(--dsw-alias-border-l3);
 }
@@ -1562,6 +1558,15 @@
 }
 
 .understandLedgerRow {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+/* S2 docs pair (布局轮): the planning card + the split-result card — the
+   .understandDocsRow pattern applied to S2's own doc pair. */
+.planDocsRow {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;

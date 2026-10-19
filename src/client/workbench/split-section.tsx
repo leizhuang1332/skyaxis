@@ -1,20 +1,21 @@
 /**
- * S2 breakdown section: the work-package list (editable pre-approval with
- * row menus for edit/remove/move), hard gate ① (approve with an
- * acknowledge-protected confirm modal carrying the list × coverage stats;
- * revoke with a confirm modal), and the approved gonogo banner with the
- * read-only rows. The stale badge slot in the header is a marked comment
- * only — no dead UI (stale automation is P5).
+ * S2 breakdown ledger (布局轮 slim-down): the work-package list (editable
+ * pre-approval with row menus for edit/remove/move) + hard gate ① (approve
+ * with an acknowledge-protected confirm modal carrying the list × coverage
+ * stats — the footer button stays HERE by decision: read the proposals,
+ * read the list, approve in place). The pending split-proposal column moved
+ * out to split-proposals.tsx; the approved banner + SOW entries + revoke
+ * moved to the view-level plan bar.
  *
  * [＋工作包] lives HERE and only pre-approval (gate integrity: adding to an
  * approved list without re-approval would void the contract the stamp
- * certifies — the mockup's S3 add-card is a v2 wish, resolved per plan).
+ * certifies) — the unified dashed addCard (the S1 add-entry language).
  */
 import { useEffect, useState, type ReactNode } from 'react'
 import { Modal, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { SeedMissingReason, WorkbenchWorkPackage } from '../../workbench-shared/protocol.js'
+import type { WorkbenchRecord, WorkbenchWorkPackage } from '../../workbench-shared/protocol.js'
 import type { PrdDocSummary } from '../../requirements-shared/protocol.js'
-import { SEED_MISS_KEY, type WorkbenchT } from './dictionary.js'
+import { type WorkbenchT } from './dictionary.js'
 import type { WorkbenchController } from './controller.js'
 import type { RequirementWorkbenchState } from './store.js'
 import { RowMenu } from './row-menu.js'
@@ -25,6 +26,20 @@ import { createRequirementsFetcher } from '../requirements/fetcher.js'
 import styles from './view.module.css'
 
 type Editing = { kind: 'closed' } | { kind: 'create' } | { kind: 'edit'; workPackage: WorkbenchWorkPackage }
+
+/** 布局轮: the coverage stats string — one derivation, two consumers (the
+ *  view bar's approved arm + the approve modal's disclosure). */
+export function splitCoverageStats(record: WorkbenchRecord, t: WorkbenchT): string {
+  const covered = record.criteria.filter((criterion) => criterion.coveredBy.length > 0).length
+  const holes = record.criteria.length - covered
+  return [
+    t('split.statWorkPackages').replaceAll('{n}', String(record.workPackages.length)),
+    record.criteria.length > 0
+      ? t('split.statCovered').replaceAll('{n}', String(covered)).replaceAll('{m}', String(record.criteria.length))
+      : null,
+    holes > 0 ? t('split.statHole').replaceAll('{n}', String(holes)) : null,
+  ].filter((part) => part !== null).join(' · ')
+}
 
 /** Not-yet-started statuses — a re-split is legal only while every active package is one of these. */
 const RE_SPLITTABLE_STATUSES: readonly WorkbenchWorkPackage['status'][] = ['planned', 'plan-draft', 'plan-approved']
@@ -44,14 +59,8 @@ export function SplitSection(props: {
   slot: RequirementWorkbenchState
   controller: WorkbenchController
   requirementId: string
-  /** S2 entry: open the split SOW modal (view-owned instance). */
-  onOpenSow?: () => void
   /** Injectable PRD listing (P5b stale baseline); defaults to the requirements fetcher. */
   fetchPrdDocs?: () => Promise<readonly PrdDocSummary[] | null>
-  /** 0012: the split watcher's advisory — due (uncollected) + why-not + retry. */
-  splitSeedDue?: boolean
-  splitSeedMiss?: SeedMissingReason
-  onRetrySplitSeed?: () => void
 }): ReactNode {
   const { t, slot, controller, requirementId } = props
   const record = slot.record
@@ -60,13 +69,9 @@ export function SplitSection(props: {
   const [editing, setEditing] = useState<Editing>({ kind: 'closed' })
   const [approveOpen, setApproveOpen] = useState(false)
   const [approveAck, setApproveAck] = useState(false)
-  const [revokeOpen, setRevokeOpen] = useState(false)
-  const [revokeAck, setRevokeAck] = useState(false)
   const [reSplitOpen, setReSplitOpen] = useState(false)
   const [reSplitAck, setReSplitAck] = useState(false)
   const [pendingRemove, setPendingRemove] = useState<WorkbenchWorkPackage | null>(null)
-  // 0012: the proposal area's checked-ref set (the register-selected input).
-  const [selectedRefs, setSelectedRefs] = useState<ReadonlySet<string>>(new Set())
   // P5b: the PRD listing, pulled once when S2 mounts (view.tsx renders this
   // section only while viewing==='plan'). null = still loading / unavailable
   // ⇒ stale detection degrades to the findings trigger only (honest absence).
@@ -97,15 +102,7 @@ export function SplitSection(props: {
   const active = sorted.filter((workPackage) => workPackage.status !== 'dropped')
   const droppedList = sorted.filter((workPackage) => workPackage.status === 'dropped')
 
-  const covered = record.criteria.filter((criterion) => criterion.coveredBy.length > 0).length
-  const holes = record.criteria.length - covered
-  const stats = [
-    t('split.statWorkPackages').replaceAll('{n}', String(record.workPackages.length)),
-    record.criteria.length > 0
-      ? t('split.statCovered').replaceAll('{n}', String(covered)).replaceAll('{m}', String(record.criteria.length))
-      : null,
-    holes > 0 ? t('split.statHole').replaceAll('{n}', String(holes)) : null,
-  ].filter((part) => part !== null).join(' · ')
+  const stats = splitCoverageStats(record, t)
 
   // P5b stale reconciliation (only meaningful while approved — the baseline
   // exists exactly then). Reasons drive the badge; re-split eligibility gates
@@ -128,94 +125,7 @@ export function SplitSection(props: {
       <div className={styles.sectionHead}>
         <div className={styles.sectionTitle}>{t('split.sectionTitle')}</div>
         {stale ? <Tag tone="warning">{t('split.staleBadge')}</Tag> : null}
-        <button type="button" className={styles.ghostButton} onClick={() => { props.onOpenSow?.() }}>{t('sow.splitButton')}</button>
-        {approved ? null : (
-          <button type="button" className={styles.ghostButton} onClick={() => { setEditing({ kind: 'create' }) }}>{t('split.add')}</button>
-        )}
       </div>
-      {record.splitProposals !== undefined ? (() => {
-        // 0012 拆包提议区: the split session's collected suggestions — pending
-        // rows awaiting the user's ruling (never counted by badges/stale/matrix;
-        // registering mints real ids, hard gate ① still approves the LIST).
-        // [忽略] stays usable while locked (the dismissFindingProposal family:
-        // dropping a pending row is never a contract change); only registering
-        // is gated.
-        const proposals = record.splitProposals
-        const toggleRef = (ref: string): void => {
-          setSelectedRefs((previous) => {
-            const next = new Set(previous)
-            if (next.has(ref)) next.delete(ref)
-            else next.add(ref)
-            return next
-          })
-        }
-        return (
-          <div className={styles.splitProposalBlock}>
-            <div className={styles.sectionHead}>
-              <div className={styles.sectionTitle}>{t('splitProposal.sectionTitle')}</div>
-              {approved ? <div className={styles.fieldError}>{t('splitProposal.lockedHint')}</div> : null}
-              <button
-                type="button"
-                className={styles.ghostButton}
-                disabled={slot.busy || approved || selectedRefs.size === 0}
-                onClick={() => {
-                  void controller.adoptSplitProposals(requirementId, proposals.workPackages.filter((row) => selectedRefs.has(row.ref)).map((row) => row.ref))
-                  setSelectedRefs(new Set())
-                }}
-              >
-                {t('splitProposal.adoptSelected')}
-              </button>
-            </div>
-            {props.splitSeedDue === true ? (
-              <div className={styles.formHint}>
-                {t('splitProposal.waiting')}
-                {props.splitSeedMiss !== undefined ? (
-                  <div className={styles.fieldError}>{t(SEED_MISS_KEY[props.splitSeedMiss]).replaceAll('{n}', '?')}</div>
-                ) : null}
-                {props.onRetrySplitSeed !== undefined ? (
-                  <button type="button" className={styles.ghostButton} onClick={props.onRetrySplitSeed}>{t('splitProposal.retry')}</button>
-                ) : null}
-              </div>
-            ) : null}
-            {proposals.workPackages.map((row) => (
-              <div key={row.ref} className={`${styles.wpRow} ${styles.wpRowProposed}`}>
-                <input
-                  type="checkbox"
-                  aria-label={row.ref}
-                  checked={selectedRefs.has(row.ref)}
-                  disabled={approved}
-                  onChange={() => { toggleRef(row.ref) }}
-                />
-                <div className={styles.wpRowMain}>
-                  <div className={styles.wpRowTitle}>
-                    {row.ref}　{row.title}
-                    <Tag tone="info">{t('splitProposal.proposedTag')}</Tag>
-                    {row.parallel === true ? <Tag tone="info">{t('wp.parallelTag')}</Tag> : null}
-                  </div>
-                  <div className={styles.wpRowBoundary}>{row.boundary}</div>
-                  <div className={styles.wpRowMeta}>
-                    {t('wp.dependsLabel')}：{row.dependsOn.length > 0 ? row.dependsOn.join(', ') : t('wp.noneMark')}
-                    {' · '}
-                    {t('wp.coversLabel')}：{row.covers.length > 0 ? row.covers.join(', ') : t('wp.noneMark')}
-                  </div>
-                </div>
-                <RowMenu
-                  menuLabel={row.ref}
-                  items={[{ id: 'ignore', label: t('splitProposal.ignore') }]}
-                  onSelect={() => {
-                    void controller.dismissWorkPackageProposal(requirementId, row.ref)
-                    setSelectedRefs((previous) => {
-                      const next = new Set(previous)
-                      next.delete(row.ref)
-                      return next
-                    })
-                  }}
-                />
-              </div>
-            ))}
-          </div>
-        )
-      })() : null}
       {active.map((workPackage) => (
         <div key={workPackage.id} className={styles.wpRow}>
           <div className={styles.wpRowMain}>
@@ -280,23 +190,12 @@ export function SplitSection(props: {
           ))}
         </div>
       ) : null}
-      {approved ? (
-        <div className={styles.gonogo}>
-          <Tag tone="success">{t('split.approvedTag')}</Tag>
-          <span className={styles.gonogoText}>
-            {t('split.approvedAtPrefix')} {record.splitApprovedAt} · {stats}
-          </span>
-          <span className={styles.gonogoSpacer} />
-          <button
-            type="button"
-            className={`${styles.ghostButton} ${styles.dangerButton}`}
-            disabled={slot.busy}
-            onClick={() => { setRevokeOpen(true); setRevokeAck(false) }}
-          >
-            {t('split.revoke')}
-          </button>
-        </div>
-      ) : (
+      {/* 布局轮统一：添加入口与 S1 台账同款虚线整卡（头 → 行 → 卡），仅未批准时。 */}
+      {approved ? null : (
+        <button type="button" className={styles.addCard} onClick={() => { setEditing({ kind: 'create' }) }}>{t('split.add')}</button>
+      )}
+      {approved ? null : (
+        /* 拍板①：批准拆分（硬门①）留在清单底部——读完提议、读完清单、就地批准。 */
         <div className={styles.splitFooter}>
           <button
             type="button"
@@ -386,34 +285,6 @@ export function SplitSection(props: {
         <div className={styles.ackRow}>
           <input type="checkbox" checked={approveAck} onChange={() => { setApproveAck(!approveAck) }} />
           <span>{t('split.approveAck')}</span>
-        </div>
-      </Modal>
-
-      <Modal
-        open={revokeOpen}
-        onClose={() => { setRevokeOpen(false) }}
-        title={t('split.revokeTitle')}
-        closeLabel={t('action.cancel')}
-        footer={
-          <>
-            <button type="button" className={styles.ghostButton} onClick={() => { setRevokeOpen(false) }}>{t('action.cancel')}</button>
-            <button
-              type="button"
-              className={`${styles.primaryButton} ${styles.dangerButton}`}
-              disabled={slot.busy || !revokeAck}
-              onClick={() => {
-                setRevokeOpen(false)
-                void controller.revokeSplitApproval(requirementId)
-              }}
-            >
-              {t('split.revokeConfirm')}
-            </button>
-          </>
-        }
-      >
-        <div className={styles.ackRow}>
-          <input type="checkbox" checked={revokeAck} onChange={() => { setRevokeAck(!revokeAck) }} />
-          <span>{t('split.revokeDescription')}</span>
         </div>
       </Modal>
 

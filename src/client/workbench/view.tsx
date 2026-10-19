@@ -28,10 +28,10 @@ import { CriteriaSection } from './criteria-section.js'
 import { ProposalsTriptych } from './proposals-triptych.js'
 import { ReportSection } from './report-section.js'
 import { RequirementDocSection } from './requirement-doc-section.js'
-import { SplitSection } from './split-section.js'
-import { PlanningSection } from './planning-section.js'
+import { SplitSection, splitCoverageStats } from './split-section.js'
+import { SplitProposals } from './split-proposals.js'
 import { WorkspaceDocSection } from './doc-section.js'
-import { splitResultRelPath } from '../../workbench-shared/protocol.js'
+import { planningDocRelPath, splitResultRelPath } from '../../workbench-shared/protocol.js'
 import { BoardSection } from './board-section.js'
 import { ExecutionSection } from './execution-section.js'
 import { InboxSection } from './inbox-section.js'
@@ -170,6 +170,22 @@ function understandNextAction(analysis: WorkbenchRecord['analysis'] | undefined,
   return 'advance'
 }
 
+/**
+ * 布局轮: the S2 next-move derivation — the understandNextAction pattern on
+ * S2's two-flow lifecycle (planning adopt → split adjudicate → approve →
+ * advance). Advisory only, same as S1: neither hard gate blocks anything
+ * here, the tier just shapes which button fills. 采纳规划 never fills —
+ * whether the planning doc has landed is IO state the record cannot express
+ * (the ack modal's probe owns that disclosure).
+ */
+function planNextAction(record: WorkbenchRecord): 'sowPlan' | 'sowSplit' | 'adjudicate' | 'approve' | 'advance' {
+  if (record.planAdoptedAt === undefined) return 'sowPlan'
+  if (record.splitApprovedAt !== undefined) return 'advance'
+  if ((record.splitProposals?.workPackages.length ?? 0) > 0) return 'adjudicate'
+  if (record.workPackages.length > 0) return 'approve'
+  return 'sowSplit'
+}
+
 /** The live-session summary face the dialog/picker/inbox/execution consume (register.tsx owns the real impl; tests inject; ex SessionStripSummary — strip retired 0017). */
 export interface WorkbenchSessionSummary {
   readonly id: string
@@ -261,6 +277,30 @@ export function WorkbenchTabBody(props: {
     })
     return () => { abort.abort() }
   }, [understandApproveOpen, controller, requirementId])
+  // 布局轮（S2 溶解 PlanningSection 上提）: the planning adopt-ack's
+  // doc-presence probe — the understand probe's twin (probing ⇒ row not
+  // rendered; no-workspace arm answers no-doc without fetching).
+  const [planAdoptOpen, setPlanAdoptOpen] = useState(false)
+  const [planAdoptAck, setPlanAdoptAck] = useState(false)
+  const [planRevokeOpen, setPlanRevokeOpen] = useState(false)
+  const [planRevokeAck, setPlanRevokeAck] = useState(false)
+  const [splitRevokeOpen, setSplitRevokeOpen] = useState(false)
+  const [splitRevokeAck, setSplitRevokeAck] = useState(false)
+  const [planAckDoc, setPlanAckDoc] = useState<'probing' | 'doc' | 'no-doc'>('probing')
+  const planWorkspacePath = props.requirement.workspacePath.trim()
+  useEffect(() => {
+    if (!planAdoptOpen || planWorkspacePath === '') {
+      setPlanAckDoc('probing')
+      return undefined
+    }
+    const abort = new AbortController()
+    setPlanAckDoc('probing')
+    void controller.planningDocContent(requirementId, abort.signal).then((result) => {
+      if (abort.signal.aborted) return
+      setPlanAckDoc(result !== undefined && result.kind === 'ok' ? 'doc' : 'no-doc')
+    })
+    return () => { abort.abort() }
+  }, [planAdoptOpen, controller, requirementId, planWorkspacePath])
   // Follow the record's stage on first ready (and re-arm on requirement
   // switches); later refreshes never move the user's viewing choice.
   const syncedRef = useRef(false)
@@ -285,6 +325,8 @@ export function WorkbenchTabBody(props: {
   // 布局重塑轮: the S1 primary-action tier — null off-stage (other stages
   // keep the shared advanceButton look).
   const understandNext = readiness === null || record === null || viewing !== 'understand' ? null : understandNextAction(record.analysis, readiness)
+  // 布局轮: the S2 primary-action tier (null off-stage).
+  const planNext = record === null || viewing !== 'plan' ? null : planNextAction(record)
   const understandAckStats = readiness === null || record === null ? '' : [
     t('understand.statCriteria').replaceAll('{n}', String(record.criteria.length)),
     t('understand.statFindings')
@@ -632,34 +674,111 @@ export function WorkbenchTabBody(props: {
               </div>
             ) : null}
             {record !== null && viewing === 'plan' ? (
-              <PlanningSection
-                key={`planning-${requirementId}`}
-                t={t}
-                slot={slot}
-                controller={controller}
-                requirementId={requirementId}
-                workspacePath={props.requirement.workspacePath.trim()}
-                record={record}
-                onOpenSow={() => { setSow({ purpose: 'plan' }) }}
-              />
+              <div key={`plan-${requirementId}`} className={styles.triptychZone}>
+                {/* 布局轮（拍板②全收顶栏）：两流状态 Tag + 撤销 danger + 双任务书常驻
+                    （重投递可达），按 planNextAction 分层实心；采纳规划恒 ghost——文档
+                    是否落盘是 IO 态，record 推不出（ack modal 探测语义保留）。 */}
+                <div className={styles.triptychBar}>
+                  {record.planAdoptedAt !== undefined ? (
+                    <>
+                      <Tag tone="success">{t('planning.adoptedTag')}</Tag>
+                      <span className={styles.gonogoText}>{t('planning.adoptedAtPrefix')} {record.planAdoptedAt.slice(0, 10)}</span>
+                    </>
+                  ) : null}
+                  {record.splitApprovedAt !== undefined ? (
+                    <>
+                      <Tag tone="success">{t('split.approvedTag')}</Tag>
+                      <span className={styles.gonogoText}>{t('split.approvedAtPrefix')} {record.splitApprovedAt.slice(0, 10)} · {splitCoverageStats(record, t)}</span>
+                    </>
+                  ) : null}
+                  <span className={styles.triptychSpacer} />
+                  {record.planAdoptedAt !== undefined ? (
+                    <button
+                      type="button"
+                      className={`${styles.ghostButton} ${styles.dangerButton}`}
+                      disabled={slot.busy}
+                      onClick={() => { setPlanRevokeOpen(true); setPlanRevokeAck(false) }}
+                    >
+                      {t('planning.revokeButton')}
+                    </button>
+                  ) : (
+                    <button type="button" className={styles.ghostButton} disabled={slot.busy} onClick={() => { setPlanAdoptOpen(true); setPlanAdoptAck(false) }}>{t('planning.adoptButton')}</button>
+                  )}
+                  {record.splitApprovedAt !== undefined ? (
+                    <button
+                      type="button"
+                      className={`${styles.ghostButton} ${styles.dangerButton}`}
+                      disabled={slot.busy}
+                      onClick={() => { setSplitRevokeOpen(true); setSplitRevokeAck(false) }}
+                    >
+                      {t('split.revoke')}
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    className={planNext === 'sowPlan' ? styles.primaryButton : styles.ghostButton}
+                    disabled={slot.busy}
+                    onClick={() => { setSow({ purpose: 'plan' }) }}
+                  >
+                    {t('sow.planButton')}
+                  </button>
+                  <button
+                    type="button"
+                    className={planNext === 'sowSplit' ? styles.primaryButton : styles.ghostButton}
+                    disabled={slot.busy}
+                    onClick={() => { setSow({ purpose: 'split' }) }}
+                  >
+                    {t('sow.splitButton')}
+                  </button>
+                </div>
+                {/* 待裁决置顶（S1 同款）：拆包提议单列——栏头角标 + 内滚，splitProposals
+                    未绑定时组件自隐。 */}
+                <SplitProposals
+                  key={`splitproposals-${requirementId}`}
+                  t={t}
+                  slot={slot}
+                  controller={controller}
+                  requirementId={requirementId}
+                  splitSeedDue={splitDue}
+                  splitSeedMiss={splitDue ? splitSeedMiss : undefined}
+                  onRetrySplitSeed={retrySplitSeed}
+                />
+              </div>
             ) : null}
             {record !== null && viewing === 'plan' ? (
-              // 0012 验收驱动补面: the split result FILE's own card (the
-              // human-readable 拆分方案 — fifth instance of the doc-card
-              // family, the planning card's twin). The proposal area below is
-              // this file's MACHINE extraction; the card is the document face
-              // (preview + path disclosure + tamper warning vs the seed锚).
-              <WorkspaceDocSection
-                key={`splitdoc-${requirementId}`}
-                t={t}
-                controller={controller}
-                requirementId={requirementId}
-                workspacePath={props.requirement.workspacePath.trim()}
-                ns="splitResult"
-                displayName={`split/${requirementId.slice(0, 8)}.md`}
-                relPath={splitResultRelPath(requirementId)}
-                fetchContent={controller.splitResultContent}
-              />
+              <div className={styles.planDocsRow}>
+                {/* 布局轮：规划卡直挂（stale Tag 骑卡头 headerExtra——顺带消灭旧
+                    PlanningSection 头与卡内头的双标题）；拆分结果卡为其孪生。 */}
+                <WorkspaceDocSection
+                  key={`planningdoc-${requirementId}`}
+                  t={t}
+                  controller={controller}
+                  requirementId={requirementId}
+                  workspacePath={planWorkspacePath}
+                  ns="planning"
+                  displayName={`planning/${requirementId.slice(0, 8)}.md`}
+                  relPath={planningDocRelPath(requirementId)}
+                  fetchContent={controller.planningDocContent}
+                  headerExtra={record.planAdoptedAt !== undefined && record.planBaseline?.requirementDocHash !== record.understandBaseline?.docHash ? (
+                    <Tag tone="warning">{t('planning.staleBadge')}</Tag>
+                  ) : undefined}
+                />
+                {/* 0012 验收驱动补面: the split result FILE's own card (the
+                    human-readable 拆分方案). The proposal column above is this
+                    file's MACHINE extraction; the card is the document face
+                    (preview + path disclosure + tamper warning vs the seed锚). */}
+                <WorkspaceDocSection
+                  key={`splitdoc-${requirementId}`}
+                  t={t}
+                  controller={controller}
+                  requirementId={requirementId}
+                  workspacePath={planWorkspacePath}
+                  ns="splitResult"
+                  displayName={`split/${requirementId.slice(0, 8)}.md`}
+                  relPath={splitResultRelPath(requirementId)}
+                  fetchContent={controller.splitResultContent}
+                />
+              </div>
             ) : null}
             {record !== null && viewing === 'plan' ? (
               <SplitSection
@@ -668,10 +787,6 @@ export function WorkbenchTabBody(props: {
                 slot={slot}
                 controller={controller}
                 requirementId={requirementId}
-                onOpenSow={() => { setSow({ purpose: 'split' }) }}
-                splitSeedDue={splitDue}
-                splitSeedMiss={splitDue ? splitSeedMiss : undefined}
-                onRetrySplitSeed={retrySplitSeed}
               />
             ) : null}
             {record !== null && viewing === 'implement' && executionView === null ? (
@@ -775,7 +890,7 @@ export function WorkbenchTabBody(props: {
               ) : null}
               <button
                 type="button"
-                className={viewing === 'understand' && readiness?.finalized === true ? styles.primaryButton : styles.advanceButton}
+                className={(viewing === 'understand' && readiness?.finalized === true) || (viewing === 'plan' && record?.splitApprovedAt !== undefined) ? styles.primaryButton : styles.advanceButton}
                 disabled={slot.busy}
                 onClick={advance}
               >
@@ -890,6 +1005,94 @@ export function WorkbenchTabBody(props: {
         <div className={styles.ackRow}>
           <input type="checkbox" checked={understandRevokeAck} onChange={() => { setUnderstandRevokeAck(!understandRevokeAck) }} />
           <span>{t('understand.revokeAck')}</span>
+        </div>
+      </Modal>
+      {/* 布局轮（S2 溶解 PlanningSection 上提）: 采纳规划 ack modal（文档在场探测——
+          0012 软门口径：无文档可采纳，有则盖章即锚定）+ 撤销采纳 + 撤销批准三件。 */}
+      <Modal
+        open={planAdoptOpen}
+        onClose={() => { setPlanAdoptOpen(false) }}
+        title={t('planning.adoptTitle')}
+        closeLabel={t('action.cancel')}
+        footer={
+          <>
+            <button type="button" className={styles.ghostButton} onClick={() => { setPlanAdoptOpen(false) }}>{t('action.cancel')}</button>
+            <button
+              type="button"
+              className={styles.primaryButton}
+              disabled={slot.busy || !planAdoptAck}
+              onClick={() => {
+                setPlanAdoptOpen(false)
+                void controller.adoptPlan(requirementId)
+              }}
+            >
+              {t('planning.adoptConfirm')}
+            </button>
+          </>
+        }
+      >
+        <div className={styles.formHint}>
+          {planWorkspacePath === ''
+            ? t('planning.ackNoDoc')
+            : planAckDoc === 'probing' ? t('page.loading') : planAckDoc === 'doc' ? t('planning.ackDocWillAnchor') : t('planning.ackNoDoc')}
+        </div>
+        <div className={styles.ackRow}>
+          <input type="checkbox" checked={planAdoptAck} onChange={() => { setPlanAdoptAck(!planAdoptAck) }} />
+          <span>{t('planning.adoptAck')}</span>
+        </div>
+      </Modal>
+      <Modal
+        open={planRevokeOpen}
+        onClose={() => { setPlanRevokeOpen(false) }}
+        title={t('planning.revokeTitle')}
+        closeLabel={t('action.cancel')}
+        footer={
+          <>
+            <button type="button" className={styles.ghostButton} onClick={() => { setPlanRevokeOpen(false) }}>{t('action.cancel')}</button>
+            <button
+              type="button"
+              className={`${styles.ghostButton} ${styles.dangerButton}`}
+              disabled={slot.busy || !planRevokeAck}
+              onClick={() => {
+                setPlanRevokeOpen(false)
+                void controller.revokePlanAdoption(requirementId)
+              }}
+            >
+              {t('planning.revokeConfirm')}
+            </button>
+          </>
+        }
+      >
+        <div className={styles.ackRow}>
+          <input type="checkbox" checked={planRevokeAck} onChange={() => { setPlanRevokeAck(!planRevokeAck) }} />
+          <span>{t('planning.revokeAck')}</span>
+        </div>
+      </Modal>
+      <Modal
+        open={splitRevokeOpen}
+        onClose={() => { setSplitRevokeOpen(false) }}
+        title={t('split.revokeTitle')}
+        closeLabel={t('action.cancel')}
+        footer={
+          <>
+            <button type="button" className={styles.ghostButton} onClick={() => { setSplitRevokeOpen(false) }}>{t('action.cancel')}</button>
+            <button
+              type="button"
+              className={`${styles.primaryButton} ${styles.dangerButton}`}
+              disabled={slot.busy || !splitRevokeAck}
+              onClick={() => {
+                setSplitRevokeOpen(false)
+                void controller.revokeSplitApproval(requirementId)
+              }}
+            >
+              {t('split.revokeConfirm')}
+            </button>
+          </>
+        }
+      >
+        <div className={styles.ackRow}>
+          <input type="checkbox" checked={splitRevokeAck} onChange={() => { setSplitRevokeAck(!splitRevokeAck) }} />
+          <span>{t('split.revokeDescription')}</span>
         </div>
       </Modal>
       {record !== null ? (
