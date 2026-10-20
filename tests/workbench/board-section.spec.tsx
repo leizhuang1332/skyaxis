@@ -246,7 +246,7 @@ describe('BoardSection（S3 执行看板）', () => {
     expect(screen.queryByRole('button', { name: workbenchZh['board.reject'] })).toBeNull()
   })
 
-  it('0018 刀二 状态驱动任务书入口：待计划卡=规划任务书（wp-plan）；计划已批准卡=开发任务书（dev）；in-dev/待验收/已验收卡无入口', () => {
+  it('0018 合并轮（合并对象=dev 任务书与开始开发）：待计划卡=「生成工作包规划任务书」（wp-plan，不卷入合并）；计划已批准卡=「开始开发」（dev，投递后翻状态）；in-dev/待验收/已验收卡无入口', () => {
     const onOpenSow = vi.fn()
     render(
       <BoardSection
@@ -258,7 +258,7 @@ describe('BoardSection（S3 执行看板）', () => {
       />,
     )
 
-    // 待计划列（WP1 planned / WP2 plan-draft）→ 规划任务书（wp-plan）。
+    // 待计划列（WP1 planned / WP2 plan-draft）→ 规划任务书（wp-plan）——原样。
     const plannedCol = screen.getByText(workbenchZh['board.colPlanned'], { exact: true }).parentElement as HTMLElement
     const planButtons = within(plannedCol).getAllByRole('button', { name: workbenchZh['sow.wpPlanButton'] })
     fireEvent.click(planButtons[0])
@@ -266,16 +266,16 @@ describe('BoardSection（S3 执行看板）', () => {
     fireEvent.click(planButtons[1])
     expect(onOpenSow).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'WP2' }), 'wp-plan')
 
-    // 计划已批准列（WP3）→ 开发任务书（dev）。
+    // 计划已批准列（WP3）→「开始开发」（dev；翻状态在投递成功的 onDelivered 处）。
     const approvedCol = screen.getByText(workbenchZh['board.colPlanApproved'], { exact: true }).parentElement as HTMLElement
-    fireEvent.click(within(approvedCol).getByRole('button', { name: workbenchZh['sow.workPackageButton'] }))
+    fireEvent.click(within(approvedCol).getByRole('button', { name: workbenchZh['detail.startWork'] }))
     expect(onOpenSow).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'WP3' }), 'dev')
 
-    // in-dev/待验收/已验收列：无任务书入口（详情与收件箱仍是全入口）。
+    // in-dev/待验收/已验收列：无「开始开发」也无规划入口。
     for (const colTitle of [workbenchZh['board.colInDev'], workbenchZh['board.colBuilt'], workbenchZh['board.colAccepted']]) {
       const column = screen.getByText(colTitle, { exact: true }).parentElement as HTMLElement
+      expect(within(column).queryByRole('button', { name: workbenchZh['detail.startWork'] })).toBeNull()
       expect(within(column).queryByRole('button', { name: workbenchZh['sow.wpPlanButton'] })).toBeNull()
-      expect(within(column).queryByRole('button', { name: workbenchZh['sow.workPackageButton'] })).toBeNull()
     }
   })
 })

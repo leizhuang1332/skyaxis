@@ -187,8 +187,19 @@ export function WorkPackageDialog(props: {
       footer={
         <div className={styles.wpFooterStack}>
           <div className={styles.wpFooterAside}>
-            {workPackage.status === 'plan-approved' ? (
-              <button type="button" className={styles.ghostButton} disabled={slot.busy} onClick={() => { void controller.startWorkPackage(requirementId, workPackage.id) }}>{t('detail.startWork')}</button>
+            {/* 0018 合并轮（用户裁定：合并对象=dev 任务书与开始开发）：
+                plan-approved 态「开始开发」= 开 dev 任务书 Modal（投递成功的
+                onDelivered 处后翻状态——取消 Modal 零痕迹，裁决点在按下投递）。
+                点击零账本写；onOpenSow 缺席（测试夹具）不渲染。 */}
+            {props.onOpenSow !== undefined && workPackage.status === 'plan-approved' ? (
+              <button
+                type="button"
+                className={styles.ghostButton}
+                disabled={slot.busy}
+                onClick={() => { props.onOpenSow?.(workPackage, 'dev') }}
+              >
+                {t('detail.startWork')}
+              </button>
             ) : null}
             {workPackage.status === 'in-dev' ? (
               <button type="button" className={styles.ghostButton} disabled={slot.busy} onClick={() => { void controller.markWorkPackageBuilt(requirementId, workPackage.id) }}>{t('detail.markBuilt')}</button>
@@ -220,11 +231,15 @@ export function WorkPackageDialog(props: {
         <div className={styles.sectionTitle}>
           {t('detail.planSection')}
           <Tag tone={STATUS_TAG_TONE[workPackage.status]}>{t(STATUS_LABEL_KEY[workPackage.status])}</Tag>
-          {/* 0018 刀二 状态驱动分层：按钮顺序随 hasApprovedPlan 对调（规划先行
-              vs 开发先行）；无已批准计划时开发入口走 ack 确认（软门——跳过
-              显式化，不阻断）。 */}
+          {/* 0018 合并轮（合并对象=dev 任务书与开始开发）：plan-approved 态的
+              dev 按钮退役（正路=footer「开始开发」），规划按钮保留（重规划
+              入口）；其余状态恢复刀二形态——dev 按钮 planned/plan-draft 走
+              ack（跳过规划的显式路径）、in-dev 直通（补投），顺序随
+              hasApprovedPlan 对调。 */}
           {props.onOpenSow !== undefined ? (
-            hasApprovedPlan ? (
+            workPackage.status === 'plan-approved' ? (
+              <button type="button" className={styles.ghostButton} onClick={() => { props.onOpenSow?.(workPackage, 'wp-plan') }}>{t('sow.wpPlanButton')}</button>
+            ) : hasApprovedPlan ? (
               <>
                 <button type="button" className={styles.ghostButton} onClick={() => { props.onOpenSow?.(workPackage, 'dev') }}>{t('sow.workPackageButton')}</button>
                 <button type="button" className={styles.ghostButton} onClick={() => { props.onOpenSow?.(workPackage, 'wp-plan') }}>{t('sow.wpPlanButton')}</button>

@@ -236,22 +236,46 @@ describe('WorkPackageDialog（S3 详情 Modal + 硬门②）', () => {
     expect(rendered3.queryByPlaceholderText(workbenchZh['detail.draftPlaceholder'])).toBeNull()
   })
 
-  it('footer 生命周期按 status：plan-approved→开始开发；in-dev→标记完成待验收；accepted→重开', async () => {
+  it('footer 生命周期按 status：plan-approved→「开始开发」开 dev 任务书 Modal（零账本写，后翻状态）；planned→无开始开发（规划入口在计划节/看板）；in-dev→标记完成待验收；accepted→重开', async () => {
+    // 0018 合并轮（合并对象=dev 任务书与开始开发）：点击只开 Modal，翻状态
+    // 在投递成功的 onDelivered 处。
+    const controller = fakeController()
+    const onOpenSow = vi.fn()
+    const rendered = render(
+      <WorkPackageDialog
+        t={bindZh()}
+        workPackage={wp('WP1', { status: 'plan-approved', plans: [planEntry(1, { approvedAt: AT })] })}
+        slot={slot()}
+        controller={controller}
+        requirementId={RID}
+        onOpenSow={onOpenSow}
+        onClose={() => { /* noop */ }}
+      />,
+    )
+    fireEvent.click(rendered.getByRole('button', { name: workbenchZh['detail.startWork'] }))
+    expect(onOpenSow).toHaveBeenCalledWith(expect.objectContaining({ id: 'WP1' }), 'dev')
+    expect(controller.startWorkPackage).not.toHaveBeenCalled() // 后翻状态：点击零账本写
+    rendered.unmount()
+
+    // planned 态 footer 无「开始开发」（不在合并范围）。
+    const planned = subject(wp('WP1', { status: 'planned', plans: [] }))
+    expect(planned.queryByRole('button', { name: workbenchZh['detail.startWork'] })).toBeNull()
+    planned.unmount()
+
     const cases: Array<{
       status: WorkbenchWorkPackage['status']
       button: string
-      call: 'startWorkPackage' | 'markWorkPackageBuilt' | 'reopenWorkPackage'
+      call: 'markWorkPackageBuilt' | 'reopenWorkPackage'
     }> = [
-      { status: 'plan-approved', button: workbenchZh['detail.startWork'], call: 'startWorkPackage' },
       { status: 'in-dev', button: workbenchZh['detail.markBuilt'], call: 'markWorkPackageBuilt' },
       { status: 'accepted', button: workbenchZh['detail.reopen'], call: 'reopenWorkPackage' },
     ]
     for (const testCase of cases) {
-      const controller = fakeController()
-      const rendered = subject(wp('WP1', { status: testCase.status, plans: [] }), controller)
-      fireEvent.click(rendered.getByRole('button', { name: testCase.button }))
-      await waitFor(() => expect(controller[testCase.call]).toHaveBeenCalledWith(RID, 'WP1'))
-      rendered.unmount()
+      const controller2 = fakeController()
+      const rendered2 = subject(wp('WP1', { status: testCase.status, plans: [] }), controller2)
+      fireEvent.click(rendered2.getByRole('button', { name: testCase.button }))
+      await waitFor(() => expect(controller2[testCase.call]).toHaveBeenCalledWith(RID, 'WP1'))
+      rendered2.unmount()
     }
   })
 
@@ -310,7 +334,7 @@ describe('WorkPackageDialog（S3 详情 Modal + 硬门②）', () => {
     expect(rendered.getByRole('button', { name: `v1 · ${workbenchZh['detail.versionApproved']}` })).toBeTruthy()
   })
 
-  it('0018 刀二：无已批准计划——wp-plan 入口直通；dev 入口走 ack 确认（取消不投递/确认直投 dev）；按钮顺序规划先行', () => {
+  it('0018 刀二（恢复）：无已批准计划（planned）——wp-plan 入口直通；dev 入口走 ack 确认（取消不投递/确认直投 dev）；规划按钮先行', () => {
     const onOpenSow = vi.fn()
     render(
       <WorkPackageDialog
@@ -349,36 +373,49 @@ describe('WorkPackageDialog（S3 详情 Modal + 硬门②）', () => {
     expect(onOpenSow).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'WP1' }), 'dev')
   })
 
-  it('0018 刀二：有已批准计划——dev 直通无 ack 且按钮顺序开发先行；规划收取来源会话行在场（前 8 位）', () => {
-    const onOpenSow = vi.fn()
+  it('0018 合并轮：plan-approved 计划节 dev 按钮退役（正路=footer「开始开发」）、规划按钮保留（重规划入口）；in-dev 补投直通无 ack；来源会话行在场（前 8 位）', () => {
+    // plan-approved：计划节无 dev 按钮（与 footer「开始开发」合一），wp-plan 保留。
+    const onOpenSowApproved = vi.fn()
+    const approved = render(
+      <WorkPackageDialog
+        t={bindZh()}
+        workPackage={wp('WP1', { status: 'plan-approved', plans: [planEntry(1, { approvedAt: AT })] })}
+        slot={slot()}
+        controller={fakeController()}
+        requirementId={RID}
+        onOpenSow={onOpenSowApproved}
+        onClose={() => { /* noop */ }}
+      />,
+    )
+    expect(approved.queryByRole('button', { name: workbenchZh['sow.workPackageButton'] })).toBeNull()
+    expect(approved.getByRole('button', { name: workbenchZh['sow.wpPlanButton'] })).toBeTruthy()
+    // footer「开始开发」是 dev 入口（直通无 ack）。
+    fireEvent.click(approved.getByRole('button', { name: workbenchZh['detail.startWork'] }))
+    expect(onOpenSowApproved).toHaveBeenCalledWith(expect.objectContaining({ id: 'WP1' }), 'dev')
+    expect(approved.queryByRole('dialog', { name: workbenchZh['detail.devNoPlanAckTitle'] })).toBeNull()
+    approved.unmount()
+
+    // in-dev 补投：计划节 dev 按钮直通（无 ack）；来源会话行在场。
+    const onOpenSowDev = vi.fn()
     render(
       <WorkPackageDialog
         t={bindZh()}
         workPackage={wp('WP1', {
-          status: 'plan-approved',
+          status: 'in-dev',
           plans: [planEntry(1, { approvedAt: AT })],
           planSeed: { session: { sessionId: 'sess-plan-delivery', boundAt: AT }, contentHash: 'a'.repeat(64), seededAt: AT },
         })}
         slot={slot()}
         controller={fakeController()}
         requirementId={RID}
-        onOpenSow={onOpenSow}
+        onOpenSow={onOpenSowDev}
         onClose={() => { /* noop */ }}
       />,
     )
-
-    // dev 直通（无 ack）。
     fireEvent.click(screen.getByRole('button', { name: workbenchZh['sow.workPackageButton'] }))
-    expect(onOpenSow).toHaveBeenCalledTimes(1)
-    expect(onOpenSow).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'WP1' }), 'dev')
+    expect(onOpenSowDev).toHaveBeenCalledTimes(1)
+    expect(onOpenSowDev).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'WP1' }), 'dev')
     expect(screen.queryByRole('dialog', { name: workbenchZh['detail.devNoPlanAckTitle'] })).toBeNull()
-
-    // 按钮顺序：开发先行（hasApprovedPlan=true 的分层）。
-    const buttons = screen.getAllByRole('button')
-    expect(buttons.findIndex((button) => button.textContent === workbenchZh['sow.workPackageButton']))
-      .toBeLessThan(buttons.findIndex((button) => button.textContent === workbenchZh['sow.wpPlanButton']))
-
-    // 来源会话行：planSeed.session 指针 → 前 8 位（proposal.sourcePrefix 形制）。
     expect(screen.getByText(workbenchZh['detail.planSeedSource'].replaceAll('{id}', 'sess-pla'))).toBeTruthy()
   })
 

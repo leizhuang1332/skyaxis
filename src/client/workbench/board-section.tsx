@@ -172,10 +172,11 @@ export function BoardSection(props: {
                       </button>
                     </div>
                   ) : null}
-                  {/* 0018 刀二 状态驱动分层（built 卡验收动作的同款手法）：待计划
-                      卡（planned/plan-draft）的主动词=规划（细粒度规划→批准→再
-                      开发）；计划已批准卡的主动词=开发（嵌已批准计划投递）。
-                      in-dev 及其后不加卡面任务书入口——详情与收件箱仍是全入口。 */}
+                  {/* 0018 合并轮（用户裁定：合并对象=dev 任务书与开始开发）：
+                      plan-approved 卡的动作从「生成工作包任务书」改名「开始
+                      开发」（开 dev 任务书，投递成功的 onDelivered 处后翻状态
+                      ——取消 Modal 零痕迹）；待计划卡（planned/plan-draft）的
+                      规划按钮保持原样（不卷入合并）；in-dev 补投走 WP 详情计划节。 */}
                   {props.onOpenSow !== undefined && (workPackage.status === 'planned' || workPackage.status === 'plan-draft' || workPackage.status === 'plan-approved') ? (
                     <div className={styles.boardCardActions}>
                       <button
@@ -183,7 +184,7 @@ export function BoardSection(props: {
                         className={styles.ghostButton}
                         onClick={() => { props.onOpenSow?.(workPackage, workPackage.status === 'plan-approved' ? 'dev' : 'wp-plan') }}
                       >
-                        {workPackage.status === 'plan-approved' ? t('sow.workPackageButton') : t('sow.wpPlanButton')}
+                        {workPackage.status === 'plan-approved' ? t('detail.startWork') : t('sow.wpPlanButton')}
                       </button>
                     </div>
                   ) : null}

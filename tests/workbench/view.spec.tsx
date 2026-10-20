@@ -107,6 +107,10 @@ function fakeController(): WorkbenchController & { advanceStage: ReturnType<type
     // never fire it anyway).
     seedWpPlanQuiet: vi.fn(async () => undefined),
     recordWpPlanSession: vi.fn(async () => true),
+    // 0018 合并轮用例：WP 详情计划节按需拉正文（undefined = 读取失败面）；
+    // 后翻状态的 startWorkPackage 面（投递回调断言）。
+    planContent: vi.fn(async () => undefined),
+    startWorkPackage: vi.fn(async () => true),
     dismissBanner: vi.fn(),
     dispose: vi.fn(),
   } as never
@@ -753,5 +757,36 @@ describe('0007 定稿软门：S1 就绪披露 + 定稿/撤销 + 摘要导出', (
     fireEvent.click(await screen.findByRole('button', { name: workbenchZh['inbox.openDetail'] }))
     const sowDialog = await screen.findByRole('dialog', { name: workbenchZh['sow.title'] })
     await waitFor(() => { expect((sowDialog.querySelector('textarea[data-testid="sow-preview"]') as HTMLTextAreaElement).value).toContain('# skyaxis 工作包任务书 WP1') })
+  })
+
+  it('0018 合并轮：plan-approved 经「开始开发」直开 dev 任务书，投递（sent）⇒ 后翻状态 startWorkPackage + 投递即绑 bindDevSession', async () => {
+    const controller = fakeController()
+    const deliver = vi.fn(async () => ({ ok: true as const, sessionId: 'sess-v3-real', sent: true as const }))
+    render(
+      <WorkbenchTabBody
+        t={bindZh()}
+        requirement={requirement}
+        slot={slot({ record: workbenchRecord({ stage: 'implement', splitApprovedAt: AT, workPackages: [({
+          id: 'WP1', title: '数据导出', boundary: '导出', order: 1, dependsOn: [], covers: [], status: 'plan-approved' as const, plans: [{ version: 1, approvedAt: AT }], sessions: [], commits: [], acceptances: [],
+        })] }) })}
+        controller={controller}
+        knowledge={knowledgeState()}
+        deliver={deliver}
+      />,
+    )
+    fireEvent.click(screen.getByRole('tab', { name: /③ 执行实施/ }))
+    const card = await screen.findByRole('button', { name: /WP1/ })
+    fireEvent.click(card)
+    const dialog = await screen.findByRole('dialog')
+    // footer「开始开发」（合并轮：与 dev 任务书合一）直开 dev 任务书，点击零账本写。
+    fireEvent.click(within(dialog).getByRole('button', { name: workbenchZh['detail.startWork'] }))
+    const sowDialog = await screen.findByRole('dialog', { name: workbenchZh['sow.title'] })
+    await waitFor(() => { expect((sowDialog.querySelector('textarea[data-testid="sow-preview"]') as HTMLTextAreaElement).value).toContain('# skyaxis 工作包任务书 WP1') })
+    expect(controller.startWorkPackage).not.toHaveBeenCalled()
+    fireEvent.click(within(sowDialog).getByRole('button', { name: workbenchZh['sow.deliver'] }))
+    await waitFor(() => expect(deliver).toHaveBeenCalled())
+    // 投递成功 ⇒ 后翻状态 + 绑定（裁决点=按下投递）。
+    await waitFor(() => expect(controller.startWorkPackage).toHaveBeenCalledWith(RID, 'WP1'))
+    await waitFor(() => expect(controller.bindDevSession).toHaveBeenCalledWith(RID, 'WP1', 'sess-v3-real'))
   })
 })

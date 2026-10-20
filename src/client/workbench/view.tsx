@@ -971,7 +971,18 @@ export function WorkbenchTabBody(props: {
               }
               if (sow.purpose === 'dev') {
                 if (sent && sow.workPackage !== undefined) {
-                  void controller.bindDevSession(requirementId, sow.workPackage.id, sessionId)
+                  // 0018 合并轮（用户裁定：后翻状态）：plan-approved 的投递=开工
+                  // 裁决点——状态翻转在投递成功之后（取消 Modal 零痕迹）；
+                  // in-dev 补投只绑不翻。串行避开 revision 竞争（bindDevSession
+                  // 自带一次有界 409 重试兜底；快照态过期的 startWorkPackage
+                  // 失败只是 banner+slot 自愈，状态机单向不劣化）。
+                  const target = sow.workPackage
+                  void (async () => {
+                    if (target.status === 'plan-approved') {
+                      await controller.startWorkPackage(requirementId, target.id)
+                    }
+                    void controller.bindDevSession(requirementId, target.id, sessionId)
+                  })()
                 }
                 return
               }
