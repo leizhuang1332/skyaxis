@@ -556,6 +556,19 @@ export function createWorkbenchController(store: WorkbenchStore, fetcher: Workbe
     },
 
     /**
+     * 0018 缺陷修复: the AI tail draft's missing-panel repair — seed (the
+     * unchanged arm CONVERGES the artifact copy off the workspace source,
+     * zero revision bump) then a full detail re-pull (planFileExists is a GET
+     * projection the quiet in-place patch never carries, so the dialog's
+     * missing face would otherwise persist over a repaired disk).
+     */
+    reseedWpPlan: async (requirementId: string, workPackageId: string, signal?: AbortSignal): Promise<boolean> => {
+      const result = await fetcher.seedWpPlan(requirementId, slotRevision(requirementId), workPackageId, signal)
+      await open(requirementId, signal)
+      return alive(result) && result.kind === 'ok'
+    },
+
+    /**
      * REGISTER-LEVEL watcher seed face (decisions/0016 修订 #2 — the global
      * completion signal must fire for requirements nobody is watching): the
      * caller supplies the revision it holds (fetcher.list's global value) and

@@ -194,6 +194,7 @@ describe('workbench: dictionaries', () => {
       'detail.noPlans',
       'detail.planLoadFailed',
       'detail.planMissing',
+      'detail.planReseed',
       'detail.planRewrite',
       'detail.planSection',
       'detail.planSeedSource',

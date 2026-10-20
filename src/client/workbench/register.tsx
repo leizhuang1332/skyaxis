@@ -273,6 +273,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       | 'detail.noPlans'
       | 'detail.planLoadFailed'
       | 'detail.planMissing'
+      | 'detail.planReseed'
       | 'detail.planRewrite'
       | 'detail.planSection'
       | 'detail.planSeedSource'

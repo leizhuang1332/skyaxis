@@ -77,6 +77,13 @@ export function WorkPackageDialog(props: {
   // 0018 刀二: the layering key — an approved plan makes dev the leading
   // verb; without one the wp-plan verb leads and dev pays the ack toll.
   const hasApprovedPlan = workPackage.plans.some((plan) => plan.approvedAt !== undefined)
+  // 0018 缺陷修复: the tail draft's authorship — when planSeed's hash names
+  // the tail version, the draft is AI-collected and the missing panel's
+  // repair is RE-COLLECTION (converge the artifact copy off the workspace
+  // source), never the textarea rewrite (the missing body never seeds
+  // draftText, so the rewrite would clobber the entry with empty text).
+  const tailEntry = plans.find((plan) => plan.version === tailDraftVersion)
+  const aiSeededTail = tailEntry !== undefined && tailEntry.contentHash !== undefined && tailEntry.contentHash === workPackage.planSeed?.contentHash
   const [selectedVersion, setSelectedVersion] = useState<number | null>(plans[0]?.version ?? null)
   const [bodies, setBodies] = useState<ReadonlyMap<number, PlanBody>>(new Map())
   const [draftText, setDraftText] = useState('')
@@ -265,7 +272,11 @@ export function WorkPackageDialog(props: {
               <div className={styles.wpMissing}>
                 <span>{t('detail.planMissing')}</span>
                 {selectedVersion === tailDraftVersion ? (
-                  <button type="button" className={styles.ghostButton} disabled={slot.busy} onClick={saveDraft}>{t('detail.planRewrite')}</button>
+                  aiSeededTail ? (
+                    <button type="button" className={styles.ghostButton} disabled={slot.busy} onClick={() => { void controller.reseedWpPlan(requirementId, workPackage.id) }}>{t('detail.planReseed')}</button>
+                  ) : (
+                    <button type="button" className={styles.ghostButton} disabled={slot.busy} onClick={saveDraft}>{t('detail.planRewrite')}</button>
+                  )
                 ) : null}
               </div>
             ) : null}

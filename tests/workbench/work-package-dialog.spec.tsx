@@ -79,6 +79,8 @@ function fakeController(overrides: Record<string, unknown> = {}): WorkbenchContr
     removeCriterion: vi.fn(async () => true),
     writePlan: vi.fn(async () => true),
     planContent: vi.fn(async () => ({ kind: 'ok' as const, content: '# 计划正文', contentTampered: false })),
+    // 0018 缺陷修复：AI 尾草稿 missing 面板的「重新收取」面。
+    reseedWpPlan: vi.fn(async () => true),
     dismissBanner: vi.fn(),
     dispose: vi.fn(),
     ...overrides,
@@ -378,5 +380,36 @@ describe('WorkPackageDialog（S3 详情 Modal + 硬门②）', () => {
 
     // 来源会话行：planSeed.session 指针 → 前 8 位（proposal.sourcePrefix 形制）。
     expect(screen.getByText(workbenchZh['detail.planSeedSource'].replaceAll('{id}', 'sess-pla'))).toBeTruthy()
+  })
+
+  it('0018 缺陷修复：AI 尾草稿（planSeed 哈希指名尾版本）missing 面板=「重新收取」（reseedWpPlan，不从 textarea 重写）；人工尾草稿保持「重试写入」', async () => {
+    // AI 尾草稿：planSeed.contentHash === 尾草稿 contentHash；正文 404 + exists=false ⇒ missing 面。
+    const aiWp = wp('WP1', {
+      status: 'plan-draft',
+      plans: [planEntry(1, { contentHash: 'a'.repeat(64) })],
+      planSeed: { session: { sessionId: 'sess-plan', boundAt: AT }, contentHash: 'a'.repeat(64), seededAt: AT },
+    })
+    const controller = fakeController({
+      planContent: vi.fn(async () => ({ kind: 'http-error' as const, status: 404 })),
+    })
+    const { unmount } = subject(aiWp, controller, slot({ planFileExists: [{ workPackageId: 'WP1', version: 1, exists: false }] }))
+    await tick()
+    expect(screen.getByText(workbenchZh['detail.planMissing'])).toBeTruthy()
+    expect(screen.getByRole('button', { name: workbenchZh['detail.planReseed'] })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: workbenchZh['detail.planRewrite'] })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: workbenchZh['detail.planReseed'] }))
+    await waitFor(() => expect(controller.reseedWpPlan).toHaveBeenCalledWith(RID, 'WP1'))
+    expect(controller.writePlan).not.toHaveBeenCalled()
+    unmount()
+
+    // 人工尾草稿（无 planSeed）：missing 面板保持「重试写入」（textarea 语义），无「重新收取」。
+    const manualWp = wp('WP1', { status: 'plan-draft', plans: [planEntry(1)] })
+    const controller2 = fakeController({
+      planContent: vi.fn(async () => ({ kind: 'http-error' as const, status: 404 })),
+    })
+    subject(manualWp, controller2, slot({ planFileExists: [{ workPackageId: 'WP1', version: 1, exists: false }] }))
+    await tick()
+    expect(screen.getByRole('button', { name: workbenchZh['detail.planRewrite'] })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: workbenchZh['detail.planReseed'] })).toBeNull()
   })
 })

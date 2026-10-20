@@ -2631,6 +2631,31 @@ describe('0018 工作包规划两步化：recordWpPlanSession / seedWpPlan 专�
     expect((await dropped.post(WORKBENCH_PATH, body('seedWpPlan', { workPackageId: 'WP9' }, 1))).status).toBe(404)
   })
 
+  it('缺陷修复（刀一验收漏面）：seed 同步落盘 artifacts 存储——GET kind=plan 可读正文（与工作区文件一致、untampered）；unchanged 重放补写收敛（删存储文件后重放 ⇒ 恢复且 revision 不 bump）', async () => {
+    const ws = wpPlanWorkspace({ plan: PLAN_FILE })
+    const h = await harness({ resolveWorkspacePath: ws.resolve })
+    await h.seed([seedRecord(RID, { splitApprovedAt: NOW, workPackages: [seedWorkPackage('WP1')] })])
+    const seeded = await h.post(WORKBENCH_PATH, body('seedWpPlan', { workPackageId: 'WP1' }, 1))
+    expect(seeded.status).toBe(200)
+    const row = await seeded.json() as { revision: number; record: WorkbenchRecord }
+    expect(row.record.workPackages[0]?.plans.map((plan) => plan.version)).toEqual([1])
+    // 落盘断言：存储体在场且正文=工作区文件（此前 seed 只落账本——每个收取版必然「计划文件缺失」）。
+    const artifactTarget = planDocPath(h.workbenchRoot, RID, 'WP1', 1)
+    expect(existsSync(artifactTarget)).toBe(true)
+    expect(readFileSync(artifactTarget, 'utf8')).toBe(PLAN_FILE)
+    const read = await h.get(`${WORKBENCH_ARTIFACTS_PATH}?kind=plan&requirementId=${RID}&workPackageId=WP1&version=1`)
+    expect(read.status).toBe(200)
+    const content = await read.json() as { content: string; contentTampered: boolean }
+    expect(content.content).toBe(PLAN_FILE)
+    expect(content.contentTampered).toBe(false)
+    // unchanged 收敛臂：删存储文件（模拟写入中断/存量缺陷）后同哈希重放 ⇒ 补写、revision 不 bump。
+    rmSync(artifactTarget)
+    const replay = await h.post(WORKBENCH_PATH, body('seedWpPlan', { workPackageId: 'WP1' }, row.revision))
+    expect(((await replay.json()) as { revision: number }).revision).toBe(row.revision)
+    expect(existsSync(artifactTarget)).toBe(true)
+    expect(readFileSync(artifactTarget, 'utf8')).toBe(PLAN_FILE)
+  })
+
   it('seedWpPlan：文件缺失 ⇒ 200 零写 wp-plan-file-missing（armed 空目录与 unarmed 同形）；wp-plan-doc GET：seed 前 untampered-silent、seed 后手改 ⇒ contentTampered、缺失 404、坏 wpId 400', async () => {
     // armed 但目录空（会话可能尚未写完——advisory，不失败）。
     const wsEmpty = wpPlanWorkspace({})

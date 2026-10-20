@@ -552,6 +552,21 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
    * can exist; too-large stays advisory, the session may slim it). The pure
    * core (applyWpPlanSeed) owns the plans[] append + planned→plan-draft flip
    * + the planSeed hash stamp, all in ONE save.
+   *
+   * 缺陷修复（刀一实机验收漏面）：the seed ALSO copies the workspace file's
+   * TEXT into the workbench artifact store (plans/<wpId>-v<version>.md) —
+   * planWriteFlow's post-commit tail discipline, without which every seeded
+   * version shows「计划文件缺失」(planFileExists probes the ARTIFACT store,
+   * [endpoint.ts detail flow]; the ledger reference without the stored body
+   * is a structural dangling). Not commitSeedResponse — that helper has no
+   * file tail; this flow owns both arms:
+   *   committed arm: save → artifacts.write(version from the result's tail
+   *     entry) → 200; a write failure answers 500 (dangling visible via
+   *     fileExists/scan, the retry converges below);
+   *   unchanged arm: CONVERGES the artifact copy (missing or stale bytes ⇒
+   *     rewritten; revision never bumps) — the planWriteFlow byte-identical
+   *     convergence + ensureDeclareSnapshot discipline, and the repair path
+   *     for存量 seeds that landed before this fix.
    */
   async function seedWpPlanFlow(
     body: { expectedRevision: number; requirementId: string; action: 'seedWpPlan'; workPackageId: string },
@@ -577,7 +592,51 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
       workPackageId: body.workPackageId,
       contentHash: planFile.sha256,
     })
-    return commitSeedResponse(body, applied, current)
+    if (!applied.ok) return errorResponse(applied.status, applied.code)
+    // The version the artifact copy lands under: the result's TAIL plan entry
+    // (the appended version on a commit; the already-seeded tail on the
+    // unchanged replay — both shapes read the same way).
+    const tailVersion = applied.record.workPackages.find((candidate) => candidate.id === body.workPackageId)?.plans.at(-1)?.version
+    if (tailVersion === undefined) return errorResponse(500, 'internal')
+    const artifactTarget = planDocPath(services.workbenchRoot, body.requirementId, body.workPackageId, tailVersion)
+    if (applied.unchanged === true) {
+      // Hash-identical replay: converge the artifact copy in passing (a
+      // missing or stale store file is repaired; an intact one untouched),
+      // never bumping the revision.
+      const read = artifacts.read(artifactTarget)
+      if (read.status !== 'ok' || read.sha256 !== planFile.sha256) {
+        try {
+          artifacts.write(artifactTarget, planFile.text)
+        } catch (error) {
+          log?.(error)
+          return errorResponse(500, 'internal')
+        }
+      }
+      return json({ ok: true, revision: current.revision, record: applied.record })
+    }
+    const nextRecords = current.records.map((candidate) => (candidate.requirementId === body.requirementId ? applied.record : candidate))
+    try {
+      const saved = await file.save(body.expectedRevision, nextRecords)
+      if (!saved.ok) {
+        if (saved.rejected === 'stale-revision') {
+          return errorResponse(409, 'conflict', { currentRevision: saved.currentRevision })
+        }
+        return errorResponse(409, 'unreadable-file')
+      }
+      // Ledger committed; the artifact copy is the only post-commit step
+      // (planWriteFlow's tail discipline — a failure leaves the dangling
+      // reference the retry converges above).
+      try {
+        artifacts.write(artifactTarget, planFile.text)
+      } catch (error) {
+        log?.(error)
+        return errorResponse(500, 'internal')
+      }
+      return json({ ok: true, revision: saved.revision, record: applied.record })
+    } catch (error) {
+      log?.(error)
+      return errorResponse(500, 'internal')
+    }
   }
 
   /**
