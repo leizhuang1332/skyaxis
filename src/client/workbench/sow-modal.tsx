@@ -73,7 +73,7 @@ async function defaultPlanText(requirementId: string, workPackage: WorkbenchWork
 export function SowModal(props: {
   t: WorkbenchT
   open: boolean
-  purpose: 'analysis' | 'plan' | 'split' | 'consolidate' | 'dev' | 'review'
+  purpose: 'analysis' | 'plan' | 'split' | 'consolidate' | 'dev' | 'review' | 'wp-plan'
   requirement: RequirementRecord
   record: WorkbenchRecord | null
   /** Server-filtered requirement ∪ global view (may carry archived rows — filtered active here). */
@@ -197,7 +197,9 @@ export function SowModal(props: {
   )
   const targetText = useMemo(() => {
     const parts = [requirement.title, requirement.description]
-    if (purpose === 'dev' && workPackage !== undefined) parts.push(workPackage.title, workPackage.boundary)
+    // 0018: wp-plan joins dev — the knowledge triggers match on the WP's own
+    // words too (its boundary IS the planning subject).
+    if ((purpose === 'dev' || purpose === 'wp-plan') && workPackage !== undefined) parts.push(workPackage.title, workPackage.boundary)
     return parts.join('\n')
   }, [purpose, requirement.title, requirement.description, workPackage])
   // Clone dirs need pool names — fetched once per open (component state, the
@@ -270,7 +272,9 @@ export function SowModal(props: {
     record,
     revision,
     generatedAt,
-    workPackage: purpose === 'dev' && includeBoundaryPlan ? workPackage : undefined,
+    // 0018: wp-plan carries the WP unconditionally (the boundary is the
+    // planning subject, not an optional embed); dev keeps its scope toggle.
+    workPackage: purpose === 'wp-plan' ? workPackage : (purpose === 'dev' && includeBoundaryPlan ? workPackage : undefined),
     approvedPlanText: purpose === 'dev' && planLoaded ? planText : undefined,
     knowledgePicks: selectedKnowledge,
     includeDeps,

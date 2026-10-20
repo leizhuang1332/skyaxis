@@ -545,6 +545,23 @@ export function createWorkbenchFetcher() {
       return artifactContentResult(await request(`${WORKBENCH_ARTIFACTS_PATH}?${query.toString()}`, { method: 'GET' }, signal))
     },
 
+    // --- 0018 工作包规划两步化: the wp-plan channel (delivery pointer + file
+    // seed — the host reads .skyaxis/wps/<wpId>/plan.md itself) ---
+
+    async recordWpPlanSession(requirementId: string, expectedRevision: number, workPackageId: string, sessionId: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'recordWpPlanSession', workPackageId, sessionId }, signal)
+    },
+
+    async seedWpPlan(requirementId: string, expectedRevision: number, workPackageId: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'seedWpPlan', workPackageId }, signal)
+    },
+
+    /** 0018: the per-WP plan file (kind=wp-plan-doc face; 404 = honest missing). */
+    async wpPlanDocContent(requirementId: string, workPackageId: string, signal?: AbortSignal): Promise<WorkbenchArtifactContentResult> {
+      const query = new URLSearchParams({ kind: 'wp-plan-doc', requirementId, workPackageId })
+      return artifactContentResult(await request(`${WORKBENCH_ARTIFACTS_PATH}?${query.toString()}`, { method: 'GET' }, signal))
+    },
+
     // --- P3b: declare-block route (fetch / preview / commit) ---
 
     async declareFetch(sessionId: string, signal?: AbortSignal): Promise<DeclareFetchResult> {

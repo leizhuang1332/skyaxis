@@ -398,6 +398,12 @@ export function createWorkbenchController(store: WorkbenchStore, fetcher: Workbe
       return alive(result) ? result : undefined
     },
 
+    /** 0018: the per-WP plan file (pure read, same precedent). */
+    wpPlanDocContent: async (requirementId: string, workPackageId: string, signal?: AbortSignal) => {
+      const result = await fetcher.wpPlanDocContent(requirementId, workPackageId, signal)
+      return alive(result) ? result : undefined
+    },
+
     // --- P2: session binding + knowledge candidates (main union mutations) ---
 
     bindSession: (requirementId: string, id: string, sessionId: string, purpose: 'analysis' | 'dev' | 'review', signal?: AbortSignal) =>
@@ -517,6 +523,31 @@ export function createWorkbenchController(store: WorkbenchStore, fetcher: Workbe
           revision: result.revision,
           ...(result.devSeedMissing !== undefined ? { miss: result.devSeedMissing } : {}),
         }
+      }
+      if (result.kind === 'http-error' && (result.status === 409 || result.status === 404)) {
+        await open(requirementId, signal)
+      }
+      return undefined
+    },
+
+    // --- 0018 工作包规划两步化: the wp-plan channel (delivery pointer + file seed) ---
+
+    /** Delivery success → record the wp-plan session pointer (bindDevSession's
+     *  bounded-retry shape; the pointer arms the watcher — losing it only
+     *  costs auto-collection, never data). */
+    recordWpPlanSession: async (requirementId: string, workPackageId: string, sessionId: string, signal?: AbortSignal): Promise<boolean> => {
+      const first = await mutate(requirementId, () => fetcher.recordWpPlanSession(requirementId, slotRevision(requirementId), workPackageId, sessionId, signal), signal)
+      if (first || disposed) return first
+      return mutate(requirementId, () => fetcher.recordWpPlanSession(requirementId, slotRevision(requirementId), workPackageId, sessionId, signal), signal)
+    },
+
+    /** Watcher-only seed face (the seedSplitQuiet twin — no busy/banner, ok → in-place patch, advisory returned). */
+    seedWpPlanQuiet: async (requirementId: string, workPackageId: string, signal?: AbortSignal): Promise<SeedOutcome | undefined> => {
+      const result = await fetcher.seedWpPlan(requirementId, slotRevision(requirementId), workPackageId, signal)
+      if (!alive(result)) return undefined
+      if (result.kind === 'ok') {
+        patchSlot(requirementId, { revision: result.revision, record: result.record, banner: undefined })
+        return result.seedMissing !== undefined ? { miss: result.seedMissing } : {}
       }
       if (result.kind === 'http-error' && (result.status === 409 || result.status === 404)) {
         await open(requirementId, signal)

@@ -498,6 +498,83 @@ describe('buildSow', () => {
     expect(noRecord).toContain('（工作台记录未建立——尚无基线文档与裁决可用，规划只能基于需求描述）')
   })
 
+  it('wp-plan 九节（0018 两步化）：头行带 WP 号/目标（批准后嵌入开发任务书）/快照（边界+依赖+覆盖标准+版本概要）/输入（基线行+已采纳规划行「本规划」措辞）/边界纪律明文/三节计划模板；无 declare 块、无 revision 戳', () => {
+    const wp1 = wp('WP1', {
+      title: '导出队列',
+      boundary: '只做导出服务',
+      covers: ['C1'],
+      dependsOn: ['WP2'],
+      plans: [{ version: 1, contentHash: 'a'.repeat(64), approvedAt: '2026-10-15T08:00:00.000Z' }],
+    })
+    const text = buildSow({
+      ...baseCtx,
+      purpose: 'wp-plan',
+      requirement: { ...requirement, workspacePath: 'C:\\ws\\repo-a' },
+      record: record({
+        stage: 'implement',
+        splitApprovedAt: '2026-10-16T08:00:00.000Z',
+        criteria,
+        understandApprovedAt: '2026-10-13T08:00:00.000Z',
+        understandBaseline: { at: AT, criteria: [], findings: [], clarifications: [], docHash: 'a'.repeat(64) },
+        planAdoptedAt: '2026-10-14T08:00:00.000Z',
+        planBaseline: { at: AT, docHash: 'p'.repeat(64) },
+        workPackages: [wp1],
+      }),
+      workPackage: wp1,
+    })
+    // 头行：判别前缀 + WP 号（dev 头行先例）。
+    expect(text.startsWith('# skyaxis 工作包规划任务书 WP1 · 导出功能改造\n')).toBe(true)
+    expect(text).toContain('## 目标')
+    expect(text).toContain('## 需求快照（工作台账本，生成时快照）')
+    expect(text).toContain('## 输入（用文件读取能力按路径阅读；不要凭记忆，不要猜）')
+    expect(text).toContain('## 参考知识（工作台注入，已审定）')
+    expect(text).toContain('## 约束')
+    expect(text).toContain('## 工作流')
+    expect(text).toContain('## 输出')
+    // 目标：批准/退回语义 + 嵌入开发任务书 + 不写码/不改边界。
+    expect(text).toContain('负责人审阅后在「工作台」批准或退回（退回即重新生成本任务书再投递），已批准的计划将全文嵌入开发任务书')
+    expect(text).toContain('本阶段不写任何实现代码')
+    expect(text).toContain('不改边界——边界由拆分批准锁定')
+    // 快照：定稿行 + 工作包块（边界/依赖/覆盖标准）+ 版本概要（重规划语境）。
+    expect(text).toContain('需求理解定稿：已定稿（2026-10-13）')
+    expect(text).toContain('边界：只做导出服务')
+    expect(text).toContain('依赖：WP2')
+    expect(text).toContain('- C1 十万行导出 30 秒内完成')
+    expect(text).toContain('现有计划版本（重规划语境的参考')
+    expect(text).toContain('- v1 已批准（2026-10-15）')
+    // 输入段：基线必读行（本规划措辞）+ 已采纳规划必读行（分解服从方案）。
+    expect(text).toContain(`- 必读 .skyaxis/requirements/${RID}.md——需求基线文档，本规划的唯一需求真源`)
+    expect(text).toContain(`- 必读 .skyaxis/planning/${RID}.md——技术规划文档，本规划的方案真源（分解服从方案：任务与顺序以它为准`)
+    // 约束：边界纪律明文（D5）+ 文件通道唯一例外。
+    expect(text).toContain('- 边界纪律：任务分解必须在给定边界内——不改边界、不增删覆盖标准、不改依赖')
+    expect(text).toContain('唯一例外：把工作包计划文件写入「输出」节指定路径')
+    // 输出：armed ⇒ 写 .skyaxis/wps/WP1/plan.md + 三节模板 + 自检尾句。
+    expect(text).toContain('路径：C:/ws/repo-a/.skyaxis/wps/WP1/plan.md')
+    expect(text).toContain('# 工作包计划 · <WP 编号> <标题>')
+    expect(text).toContain('## 任务分解')
+    expect(text).toContain('## 测试安排')
+    expect(text).toContain('## 风险与开放问题')
+    expect(text).toContain('计划文件已写入上述路径')
+    // 家族纪律：无 declare 块、无 revision 戳（plan purpose 先例 + 0010 D4）。
+    expect(text).not.toContain('skyaxis-declare')
+    expect(text).not.toContain('此后账本变更不自动同步')
+  })
+
+  it('wp-plan 诚实缺席：未采纳规划 ⇒ 诚实行（本次规划措辞）；未绑定工作区 ⇒ 未绑出行 + 会话内交付警示 + 只读约束无唯一例外；record null 降级', () => {
+    // 已绑定工作区但未采纳规划 ⇒ 规划诚实行（wp-plan 措辞）。
+    const bound = buildSow({ ...baseCtx, purpose: 'wp-plan', requirement: { ...requirement, workspacePath: 'C:\\ws\\repo-a' }, record: record({ workPackages: [wp('WP2')] }), workPackage: wp('WP2') })
+    expect(bound).toContain('（尚无已采纳的技术规划文档——本次规划以基线文档与仓库现状为方案依据')
+    // 未绑定工作区 ⇒ 输入段未绑出行 + 输出段会话内交付警示；约束段无「唯一例外」。
+    const unarmed = buildSow({ ...baseCtx, purpose: 'wp-plan', record: record({ workPackages: [wp('WP2')] }), workPackage: wp('WP2') })
+    expect(unarmed).toContain('（工作区未绑定——无可引用的文档与仓库，规划只能基于需求描述）')
+    expect(unarmed).toContain('（本需求未绑定工作区——无法指定计划文件路径，请在会话内交付计划全文，由用户手动录入计划草稿')
+    expect(unarmed).not.toContain('唯一例外：')
+    expect(unarmed).toContain('完成自检（全部满足才算收尾）：每步有产出与文件级落点')
+    const noRecord = buildSow({ ...baseCtx, purpose: 'wp-plan', record: null })
+    expect(noRecord).toContain('（工作台记录未建立）')
+    expect(noRecord).toContain('# skyaxis 工作包规划任务书 · 导出功能改造')
+  })
+
   it('split 输入段规划行三态（0012）：已采纳带锚 ⇒ 必读 .skyaxis/planning/ 行；已采纳无锚 ⇒ 诚实行；未采纳 ⇒ 诚实行（依据账本不依据盘）', () => {
     const withWorkspace = { ...baseCtx, requirement: { ...requirement, workspacePath: 'C:\\ws\\repo-a' } }
     const anchored = buildSow({

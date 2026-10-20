@@ -248,7 +248,7 @@ export function WorkbenchTabBody(props: {
   // 0016 P1b: the execution-view WP (null = board visible; non-null = exec view)
   const [executionView, setExecutionView] = useState<WorkbenchWorkPackage | null>(null)
   // SOW modal state — view-owned so every section entry shares one instance.
-  const [sow, setSow] = useState<{ purpose: 'analysis' | 'plan' | 'split' | 'consolidate' | 'dev' | 'review'; workPackage?: WorkbenchWorkPackage } | null>(null)
+  const [sow, setSow] = useState<{ purpose: 'analysis' | 'plan' | 'split' | 'consolidate' | 'dev' | 'review' | 'wp-plan'; workPackage?: WorkbenchWorkPackage } | null>(null)
   // 挂账轮: artifact-reconciliation modal — view-owned like the SOW instance;
   // phase-independent entry (the scan's data source is the endpoint, not the
   // slot — honesty means surfacing its own failures, not hiding the button).
@@ -456,6 +456,41 @@ export function WorkbenchTabBody(props: {
     splitSeedAttemptedRef.current = false
     runSplitSeed()
   }
+
+  // 0018 wp-plan watcher — the split watcher's per-WP twin: the plan FILE is
+  // the only channel; the planSeed.session pointer (the delivery callback's
+  // record) arms it and the hash stamp disarms it. RUNNING of the delivery
+  // session closes the gate (never seed mid-run), the idle flip re-arms the
+  // one-shot (the fresh-plan case); mount catch-up covers the
+  // finished-before-open case. 刀一 keeps the miss silent (a zero-write 200,
+  // safe to drop) — the disclosure row is 刀二's source-session line.
+  const wpPlanSeedAttemptedRef = useRef<ReadonlySet<string>>(new Set())
+  useEffect(() => {
+    wpPlanSeedAttemptedRef.current = new Set()
+  }, [requirementId])
+  useEffect(() => {
+    if (slot.phase !== 'ready' || record === null) return
+    for (const workPackage of record.workPackages) {
+      if (workPackage.status === 'dropped') continue
+      const seed = workPackage.planSeed
+      if (seed?.session === undefined || seed.contentHash !== undefined) continue
+      if (sessionSummaries.byId[seed.session.sessionId]?.running === true) {
+        // Observed running ⇒ re-arm this WP's one-shot (an idle flip may
+        // carry the fresh plan file).
+        if (wpPlanSeedAttemptedRef.current.has(workPackage.id)) {
+          const next = new Set(wpPlanSeedAttemptedRef.current)
+          next.delete(workPackage.id)
+          wpPlanSeedAttemptedRef.current = next
+        }
+        continue
+      }
+      if (wpPlanSeedAttemptedRef.current.has(workPackage.id)) continue
+      const next = new Set(wpPlanSeedAttemptedRef.current)
+      next.add(workPackage.id)
+      wpPlanSeedAttemptedRef.current = next
+      void controller.seedWpPlanQuiet(requirementId, workPackage.id)
+    }
+  }, [slot.phase, record, requirementId, controller, sessionSummaries])
 
   // 0016 刀一验收修正: title-addressed dev-session binding — fires on every
   // sessions flip (the real session's fallback title lands a beat after the
@@ -805,7 +840,7 @@ export function WorkbenchTabBody(props: {
               />
             ) : null}
             {record !== null && viewing === 'implement' && executionView === null ? (
-              <BoardSection key={`board-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} sessions={sessionsFace} waitingIds={waitingIds} onNavigateSession={(sessionId) => { sessionsFace.navigate(sessionId) }} onOpenSow={(workPackage) => { setSow({ purpose: 'dev', workPackage }) }} onOpenExecution={(workPackage) => { setExecutionView(workPackage) }} />
+              <BoardSection key={`board-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} sessions={sessionsFace} waitingIds={waitingIds} onNavigateSession={(sessionId) => { sessionsFace.navigate(sessionId) }} onOpenSow={(workPackage, purpose) => { setSow({ purpose, workPackage }) }} onOpenExecution={(workPackage) => { setExecutionView(workPackage) }} />
             ) : null}
             {record !== null && viewing === 'implement' && executionView !== null ? (
               <ExecutionSection
@@ -909,7 +944,7 @@ export function WorkbenchTabBody(props: {
             busy={slot.busy}
             workPackage={sow?.workPackage}
             deliver={props.deliver}
-            onDelivered={sow !== null && sow.purpose !== 'analysis' && sow.purpose !== 'split' && sow.purpose !== 'dev' ? undefined : (sessionId: string, sowText: string, sent: boolean) => {
+            onDelivered={sow !== null && sow.purpose !== 'analysis' && sow.purpose !== 'split' && sow.purpose !== 'dev' && sow.purpose !== 'wp-plan' ? undefined : (sessionId: string, sowText: string, sent: boolean) => {
               // Analysis + split deliveries are the auto-watched sources
               // (ruling ③ shape) — bind with the task-book anchor (provenance
               // parity; the split channel is file-only, so its anchor is
@@ -921,6 +956,9 @@ export function WorkbenchTabBody(props: {
               // bind nothing here: the v2 shell pathology (0016 修订 #95)
               // still stands for them; the title-addressed pass below + the
               // endpoint content addressing repair those.
+              // 0018: wp-plan records the provenance POINTER on sent only
+              // (0017 刀二口径 — a degraded id is the shell); the wp-plan
+              // watcher arms off the pointer, sessions[] stays untouched.
               if (sow === null) return
               if (sow.purpose === 'split') {
                 void controller.bindSplitSession(requirementId, sessionId, sowText.slice(0, 200))
@@ -929,6 +967,12 @@ export function WorkbenchTabBody(props: {
               if (sow.purpose === 'dev') {
                 if (sent && sow.workPackage !== undefined) {
                   void controller.bindDevSession(requirementId, sow.workPackage.id, sessionId)
+                }
+                return
+              }
+              if (sow.purpose === 'wp-plan') {
+                if (sent && sow.workPackage !== undefined) {
+                  void controller.recordWpPlanSession(requirementId, sow.workPackage.id, sessionId)
                 }
                 return
               }

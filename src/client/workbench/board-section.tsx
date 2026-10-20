@@ -41,8 +41,9 @@ export function BoardSection(props: {
   waitingIds?: ReadonlySet<string>
   /** 0017 修订：WP 详情会话行跳 DSH 会话页（inbox/execution 同款穿线）。 */
   onNavigateSession?: (sessionId: string) => void
-  /** S3 entry: open the work-package SOW modal for the given package. */
-  onOpenSow?: (workPackage: WorkbenchWorkPackage) => void
+  /** S3 entry: open a work-package SOW modal for the given package (0018:
+   * purpose-parameterized — wp-plan planning SOW / dev development SOW). */
+  onOpenSow?: (workPackage: WorkbenchWorkPackage, purpose: 'dev' | 'wp-plan') => void
   /** 0016 P1b: open the execution view for the given package. */
   onOpenExecution?: (workPackage: WorkbenchWorkPackage) => void
 }): ReactNode {

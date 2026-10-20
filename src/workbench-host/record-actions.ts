@@ -752,6 +752,31 @@ export function applyRecordAction(base: WorkbenchRecord, body: WorkbenchMutateRe
     }
   }
 
+  // --- 0018: wp-plan delivery bookkeeping. The pointer names the planning
+  // delivery's conversation for the watcher and the source row — it is NOT a
+  // sessions[] binding (that purpose union stays analysis/dev/review). ---
+
+  if (body.action === 'recordWpPlanSession') {
+    if (base.splitApprovedAt === undefined) return fail(400, 'locked-split')
+    const target = findWorkPackage(body.workPackageId)
+    if (target === undefined) return fail(404, 'not-found')
+    if (target.status === 'dropped') return fail(400, 'bad-request')
+    // Same session re-recorded ⇒ unchanged (a delivery-callback retry must
+    // not clear the seed stamp it already armed — the watcher would re-seed
+    // a hash-identical file as a new version). A DIFFERENT session ⇒ replace
+    // the pointer AND drop the stamps: the new delivery re-arms collection.
+    if (target.planSeed?.session?.sessionId === body.sessionId) {
+      return { ok: true, record: base, unchanged: true }
+    }
+    return {
+      ok: true,
+      record: replaceWorkPackage(base, {
+        ...target,
+        planSeed: { session: { sessionId: body.sessionId, boundAt: now() } },
+      }),
+    }
+  }
+
   // --- P2: knowledge candidates (OUTSIDE the split gate — S6 retro spans
   // the whole lifecycle, closed included; the gate freezes the list ×
   // coverage contract, not the沉淀 queue). ---
@@ -1299,6 +1324,48 @@ export function applySplitSeed(base: WorkbenchRecord, input: SplitSeedInput): Re
         })),
       },
     },
+  }
+}
+
+/**
+ * applyWpPlanSeed (0018 工作包规划两步化轮) — the PURE core of seedWpPlan.
+ * The endpoint shell owns the file IO (read .skyaxis/wps/<wpId>/plan.md →
+ * sha256) and hands {workPackageId, contentHash} here.
+ *
+ * Semantics (decisions/0018 D3): the seed APPENDS plans[] v=max+1 — an AI
+ * delivery is a fresh session's wholesale rewrite, so the version chain
+ * records the evolution (an unapproved tail draft demotes to「归档」
+ * naturally; the approvePlan last-unapproved guard reads the new tail). The
+ * human textarea keeps its tail-draft OVERWRITE semantics untouched — two
+ * authoring channels, two write shapes. planned→plan-draft rides the SAME
+ * save (the writePlan atomicity); later statuses keep whatever the
+ * lifecycle holds (rework re-plans mid-flight). Idempotency is the
+ * hash-primary anchor on planSeed (NOT the tail PlanEntry's hash — a human
+ * edit rewrites the entry's, while the watcher's next file read still
+ * matches this stamp): same disk sha256 ⇒ unchanged.
+ */
+export interface WpPlanSeedInput {
+  readonly workPackageId: string
+  readonly contentHash: string
+}
+
+export function applyWpPlanSeed(base: WorkbenchRecord, input: WpPlanSeedInput): RecordActionResult {
+  if (base.splitApprovedAt === undefined) return fail(400, 'locked-split')
+  const target = base.workPackages.find((candidate) => candidate.id === input.workPackageId)
+  if (target === undefined) return fail(404, 'not-found')
+  if (target.status === 'dropped') return fail(400, 'bad-request')
+  if (target.planSeed?.contentHash === input.contentHash) {
+    return { ok: true, record: base, unchanged: true }
+  }
+  const version = target.plans.reduce((max, plan) => Math.max(max, plan.version), 0) + 1
+  return {
+    ok: true,
+    record: replaceWorkPackage(base, {
+      ...target,
+      plans: [...target.plans, { version, contentHash: input.contentHash }],
+      ...(target.status === 'planned' ? { status: 'plan-draft' as const } : {}),
+      planSeed: { ...(target.planSeed ?? {}), contentHash: input.contentHash, seededAt: now() },
+    }),
   }
 }
 

@@ -39,7 +39,7 @@ import type {
   WorkbenchStageOrClosed,
   WorkbenchWorkPackage,
 } from '../../workbench-shared/protocol.js'
-import { analysisReportRelPath, requirementDocRelPath, planningDocRelPath, splitResultRelPath } from '../../workbench-shared/protocol.js'
+import { analysisReportRelPath, requirementDocRelPath, planningDocRelPath, splitResultRelPath, wpPlanRelPath } from '../../workbench-shared/protocol.js'
 import type { RequirementRecord } from '../../requirements-shared/protocol.js'
 
 // ---------------------------------------------------------------------------
@@ -161,7 +161,7 @@ export function knowledgeBytes(picks: readonly WorkbenchKnowledgeRecord[]): numb
 // ---------------------------------------------------------------------------
 
 export interface SowContext {
-  purpose: 'analysis' | 'plan' | 'split' | 'consolidate' | 'dev' | 'review'
+  purpose: 'analysis' | 'plan' | 'split' | 'consolidate' | 'dev' | 'review' | 'wp-plan'
   requirement: RequirementRecord
   /** null = the workbench record is not established yet (first-use entry). */
   record: WorkbenchRecord | null
@@ -512,6 +512,7 @@ const INPUT_NOUN: Record<SowContext['purpose'], string> = {
   consolidate: '整理',
   dev: '开发',
   review: '评审',
+  'wp-plan': '规划',
 }
 
 /** Baseline 必读 line noun — names the consumer of the doc (0015: dev/review
@@ -522,6 +523,7 @@ const BASELINE_CONSUMER: Partial<Record<SowContext['purpose'], string>> = {
   plan: '本次规划',
   dev: '本工作包',
   review: '本次评审',
+  'wp-plan': '本规划',
 }
 
 /** Honest-absence line noun (定稿无锚 / 未定稿 two states). */
@@ -530,6 +532,7 @@ const BASELINE_FALLBACK: Partial<Record<SowContext['purpose'], string>> = {
   plan: '本次规划',
   dev: '本次开发',
   review: '本次评审',
+  'wp-plan': '本次规划',
 }
 
 function analysisInputBlock(ctx: SowContext, header: string): string {
@@ -576,17 +579,23 @@ function analysisInputBlock(ctx: SowContext, header: string): string {
     } else {
       lines.push(`（需求理解未定稿——尚无锚定的需求基线文档；${fallback}以需求描述为唯一需求依据。）`)
     }
-    if (ctx.purpose === 'split') {
+    if (ctx.purpose === 'split' || ctx.purpose === 'wp-plan') {
       // 0012: the adopted planning doc is the split's SOLUTION source — the
       // ledger decides (planBaseline.docHash present = an adopted doc was
       // anchored), never a disk probe; the honest-absence lines keep the
       // skip path legal (the 0010 D2 doctrinal push, not a gate).
+      // 0018: wp-plan joins the READ side (分解服从方案) — the WP's fine
+      // task decomposition defers to the adopted solution, exactly as the
+      // split's coarse boundaries do. Parameterized nouns keep the split
+      // path byte-identical (sow.test pins it).
+      const noun = ctx.purpose === 'wp-plan' ? '本规划' : '本拆分'
+      const obedience = ctx.purpose === 'wp-plan' ? '分解服从方案：任务与顺序以它为准' : '拆分服从方案：边界与顺序以它为准'
       if (ctx.record?.planBaseline?.docHash !== undefined) {
-        lines.push(`- 必读 ${planningDocRelPath(ctx.requirement.id)}——技术规划文档，本拆分的方案真源（拆分服从方案：边界与顺序以它为准；文档与基线文档冲突时在报告中列出，不要自行取舍）`)
+        lines.push(`- 必读 ${planningDocRelPath(ctx.requirement.id)}——技术规划文档，${noun}的方案真源（${obedience}；文档与基线文档冲突时在报告中列出，不要自行取舍）`)
       } else if (ctx.record?.planAdoptedAt !== undefined) {
-        lines.push('（技术规划已采纳但未锚定——采纳时工作区无此文档；本次拆分以基线文档与仓库现状为方案依据。）')
+        lines.push(`（技术规划已采纳但未锚定——采纳时工作区无此文档；${fallback}以基线文档与仓库现状为方案依据。）`)
       } else {
-        lines.push('（尚无已采纳的技术规划文档——本次拆分以基线文档与仓库现状为方案依据；若规划文档已生成，先在工作台采纳它，再重新生成本任务书。）')
+        lines.push(`（尚无已采纳的技术规划文档——${fallback}以基线文档与仓库现状为方案依据；若规划文档已生成，先在工作台采纳它，再重新生成本任务书。）`)
       }
     }
   } else {
@@ -916,6 +925,122 @@ function planOutputBlock(ctx: SowContext): string {
 }
 
 // ---------------------------------------------------------------------------
+// WP-plan assembly (0018 工作包规划两步化轮, decisions/0018 D1/D7) — the
+// sixth AI-session purpose: the WP-granularity member of the nine-block
+// family. A read-only planning session drafts the FINE-GRAINED plan (task
+// decomposition × file-level changes / test arrangement / risks) into the
+// prescribed workspace file; the workbench seeds it into plans[] as a DRAFT
+// version and the user approves it (hard gate ② semantics unchanged — the
+// approval finally rules on an AI proposal instead of one's own textarea).
+// NO declare block (the plan purpose no-return precedent — collection rides
+// the file hash), NO revision stamp (0010 D4 AI-context discipline).
+// ---------------------------------------------------------------------------
+
+function wpPlanGoalBlock(ctx: SowContext): string {
+  const wp = ctx.workPackage
+  const target = wp !== undefined ? `工作包 ${wp.id}「${wp.title}」` : '该工作包'
+  return [
+    '## 目标',
+    `为需求「${ctx.requirement.title}」的${target}做一次只读的细粒度开发规划，产出一份工作包计划文件——文件读者是需求负责人：负责人审阅后在「工作台」批准或退回（退回即重新生成本任务书再投递），已批准的计划将全文嵌入开发任务书，成为开发会话的实施依据。本阶段一个产物：`,
+    '1. 工作包计划——任务分解（步骤 × 文件级改动面）、测试安排、风险与开放问题（三节结构见「输出」）。',
+    '本阶段不写任何实现代码——实施是计划批准后开发会话的事，现在动手会污染规划；不改边界——边界由拆分批准锁定，发现边界问题报告而不是扩界。',
+  ].join('\n')
+}
+
+function wpPlanSnapshotBlock(ctx: SowContext): string {
+  const lines = [
+    '## 需求快照（工作台账本，生成时快照）',
+    `标题：${ctx.requirement.title}`,
+    `描述：${ctx.requirement.description}`,
+  ]
+  if (ctx.record === null) {
+    lines.push('（工作台记录未建立）')
+    return lines.join('\n')
+  }
+  lines.push(`当前阶段：${STAGE_LABEL[ctx.record.stage]}`)
+  lines.push(ctx.record.understandApprovedAt !== undefined
+    ? `需求理解定稿：已定稿（${ctx.record.understandApprovedAt.slice(0, 10)}）——理解阶段的裁决视为已定输入`
+    : '需求理解定稿：未定稿——理解阶段的裁决可能仍在进行')
+  const wp = ctx.workPackage
+  if (wp !== undefined) {
+    lines.push('[工作包]', `${wp.id}　${wp.title}`, `边界：${wp.boundary}`)
+    lines.push(`依赖：${wp.dependsOn.length > 0 ? wp.dependsOn.join('、') : '无'}`)
+    const covered = ctx.record.criteria.filter((criterion) => wp.covers.includes(criterion.id))
+    if (covered.length > 0) {
+      lines.push('覆盖标准：')
+      for (const criterion of covered) lines.push(`- ${criterion.id} ${criterion.text}`)
+    } else {
+      lines.push('覆盖标准：无')
+    }
+    // Re-plan context: the version chain's SHAPE only, never bodies — the
+    // rejected-draft reference embed is a 刀三 candidate (0018 §4.4).
+    if (wp.plans.length > 0) {
+      lines.push('现有计划版本（重规划语境的参考——历史的轮廓，不代表当前共识）：')
+      for (const plan of [...wp.plans].sort((a, b) => b.version - a.version)) {
+        lines.push(`- v${plan.version}${plan.approvedAt !== undefined ? ` 已批准（${plan.approvedAt.slice(0, 10)}）` : ' 草稿'}`)
+      }
+    }
+  }
+  return lines.join('\n')
+}
+
+function wpPlanConstraintsBlock(ctx: SowContext): string {
+  // The consolidate file-channel form verbatim: the plan file is the ONE
+  // write the task book prescribes when armed.
+  const fileChannel = ctx.requirement.workspacePath.trim() !== ''
+  return [
+    '## 约束',
+    fileChannel
+      ? '- 严格只读：不修改、创建、删除任何文件；不建分支、不提交、不推送——唯一例外：把工作包计划文件写入「输出」节指定路径（目录不存在则创建，覆盖写——不追加、不留多份）。'
+      : '- 严格只读：不修改、创建、删除任何文件；不建分支、不提交、不推送。',
+    '- 边界纪律：任务分解必须在给定边界内——不改边界、不增删覆盖标准、不改依赖；发现边界本身有问题（缺关键依赖、切分错位）停下来向用户报告，不要自行扩界或越界规划。',
+    '- 不裁决：计划是建议，批准、退回、开工全部由用户在工作台完成；规划中发现的新风险写入「风险与开放问题」节，不要顺手处置。',
+    '- 有据：任务分解与改动面的判断给出依据（基线文档 FR/C 编号 或 代码 路径:行号）；查不到依据的显式标「推测」。',
+    '- 有限停止：仅当边界内信息不足以规划任何步骤时停下来问用户；其余自行给出带取舍说明的分解。',
+  ].join('\n')
+}
+
+const WP_PLAN_WORKFLOW = [
+  '## 工作流',
+  '1. 通读需求基线文档、（如在场）技术规划文档与需求快照——先明确验收面（覆盖标准逐条）与既定方案。',
+  '2. 在边界内探索与该包相关的模块（限边界相关范围，不做全库漫游）——现有实现、可复用件、接缝；探察过的文件路径记入计划（「已探索」以清单为证）。',
+  '3. 起草任务分解：把边界切成有序、可独立验证的开发任务——每步做什么、改哪些文件（路径级）、产出与判定，并说明步骤间依赖。',
+  '4. 测试安排：每步或整体的验证方式（命令 / 手测点），与覆盖标准对应。',
+  '5. 风险与开放问题：实施风险与缓解；需要需求方拍板的开放问题（每问附推荐答案——把问题措辞成「是」即接受推荐）。',
+  '先查后问：能从基线文档、规划文档、代码、目录里查证的事实自己去查；只有影响分解形态的取舍留给需求方——提问带推荐方案，而不是自行假设。',
+].join('\n')
+
+function wpPlanOutputBlock(ctx: SowContext): string {
+  const wp = ctx.workPackage
+  const workspace = ctx.requirement.workspacePath.trim()
+  const fileChannel = workspace !== '' && wp !== undefined
+  const delivery = fileChannel
+    ? `规划结束时把完整计划写入计划文件（markdown，一次成文），路径：${toDisplayPath(workspace)}/${wpPlanRelPath(wp.id)}（绝对路径；目录不存在则创建；覆盖写——不追加、不留多份）。文件固定三节结构：`
+    : '（本需求未绑定工作区——无法指定计划文件路径，请在会话内交付计划全文，由用户手动录入计划草稿。绑定工作区后重新生成任务书。）'
+  return [
+    '## 输出',
+    delivery,
+    '```markdown',
+    '# 工作包计划 · <WP 编号> <标题>',
+    '> 计划状态：草稿（批准由工作台盖章管理）',
+    '> 基于 workbench revision <N> 生成 · <日期>',
+    '',
+    '## 任务分解',
+    '<步骤 1：标题——做什么、改哪些文件（路径级）、产出与判定；步骤间依赖；探察过的文件清单（「已探索」以清单为证）>',
+    '',
+    '## 测试安排',
+    '<每步或整体的验证方式（命令 / 手测点），与覆盖标准（Cx）对应>',
+    '',
+    '## 风险与开放问题',
+    '<[风险] 标题：影响与缓解；开放问题：问题 + 推荐答案（待需求方）>',
+    '```',
+    fileChannel
+      ? '完成自检（全部满足才算收尾）：每步有产出与文件级落点 · 步骤依赖已说明 · 测试安排覆盖全部覆盖标准 · 开放问题带推荐答案 · 计划文件已写入上述路径。'
+      : '完成自检（全部满足才算收尾）：每步有产出与文件级落点 · 步骤依赖已说明 · 测试安排覆盖全部覆盖标准 · 开放问题带推荐答案。',
+  ].join('\n')
+}
+
+// ---------------------------------------------------------------------------
 // Consolidate assembly (0008 需求基线文档轮) — the fifth purpose: the
 // consolidation session MERGES the original PRD with the adjudicated
 // findings/criteria/clarifications (+ knowledge background) into ONE
@@ -1142,6 +1267,25 @@ export function buildSow(ctx: SowContext): string {
       planConstraintsBlock(ctx),
       PLAN_WORKFLOW,
       planOutputBlock(ctx),
+    ]
+    return blocks.join('\n\n')
+  }
+  if (ctx.purpose === 'wp-plan') {
+    // 0018 工作包规划两步化: the WP-granularity member of the nine-block
+    // family — read-only planning + single-file delivery. The discriminative
+    // head carries the WP id (the dev SOW head precedent); no declare block
+    // (collection rides the file hash), no revision stamp (0010 D4).
+    const blocks = [
+      ctx.workPackage !== undefined
+        ? `# skyaxis 工作包规划任务书 ${ctx.workPackage.id} · ${ctx.requirement.title}`
+        : `# skyaxis 工作包规划任务书 · ${ctx.requirement.title}`,
+      wpPlanGoalBlock(ctx),
+      wpPlanSnapshotBlock(ctx),
+      analysisInputBlock(ctx, `## 输入${INPUT_INSTRUCTION}`),
+      knowledgeBlock(ctx, ANALYSIS_KNOWLEDGE_HEADER),
+      wpPlanConstraintsBlock(ctx),
+      WP_PLAN_WORKFLOW,
+      wpPlanOutputBlock(ctx),
     ]
     return blocks.join('\n\n')
   }

@@ -56,6 +56,10 @@ interface WorkbenchDictionary {
   readonly 'proposal.seedMissSplitFileMissing': string
   readonly 'proposal.seedMissSplitFileSyntax': string
   readonly 'proposal.seedMissSplitFileTooLarge': string
+  // 0018 刀一: the wp-plan file channel's miss copy (completes SEED_MISS_KEY's
+  // exhaustive map; the disclosure row lands with 刀二's source-session line).
+  readonly 'proposal.seedMissWpPlanFileMissing': string
+  readonly 'proposal.seedMissWpPlanFileTooLarge': string
   readonly 'proposal.sourcePrefix': string
   readonly 'proposal.waitingHint': string
   // report.* — 文件交付轮 S1 report panel
@@ -401,6 +405,7 @@ interface WorkbenchDictionary {
   readonly 'sow.planButton': string
   readonly 'sow.splitButton': string
   readonly 'sow.workPackageButton': string
+  readonly 'sow.wpPlanButton': string
   readonly 'sow.title': string
   readonly 'sow.knowledgeHit': string
   readonly 'sow.knowledgeEmpty': string
@@ -625,7 +630,7 @@ export type WorkbenchT = (key: keyof WorkbenchDictionary) => string
 /** 回传轮: seed zero-write reason → hint key (reuses the declare.fetch* copy —
  *  the S5 modal phrases fit verbatim). The {n} placeholder in blockYamlSyntax
  *  has no line number on this face; renderers replace it with '?'. */
-export const SEED_MISS_KEY: Readonly<Record<'no-service' | 'not-found' | 'unreadable' | 'no-declare-block' | 'yaml-syntax' | 'report-file-missing' | 'report-file-too-large' | 'report-file-syntax' | 'split-file-missing' | 'split-file-too-large' | 'split-file-syntax', keyof WorkbenchDictionary>> = {
+export const SEED_MISS_KEY: Readonly<Record<'no-service' | 'not-found' | 'unreadable' | 'no-declare-block' | 'yaml-syntax' | 'report-file-missing' | 'report-file-too-large' | 'report-file-syntax' | 'split-file-missing' | 'split-file-too-large' | 'split-file-syntax' | 'wp-plan-file-missing' | 'wp-plan-file-too-large', keyof WorkbenchDictionary>> = {
   'no-service': 'declare.fetchNoService',
   'not-found': 'declare.fetchNotFound',
   'unreadable': 'declare.fetchUnreadable',
@@ -637,6 +642,8 @@ export const SEED_MISS_KEY: Readonly<Record<'no-service' | 'not-found' | 'unread
   'split-file-missing': 'proposal.seedMissSplitFileMissing',
   'split-file-too-large': 'proposal.seedMissSplitFileTooLarge',
   'split-file-syntax': 'proposal.seedMissSplitFileSyntax',
+  'wp-plan-file-missing': 'proposal.seedMissWpPlanFileMissing',
+  'wp-plan-file-too-large': 'proposal.seedMissWpPlanFileTooLarge',
 }
 
 const zh: WorkbenchDictionary = {
@@ -680,6 +687,8 @@ const zh: WorkbenchDictionary = {
   'proposal.seedMissSplitFileMissing': '拆分结果文件未找到——任务书规定会话把拆分方案写入工作区 .skyaxis/split/ 目录；会话可能尚未写完，或未按指定路径写入。',
   'proposal.seedMissSplitFileSyntax': '拆分结果文件中无可解析的声明块——yaml 围栏缺失或未闭合，可让会话补写结果文件。',
   'proposal.seedMissSplitFileTooLarge': '拆分结果文件超过读取上限（2 MiB）——请让会话精简后重新收取。',
+  'proposal.seedMissWpPlanFileMissing': '工作包计划文件未找到——规划任务书规定会话把计划写入工作区 .skyaxis/wps/<工作包>/plan.md；会话可能尚未写完，或未按指定路径写入。',
+  'proposal.seedMissWpPlanFileTooLarge': '工作包计划文件超过读取上限（2 MiB）——请让会话精简计划后重新收取。',
   'proposal.sourcePrefix': '来源会话 {id}…',
   'proposal.waitingHint': '分析会话的报告尚未收取——会话收尾后自动收为待裁决行；若会话已被删除，可重新投递。',
   'report.title': '分析报告',
@@ -1006,6 +1015,7 @@ const zh: WorkbenchDictionary = {
   'sow.splitButton': '生成拆分任务书',
   'sow.reviewButton': '生成评审任务书',
   'sow.workPackageButton': '生成工作包任务书',
+  'sow.wpPlanButton': '生成工作包规划任务书',
   'sow.title': '生成任务书',
   'sow.knowledgeHit': '命中 {n} · {size} / 上限 {cap}',
   'sow.knowledgeEmpty': '没有命中的知识条目。',
@@ -1261,6 +1271,8 @@ const en: WorkbenchDictionary = {
   'proposal.seedMissSplitFileMissing': 'Split result file not found — the task book tells the session to write the split plan under .skyaxis/split/ in the workspace; it may be unfinished or written elsewhere.',
   'proposal.seedMissSplitFileSyntax': 'No parseable declare block in the split result file — the yaml fence is missing or unclosed; ask the session to rewrite the file.',
   'proposal.seedMissSplitFileTooLarge': 'The split result file exceeds the read cap (2 MiB) — have the session trim it, then retry.',
+  'proposal.seedMissWpPlanFileMissing': 'WP plan file not found — the wp-plan task book tells the session to write the plan to .skyaxis/wps/<WP>/plan.md in the workspace; it may be unfinished or written elsewhere.',
+  'proposal.seedMissWpPlanFileTooLarge': 'The WP plan file exceeds the read cap (2 MiB) — have the session trim the plan, then retry.',
   'proposal.sourcePrefix': 'from session {id}…',
   'proposal.waitingHint': 'The analysis session\'s report has not been collected yet — it lands here as pending rows once the session finishes; re-deliver if the session was deleted.',
   'report.title': 'Analysis report',
@@ -1587,6 +1599,7 @@ const en: WorkbenchDictionary = {
   'sow.splitButton': 'Generate split SOW',
   'sow.reviewButton': 'Generate review SOW',
   'sow.workPackageButton': 'Generate work-package SOW',
+  'sow.wpPlanButton': 'Generate WP planning SOW',
   'sow.title': 'Generate statement of work',
   'sow.knowledgeHit': 'matched {n} · {size} / cap {cap}',
   'sow.knowledgeEmpty': 'No matching knowledge entries.',

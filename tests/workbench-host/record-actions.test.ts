@@ -38,7 +38,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { KnowledgeRecord } from '../../src/workbench-host/types.js'
-import { applyAnalysisSeed, applyRecordAction, applySplitSeed, applyDevDeclareSeed, stampDevDeclareImported, approveUnderstandWith, adoptPlanWith } from '../../src/workbench-host/record-actions.js'
+import { applyAnalysisSeed, applyRecordAction, applySplitSeed, applyDevDeclareSeed, applyWpPlanSeed, stampDevDeclareImported, approveUnderstandWith, adoptPlanWith } from '../../src/workbench-host/record-actions.js'
 import { contentHashOf } from '../../src/workbench-host/artifact-store.js'
 import { isReleaseItemId, isWorkbenchRecord } from '../../src/workbench-shared/protocol.js'
 import type {
@@ -1637,6 +1637,75 @@ describe('0012 splitProposals 容器：bind / dismiss / seed / adopt', () => {
     const empty = applySplitSeed(base, { sessionId: 'sess-split', contentHash: 'c'.repeat(64), workPackages: [] })
     expect(empty.ok && empty.record.splitProposals?.workPackages).toEqual([])
     expect(empty.ok && empty.record.splitProposals?.seed?.contentHash).toBe('c'.repeat(64)) // 空批盖锚防重读
+  })
+
+  it('0018 applyWpPlanSeed：planned ⇒ 追加 v1 + planned→plan-draft + planSeed 盖章同一原子；同 hash 重放 unchanged；新 hash（重投递）⇒ 追加 v2', () => {
+    const base = baseRecord({ splitApprovedAt: NOW, workPackages: [wp('WP1')] })
+    const seeded = applyWpPlanSeed(base, { workPackageId: 'WP1', contentHash: 'a'.repeat(64) })
+    expect(seeded.ok).toBe(true)
+    if (!seeded.ok) return
+    const target = seeded.record.workPackages[0]
+    expect(target.plans).toEqual([{ version: 1, contentHash: 'a'.repeat(64) }])
+    expect(target.status).toBe('plan-draft')
+    expect(target.planSeed?.contentHash).toBe('a'.repeat(64))
+    expectIso(target.planSeed?.seededAt)
+    // 同 hash 重放 ⇒ unchanged（revision 不 bump 的纯核依据）。
+    expect(applyWpPlanSeed(seeded.record, { workPackageId: 'WP1', contentHash: 'a'.repeat(64) }))
+      .toMatchObject({ ok: true, unchanged: true })
+    // 新 hash（会话重写文件后重投）⇒ 追加 v2。
+    const reseeded = applyWpPlanSeed(seeded.record, { workPackageId: 'WP1', contentHash: 'b'.repeat(64) })
+    expect(reseeded.ok && reseeded.record.workPackages[0].plans.map((plan) => plan.version)).toEqual([1, 2])
+    expect(reseeded.ok && reseeded.record.workPackages[0].planSeed?.contentHash).toBe('b'.repeat(64))
+  })
+
+  it('0018 applyWpPlanSeed：未批准尾草稿在场 ⇒ 仍追加新版本（旧草稿降为归档，approvePlan 读新尾）；in-dev 重规划状态不动；守卫：dropped 400 / 无此包 404 / 未批准拆分 locked-split', () => {
+    const base = baseRecord({
+      splitApprovedAt: NOW,
+      workPackages: [
+        wp('WP1', { status: 'plan-draft', plans: [{ version: 2, contentHash: 'c'.repeat(64) }] }),
+        wp('WP2', { status: 'dropped' }),
+      ],
+    })
+    const reseeded = applyWpPlanSeed(base, { workPackageId: 'WP1', contentHash: 'd'.repeat(64) })
+    expect(reseeded.ok && reseeded.record.workPackages[0].plans.map((plan) => plan.version)).toEqual([2, 3])
+    expect(reseeded.ok && reseeded.record.workPackages[0].status).toBe('plan-draft')
+    const inDev = applyWpPlanSeed(
+      baseRecord({ splitApprovedAt: NOW, workPackages: [wp('WP1', { status: 'in-dev' })] }),
+      { workPackageId: 'WP1', contentHash: 'a'.repeat(64) },
+    )
+    expect(inDev.ok && inDev.record.workPackages[0].status).toBe('in-dev')
+    expect(applyWpPlanSeed(base, { workPackageId: 'WP9', contentHash: 'a'.repeat(64) }))
+      .toEqual({ ok: false, status: 404, code: 'not-found' })
+    expect(applyWpPlanSeed(base, { workPackageId: 'WP2', contentHash: 'a'.repeat(64) }))
+      .toEqual({ ok: false, status: 400, code: 'bad-request' })
+    expect(applyWpPlanSeed(baseRecord({ workPackages: [wp('WP1')] }), { workPackageId: 'WP1', contentHash: 'a'.repeat(64) }))
+      .toEqual({ ok: false, status: 400, code: 'locked-split' })
+  })
+
+  it('0018 recordWpPlanSession：指针落账（不触 sessions[]）；同会话重放 unchanged（不清已盖收取戳）；异会话重投递 ⇒ 替换指针并清戳重臂；守卫：dropped 400 / 无此包 404 / 未批准拆分 locked-split', () => {
+    const base = baseRecord({ splitApprovedAt: NOW, workPackages: [wp('WP1')] })
+    const recorded = applyRecordAction(base, { ...mutate(), action: 'recordWpPlanSession', workPackageId: 'WP1', sessionId: 'sess-plan-a' })
+    expect(recorded.ok).toBe(true)
+    if (!recorded.ok) return
+    const target = recorded.record.workPackages[0]
+    expect(target.planSeed?.session?.sessionId).toBe('sess-plan-a')
+    expectIso(target.planSeed?.session?.boundAt)
+    expect(target.sessions).toEqual([]) // 溯源指针不是 sessions[] 绑定
+    // 收取盖章后同会话重放 ⇒ unchanged（不得清戳——否则同 hash 文件重 seed 成新版本）。
+    const seeded = applyWpPlanSeed(recorded.record, { workPackageId: 'WP1', contentHash: 'a'.repeat(64) })
+    expect(applyRecordAction(seeded.ok ? seeded.record : recorded.record, { ...mutate(), action: 'recordWpPlanSession', workPackageId: 'WP1', sessionId: 'sess-plan-a' }))
+      .toMatchObject({ ok: true, unchanged: true })
+    // 异会话（重新投递）⇒ 替换指针并清戳：watcher 重臂收取。
+    const reDelivered = applyRecordAction(recorded.record, { ...mutate(), action: 'recordWpPlanSession', workPackageId: 'WP1', sessionId: 'sess-plan-b' })
+    expect(reDelivered.ok && reDelivered.record.workPackages[0].planSeed?.session?.sessionId).toBe('sess-plan-b')
+    expect(reDelivered.ok && reDelivered.record.workPackages[0].planSeed?.contentHash).toBeUndefined()
+    // 守卫三面。
+    expect(applyRecordAction(base, { ...mutate(), action: 'recordWpPlanSession', workPackageId: 'WP9', sessionId: 's' }))
+      .toEqual({ ok: false, status: 404, code: 'not-found' })
+    expect(applyRecordAction(baseRecord({ splitApprovedAt: NOW, workPackages: [wp('WP2', { status: 'dropped' })] }), { ...mutate(), action: 'recordWpPlanSession', workPackageId: 'WP2', sessionId: 's' }))
+      .toEqual({ ok: false, status: 400, code: 'bad-request' })
+    expect(applyRecordAction(baseRecord({ workPackages: [wp('WP1')] }), { ...mutate(), action: 'recordWpPlanSession', workPackageId: 'WP1', sessionId: 's' }))
+      .toEqual({ ok: false, status: 400, code: 'locked-split' })
   })
 
   it('dismissWorkPackageProposal 容器行移除（锁外）；未知 ref → 404', () => {

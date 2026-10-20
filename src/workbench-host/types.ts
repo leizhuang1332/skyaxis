@@ -96,6 +96,13 @@ const DeclarationAnchorSchema = z.object({
   contentHash: ContentHashSchema,
 })
 
+/** 0018 D8: the wp-plan channel anchor (protocol WorkbenchPlanSeed mirror). */
+const PlanSeedSchema = z.object({
+  session: z.object({ sessionId: SessionIdSchema, boundAt: TimestampSchema }).optional(),
+  contentHash: ContentHashSchema.optional(),
+  seededAt: TimestampSchema.optional(),
+})
+
 export const WorkbenchWorkPackageSchema = z.object({
   id: WorkPackageIdSchema,
   title: z.string().trim().min(1).max(64),
@@ -113,6 +120,8 @@ export const WorkbenchWorkPackageSchema = z.object({
   acceptances: z.array(AcceptanceSchema),
   /** 0016 D12-②: import receipts — optional per the field-evolution discipline. */
   declarations: z.array(DeclarationAnchorSchema).optional(),
+  /** 0018 D8: the wp-plan channel anchor — optional per the field-evolution discipline. */
+  planSeed: PlanSeedSchema.optional(),
 })
 
 export const WorkbenchFindingSchema = z.object({
@@ -850,6 +859,26 @@ const ConfirmDevDeclareCommitSchema = z.object({
   hash: z.string().regex(/^[0-9a-f]{7,40}$/),
 })
 
+// 0018 工作包规划两步化: the wp-plan channel pair. recordWpPlanSession is
+// the delivery callback's provenance pointer (a sessions[] binding it is
+// NOT — that union stays analysis/dev/review); seedWpPlan names the package
+// only (the endpoint reads .skyaxis/wps/<wpId>/plan.md itself, the seedSplit
+// division of labor).
+const RecordWpPlanSessionSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  action: z.literal('recordWpPlanSession'),
+  workPackageId: WorkPackageIdSchema,
+  sessionId: SessionIdSchema,
+})
+
+const SeedWpPlanSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  action: z.literal('seedWpPlan'),
+  workPackageId: WorkPackageIdSchema,
+})
+
 const ProposalActionSchema = z.object({
   expectedRevision: z.number().int().nonnegative(),
   requirementId: z.uuid(),
@@ -924,6 +953,8 @@ export const WorkbenchMutateSchema = z.discriminatedUnion('action', [
   SeedDevDeclareSchema,
   AdjudicateDevDeclareSchema,
   ConfirmDevDeclareCommitSchema,
+  RecordWpPlanSessionSchema,
+  SeedWpPlanSchema,
 ])
 
 // ---------------------------------------------------------------------------

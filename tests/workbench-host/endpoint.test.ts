@@ -2579,6 +2579,89 @@ describe('0012 两步化：adoptPlan / seedSplit 专属 flow + planning-doc / sp
   })
 })
 
+describe('0018 工作包规划两步化：recordWpPlanSession / seedWpPlan 专属 flow + wp-plan-doc 读面', () => {
+  const body = (action: string, extra: Record<string, unknown>, expectedRevision: number, requirementId = RID) =>
+    ({ expectedRevision, requirementId, action, ...extra })
+
+  /** 0018 文件通道：.skyaxis/wps/<wpId>/plan.md 按需写入（null = 不写）。 */
+  function wpPlanWorkspace(files: { plan?: string | null }): { dir: string; resolve: (requirementId: string) => string } {
+    const dir = mkdtempSync(join(tmpdir(), 'workbench-wp-plan-test-'))
+    dirs.push(dir)
+    if (files.plan !== undefined && files.plan !== null) {
+      mkdirSync(join(dir, '.skyaxis', 'wps', 'WP1'), { recursive: true })
+      writeFileSync(join(dir, '.skyaxis', 'wps', 'WP1', 'plan.md'), files.plan, 'utf8')
+    }
+    return { dir, resolve: () => dir }
+  }
+
+  const PLAN_FILE = ['# 工作包计划 · WP1', '', '## 任务分解', '1. 通读边界内模块……'].join('\n')
+
+  it('recordWpPlanSession ⇒ 指针落账；seedWpPlan：无记录 404；文件在 ⇒ v1 落账 + planned→plan-draft 同 save + planSeed 盖章；同 hash 重放 revision 不 bump；新 hash ⇒ 追加 v2；dropped 400', async () => {
+    const ws = wpPlanWorkspace({ plan: PLAN_FILE })
+    const h = await harness({ resolveWorkspacePath: ws.resolve })
+    expect((await h.post(WORKBENCH_PATH, body('seedWpPlan', { workPackageId: 'WP1' }, 0))).status).toBe(404)
+
+    await h.seed([seedRecord(RID, { splitApprovedAt: NOW, workPackages: [seedWorkPackage('WP1')] })])
+    const rec = await h.post(WORKBENCH_PATH, body('recordWpPlanSession', { workPackageId: 'WP1', sessionId: 'sess-plan' }, 1))
+    expect(rec.status).toBe(200)
+    const recRow = await rec.json() as { record: WorkbenchRecord }
+    expect(recRow.record.workPackages[0]?.planSeed?.session?.sessionId).toBe('sess-plan')
+
+    const seeded = await h.post(WORKBENCH_PATH, body('seedWpPlan', { workPackageId: 'WP1' }, 2))
+    expect(seeded.status).toBe(200)
+    const row = await seeded.json() as { revision: number; record: WorkbenchRecord }
+    const wp1 = row.record.workPackages[0]
+    expect(wp1?.plans.map((plan) => plan.version)).toEqual([1])
+    expect(wp1?.plans[0]?.contentHash).toBe(contentHashOf(PLAN_FILE))
+    expect(wp1?.status).toBe('plan-draft')
+    expect(wp1?.planSeed?.contentHash).toBe(contentHashOf(PLAN_FILE)) // 哈希主锚在 planSeed（D8）
+    // 同 hash 重放 ⇒ revision 不 bump（watcher 幂等）。
+    const replay = await h.post(WORKBENCH_PATH, body('seedWpPlan', { workPackageId: 'WP1' }, row.revision))
+    expect(((await replay.json()) as { revision: number }).revision).toBe(row.revision)
+    // 会话重写文件（新 hash）⇒ 追加 v2——版本链记演进史（D3）。
+    writeFileSync(join(ws.dir, '.skyaxis', 'wps', 'WP1', 'plan.md'), `${PLAN_FILE}\n<!-- v2 -->`, 'utf8')
+    const reseeded = await h.post(WORKBENCH_PATH, body('seedWpPlan', { workPackageId: 'WP1' }, row.revision))
+    const row2 = await reseeded.json() as { record: WorkbenchRecord }
+    expect(row2.record.workPackages[0]?.plans.map((plan) => plan.version)).toEqual([1, 2])
+    // dropped 且文件在场 ⇒ 400（收取门，devDeclare 同口径——纯核守卫经 flow 面透出）。
+    const dropped = await harness({ resolveWorkspacePath: ws.resolve })
+    await dropped.seed([seedRecord(RID, { splitApprovedAt: NOW, workPackages: [seedWorkPackage('WP1', { status: 'dropped' })] })])
+    expect((await dropped.post(WORKBENCH_PATH, body('seedWpPlan', { workPackageId: 'WP1' }, 1))).status).toBe(400)
+    // 无此工作包 ⇒ 404（磁盘 IO 前的前置查，split 容器前查同款）。
+    expect((await dropped.post(WORKBENCH_PATH, body('seedWpPlan', { workPackageId: 'WP9' }, 1))).status).toBe(404)
+  })
+
+  it('seedWpPlan：文件缺失 ⇒ 200 零写 wp-plan-file-missing（armed 空目录与 unarmed 同形）；wp-plan-doc GET：seed 前 untampered-silent、seed 后手改 ⇒ contentTampered、缺失 404、坏 wpId 400', async () => {
+    // armed 但目录空（会话可能尚未写完——advisory，不失败）。
+    const wsEmpty = wpPlanWorkspace({})
+    const hEmpty = await harness({ resolveWorkspacePath: wsEmpty.resolve })
+    await hEmpty.seed([seedRecord(RID, { splitApprovedAt: NOW, workPackages: [seedWorkPackage('WP1')] })])
+    const miss = await hEmpty.post(WORKBENCH_PATH, body('seedWpPlan', { workPackageId: 'WP1' }, 1))
+    expect(miss.status).toBe(200)
+    expect(((await miss.json()) as { seedMissing?: string }).seedMissing).toBe('wp-plan-file-missing')
+    // unarmed（无 resolveWorkspacePath）⇒ 同一 miss（无工作区即无文件）。
+    const hUnarmed = await harness()
+    await hUnarmed.seed([seedRecord(RID, { splitApprovedAt: NOW, workPackages: [seedWorkPackage('WP1')] })])
+    const miss2 = await hUnarmed.post(WORKBENCH_PATH, body('seedWpPlan', { workPackageId: 'WP1' }, 1))
+    expect(((await miss2.json()) as { seedMissing?: string }).seedMissing).toBe('wp-plan-file-missing')
+
+    // wp-plan-doc 读面：seed 前文件先行可读、untampered；seed 后手改 ⇒ tampered。
+    const ws = wpPlanWorkspace({ plan: PLAN_FILE })
+    const h = await harness({ resolveWorkspacePath: ws.resolve })
+    await h.seed([seedRecord(RID, { splitApprovedAt: NOW, workPackages: [seedWorkPackage('WP1')] })])
+    const read1 = await h.get(`${WORKBENCH_ARTIFACTS_PATH}?kind=wp-plan-doc&requirementId=${RID}&workPackageId=WP1`)
+    expect(read1.status).toBe(200)
+    expect(((await read1.json()) as { content: string; contentTampered: boolean }).contentTampered).toBe(false)
+    await h.post(WORKBENCH_PATH, body('seedWpPlan', { workPackageId: 'WP1' }, 1))
+    writeFileSync(join(ws.dir, '.skyaxis', 'wps', 'WP1', 'plan.md'), `${PLAN_FILE}\n<!-- edited -->`, 'utf8')
+    const read2 = await h.get(`${WORKBENCH_ARTIFACTS_PATH}?kind=wp-plan-doc&requirementId=${RID}&workPackageId=WP1`)
+    expect(((await read2.json()) as { contentTampered: boolean }).contentTampered).toBe(true)
+    // 缺失 ⇒ 404；坏 WP 号 ⇒ 400。
+    expect((await h.get(`${WORKBENCH_ARTIFACTS_PATH}?kind=wp-plan-doc&requirementId=${RID}&workPackageId=WP9`)).status).toBe(404)
+    expect((await h.get(`${WORKBENCH_ARTIFACTS_PATH}?kind=wp-plan-doc&requirementId=${RID}&workPackageId=bad`)).status).toBe(400)
+  })
+})
+
 describe('0016 P1a: seedDevDeclare flow + devDeclare-keyed import + adjudicateDevDeclare', () => {
   const devFence = (wp: string, extra: readonly string[] = []): string =>
     '```yaml\n' + ['# skyaxis-declare', `workPackage: ${wp}`, 'claims:', '  - built: true', ...extra].join('\n') + '\n```'

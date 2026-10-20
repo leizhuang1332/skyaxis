@@ -47,10 +47,10 @@ import type {
   WorkbenchListResponse,
   WorkbenchRecord,
 } from '../workbench-shared/protocol.js'
-import { planDocPath, reviewDocPath, analysisReportPath, requirementDocPath, planningDocPath, splitResultPath, devDeclarePendingPath, devDeclareImportedPath } from './artifact-path.js'
+import { planDocPath, reviewDocPath, analysisReportPath, requirementDocPath, planningDocPath, splitResultPath, devDeclarePendingPath, devDeclareImportedPath, wpPlanPath } from './artifact-path.js'
 import { ArtifactStore, contentHashOf } from './artifact-store.js'
 import { scanWorkbenchArtifacts } from './orphan-scan.js'
-import { applyRecordAction, applyAnalysisSeed, applySplitSeed, approveUnderstandWith, adoptPlanWith, nextReleaseItemId, applyDevDeclareSeed, stampDevDeclareImported } from './record-actions.js'
+import { applyRecordAction, applyAnalysisSeed, applySplitSeed, approveUnderstandWith, adoptPlanWith, nextReleaseItemId, applyDevDeclareSeed, stampDevDeclareImported, applyWpPlanSeed } from './record-actions.js'
 import { parseDeclare, findDeclareFence } from './declare-parse.js'
 import { parseReviewFindings } from './review-parse.js'
 import type { SessionDeclareReader } from './declare-reader.js'
@@ -240,6 +240,12 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     // dev-specific: latest dev binding → readSession → fence scope check →
     // hash; no implicit-create — seeding presupposes a bound in-dev WP).
     if (body.action === 'seedDevDeclare') return seedDevDeclareFlow(body, existing, current.value)
+
+    // 0018 工作包规划两步化: seedWpPlan is the SIXTH dedicated flow (the
+    // wp-plan file channel's collector — the endpoint reads the prescribed
+    // workspace file itself, seedSplit's per-WP shape; no implicit-create —
+    // seeding presupposes a registered package).
+    if (body.action === 'seedWpPlan') return seedWpPlanFlow(body, existing, current.value)
 
     // All business guards (target existence, split lock, state-machine
     // legality, referential integrity) live in the pure action core.
@@ -470,6 +476,17 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     return { status: read.status }
   }
 
+  /** 0018: the per-WP plan file read (fifth member of the channel family). */
+  function readWpPlanFile(requirementId: string, workPackageId: string): { status: 'ok'; text: string; sha256: string } | { status: 'missing' | 'too-large' | 'unarmed' } {
+    const resolve = services.resolveWorkspacePath
+    if (resolve === undefined) return { status: 'unarmed' }
+    const workspace = resolve(requirementId)
+    if (workspace === '') return { status: 'unarmed' }
+    const read = artifacts.read(wpPlanPath(workspace, workPackageId))
+    if (read.status === 'ok') return { status: 'ok', text: read.text, sha256: read.sha256 }
+    return { status: read.status }
+  }
+
   /**
    * 0012: adoptPlan dedicated flow — approveUnderstandFlow's twin verbatim:
    * read the planning doc off disk and hand the pure core its sha256.
@@ -523,6 +540,42 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
       sessionId: body.sessionId,
       contentHash: resultFile.sha256,
       workPackages: parsed.proposals.workPackages,
+    })
+    return commitSeedResponse(body, applied, current)
+  }
+
+  /**
+   * 0018: seedWpPlan dedicated flow — the WP-plan file channel's collector
+   * (seedSplit's per-WP twin). The endpoint reads the prescribed file itself
+   * (no session-log anything); misses answer 200 zero-write with the
+   * actionable reason (missing covers unarmed — no workspace means no file
+   * can exist; too-large stays advisory, the session may slim it). The pure
+   * core (applyWpPlanSeed) owns the plans[] append + planned→plan-draft flip
+   * + the planSeed hash stamp, all in ONE save.
+   */
+  async function seedWpPlanFlow(
+    body: { expectedRevision: number; requirementId: string; action: 'seedWpPlan'; workPackageId: string },
+    existing: WorkbenchRecord | undefined,
+    current: { revision: number; records: readonly WorkbenchRecord[] },
+  ): Promise<Response> {
+    if (existing === undefined) return errorResponse(404, 'not-found')
+    // Pre-check the target (seedSplit's container pre-check shape): a missing
+    // WP answers 404 before any disk IO; dropped stays in the pure core (the
+    // file-present arm surfaces the 400 there — a fileless dropped WP is a
+    // harmless zero-write miss).
+    if (!existing.workPackages.some((candidate) => candidate.id === body.workPackageId)) return errorResponse(404, 'not-found')
+    const planFile = readWpPlanFile(existing.requirementId, body.workPackageId)
+    if (planFile.status !== 'ok') {
+      return json({
+        ok: true,
+        revision: current.revision,
+        record: existing,
+        seedMissing: planFile.status === 'too-large' ? 'wp-plan-file-too-large' : 'wp-plan-file-missing',
+      })
+    }
+    const applied = applyWpPlanSeed(existing, {
+      workPackageId: body.workPackageId,
+      contentHash: planFile.sha256,
     })
     return commitSeedResponse(body, applied, current)
   }
@@ -975,7 +1028,7 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     const kind = url.searchParams.get('kind')
     const requirementId = url.searchParams.get('requirementId')
     if (requirementId === null || !REQUIREMENT_ID_RE.test(requirementId)) return errorResponse(400, 'bad-request')
-    if (kind !== 'plan' && kind !== 'review' && kind !== 'analysis-report' && kind !== 'requirement-doc' && kind !== 'planning-doc' && kind !== 'split-result') return errorResponse(400, 'bad-request')
+    if (kind !== 'plan' && kind !== 'review' && kind !== 'analysis-report' && kind !== 'requirement-doc' && kind !== 'planning-doc' && kind !== 'split-result' && kind !== 'wp-plan-doc') return errorResponse(400, 'bad-request')
 
     // 文件交付轮 face: the workspace report file — readable even before a
     // seed lands (the file is the session's delivery; the ledger joins in
@@ -1041,6 +1094,24 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
       const expectedHash = record?.splitProposals?.seed?.contentHash
       const contentTampered = expectedHash !== undefined && expectedHash !== doc.sha256
       return json({ ok: true, content: doc.text, contentTampered })
+    }
+
+    // 0018 face: the per-WP plan file — file first (readable before any seed
+    // lands; the ledger joins only for tamper compare against the planSeed's
+    // contentHash — a NEXT delivery's overwrite legitimately moves the disk
+    // on, which the next seed re-anchors; an unseeded package reads
+    // untampered-silent).
+    if (kind === 'wp-plan-doc') {
+      const workPackageId = url.searchParams.get('workPackageId')
+      if (workPackageId === null || !isWorkPackageId(workPackageId)) return errorResponse(400, 'bad-request')
+      const planFile = readWpPlanFile(requirementId, workPackageId)
+      if (planFile.status !== 'ok') return errorResponse(404, 'not-found')
+      const current = file.load()
+      if (!current.ok) return errorResponse(409, 'unreadable-file')
+      const record = current.value.records.find((candidate) => candidate.requirementId === requirementId)
+      const expectedHash = record?.workPackages.find((candidate) => candidate.id === workPackageId)?.planSeed?.contentHash
+      const contentTampered = expectedHash !== undefined && expectedHash !== planFile.sha256
+      return json({ ok: true, content: planFile.text, contentTampered })
     }
 
     const current = file.load()

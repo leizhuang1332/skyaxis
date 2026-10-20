@@ -102,6 +102,11 @@ function fakeController(): WorkbenchController & { advanceStage: ReturnType<type
     // 0016 P1a: the dev-delivery bind + the per-WP mount catch-up quiet seed.
     bindDevSession: vi.fn(async () => true),
     seedDevDeclareQuiet: vi.fn(async () => undefined),
+    // 0018: the wp-plan watcher's quiet seed + the delivery pointer face
+    // (undefined outcome = quiet miss — records without an armed planSeed
+    // never fire it anyway).
+    seedWpPlanQuiet: vi.fn(async () => undefined),
+    recordWpPlanSession: vi.fn(async () => true),
     dismissBanner: vi.fn(),
     dispose: vi.fn(),
   } as never

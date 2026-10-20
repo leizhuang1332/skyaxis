@@ -141,6 +141,24 @@ export interface WorkbenchAcceptance {
   readonly note?: string
 }
 
+/**
+ * 0018 D8: the wp-plan channel's per-WP anchor — provenance + idempotency
+ * for the AI-drafted plan deliveries. `session` names the delivery's real
+ * conversation (provenance ONLY: the sessions[] binding union stays
+ * analysis/dev/review — recorded by the delivery callback, and a DIFFERENT
+ * session's delivery replaces it and re-arms collection). `contentHash` is
+ * the disk sha256 the seed anchored — deliberately NOT the tail PlanEntry's
+ * hash, because a human tail-draft edit rewrites the entry's while the
+ * watcher's file read keeps matching this stamp (a hand-polished draft
+ * never re-seeds as a new version — the hash-PRIMARY anchor). Optional per
+ * the field-evolution discipline (pre-0018 rows carry none).
+ */
+export interface WorkbenchPlanSeed {
+  readonly session?: { readonly sessionId: string; readonly boundAt: string }
+  readonly contentHash?: string
+  readonly seededAt?: string
+}
+
 export interface WorkbenchWorkPackage {
   /** 'WP1', 'WP2', … — host-minted sequence, see isWorkPackageId. */
   readonly id: string
@@ -178,6 +196,8 @@ export interface WorkbenchWorkPackage {
    * Optional per the field-evolution discipline (pre-0016 rows carry none).
    */
   readonly declarations?: readonly WorkbenchDeclarationAnchor[]
+  /** 0018 D8: the wp-plan channel anchor — optional per the field-evolution discipline (pre-0018 rows carry none). */
+  readonly planSeed?: WorkbenchPlanSeed
 }
 
 export interface WorkbenchFinding {
@@ -496,6 +516,29 @@ export function splitResultRelPath(requirementId: string): string {
     throw new Error(`splitResultRelPath: requirementId is not a lowercase uuid: ${JSON.stringify(requirementId)}`)
   }
   return `${SPLIT_RESULT_DIR}/${requirementId}.md`
+}
+
+// ---------------------------------------------------------------------------
+// WP plan file (0018 工作包规划两步化, decisions/0018 D2) — the FIFTH member of
+// the workspace channel family (analysis report / requirement baseline doc /
+// planning doc / split result / WP plan). Same transport convention verbatim:
+// the wp-plan task book prescribes this path, the planning SESSION is the sole
+// writer, the planSeed anchor references the disk sha256. One DIRECTORY per
+// work package (the declares/<rid>/<wpId>-* precedent) — the name never
+// collides with the requirement-level .skyaxis/planning/. Layout frozen at
+// v1 per the ADR 0005 precedent — a change is a breaking migration, revise
+// ADR 0018 first.
+// ---------------------------------------------------------------------------
+
+/** Workspace-relative directory for per-WP plan files (dot-prefix = tool-owned, decisions/0018 D2). */
+export const WP_PLAN_DIR = '.skyaxis/wps'
+
+/** Display-form workspace-relative plan path `.skyaxis/wps/<workPackageId>/plan.md` (forward slashes). */
+export function wpPlanRelPath(workPackageId: string): string {
+  if (!isWorkPackageId(workPackageId)) {
+    throw new Error(`wpPlanRelPath: workPackageId is not a WP<positive-integer> id: ${JSON.stringify(workPackageId)}`)
+  }
+  return `${WP_PLAN_DIR}/${workPackageId}/plan.md`
 }
 
 // ---------------------------------------------------------------------------
@@ -1249,6 +1292,8 @@ export type WorkbenchMutateRequestBody =
   | SeedDevDeclareRequest
   | AdjudicateDevDeclareRequest
   | ConfirmDevDeclareCommitRequest
+  | RecordWpPlanSessionRequest
+  | SeedWpPlanRequest
 
 // ---------------------------------------------------------------------------
 // Analysis-proposal actions (回传轮). The input schemas carry NO proposal
@@ -1423,6 +1468,31 @@ export interface ConfirmDevDeclareCommitRequest {
   readonly action: 'confirmDevDeclareCommit'
   readonly workPackageId: string
   readonly hash: string
+}
+
+// ---------------------------------------------------------------------------
+// WP-plan actions (0018 工作包规划两步化) — the AI-drafted plan channel.
+// recordWpPlanSession is the delivery callback's bookkeeping (the provenance
+// pointer on wp.planSeed — NOT a sessions[] binding, whose purpose union
+// stays analysis/dev/review; a plain union arm, no IO). seedWpPlan is the
+// file channel's collector — a dedicated endpoint flow reads
+// .skyaxis/wps/<wpId>/plan.md itself (seedSplit's per-WP shape; no slot
+// content rides the wire).
+// ---------------------------------------------------------------------------
+
+export interface RecordWpPlanSessionRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'recordWpPlanSession'
+  readonly workPackageId: string
+  readonly sessionId: string
+}
+
+export interface SeedWpPlanRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'seedWpPlan'
+  readonly workPackageId: string
 }
 
 /**
@@ -1901,6 +1971,7 @@ export interface WorkbenchDetailResponseOk {
 export type SeedMissingReason = DeclareFetchMissing | 'yaml-syntax'
   | 'report-file-missing' | 'report-file-too-large' | 'report-file-syntax'
   | 'split-file-missing' | 'split-file-too-large' | 'split-file-syntax'
+  | 'wp-plan-file-missing' | 'wp-plan-file-too-large'
 
 export interface WorkbenchSaveResponseOk {
   readonly ok: true
@@ -2085,7 +2156,20 @@ function isWorkbenchWorkPackage(v: unknown): v is WorkbenchWorkPackage {
     && Array.isArray(r.commits) && r.commits.every(isWorkbenchCommitRef)
     && Array.isArray(r.acceptances) && r.acceptances.every(isWorkbenchAcceptance)
     && (r.declarations === undefined || (Array.isArray(r.declarations) && r.declarations.every(isWorkbenchDeclarationAnchor)))
+    && (r.planSeed === undefined || isWorkbenchPlanSeed(r.planSeed))
   )
+}
+
+/** 0018 D8: the wp-plan channel anchor guard (the field-evolution leniency — absent reads fine). */
+function isWorkbenchPlanSeed(v: unknown): v is WorkbenchPlanSeed {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  if (r.session !== undefined) {
+    const session = r.session as Record<string, unknown>
+    if (!(isString(session.sessionId) && session.sessionId.length > 0 && isString(session.boundAt) && session.boundAt.length > 0)) return false
+  }
+  return (r.contentHash === undefined || (isString(r.contentHash) && r.contentHash.length > 0))
+    && (r.seededAt === undefined || (isString(r.seededAt) && r.seededAt.length > 0))
 }
 
 function isWorkbenchDeclarationAnchor(v: unknown): v is WorkbenchDeclarationAnchor {
@@ -2464,7 +2548,7 @@ export function isWorkbenchSaveResponseOk(v: unknown): v is WorkbenchSaveRespons
   const r = v as Record<string, unknown>
   if (r.ok !== true || typeof r.revision !== 'number' || !isWorkbenchRecord(r.record)) return false
   if (r.seedMissing !== undefined) {
-    const reasons = ['no-service', 'not-found', 'unreadable', 'no-declare-block', 'yaml-syntax', 'report-file-missing', 'report-file-too-large', 'report-file-syntax', 'split-file-missing', 'split-file-too-large', 'split-file-syntax']
+    const reasons = ['no-service', 'not-found', 'unreadable', 'no-declare-block', 'yaml-syntax', 'report-file-missing', 'report-file-too-large', 'report-file-syntax', 'split-file-missing', 'split-file-too-large', 'split-file-syntax', 'wp-plan-file-missing', 'wp-plan-file-too-large']
     if (typeof r.seedMissing !== 'string' || !reasons.includes(r.seedMissing)) return false
   }
   if (r.seedScan !== undefined && typeof r.seedScan !== 'string') return false

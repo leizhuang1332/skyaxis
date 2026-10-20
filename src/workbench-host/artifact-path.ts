@@ -166,6 +166,20 @@ export function devDeclareImportedPath(workspaceRoot: string, requirementId: str
   return join(workspaceRoot, '.skyaxis', 'declares', requirementId, `${workPackageId}-d${seq}.md`)
 }
 
+/**
+ * The per-WP plan file path (0018 工作包规划两步化, decisions/0018 D2) — the
+ * wp-plan session writes it as the sole author; the seed anchors its disk
+ * sha256. Fifth member of the workspace channel family, one DIRECTORY per
+ * work package (the declares/<rid>/<wpId>-* precedent — never collides with
+ * the requirement-level .skyaxis/planning/); relative-segment one truth =
+ * wpPlanRelPath (protocol.ts), this join re-asserts the WP-id gate as
+ * defense layer 2.
+ */
+export function wpPlanPath(workspaceRoot: string, workPackageId: string): string {
+  assertWorkPackageId(workPackageId)
+  return join(workspaceRoot, '.skyaxis', 'wps', workPackageId, 'plan.md')
+}
+
 /** The per-requirement artifact root; plans/ and reviews/ live under it. */
 export function requirementArtifactDir(root: string, requirementId: string): string {
   assertRequirementId(requirementId)

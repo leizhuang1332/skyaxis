@@ -63,7 +63,10 @@ export function WorkPackageDialog(props: {
   waitingIds?: ReadonlySet<string>
   /** 0017 修订：会话条退役后 WP 详情是会话入口——行点击跳 DSH 会话页（register.navigate：open+selectPanel 官方尾巴）。 */
   onNavigateSession?: (sessionId: string) => void
-  onOpenSow?: (workPackage: WorkbenchWorkPackage) => void
+  /** 0018: purpose-parameterized — 'wp-plan' opens the planning SOW (the
+   * 刀一 raw entry; 刀二 reshapes into status-driven layering), 'dev' the
+   * development SOW (the pre-0018 button). */
+  onOpenSow?: (workPackage: WorkbenchWorkPackage, purpose: 'dev' | 'wp-plan') => void
   onClose: () => void
 }): ReactNode {
   const { t, workPackage, slot, controller, requirementId } = props
@@ -207,7 +210,10 @@ export function WorkPackageDialog(props: {
           {t('detail.planSection')}
           <Tag tone={STATUS_TAG_TONE[workPackage.status]}>{t(STATUS_LABEL_KEY[workPackage.status])}</Tag>
           {props.onOpenSow !== undefined ? (
-            <button type="button" className={styles.ghostButton} onClick={() => { props.onOpenSow?.(workPackage) }}>{t('sow.workPackageButton')}</button>
+            <>
+              <button type="button" className={styles.ghostButton} onClick={() => { props.onOpenSow?.(workPackage, 'wp-plan') }}>{t('sow.wpPlanButton')}</button>
+              <button type="button" className={styles.ghostButton} onClick={() => { props.onOpenSow?.(workPackage, 'dev') }}>{t('sow.workPackageButton')}</button>
+            </>
           ) : null}
         </div>
         {plans.length === 0 ? <div className={styles.formHint}>{t('detail.noPlans')}</div> : (
