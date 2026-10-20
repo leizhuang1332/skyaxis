@@ -421,6 +421,11 @@ interface WorkbenchDictionary {
   readonly 'sow.copyFailed': string
   readonly 'sow.resetEdit': string
   readonly 'detail.dropDescription': string
+  // 0018 刀二：dev 直投 ack（无已批准计划的软门确认）+ 规划收取来源会话行
+  readonly 'detail.devNoPlanAckTitle': string
+  readonly 'detail.devNoPlanAckBody': string
+  readonly 'detail.devNoPlanAckConfirm': string
+  readonly 'detail.planSeedSource': string
   // release.* — S5 上线清单（P3a：手动 CRUD + go/no-go + 漂移披露 + 上线单导出）
   readonly 'release.sectionTitle': string
   readonly 'release.add': string
@@ -935,6 +940,10 @@ const zh: WorkbenchDictionary = {
   'md.copiedCode': '已复制',
   'md.footnotes': '脚注',
   'detail.dropDescription': '确定放弃该工作包？已放弃的工作包不再入板，历史保留。',
+  'detail.devNoPlanAckTitle': '尚无已批准计划',
+  'detail.devNoPlanAckBody': '本工作包尚无已批准计划——直接投递开发任务书时，AI 将仅依据工作包边界开发（任务书不含已批准计划）。建议先生成工作包规划任务书，批准后再投递开发。',
+  'detail.devNoPlanAckConfirm': '仍要生成开发任务书',
+  'detail.planSeedSource': '规划收取来源会话 {id}…',
   'scan.button': '产物对账',
   'scan.empty': '无',
   'scan.failed': '对账失败（账本不可读或网络错误），可刷新重试。',
@@ -1519,6 +1528,10 @@ const en: WorkbenchDictionary = {
   'md.copiedCode': 'Copied',
   'md.footnotes': 'Footnotes',
   'detail.dropDescription': 'Drop this work package? Dropped packages leave the board; history is preserved.',
+  'detail.devNoPlanAckTitle': 'No approved plan yet',
+  'detail.devNoPlanAckBody': 'This work package has no approved plan — delivering the dev SOW now means the session develops from the boundary alone (no approved plan embedded). Consider generating the WP planning SOW first and approving its plan before delivery.',
+  'detail.devNoPlanAckConfirm': 'Generate dev SOW anyway',
+  'detail.planSeedSource': 'Plan collected from session {id}…',
   'scan.button': 'Artifact reconciliation',
   'scan.empty': 'none',
   'scan.failed': 'Scan failed (unreadable ledger or network error) — retry with refresh.',

@@ -834,7 +834,12 @@ export function WorkbenchTabBody(props: {
                 onNavigateSession={(sessionId) => { sessionsFace.navigate(sessionId) }}
                 onOpenWorkPackage={(wpId) => {
                   const wp = record.workPackages.find((w) => w.id === wpId)
-                  if (wp !== undefined) setSow({ purpose: 'dev', workPackage: wp })
+                  if (wp === undefined) return
+                  // 0018 刀二 状态驱动路由：待计划/草拟中→规划任务书；计划已
+                  // 批准与其后（含返工补投）→开发任务书。可见收件箱行只有
+                  // in-dev 卡死行（no-binding/gone——补投 dev 任务书恰是解法，
+                  // 由 board 卡/详情承载分层）；planned 等臂是面扩展时的前置路由。
+                  setSow({ purpose: wp.status === 'planned' || wp.status === 'plan-draft' ? 'wp-plan' : 'dev', workPackage: wp })
                 }}
                 onStartWorkPackage={(wpId) => { void controller.startWorkPackage(requirementId, wpId) }}
               />

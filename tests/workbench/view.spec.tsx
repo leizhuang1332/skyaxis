@@ -642,6 +642,9 @@ describe('0007 定稿软门：S1 就绪披露 + 定稿/撤销 + 摘要导出', (
     fireEvent.click(card)
     const dialog = await screen.findByRole('dialog')
     fireEvent.click(within(dialog).getByRole('button', { name: workbenchZh['sow.workPackageButton'] }))
+    // 0018 刀二：无已批准计划 ⇒ dev 入口先过 ack 确认（软门）。
+    const ack = await screen.findByRole('dialog', { name: workbenchZh['detail.devNoPlanAckTitle'] })
+    fireEvent.click(within(ack).getByRole('button', { name: workbenchZh['detail.devNoPlanAckConfirm'] }))
     const sowDialog = await screen.findByRole('dialog', { name: workbenchZh['sow.title'] })
     await waitFor(() => { expect((sowDialog.querySelector('textarea[data-testid="sow-preview"]') as HTMLTextAreaElement).value).toContain('# skyaxis 工作包任务书 WP1') })
     fireEvent.click(within(sowDialog).getByRole('button', { name: workbenchZh['sow.deliver'] }))
@@ -689,6 +692,9 @@ describe('0007 定稿软门：S1 就绪披露 + 定稿/撤销 + 摘要导出', (
     fireEvent.click(card)
     const dialog = await screen.findByRole('dialog')
     fireEvent.click(within(dialog).getByRole('button', { name: workbenchZh['sow.workPackageButton'] }))
+    // 0018 刀二：无已批准计划 ⇒ ack 确认后再开 dev 任务书。
+    const ack = await screen.findByRole('dialog', { name: workbenchZh['detail.devNoPlanAckTitle'] })
+    fireEvent.click(within(ack).getByRole('button', { name: workbenchZh['detail.devNoPlanAckConfirm'] }))
     const sowDialog = await screen.findByRole('dialog', { name: workbenchZh['sow.title'] })
     await waitFor(() => { expect((sowDialog.querySelector('textarea[data-testid="sow-preview"]') as HTMLTextAreaElement).value).toContain('# skyaxis 工作包任务书 WP1') })
     fireEvent.click(within(sowDialog).getByRole('button', { name: workbenchZh['sow.deliver'] }))
@@ -725,5 +731,27 @@ describe('0007 定稿软门：S1 就绪披露 + 定稿/撤销 + 摘要导出', (
     const calls = (controller.seedDevDeclareQuiet as ReturnType<typeof vi.fn>).mock.calls.length
     await new Promise((resolve) => setTimeout(resolve, 10))
     expect((controller.seedDevDeclareQuiet as ReturnType<typeof vi.fn>).mock.calls.length).toBe(calls)
+  })
+
+  it('0018 刀二：收件箱卡死行（in-dev 无绑定）「打开详情」按状态路由直开 dev 任务书（补投恰是解法）', async () => {
+    const controller = fakeController()
+    render(
+      <WorkbenchTabBody
+        t={bindZh()}
+        requirement={requirement}
+        slot={slot({ record: workbenchRecord({
+          stage: 'implement',
+          splitApprovedAt: AT,
+          workPackages: [{ id: 'WP1', title: '数据导出', boundary: '导出', order: 1, dependsOn: [], covers: [], status: 'in-dev', plans: [], sessions: [], commits: [], acceptances: [] }],
+        }) })}
+        controller={controller}
+        knowledge={knowledgeState()}
+      />,
+    )
+    fireEvent.click(screen.getByRole('tab', { name: /③ 执行实施/ }))
+    // 卡哪·存疑：in-dev 且无 dev 绑定 ⇒ 「打开详情」行在场。
+    fireEvent.click(await screen.findByRole('button', { name: workbenchZh['inbox.openDetail'] }))
+    const sowDialog = await screen.findByRole('dialog', { name: workbenchZh['sow.title'] })
+    await waitFor(() => { expect((sowDialog.querySelector('textarea[data-testid="sow-preview"]') as HTMLTextAreaElement).value).toContain('# skyaxis 工作包任务书 WP1') })
   })
 })

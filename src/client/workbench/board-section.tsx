@@ -172,6 +172,21 @@ export function BoardSection(props: {
                       </button>
                     </div>
                   ) : null}
+                  {/* 0018 刀二 状态驱动分层（built 卡验收动作的同款手法）：待计划
+                      卡（planned/plan-draft）的主动词=规划（细粒度规划→批准→再
+                      开发）；计划已批准卡的主动词=开发（嵌已批准计划投递）。
+                      in-dev 及其后不加卡面任务书入口——详情与收件箱仍是全入口。 */}
+                  {props.onOpenSow !== undefined && (workPackage.status === 'planned' || workPackage.status === 'plan-draft' || workPackage.status === 'plan-approved') ? (
+                    <div className={styles.boardCardActions}>
+                      <button
+                        type="button"
+                        className={styles.ghostButton}
+                        onClick={() => { props.onOpenSow?.(workPackage, workPackage.status === 'plan-approved' ? 'dev' : 'wp-plan') }}
+                      >
+                        {workPackage.status === 'plan-approved' ? t('sow.workPackageButton') : t('sow.wpPlanButton')}
+                      </button>
+                    </div>
+                  ) : null}
                   {props.onOpenExecution !== undefined && workPackage.status !== 'dropped' && latestDev !== undefined ? (
                     <div className={styles.boardCardActions}>
                       <button

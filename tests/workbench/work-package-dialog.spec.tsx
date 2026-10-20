@@ -307,4 +307,76 @@ describe('WorkPackageDialog（S3 详情 Modal + 硬门②）', () => {
     expect(rendered.getByRole('button', { name: `v2 · ${workbenchZh['detail.versionArchived']}` })).toBeTruthy()
     expect(rendered.getByRole('button', { name: `v1 · ${workbenchZh['detail.versionApproved']}` })).toBeTruthy()
   })
+
+  it('0018 刀二：无已批准计划——wp-plan 入口直通；dev 入口走 ack 确认（取消不投递/确认直投 dev）；按钮顺序规划先行', () => {
+    const onOpenSow = vi.fn()
+    render(
+      <WorkPackageDialog
+        t={bindZh()}
+        workPackage={wp('WP1', { status: 'planned' })}
+        slot={slot()}
+        controller={fakeController()}
+        requirementId={RID}
+        onOpenSow={onOpenSow}
+        onClose={() => { /* noop */ }}
+      />,
+    )
+
+    // 按钮顺序：规划先行（hasApprovedPlan=false 的分层）。
+    const buttons = screen.getAllByRole('button')
+    expect(buttons.findIndex((button) => button.textContent === workbenchZh['sow.wpPlanButton']))
+      .toBeLessThan(buttons.findIndex((button) => button.textContent === workbenchZh['sow.workPackageButton']))
+
+    // wp-plan 直通（无 ack）。
+    fireEvent.click(screen.getByRole('button', { name: workbenchZh['sow.wpPlanButton'] }))
+    expect(onOpenSow).toHaveBeenCalledTimes(1)
+    expect(onOpenSow).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'WP1' }), 'wp-plan')
+
+    // dev → ack Modal 出现；取消不投递（footer 取消与右上角关闭同文案，任一即可关——取后者避歧义）。
+    fireEvent.click(screen.getByRole('button', { name: workbenchZh['sow.workPackageButton'] }))
+    const ack = screen.getByRole('dialog', { name: workbenchZh['detail.devNoPlanAckTitle'] })
+    expect(within(ack).getByText(workbenchZh['detail.devNoPlanAckBody'])).toBeTruthy()
+    fireEvent.click(within(ack).getAllByRole('button', { name: workbenchZh['action.cancel'] }).at(-1)!)
+    expect(onOpenSow).toHaveBeenCalledTimes(1)
+
+    // 再走 ack → 确认直投 dev。
+    fireEvent.click(screen.getByRole('button', { name: workbenchZh['sow.workPackageButton'] }))
+    const ack2 = screen.getByRole('dialog', { name: workbenchZh['detail.devNoPlanAckTitle'] })
+    fireEvent.click(within(ack2).getByRole('button', { name: workbenchZh['detail.devNoPlanAckConfirm'] }))
+    expect(onOpenSow).toHaveBeenCalledTimes(2)
+    expect(onOpenSow).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'WP1' }), 'dev')
+  })
+
+  it('0018 刀二：有已批准计划——dev 直通无 ack 且按钮顺序开发先行；规划收取来源会话行在场（前 8 位）', () => {
+    const onOpenSow = vi.fn()
+    render(
+      <WorkPackageDialog
+        t={bindZh()}
+        workPackage={wp('WP1', {
+          status: 'plan-approved',
+          plans: [planEntry(1, { approvedAt: AT })],
+          planSeed: { session: { sessionId: 'sess-plan-delivery', boundAt: AT }, contentHash: 'a'.repeat(64), seededAt: AT },
+        })}
+        slot={slot()}
+        controller={fakeController()}
+        requirementId={RID}
+        onOpenSow={onOpenSow}
+        onClose={() => { /* noop */ }}
+      />,
+    )
+
+    // dev 直通（无 ack）。
+    fireEvent.click(screen.getByRole('button', { name: workbenchZh['sow.workPackageButton'] }))
+    expect(onOpenSow).toHaveBeenCalledTimes(1)
+    expect(onOpenSow).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'WP1' }), 'dev')
+    expect(screen.queryByRole('dialog', { name: workbenchZh['detail.devNoPlanAckTitle'] })).toBeNull()
+
+    // 按钮顺序：开发先行（hasApprovedPlan=true 的分层）。
+    const buttons = screen.getAllByRole('button')
+    expect(buttons.findIndex((button) => button.textContent === workbenchZh['sow.workPackageButton']))
+      .toBeLessThan(buttons.findIndex((button) => button.textContent === workbenchZh['sow.wpPlanButton']))
+
+    // 来源会话行：planSeed.session 指针 → 前 8 位（proposal.sourcePrefix 形制）。
+    expect(screen.getByText(workbenchZh['detail.planSeedSource'].replaceAll('{id}', 'sess-pla'))).toBeTruthy()
+  })
 })

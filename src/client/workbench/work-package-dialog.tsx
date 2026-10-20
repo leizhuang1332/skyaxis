@@ -71,8 +71,12 @@ export function WorkPackageDialog(props: {
 }): ReactNode {
   const { t, workPackage, slot, controller, requirementId } = props
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [devAckOpen, setDevAckOpen] = useState(false)
   const plans = [...workPackage.plans].sort((a, b) => b.version - a.version)
   const tailDraftVersion = plans.find((plan) => plan.approvedAt === undefined)?.version ?? null
+  // 0018 刀二: the layering key — an approved plan makes dev the leading
+  // verb; without one the wp-plan verb leads and dev pays the ack toll.
+  const hasApprovedPlan = workPackage.plans.some((plan) => plan.approvedAt !== undefined)
   const [selectedVersion, setSelectedVersion] = useState<number | null>(plans[0]?.version ?? null)
   const [bodies, setBodies] = useState<ReadonlyMap<number, PlanBody>>(new Map())
   const [draftText, setDraftText] = useState('')
@@ -209,11 +213,21 @@ export function WorkPackageDialog(props: {
         <div className={styles.sectionTitle}>
           {t('detail.planSection')}
           <Tag tone={STATUS_TAG_TONE[workPackage.status]}>{t(STATUS_LABEL_KEY[workPackage.status])}</Tag>
+          {/* 0018 刀二 状态驱动分层：按钮顺序随 hasApprovedPlan 对调（规划先行
+              vs 开发先行）；无已批准计划时开发入口走 ack 确认（软门——跳过
+              显式化，不阻断）。 */}
           {props.onOpenSow !== undefined ? (
-            <>
-              <button type="button" className={styles.ghostButton} onClick={() => { props.onOpenSow?.(workPackage, 'wp-plan') }}>{t('sow.wpPlanButton')}</button>
-              <button type="button" className={styles.ghostButton} onClick={() => { props.onOpenSow?.(workPackage, 'dev') }}>{t('sow.workPackageButton')}</button>
-            </>
+            hasApprovedPlan ? (
+              <>
+                <button type="button" className={styles.ghostButton} onClick={() => { props.onOpenSow?.(workPackage, 'dev') }}>{t('sow.workPackageButton')}</button>
+                <button type="button" className={styles.ghostButton} onClick={() => { props.onOpenSow?.(workPackage, 'wp-plan') }}>{t('sow.wpPlanButton')}</button>
+              </>
+            ) : (
+              <>
+                <button type="button" className={styles.ghostButton} onClick={() => { props.onOpenSow?.(workPackage, 'wp-plan') }}>{t('sow.wpPlanButton')}</button>
+                <button type="button" className={styles.ghostButton} onClick={() => { setDevAckOpen(true) }}>{t('sow.workPackageButton')}</button>
+              </>
+            )
           ) : null}
         </div>
         {plans.length === 0 ? <div className={styles.formHint}>{t('detail.noPlans')}</div> : (
@@ -237,6 +251,14 @@ export function WorkPackageDialog(props: {
                 )
               })}
             </div>
+            {/* 0018 刀二: the wp-plan collection's provenance row (the
+                proposal.sourcePrefix form) — names the planning delivery's
+                conversation when the planSeed pointer exists. */}
+            {workPackage.planSeed?.session !== undefined ? (
+              <div className={styles.formHint}>
+                {t('detail.planSeedSource').replaceAll('{id}', workPackage.planSeed.session.sessionId.slice(0, 8))}
+              </div>
+            ) : null}
             {selectedBody === null || selectedBody.phase === 'loading' ? <div className={styles.formHint}>{t('page.loading')}</div> : null}
             {selectedBody?.phase === 'error' ? <div className={styles.fieldError}>{t('detail.planLoadFailed')}</div> : null}
             {selectedBody?.phase === 'missing' ? (
@@ -391,6 +413,32 @@ export function WorkPackageDialog(props: {
           </div>
         ) : null}
       </div>
+
+      {/* 0018 刀二：dev 直投 ack——无已批准计划的软门确认（警示不阻断，0013
+          采纳 ack 形制；跳过路径显式化）。 */}
+      <Modal
+        open={devAckOpen}
+        onClose={() => { setDevAckOpen(false) }}
+        title={t('detail.devNoPlanAckTitle')}
+        closeLabel={t('action.cancel')}
+        footer={
+          <>
+            <button type="button" className={styles.ghostButton} onClick={() => { setDevAckOpen(false) }}>{t('action.cancel')}</button>
+            <button
+              type="button"
+              className={styles.primaryButton}
+              onClick={() => {
+                setDevAckOpen(false)
+                props.onOpenSow?.(workPackage, 'dev')
+              }}
+            >
+              {t('detail.devNoPlanAckConfirm')}
+            </button>
+          </>
+        }
+      >
+        {t('detail.devNoPlanAckBody')}
+      </Modal>
 
       <Modal
         open={dropOpen}
