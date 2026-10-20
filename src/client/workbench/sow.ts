@@ -268,6 +268,16 @@ function workPackageBlock(ctx: SowContext): string {
   } else {
     lines.push('覆盖标准：无')
   }
+  // 0019 D4-A: the rework history rides the dev task book — a 补投 (fresh
+  // session redoing the approved plan) must know why the previous round was
+  // rejected, or it may repeat the same miss. Zero acceptances ⇒ zero lines
+  // (first deliveries stay untouched).
+  if (wp.acceptances.length > 0) {
+    lines.push('返工历史：')
+    wp.acceptances.forEach((acceptance, index) => {
+      lines.push(acceptance.result === 'fail' ? `- 第 ${index + 1} 轮 不通过：${acceptance.note ?? ''}` : `- 第 ${index + 1} 轮 通过`)
+    })
+  }
   if (ctx.approvedPlanText !== undefined && ctx.approvedPlanText.length > 0) {
     lines.push('### 已批准计划', ctx.approvedPlanText)
   } else {
@@ -1317,6 +1327,31 @@ export function buildSow(ctx: SowContext): string {
 export const DEV_SOW_TITLE_PREFIX = '# skyaxis 工作包任务书'
 
 /** 0016: the dev SOW's discriminative head — `<prefix> WP<n> · <requirement>`. */
+/**
+ * 0019 D3-B: the rework-note text sent to the WP's tail dev binding after a
+ * failed acceptance — composed off the LEDGER (the tail fail note the user
+ * just wrote in the reject modal), user-editable in the modal before sending
+ * (the 0009 preview discipline). The re-declare instruction is the watcher
+ * re-seed hook (milestones 0016 验收脚本 #4: no fresh declare block → the
+ * pending slot never resets → the rework loop breaks on the session side).
+ */
+export function buildReworkMessage(
+  workPackage: Pick<WorkbenchWorkPackage, 'id' | 'title' | 'acceptances'>,
+  requirementTitle: string,
+): string {
+  const tailFail = [...workPackage.acceptances].reverse().find((acceptance) => acceptance.result === 'fail')
+  const round = workPackage.acceptances.length
+  return [
+    `# skyaxis 返工话 ${workPackage.id} · ${requirementTitle}`,
+    '',
+    `工作包 ${workPackage.id} ${workPackage.title} 验收未通过（第 ${round} 轮验收）。`,
+    '返工理由：',
+    tailFail?.note ?? '',
+    '',
+    `要求：按返工理由修复本工作包范围内的问题；完成后在回复末尾重新输出声明块（形制同任务书「输出约定」，workPackage: ${workPackage.id}），工作台会重新收取。`,
+  ].join('\n')
+}
+
 export function devSowTitleLine(workPackageId: string | undefined, requirementTitle: string): string {
   return workPackageId !== undefined
     ? `${DEV_SOW_TITLE_PREFIX} ${workPackageId} · ${requirementTitle}`

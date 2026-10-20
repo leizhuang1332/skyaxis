@@ -39,11 +39,12 @@ import { DeliverSection } from './deliver-section.js'
 import { ReviewSection } from './review-section.js'
 import { KnowledgeSection } from './knowledge-section.js'
 import { SowModal } from './sow-modal.js'
+import { ReworkModal } from './rework-modal.js'
 import { devTitleBindTargets } from './dev-watcher.js'
 import { ScanModal } from './scan-modal.js'
 import { SheetExportModal } from './sheet-export-modal.js'
 import { buildUnderstandingSheet } from './understanding-sheet.js'
-import type { DeliverFace } from './delivery.js'
+import type { DeliverFace, SendMessageFace } from './delivery.js'
 import type { WorkbenchWorkPackage } from '../../workbench-shared/protocol.js'
 import styles from './view.module.css'
 
@@ -219,6 +220,8 @@ export function WorkbenchTabBody(props: {
   waiting?: WaitingFace
   /** Optional SOW delivery face (P5a) — absent ⇒ the modal hides the delivery button. */
   deliver?: DeliverFace
+  /** 0019 rework-note send face — absent ⇒ the rework modal hides its send button. */
+  sendToSession?: SendMessageFace
 }): ReactNode {
   const { t, slot, controller, knowledge } = props
   const requirementId = props.requirement.id
@@ -249,6 +252,10 @@ export function WorkbenchTabBody(props: {
   const [executionView, setExecutionView] = useState<WorkbenchWorkPackage | null>(null)
   // SOW modal state — view-owned so every section entry shares one instance.
   const [sow, setSow] = useState<{ purpose: 'analysis' | 'plan' | 'split' | 'consolidate' | 'dev' | 'review' | 'wp-plan'; workPackage?: WorkbenchWorkPackage } | null>(null)
+  // 0019: rework-note modal target (wpId — resolved against the LIVE record
+  // at render, so the board's await-ok followup opens it with the just-
+  // recorded fail acceptance already in place).
+  const [reworkId, setReworkId] = useState<string | null>(null)
   // 挂账轮: artifact-reconciliation modal — view-owned like the SOW instance;
   // phase-independent entry (the scan's data source is the endpoint, not the
   // slot — honesty means surfacing its own failures, not hiding the button).
@@ -845,7 +852,7 @@ export function WorkbenchTabBody(props: {
               />
             ) : null}
             {record !== null && viewing === 'implement' && executionView === null ? (
-              <BoardSection key={`board-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} sessions={sessionsFace} waitingIds={waitingIds} onNavigateSession={(sessionId) => { sessionsFace.navigate(sessionId) }} onOpenSow={(workPackage, purpose) => { setSow({ purpose, workPackage }) }} onOpenExecution={(workPackage) => { setExecutionView(workPackage) }} />
+              <BoardSection key={`board-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} sessions={sessionsFace} waitingIds={waitingIds} onNavigateSession={(sessionId) => { sessionsFace.navigate(sessionId) }} onOpenSow={(workPackage, purpose) => { setSow({ purpose, workPackage }) }} onOpenExecution={(workPackage) => { setExecutionView(workPackage) }} onSendRework={(wpId) => { setReworkId(wpId) }} />
             ) : null}
             {record !== null && viewing === 'implement' && executionView !== null ? (
               <ExecutionSection
@@ -996,6 +1003,30 @@ export function WorkbenchTabBody(props: {
             }}
             onClose={() => { setSow(null) }}
           />
+          {/* 0019 D2-C: the rework-note modal — view-owned like the SOW
+              instance so the board/dialog reject followup and the WP-detail
+              standing button share one instance. Resolves the WP and its
+              TAIL dev binding off the live record (the await-ok followup
+              needs the just-recorded fail acceptance); no binding ⇒ not
+              rendered (补投 via the inbox 存疑 row is that case's path). */}
+          {record !== null && reworkId !== null ? (() => {
+            const reworkWp = record.workPackages.find((w) => w.id === reworkId)
+            const tailDev = reworkWp === undefined ? undefined : [...reworkWp.sessions].reverse().find((binding) => binding.purpose === 'dev')
+            if (reworkWp === undefined || tailDev === undefined) return null
+            return (
+              <ReworkModal
+                t={t}
+                open
+                workPackage={reworkWp}
+                requirementTitle={props.requirement.title}
+                targetSessionId={tailDev.sessionId}
+                targetDisplayTitle={sessionSummaries.byId[tailDev.sessionId]?.displayTitle}
+                send={props.sendToSession}
+                onNavigateSession={(sessionId) => { sessionsFace.navigate(sessionId) }}
+                onClose={() => { setReworkId(null) }}
+              />
+            )
+          })() : null}
         </>
       ) : null}
       <ScanModal
@@ -1203,9 +1234,11 @@ export function createWorkbenchTabSeat(options: {
   waiting?: WaitingFace
   /** SOW delivery face (P5a, optional — absent without the conversation shell). */
   deliver?: DeliverFace
+  /** 0019 rework-note send face (optional — same honest-degrade discipline). */
+  sendToSession?: SendMessageFace
 }): (props: PropsRuntime<'requirements.detail.view'>) => ReactNode {
-  const { t, store, controller, sessions, waiting, deliver } = options
-  return (props) => <WorkbenchSeat t={t} store={store} controller={controller} requirement={props.requirement} sessions={sessions} waiting={waiting} deliver={deliver} />
+  const { t, store, controller, sessions, waiting, deliver, sendToSession } = options
+  return (props) => <WorkbenchSeat t={t} store={store} controller={controller} requirement={props.requirement} sessions={sessions} waiting={waiting} deliver={deliver} sendToSession={sendToSession} />
 }
 
 function WorkbenchSeat(props: {
@@ -1216,6 +1249,7 @@ function WorkbenchSeat(props: {
   sessions?: WorkbenchSessionsFace
   waiting?: WaitingFace
   deliver?: DeliverFace
+  sendToSession?: SendMessageFace
 }): ReactNode {
   const state = useSyncExternalStore(props.store.subscribe, props.store.getSnapshot)
   useEffect(() => {
@@ -1232,6 +1266,7 @@ function WorkbenchSeat(props: {
       sessions={props.sessions}
       waiting={props.waiting}
       deliver={props.deliver}
+      sendToSession={props.sendToSession}
     />
   )
 }

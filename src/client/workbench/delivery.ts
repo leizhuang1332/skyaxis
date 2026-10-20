@@ -146,6 +146,61 @@ export interface DeliverOutcome {
 export type DeliverFace = (text: string, workspacePath: string | undefined) => Promise<DeliverOutcome>
 
 /**
+ * 0019 rework-note send face: prompt text into an ALREADY-EXISTING session —
+ * the failed-acceptance WP's tail dev binding. sessionId rides the call for
+ * the same per-requirement reason as DeliverFace's workspacePath.
+ */
+export type SendMessageFace = (sessionId: string, text: string) => Promise<DeliverOutcome>
+
+/**
+ * The degrade-only conversation face, armed reactively (pre-shell register
+ * timing answered undefined for not-yet-active fibers in v2; same discipline
+ * retained), resolved again at call time. Shared by the v3 delivery and the
+ * 0019 session-messenger closures — both fall back to the v2 tail through it.
+ */
+function armConversation(ctx: Context, get: ((name: string) => unknown) | undefined): () => ConversationFace | undefined {
+  let conversation: ConversationFace | undefined = get?.('conversation') as ConversationFace | undefined
+  ctx.inject(['conversation'], (scope: unknown) => {
+    conversation = (scope as { conversation?: ConversationFace }).conversation
+    return () => {
+      conversation = undefined
+    }
+  })
+  return () => conversation
+}
+
+/**
+ * The shared v2 degrade tail: draft into the conversation input + open +
+ * selectPanel — the user presses send (0017 D3). Caller wraps in try/catch
+ * and maps a throw to {ok:false,'failed'}.
+ */
+function v2Tail(
+  sessions: SessionsCreateFace,
+  conversationFace: ConversationFace,
+  sessionId: string,
+  text: string,
+  get: ((name: string) => unknown) | undefined,
+): DeliverOutcome {
+  const actx = sessions.scope(sessionId)
+  conversationFace.input.for(actx).setDraft(text)
+  sessions.open(sessionId)
+  // Official openSession tail — return focus to the Conversation main
+  // panel. Best-effort.
+  try {
+    const layout = get?.('layout') as LayoutFace | undefined
+    layout?.selectPanel(null)
+  } catch {
+    // A layout service with a different shape never blocks the send.
+  }
+  return { ok: true, sessionId, sent: false }
+}
+
+/** The sessions-face shape check shared by both closures (four members). */
+const sessionsFaceOk = (sessions: SessionsCreateFace | undefined): sessions is SessionsCreateFace =>
+  sessions !== undefined && typeof sessions.create === 'function' && typeof sessions.binding === 'function'
+    && typeof sessions.scope === 'function' && typeof sessions.open === 'function'
+
+/**
  * Assemble the delivery closure from ctx. Returns undefined when the SESSIONS
  * face is absent or malformed (jsdom; compositions without it) — the SOW
  * modal then renders no delivery button (honest no-render).
@@ -154,21 +209,9 @@ export function createSowDelivery(ctx: Context): DeliverFace | undefined {
   // ctx.get: no inject requirement; absent ⇒ undefined (v2 头注先例).
   const get = (ctx as unknown as { get?: (name: string) => unknown }).get
   const sessions = get?.('sessions') as SessionsCreateFace | undefined
-  if (sessions === undefined || typeof sessions.create !== 'function' || typeof sessions.binding !== 'function'
-    || typeof sessions.scope !== 'function' || typeof sessions.open !== 'function') {
-    return undefined
-  }
+  if (!sessionsFaceOk(sessions)) return undefined
 
-  // Conversation is DEGRADE-ONLY in v3 — armed reactively (pre-shell
-  // register timing answered undefined for not-yet-active fibers in v2;
-  // same discipline retained), resolved again at call time.
-  let conversation: ConversationFace | undefined = get?.('conversation') as ConversationFace | undefined
-  const disposeConversation = ctx.inject(['conversation'], (scope: unknown) => {
-    conversation = (scope as { conversation?: ConversationFace }).conversation
-    return () => {
-      conversation = undefined
-    }
-  })
+  const resolveConversation = armConversation(ctx, get)
 
   return async (text: string, workspacePath: string | undefined): Promise<DeliverOutcome> => {
     let sessionId: string
@@ -192,23 +235,56 @@ export function createSowDelivery(ctx: Context): DeliverFace | undefined {
     }
 
     // Degrade = the v2 tail: draft + open + jump, the user presses send.
-    const conversationFace = conversation ?? get?.('conversation') as ConversationFace | undefined
+    const conversationFace = resolveConversation() ?? get?.('conversation') as ConversationFace | undefined
     if (conversationFace === undefined || typeof conversationFace.input?.for !== 'function') {
       return { ok: false, reason: 'no-service' }
     }
     try {
-      const actx = sessions.scope(sessionId)
-      conversationFace.input.for(actx).setDraft(text)
-      sessions.open(sessionId)
-      // Official openSession tail — return focus to the Conversation main
-      // panel. Best-effort.
+      return v2Tail(sessions, conversationFace, sessionId, text, get)
+    } catch {
+      return { ok: false, reason: 'failed' }
+    }
+  }
+}
+
+/**
+ * 0019 rework-note messenger (decision 0019 D1-B): prompt text straight into
+ * an ALREADY-EXISTING session — the bound dev session of a failed-acceptance
+ * work package. Same RPC as the v3 delivery main path (probe evidence 0017
+ * 刀零); the only new face is "the target already exists and may be idle or
+ * running" — idle takes the message as a fresh round, running queues it
+ * (host-native semantics, the「排队补话」word's literal meaning). NO create():
+ * the id is the ledger's tail dev binding, never a minted session.
+ *
+ * Degrade: a rejected/throwing prompt — or a missing prompt face — falls back
+ * to the v2 tail on the SAME id (setDraft + open + selectPanel), so the note
+ * is never stranded; conversation absent too → honest no-service (the modal's
+ * copy button stays the manual fallback).
+ */
+export function createSessionMessenger(ctx: Context): SendMessageFace | undefined {
+  const get = (ctx as unknown as { get?: (name: string) => unknown }).get
+  const sessions = get?.('sessions') as SessionsCreateFace | undefined
+  if (!sessionsFaceOk(sessions)) return undefined
+
+  const resolveConversation = armConversation(ctx, get)
+
+  return async (sessionId: string, text: string): Promise<DeliverOutcome> => {
+    const session = sessions.binding(sessionId)?.session
+    if (session !== undefined && typeof session.prompt === 'function') {
       try {
-        const layout = get?.('layout') as LayoutFace | undefined
-        layout?.selectPanel(null)
+        const admitted = await session.prompt([{ type: 'text', text }], 'queue')
+        if (admitted.ok) return { ok: true, sessionId, sent: true }
       } catch {
-        // A layout service with a different shape never blocks delivery.
+        // 落入降级尾巴——返工话不中断.
       }
-      return { ok: true, sessionId, sent: false }
+    }
+
+    const conversationFace = resolveConversation() ?? get?.('conversation') as ConversationFace | undefined
+    if (conversationFace === undefined || typeof conversationFace.input?.for !== 'function') {
+      return { ok: false, reason: 'no-service' }
+    }
+    try {
+      return v2Tail(sessions, conversationFace, sessionId, text, get)
     } catch {
       return { ok: false, reason: 'failed' }
     }

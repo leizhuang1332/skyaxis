@@ -25,7 +25,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { WORKBENCH_LOCALE_NS, registerWorkbenchDictionaries, type WorkbenchT } from './dictionary.js'
 import { createWorkbenchController } from './controller.js'
 import { createWorkbenchFetcher } from './fetcher.js'
-import { createSowDelivery, type DeliverFace } from './delivery.js'
+import { createSessionMessenger, createSowDelivery, type DeliverFace, type SendMessageFace } from './delivery.js'
 import { createWorkbenchTabSeat, type WorkbenchSessionsFace } from './view.js'
 import { createWorkbenchStore } from './store.js'
 import { createDevDeclareWatcher } from './dev-watcher.js'
@@ -84,11 +84,14 @@ export function registerWorkbenchView(ctx: Context, waiting?: WaitingFace): () =
   // P5a delivery face — undefined in jsdom / conversation-less compositions
   // (honest degrade: the SOW modal then hides its delivery button).
   const deliver = createSowDelivery(ctx)
+  // 0019 rework-note send face — same honest-degrade discipline (absent ⇒
+  // the rework modal hides its send button; copy stays the fallback).
+  const sendToSession = createSessionMessenger(ctx)
   // 0016 P1a: REGISTER-level dev-declare watcher (the waiting-tracker
   // structural precedent) — global completion signal for requirements
   // nobody is watching; inert without the sessions face (honest degrade).
   const devWatcher = createDevDeclareWatcher({ fetcher, controller, sessions })
-  const seat = createWorkbenchTabSeat({ t: t satisfies WorkbenchT, store, controller, sessions, waiting, deliver })
+  const seat = createWorkbenchTabSeat({ t: t satisfies WorkbenchT, store, controller, sessions, waiting, deliver, sendToSession })
 
   const disposeSeat = ctx.slots.inject('requirements.detail.view', () =>
     ctx.slots.register(
@@ -514,6 +517,11 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       | 'report.refresh'
       | 'report.tampered'
       | 'report.title'
+      | 'rework.previewLabel'
+      | 'rework.send'
+      | 'rework.sendFailed'
+      | 'rework.targetLabel'
+      | 'rework.title'
       | 'review.addVerdict'
       | 'review.bodyLabel'
       | 'review.counts'

@@ -7,7 +7,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
-import { createSowDelivery } from '../../src/client/workbench/delivery.js'
+import { createSessionMessenger, createSowDelivery } from '../../src/client/workbench/delivery.js'
 
 const fakeCtx = (services: Record<string, unknown>): Context => {
   const ctx = {
@@ -153,5 +153,57 @@ describe('createSowDelivery', () => {
     const d3 = createSowDelivery(fakeCtx({ sessions: sessions({ createImpl: createUndefined }).face, workspaces: odd }))!
     await d3('t', 'C:/ws/c')
     expect(createUndefined).toHaveBeenCalledWith({ cwd: 'C:/ws/c' })
+  })
+})
+
+describe('createSessionMessenger（0019 返工话信使）', () => {
+  it('sessions 缺席 / 形状不对 ⇒ undefined（诚实不建面——返工话 Modal 隐藏发送钮，复制兜底）', () => {
+    expect(createSessionMessenger(fakeCtx({}))).toBeUndefined()
+    expect(createSessionMessenger(fakeCtx({ sessions: { binding: () => undefined } }))).toBeUndefined()
+  })
+
+  it('主路径：零 create——prompt([{type:"text"}],"queue") 打进指定会话；sent:true；conversation 缺席不挡主路径', async () => {
+    const create = vi.fn(async () => 'never-minted')
+    const { face, prompt, open } = sessions({ createImpl: create })
+    const setDraft = vi.fn()
+    const layout = { selectPanel: vi.fn() }
+    // conversation 故意缺席——主路径独立性。
+    const send = createSessionMessenger(fakeCtx({ sessions: face, layout }))!
+    expect(send).toBeDefined()
+
+    expect(await send('sess-dev-9', '返工话全文')).toEqual({ ok: true, sessionId: 'sess-dev-9', sent: true })
+    expect(create).not.toHaveBeenCalled()
+    expect(prompt).toHaveBeenCalledWith([{ type: 'text', text: '返工话全文' }], 'queue')
+    expect(open).not.toHaveBeenCalled()
+    expect(setDraft).not.toHaveBeenCalled()
+    expect(layout.selectPanel).not.toHaveBeenCalled()
+  })
+
+  it('降级尾巴：prompt 被拒 ⇒ setDraft+open+selectPanel 打到同一 id（scope 透传），sent:false（返工话不中断）', async () => {
+    const { face, open } = sessions({ promptImpl: async () => ({ ok: false }) })
+    const setDraft = vi.fn()
+    const layout = { selectPanel: vi.fn() }
+    const send = createSessionMessenger(fakeCtx({ sessions: face, conversation: conversation(setDraft), layout }))!
+
+    expect(await send('sess-dev-9', 't')).toEqual({ ok: true, sessionId: 'sess-dev-9', sent: false })
+    expect(setDraft).toHaveBeenCalledWith('t', { sessionId: 'sess-dev-9' })
+    expect(open).toHaveBeenCalledWith('sess-dev-9')
+    expect(layout.selectPanel).toHaveBeenCalledWith(null)
+  })
+
+  it('降级触发面：prompt 抛错 / binding 无 session 面 ⇒ 同一 v2 尾巴', async () => {
+    const throwing = sessions({ promptImpl: async () => { throw new Error('rpc down') } })
+    const sendThrowing = createSessionMessenger(fakeCtx({ sessions: throwing.face, conversation: conversation() }))!
+    expect(await sendThrowing('s1', 't')).toEqual({ ok: true, sessionId: 's1', sent: false })
+
+    const bare = sessions({ noBinding: true })
+    const sendBare = createSessionMessenger(fakeCtx({ sessions: bare.face, conversation: conversation() }))!
+    expect(await sendBare('s2', 't')).toEqual({ ok: true, sessionId: 's2', sent: false })
+  })
+
+  it('no-service：prompt 面缺席且 conversation 缺席 ⇒ 诚实失败（Modal 的复制兜底在场）', async () => {
+    const bare = sessions({ noBinding: true })
+    const send = createSessionMessenger(fakeCtx({ sessions: bare.face }))!
+    await expect(send('s', 't')).resolves.toEqual({ ok: false, reason: 'no-service' })
   })
 })

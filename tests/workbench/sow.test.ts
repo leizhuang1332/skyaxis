@@ -17,7 +17,7 @@ import type {
   WorkbenchWorkPackage,
 } from '../../src/workbench-shared/protocol.js'
 import type { RequirementRecord } from '../../src/requirements-shared/protocol.js'
-import { DEV_SOW_TITLE_WP_RE, buildSow, globToRegExp, knowledgeBytes, matchKnowledge } from '../../src/client/workbench/sow.js'
+import { DEV_SOW_TITLE_WP_RE, buildReworkMessage, buildSow, globToRegExp, knowledgeBytes, matchKnowledge } from '../../src/client/workbench/sow.js'
 
 const RID = '11111111-1111-4111-8111-111111111111'
 const AT = '2026-09-29T08:00:00.000Z'
@@ -884,5 +884,49 @@ describe('buildSow', () => {
     expect(DEV_SOW_TITLE_WP_RE.test('# skyaxis 评审任务书 · x')).toBe(false)
     const review = buildSow({ ...baseCtx, purpose: 'review', record: record({ stage: 'review', workPackages: [wp('WP1')] }) })
     expect(review.startsWith('# skyaxis 评审任务书 · 导出功能改造\n')).toBe(true)
+  })
+
+  it('0019 D4-A：dev 任务书工作包节附返工历史（历轮不通过带理由/通过）；无验收记录零渲染（首投不扰）', () => {
+    const reworked = wp('WP1', {
+      acceptances: [
+        { at: AT, result: 'fail', note: '越界改动 config.ts' },
+        { at: AT, result: 'pass' },
+        { at: AT, result: 'fail', note: '边界情况遗漏' },
+      ],
+    })
+    const text = buildSow({ ...baseCtx, purpose: 'dev', record: record({ stage: 'implement', workPackages: [reworked] }), workPackage: reworked })
+    expect(text).toContain('返工历史：')
+    expect(text).toContain('- 第 1 轮 不通过：越界改动 config.ts')
+    expect(text).toContain('- 第 2 轮 通过')
+    expect(text).toContain('- 第 3 轮 不通过：边界情况遗漏')
+    // 次序：返工历史在覆盖标准之后、已批准计划之前。
+    expect(text.indexOf('覆盖标准')).toBeLessThan(text.indexOf('返工历史：'))
+
+    const fresh = buildSow({ ...baseCtx, purpose: 'dev', record: record({ stage: 'implement', workPackages: [wp('WP1')] }), workPackage: wp('WP1') })
+    expect(fresh).not.toContain('返工历史')
+  })
+})
+
+describe('buildReworkMessage（0019 D3-B 返工话组装）', () => {
+  it('结构化组装：头行 + 第 n 轮验收未通过（n=acceptances.length）+ 尾 fail 理由 + 重吐声明块指令（re-seed 钩子）', () => {
+    const target = wp('WP3', {
+      title: '导出队列',
+      acceptances: [
+        { at: AT, result: 'pass' },
+        { at: AT, result: 'fail', note: '十万行导出超时' },
+      ],
+    })
+    const text = buildReworkMessage(target, '导出功能改造')
+    expect(text.startsWith('# skyaxis 返工话 WP3 · 导出功能改造\n')).toBe(true)
+    expect(text).toContain('工作包 WP3 导出队列 验收未通过（第 2 轮验收）。')
+    expect(text).toContain('返工理由：\n十万行导出超时')
+    expect(text).toContain('完成后在回复末尾重新输出声明块（形制同任务书「输出约定」，workPackage: WP3），工作台会重新收取。')
+  })
+
+  it('防御面：无 acceptances ⇒ 轮数 0、理由空行，头行与指令照旧不崩', () => {
+    const text = buildReworkMessage(wp('WP1'), '导出功能改造')
+    expect(text).toContain('# skyaxis 返工话 WP1 · 导出功能改造')
+    expect(text).toContain('（第 0 轮验收）')
+    expect(text).toContain('workPackage: WP1')
   })
 })

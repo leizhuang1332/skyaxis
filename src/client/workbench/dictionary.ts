@@ -311,6 +311,12 @@ interface WorkbenchDictionary {
   readonly 'detail.acceptanceEmpty': string
   readonly 'detail.acceptancePass': string
   readonly 'detail.acceptanceFail': string
+  // rework.* — 0019 返工反馈通道（送返工话）
+  readonly 'rework.title': string
+  readonly 'rework.send': string
+  readonly 'rework.targetLabel': string
+  readonly 'rework.previewLabel': string
+  readonly 'rework.sendFailed': string
   readonly 'detail.builtSourceManual': string
   readonly 'detail.returnForEdit': string
   readonly 'detail.approvePlan': string
@@ -930,6 +936,11 @@ const zh: WorkbenchDictionary = {
   'detail.acceptanceEmpty': '尚无验收记录',
   'detail.acceptancePass': '通过',
   'detail.acceptanceFail': '不通过',
+  'rework.title': '返工话',
+  'rework.send': '发送返工话',
+  'rework.targetLabel': '发往会话',
+  'rework.previewLabel': '返工话内容（发送前可修改）',
+  'rework.sendFailed': '发送失败——可复制后跳会话粘贴',
   'detail.builtSourceManual': '完成声明可手动标记；绑定会话的声明块会自动收取（见上方「声明收取」），导入后此处标记 built。',
   'detail.returnForEdit': '退回修改',
   'detail.approvePlan': '批准计划',
@@ -1519,6 +1530,11 @@ const en: WorkbenchDictionary = {
   'detail.acceptanceEmpty': 'No acceptance record yet',
   'detail.acceptancePass': 'pass',
   'detail.acceptanceFail': 'fail',
+  'rework.title': 'Rework note',
+  'rework.send': 'Send rework note',
+  'rework.targetLabel': 'Target session',
+  'rework.previewLabel': 'Rework note (editable before sending)',
+  'rework.sendFailed': 'Send failed — copy it and paste in the session',
   'detail.builtSourceManual': 'Completion can be marked manually; a bound session\'s declare block is auto-collected (see Declaration above) and marks built on import.',
   'detail.returnForEdit': 'Return for edits',
   'detail.approvePlan': 'Approve plan',

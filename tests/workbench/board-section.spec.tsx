@@ -218,6 +218,46 @@ describe('BoardSection（S3 执行看板）', () => {
     await waitFor(() => expect(controller.acceptWorkPackage).toHaveBeenCalledWith(RID, 'WP5', 'fail', '越界改动需返工'))
   })
 
+  it('0019 D2-C：拒绝提交 await-ok 跟进——记录成功且有 dev 绑定才 onSendRework；无绑定/记录失败零跟进', async () => {
+    const rejectVia = (controller: WorkbenchController, onSendRework: (id: string) => void, workPackage: WorkbenchWorkPackage) => render(
+      <BoardSection t={bindZh()} slot={slot({ record: record({ splitApprovedAt: AT, workPackages: [workPackage] }) })} controller={controller} requirementId={RID} onSendRework={onSendRework} />,
+    )
+
+    // 成功 + dev 绑定 ⇒ 跟进（返工话 Modal 由 view 打开）。
+    const onSendRework = vi.fn()
+    const rendered = rejectVia(fakeController(), onSendRework, wp('WP5', { order: 5, status: 'built', sessions: [{ sessionId: 'sess-dev', purpose: 'dev' as const, boundAt: AT }] }))
+    fireEvent.click(screen.getByRole('button', { name: workbenchZh['board.reject'] }))
+    fireEvent.change(within(screen.getByRole('dialog', { name: workbenchZh['board.rejectTitle'] })).getByLabelText(workbenchZh['board.rejectReasonLabel']), { target: { value: '越界改动需返工' } })
+    fireEvent.click(within(screen.getByRole('dialog', { name: workbenchZh['board.rejectTitle'] })).getByRole('button', { name: workbenchZh['board.rejectSubmit'] }))
+    await waitFor(() => expect(onSendRework).toHaveBeenCalledWith('WP5'))
+    rendered.unmount()
+    cleanup()
+
+    // 成功但无 dev 绑定 ⇒ 零跟进（补投路径场景）——先等记录落定再断言零跟进。
+    const noBinding = vi.fn()
+    const noBindingController = fakeController()
+    const rendered2 = rejectVia(noBindingController, noBinding, wp('WP5', { order: 5, status: 'built' }))
+    fireEvent.click(screen.getByRole('button', { name: workbenchZh['board.reject'] }))
+    fireEvent.change(within(screen.getByRole('dialog', { name: workbenchZh['board.rejectTitle'] })).getByLabelText(workbenchZh['board.rejectReasonLabel']), { target: { value: 'x' } })
+    fireEvent.click(within(screen.getByRole('dialog', { name: workbenchZh['board.rejectTitle'] })).getByRole('button', { name: workbenchZh['board.rejectSubmit'] }))
+    await waitFor(() => expect(noBindingController.acceptWorkPackage).toHaveBeenCalledTimes(1))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(noBinding).not.toHaveBeenCalled()
+    rendered2.unmount()
+    cleanup()
+
+    // 记录失败（竞态）⇒ 零跟进——状态机不劣化。
+    const raced = vi.fn()
+    const failing = fakeController({ acceptWorkPackage: vi.fn(async () => false) })
+    const rendered3 = rejectVia(failing, raced, wp('WP5', { order: 5, status: 'built', sessions: [{ sessionId: 'sess-dev', purpose: 'dev' as const, boundAt: AT }] }))
+    fireEvent.click(screen.getByRole('button', { name: workbenchZh['board.reject'] }))
+    fireEvent.change(within(screen.getByRole('dialog', { name: workbenchZh['board.rejectTitle'] })).getByLabelText(workbenchZh['board.rejectReasonLabel']), { target: { value: 'x' } })
+    fireEvent.click(within(screen.getByRole('dialog', { name: workbenchZh['board.rejectTitle'] })).getByRole('button', { name: workbenchZh['board.rejectSubmit'] }))
+    await waitFor(() => expect(failing.acceptWorkPackage).toHaveBeenCalledTimes(1))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(raced).not.toHaveBeenCalled()
+  })
+
   it('卡结构守卫：标题 button 开详情；关闭后 boardCardMain 仍为 button 且动作按钮为兄弟（不嵌套）', async () => {
     const { controller } = subject()
 

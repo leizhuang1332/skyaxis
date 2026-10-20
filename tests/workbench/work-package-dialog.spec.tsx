@@ -321,6 +321,77 @@ describe('WorkPackageDialog（S3 详情 Modal + 硬门②）', () => {
     expect(rendered.getAllByText(workbenchZh['detail.acceptanceFail'])).toHaveLength(2)
   })
 
+  it('0019 D2-C：验收节常驻「送返工话」——in-dev∧尾 fail∧尾 dev 绑定存活才出现，点击 onSendRework(wpId)；尾 pass/built 态/绑定消亡均退役', () => {
+    const onSendRework = vi.fn()
+    const devSession = { sessionId: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeffff0000', purpose: 'dev' as const, boundAt: AT }
+    const liveSessions = { ids: ['aaaaaaaa-bbbb-4ccc-8ddd-eeeeffff0000'], summariesById: { 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeffff0000': { id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeffff0000', displayTitle: '会话甲', running: false, blank: false } } }
+    const dialog = (workPackage: WorkbenchWorkPackage, sessions?: { ids: readonly string[]; summariesById: Readonly<Record<string, { id: string; displayTitle: string; running: boolean; blank: boolean } | undefined>> }) => render(
+      <WorkPackageDialog
+        t={bindZh()}
+        workPackage={workPackage}
+        slot={slot()}
+        controller={fakeController()}
+        requirementId={RID}
+        sessions={sessions}
+        onSendRework={onSendRework}
+        onClose={() => { /* noop */ }}
+      />,
+    )
+
+    const ready = dialog(wp('WP1', { status: 'in-dev', sessions: [devSession], acceptances: [{ at: AT, result: 'fail', note: '超时' }] }), liveSessions)
+    fireEvent.click(screen.getByRole('button', { name: workbenchZh['rework.send'] }))
+    expect(onSendRework).toHaveBeenCalledWith('WP1')
+    ready.unmount()
+
+    const passTail = dialog(wp('WP1', { status: 'in-dev', sessions: [devSession], acceptances: [{ at: AT, result: 'pass' }] }), liveSessions)
+    expect(passTail.queryByRole('button', { name: workbenchZh['rework.send'] })).toBeNull()
+    passTail.unmount()
+
+    // built 态（尾 fail 在场）⇒ 退役——验收中不是返工面。
+    const built = dialog(wp('WP1', { status: 'built', sessions: [devSession], acceptances: [{ at: AT, result: 'fail', note: '超时' }] }), liveSessions)
+    expect(built.queryByRole('button', { name: workbenchZh['rework.send'] })).toBeNull()
+    built.unmount()
+
+    // 绑定消亡（sessions 面在场但 summary 解析不到）⇒ 退役——正路是收件箱存疑行的补投。
+    const gone = dialog(wp('WP1', { status: 'in-dev', sessions: [devSession], acceptances: [{ at: AT, result: 'fail', note: '超时' }] }), { ids: [], summariesById: {} })
+    expect(gone.queryByRole('button', { name: workbenchZh['rework.send'] })).toBeNull()
+  })
+
+  it('0019 D2-C：详情拒绝提交 await-ok 跟进——记录成功且有 dev 绑定才 onSendRework；失败零跟进', async () => {
+    const devSession = { sessionId: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeffff0000', purpose: 'dev' as const, boundAt: AT }
+    const rejectFlow = (controller: WorkbenchController, onSendRework: (id: string) => void) => render(
+      <WorkPackageDialog
+        t={bindZh()}
+        workPackage={wp('WP1', { status: 'built', sessions: [devSession] })}
+        slot={slot()}
+        controller={controller}
+        requirementId={RID}
+        onSendRework={onSendRework}
+        onClose={() => { /* noop */ }}
+      />,
+    )
+
+    const ok = vi.fn()
+    const rendered = rejectFlow(fakeController(), ok)
+    fireEvent.click(screen.getByRole('button', { name: workbenchZh['board.reject'] }))
+    const dialog = screen.getByRole('dialog', { name: workbenchZh['board.rejectTitle'] })
+    fireEvent.change(within(dialog).getByLabelText(workbenchZh['board.rejectReasonLabel']), { target: { value: '越界改动需返工' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: workbenchZh['board.rejectSubmit'] }))
+    await waitFor(() => expect(ok).toHaveBeenCalledWith('WP1'))
+    rendered.unmount()
+
+    const failed = vi.fn()
+    const failingController = fakeController({ acceptWorkPackage: vi.fn(async () => false) })
+    const rendered2 = rejectFlow(failingController, failed)
+    fireEvent.click(screen.getByRole('button', { name: workbenchZh['board.reject'] }))
+    const dialog2 = screen.getByRole('dialog', { name: workbenchZh['board.rejectTitle'] })
+    fireEvent.change(within(dialog2).getByLabelText(workbenchZh['board.rejectReasonLabel']), { target: { value: '越界改动需返工' } })
+    fireEvent.click(within(dialog2).getByRole('button', { name: workbenchZh['board.rejectSubmit'] }))
+    await waitFor(() => expect(failingController.acceptWorkPackage).toHaveBeenCalledTimes(1))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(failed).not.toHaveBeenCalled()
+  })
+
   it('版本链行：当前/草稿/归档/已批准 Tag 正确（链尾 v3 草稿、v2 归档、v1 已批准）', () => {
     const rendered = subject(
       wp('WP1', {

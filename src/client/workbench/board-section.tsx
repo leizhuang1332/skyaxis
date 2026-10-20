@@ -46,6 +46,9 @@ export function BoardSection(props: {
   onOpenSow?: (workPackage: WorkbenchWorkPackage, purpose: 'dev' | 'wp-plan') => void
   /** 0016 P1b: open the execution view for the given package. */
   onOpenExecution?: (workPackage: WorkbenchWorkPackage) => void
+  /** 0019 D2-C: open the rework-note modal — fired by the reject submit's
+   * await-ok followup (board card + the WP dialog it hosts). */
+  onSendRework?: (workPackageId: string) => void
 }): ReactNode {
   const { t, slot, controller, requirementId } = props
   const record = slot.record
@@ -217,6 +220,7 @@ export function BoardSection(props: {
           waitingIds={props.waitingIds}
           onNavigateSession={props.onNavigateSession}
           onOpenSow={props.onOpenSow}
+          onSendRework={props.onSendRework}
           onClose={() => { setDialogId(null) }}
         />
       ) : null}
@@ -241,7 +245,13 @@ export function BoardSection(props: {
                 }
                 const target = rejectTarget
                 setRejectId(null)
-                if (target !== undefined && target !== null) void controller.acceptWorkPackage(requirementId, target.id, 'fail', rejectNote.trim())
+                // 0019 D2-C: await-ok followup — the rework-note modal opens
+                // only on a RECORDED rejection (fail/竞态零跟进，状态机不
+                // 劣化), and only when a dev binding exists to receive it.
+                if (target !== undefined && target !== null) void (async () => {
+                  const ok = await controller.acceptWorkPackage(requirementId, target.id, 'fail', rejectNote.trim())
+                  if (ok && target.sessions.some((binding) => binding.purpose === 'dev')) props.onSendRework?.(target.id)
+                })()
               }}
             >
               {t('board.rejectSubmit')}

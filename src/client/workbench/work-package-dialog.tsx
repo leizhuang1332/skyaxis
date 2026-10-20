@@ -67,6 +67,9 @@ export function WorkPackageDialog(props: {
    * 刀一 raw entry; 刀二 reshapes into status-driven layering), 'dev' the
    * development SOW (the pre-0018 button). */
   onOpenSow?: (workPackage: WorkbenchWorkPackage, purpose: 'dev' | 'wp-plan') => void
+  /** 0019 D2-C: open the rework-note modal — the acceptance section's
+   * standing button (gated) and the reject submit's await-ok followup. */
+  onSendRework?: (workPackageId: string) => void
   onClose: () => void
 }): ReactNode {
   const { t, workPackage, slot, controller, requirementId } = props
@@ -98,6 +101,15 @@ export function WorkPackageDialog(props: {
   const [rejectNote, setRejectNote] = useState('')
   const [rejectError, setRejectError] = useState<string | null>(null)
   const seqRef = useRef(0)
+  // 0019 D2-C: the standing rework-note verb's gate — in-dev with the TAIL
+  // acceptance a fail (the round awaiting fixes) and the tail dev binding
+  // reachable (sessions projection present ⇒ it must resolve; a gone binding
+  // retires the button — the inbox 存疑 row's 补投 is that case's path).
+  const tailAcceptance = workPackage.acceptances.length > 0 ? workPackage.acceptances[workPackage.acceptances.length - 1] : undefined
+  const latestDevBinding = [...workPackage.sessions].reverse().find((binding) => binding.purpose === 'dev')
+  const reworkReady = workPackage.status === 'in-dev' && tailAcceptance?.result === 'fail'
+    && latestDevBinding !== undefined
+    && (props.sessions === undefined || props.sessions.summariesById[latestDevBinding.sessionId] !== undefined)
 
   const fileExists = (version: number): boolean | undefined =>
     slot.planFileExists.find((row) => row.workPackageId === workPackage.id && row.version === version)?.exists
@@ -392,7 +404,14 @@ export function WorkPackageDialog(props: {
       </div>
 
       <div className={styles.wpDialogSection}>
-        <div className={styles.sectionTitle}>{t('detail.acceptanceSection')}</div>
+        <div className={styles.sectionTitle}>
+          {t('detail.acceptanceSection')}
+          {props.onSendRework !== undefined && reworkReady ? (
+            <button type="button" className={styles.ghostButton} onClick={() => { props.onSendRework?.(workPackage.id) }}>
+              {t('rework.send')}
+            </button>
+          ) : null}
+        </div>
         {/* 0016 P1a: the collected dev-declare batch's收取卡 — pending feeds
             the import flow (slot stamped + receipt, atomically); imported/
             dismissed collapse to receipt lines. No slot ⇒ no card. */}
@@ -509,7 +528,12 @@ export function WorkPackageDialog(props: {
                   return
                 }
                 setRejectOpen(false)
-                void controller.acceptWorkPackage(requirementId, workPackage.id, 'fail', rejectNote.trim())
+                // 0019 D2-C: await-ok followup（board 卡同款）——记录成功且
+                // 有 dev 绑定才弹返工话 Modal。
+                void (async () => {
+                  const ok = await controller.acceptWorkPackage(requirementId, workPackage.id, 'fail', rejectNote.trim())
+                  if (ok && workPackage.sessions.some((binding) => binding.purpose === 'dev')) props.onSendRework?.(workPackage.id)
+                })()
               }}
             >
               {t('board.rejectSubmit')}
