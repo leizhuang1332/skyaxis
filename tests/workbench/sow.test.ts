@@ -187,7 +187,7 @@ describe('knowledgeBytes', () => {
 describe('buildSow', () => {
   it('analysis 语境（research 0008）：九节新骨架 + record null 降级 + plain declare 骨架逐字不变', () => {
     const text = buildSow(baseCtx)
-    expect(text.startsWith('# skyaxis 分析任务书 · 导出功能改造\n')).toBe(true)
+    expect(text.startsWith('# 分析任务书 · 导出功能改造\n')).toBe(true)
     for (const header of ['## 目标', '## 需求快照（工作台账本，生成时快照）', '## 输入（用文件读取能力按路径阅读；不要凭记忆，不要猜）', '## 参考知识（工作台注入，已审定）', '## 约束', '## 工作流', '## 输出']) {
       expect(text).toContain(header)
     }
@@ -343,7 +343,7 @@ describe('buildSow', () => {
         ],
       }),
     })
-    expect(text).toContain('# skyaxis 拆分任务书 · 导出功能改造')
+    expect(text).toContain('# 拆分任务书 · 导出功能改造')
     expect(text).toContain('## 目标')
     expect(text).toContain('## 需求快照（工作台账本，生成时快照）')
     expect(text).toContain('## 输入（用文件读取能力按路径阅读；不要凭记忆，不要猜）')
@@ -461,7 +461,7 @@ describe('buildSow', () => {
         workPackages: [wp('WP1', { title: '导出队列' })],
       }),
     })
-    expect(text).toContain('# skyaxis 规划任务书 · 导出功能改造')
+    expect(text).toContain('# 规划任务书 · 导出功能改造')
     expect(text).toContain('## 目标')
     expect(text).toContain('## 需求快照（工作台账本，生成时快照）')
     expect(text).toContain('## 输入（用文件读取能力按路径阅读；不要凭记忆，不要猜）')
@@ -523,7 +523,7 @@ describe('buildSow', () => {
       workPackage: wp1,
     })
     // 头行：判别前缀 + WP 号（dev 头行先例）。
-    expect(text.startsWith('# skyaxis 工作包规划任务书 WP1 · 导出功能改造\n')).toBe(true)
+    expect(text.startsWith('# 工作包规划任务书 WP1 · 导出功能改造\n')).toBe(true)
     expect(text).toContain('## 目标')
     expect(text).toContain('## 需求快照（工作台账本，生成时快照）')
     expect(text).toContain('## 输入（用文件读取能力按路径阅读；不要凭记忆，不要猜）')
@@ -572,7 +572,7 @@ describe('buildSow', () => {
     expect(unarmed).toContain('完成自检（全部满足才算收尾）：每步有产出与文件级落点')
     const noRecord = buildSow({ ...baseCtx, purpose: 'wp-plan', record: null })
     expect(noRecord).toContain('（工作台记录未建立）')
-    expect(noRecord).toContain('# skyaxis 工作包规划任务书 · 导出功能改造')
+    expect(noRecord).toContain('# 工作包规划任务书 · 导出功能改造')
   })
 
   it('split 输入段规划行三态（0012）：已采纳带锚 ⇒ 必读 .skyaxis/planning/ 行；已采纳无锚 ⇒ 诚实行；未采纳 ⇒ 诚实行（依据账本不依据盘）', () => {
@@ -616,7 +616,7 @@ describe('buildSow', () => {
       purpose: 'consolidate',
       record: record({ criteria }),
     })
-    expect(text).toContain('# skyaxis 需求整理任务书 · 导出功能改造')
+    expect(text).toContain('# 需求整理任务书 · 导出功能改造')
     expect(text).toContain('## 目标')
     expect(text).toContain('## 需求快照（工作台账本，生成时快照——全量素材，整理的原料）')
     expect(text).toContain('## 输入（用文件读取能力按路径阅读；不要凭记忆，不要猜）')
@@ -876,14 +876,19 @@ describe('buildSow', () => {
 
   it('0016 刀一验收修正：dev 头行带 WP 号（真实会话的 fallback 标题=寻址锚）；review 头行对齐家族形态', () => {
     const dev = buildSow({ ...baseCtx, purpose: 'dev', record: record({ stage: 'implement', workPackages: [wp('WP1')] }), workPackage: wp('WP1') })
-    expect(dev.startsWith('# skyaxis 工作包任务书 WP1 · 导出功能改造\n')).toBe(true)
+    expect(dev.startsWith('# 工作包任务书 WP1 · 导出功能改造\n')).toBe(true)
     expect(dev).toContain('[需求]')
     // 词边界：WP1 的锚不匹配 WP10 的标题（正则 (?!\d)）
+    expect(DEV_SOW_TITLE_WP_RE.test('# 工作包任务书 WP1 · 导出功能改造')).toBe(true)
+    // 0021 渲染轮: 标题去品牌——matcher 双臂兼容旧形（在途会话，0018 存量修复先例）
     expect(DEV_SOW_TITLE_WP_RE.test('# skyaxis 工作包任务书 WP1 · 导出功能改造')).toBe(true)
     expect(DEV_SOW_TITLE_WP_RE.exec('# skyaxis 工作包任务书 WP10 · x')?.[1]).toBe('WP10')
+    expect(DEV_SOW_TITLE_WP_RE.exec('# 工作包任务书 WP10 · x')?.[1]).toBe('WP10')
+    expect(DEV_SOW_TITLE_WP_RE.test('# 评审任务书 · x')).toBe(false)
     expect(DEV_SOW_TITLE_WP_RE.test('# skyaxis 评审任务书 · x')).toBe(false)
+    expect(DEV_SOW_TITLE_WP_RE.test('# 工作包规划任务书 WP1 · x')).toBe(false)
     const review = buildSow({ ...baseCtx, purpose: 'review', record: record({ stage: 'review', workPackages: [wp('WP1')] }) })
-    expect(review.startsWith('# skyaxis 评审任务书 · 导出功能改造\n')).toBe(true)
+    expect(review.startsWith('# 评审任务书 · 导出功能改造\n')).toBe(true)
   })
 
   it('0019 D4-A：dev 任务书工作包节附返工历史（历轮不通过带理由/通过）；无验收记录零渲染（首投不扰）', () => {
@@ -917,7 +922,7 @@ describe('buildReworkMessage（0019 D3-B 返工话组装）', () => {
       ],
     })
     const text = buildReworkMessage(target, '导出功能改造')
-    expect(text.startsWith('# skyaxis 返工话 WP3 · 导出功能改造\n')).toBe(true)
+    expect(text.startsWith('# 返工话 WP3 · 导出功能改造\n')).toBe(true)
     expect(text).toContain('工作包 WP3 导出队列 验收未通过（第 2 轮验收）。')
     expect(text).toContain('返工理由：\n十万行导出超时')
     expect(text).toContain('完成后在回复末尾重新输出声明块（形制同任务书「输出约定」，workPackage: WP3），工作台会重新收取。')
@@ -925,7 +930,7 @@ describe('buildReworkMessage（0019 D3-B 返工话组装）', () => {
 
   it('防御面：无 acceptances ⇒ 轮数 0、理由空行，头行与指令照旧不崩', () => {
     const text = buildReworkMessage(wp('WP1'), '导出功能改造')
-    expect(text).toContain('# skyaxis 返工话 WP1 · 导出功能改造')
+    expect(text).toContain('# 返工话 WP1 · 导出功能改造')
     expect(text).toContain('（第 0 轮验收）')
     expect(text).toContain('workPackage: WP1')
   })

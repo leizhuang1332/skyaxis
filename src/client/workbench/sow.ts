@@ -1222,7 +1222,7 @@ function revisionStamp(ctx: SowContext): string {
 export function buildSow(ctx: SowContext): string {
   if (ctx.purpose === 'analysis') {
     const blocks = [
-      `# skyaxis 分析任务书 · ${ctx.requirement.title}`,
+      `# 分析任务书 · ${ctx.requirement.title}`,
       analysisGoalBlock(ctx),
       analysisSnapshotBlock(ctx),
       analysisInputBlock(ctx, `## 输入${INPUT_INSTRUCTION}`),
@@ -1240,7 +1240,7 @@ export function buildSow(ctx: SowContext): string {
     // the split session's ONLY requirement source (see analysisInputBlock /
     // splitSnapshotBlock).
     const blocks = [
-      `# skyaxis 拆分任务书 · ${ctx.requirement.title}`,
+      `# 拆分任务书 · ${ctx.requirement.title}`,
       splitGoalBlock(ctx),
       splitSnapshotBlock(ctx),
       analysisInputBlock(ctx, `## 输入${INPUT_INSTRUCTION}`),
@@ -1254,7 +1254,7 @@ export function buildSow(ctx: SowContext): string {
   if (ctx.purpose === 'consolidate') {
     // 0008: the same nine-block skeleton, consolidation edition.
     const blocks = [
-      `# skyaxis 需求整理任务书 · ${ctx.requirement.title}`,
+      `# 需求整理任务书 · ${ctx.requirement.title}`,
       consolidateGoalBlock(ctx),
       consolidateSnapshotBlock(ctx),
       analysisInputBlock(ctx, `## 输入${INPUT_INSTRUCTION}`),
@@ -1269,7 +1269,7 @@ export function buildSow(ctx: SowContext): string {
     // 0012 两步化: the 2a exploration SOW — split's twin, document-delivery
     // output (no declare block, the consolidate no-return precedent).
     const blocks = [
-      `# skyaxis 规划任务书 · ${ctx.requirement.title}`,
+      `# 规划任务书 · ${ctx.requirement.title}`,
       planGoalBlock(ctx),
       planSnapshotBlock(ctx),
       analysisInputBlock(ctx, `## 输入${INPUT_INSTRUCTION}`),
@@ -1287,8 +1287,8 @@ export function buildSow(ctx: SowContext): string {
     // (collection rides the file hash), no revision stamp (0010 D4).
     const blocks = [
       ctx.workPackage !== undefined
-        ? `# skyaxis 工作包规划任务书 ${ctx.workPackage.id} · ${ctx.requirement.title}`
-        : `# skyaxis 工作包规划任务书 · ${ctx.requirement.title}`,
+        ? `# 工作包规划任务书 ${ctx.workPackage.id} · ${ctx.requirement.title}`
+        : `# 工作包规划任务书 · ${ctx.requirement.title}`,
       wpPlanGoalBlock(ctx),
       wpPlanSnapshotBlock(ctx),
       analysisInputBlock(ctx, `## 输入${INPUT_INSTRUCTION}`),
@@ -1304,7 +1304,8 @@ export function buildSow(ctx: SowContext): string {
   // clone-repo rows ride an [输入] block; the ledger snapshot (requirement /
   // WP / criteria / approved plan) stays embedded (P1).
   // 0016 刀一验收修正: the five-block purposes gain the family's discriminative
-  // head line (`# skyaxis …任务书`, the analysis/split/plan precedent). For dev
+  // head line (`# …任务书`, the analysis/split/plan precedent — 0021 渲染轮去
+  // skyaxis 品牌). For dev
   // it carries the WP id — DSH's send flow materializes the conversation under
   // a FRESH id (the created session is a config-only shell that stays blank
   // forever), so the head becomes the REAL session's fallback title and the
@@ -1313,7 +1314,7 @@ export function buildSow(ctx: SowContext): string {
   const blocks = [
     ctx.purpose === 'dev'
       ? devSowTitleLine(ctx.workPackage?.id, ctx.requirement.title)
-      : `# skyaxis 评审任务书 · ${ctx.requirement.title}`,
+      : `# 评审任务书 · ${ctx.requirement.title}`,
     requirementBlock(ctx),
     analysisInputBlock(ctx, `[输入]${INPUT_INSTRUCTION}`),
     ctx.purpose === 'dev' && ctx.workPackage !== undefined ? workPackageBlock(ctx) : '',
@@ -1323,8 +1324,9 @@ export function buildSow(ctx: SowContext): string {
   return [...blocks, revisionStamp(ctx)].join('\n\n')
 }
 
-/** 0016: the dev SOW head's fixed prefix (one truth for builder + matcher). */
-export const DEV_SOW_TITLE_PREFIX = '# skyaxis 工作包任务书'
+/** 0016: the dev SOW head's fixed prefix (one truth for builder + matcher).
+ * 0021 渲染轮: 品牌 skyaxis 退役——builder 产新形；matcher 双臂兼容旧形。 */
+export const DEV_SOW_TITLE_PREFIX = '# 工作包任务书'
 
 /** 0016: the dev SOW's discriminative head — `<prefix> WP<n> · <requirement>`. */
 /**
@@ -1342,7 +1344,7 @@ export function buildReworkMessage(
   const tailFail = [...workPackage.acceptances].reverse().find((acceptance) => acceptance.result === 'fail')
   const round = workPackage.acceptances.length
   return [
-    `# skyaxis 返工话 ${workPackage.id} · ${requirementTitle}`,
+    `# 返工话 ${workPackage.id} · ${requirementTitle}`,
     '',
     `工作包 ${workPackage.id} ${workPackage.title} 验收未通过（第 ${round} 轮验收）。`,
     '返工理由：',
@@ -1361,6 +1363,8 @@ export function devSowTitleLine(workPackageId: string | undefined, requirementTi
 /**
  * 0016: the WP-token matcher over a live session's display title. `(?!\d)`
  * keeps WP1 from bleeding into WP10; the match's capture IS the workPackageId
- * (the auto-bind pass's address).
+ * (the auto-bind pass's address). 0021 渲染轮: 标题去品牌后 builder 产
+ * `# 工作包任务书 WPn`；可选 `skyaxis ` 前缀臂保住在途旧标题会话（0018
+ * 存量修复先例）。
  */
-export const DEV_SOW_TITLE_WP_RE = /^# skyaxis 工作包任务书 (WP[1-9]\d*)(?!\d)/
+export const DEV_SOW_TITLE_WP_RE = /^# (?:skyaxis )?工作包任务书 (WP[1-9]\d*)(?!\d)/

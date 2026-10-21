@@ -40,8 +40,9 @@ const DEFAULT_THROTTLE_MS = 30_000
  * view-level pass and this watcher's sweep share. For every in-dev WP whose
  * latest dev binding is ABSENT or points to a blank shell (the DSH delivery
  * artifact that never runs), find the newest UNBOUND session whose display
- * title carries the WP's SOW head (`# skyaxis 工作包任务书 WP<n>…` — the
- * real conversation's fallback title) and propose the bind.
+ * title carries the WP's SOW head (`# (skyaxis )?工作包任务书 WP<n>…` — the
+ * real conversation's fallback title; 0021 去品牌后 matcher 双臂兼容旧形)
+ * and propose the bind.
  *
  * Gates (all client-visible facts, no guessing): a GONE binding session is
  * left alone (rotation is not our call to repair); a live non-blank binding

@@ -142,6 +142,37 @@ describe('0016 P1a: register-level dev-declare watcher', () => {
     watcher.dispose()
   })
 
+  it('0021 渲染轮: 标题去品牌——新形头行同样寻址绑定（matcher 双臂；上例钉 legacy 形）', async () => {
+    const TITLE = '# 工作包任务书 WP1 · 修图APP'
+    const { face, flip } = fakeFace([
+      { id: 'sess-shell', running: false },
+      { id: 'sess-real', running: true, displayTitle: TITLE },
+    ])
+    const due = record(RID, 'WP1', 'sess-shell')
+    const binds: Array<{ requirementId: string; workPackageId: string; sessionId: string; revision: number }> = []
+    let revision = 5
+    const watcher = createDevDeclareWatcher({
+      fetcher: {
+        list: async () => ({ kind: 'ok' as const, revision, records: [due] }),
+        bindSession: async (requirementId: string, expectedRevision: number, workPackageId: string, sessionId: string) => {
+          binds.push({ requirementId, workPackageId, sessionId, revision: expectedRevision })
+          revision += 1
+          return { kind: 'ok' as const, revision, record: due }
+        },
+      } as unknown as WorkbenchFetcher,
+      controller: fakeController([]),
+      sessions: face,
+      throttleMs: 0,
+    })
+    flip([
+      { id: 'sess-shell', running: false },
+      { id: 'sess-real', running: false, displayTitle: TITLE },
+    ])
+    await flush()
+    expect(binds).toEqual([{ requirementId: RID, workPackageId: 'WP1', sessionId: 'sess-real', revision: 5 }])
+    watcher.dispose()
+  })
+
 
   it('idle edge → one sweep seeds every due in-dev WP (cross-requirement); a pending slot on the CURRENT binding is skipped client-side', async () => {
     const { face, flip } = fakeFace([{ id: 'sess-a', running: true }])

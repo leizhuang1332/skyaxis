@@ -1,9 +1,11 @@
 /**
  * SOW generation modal (0006 P2; research 0006 §7.1): left pick column
- * (knowledge hits / dev work-package scope) over a live right EDITOR — the
- * textarea holds the exact text the copy button places on the clipboard,
- * assembled by the pure buildSow and user-editable since 0009 (a dirty edit
- * survives left-column toggles; the 恢复生成内容 button resyncs to the live
+ * (knowledge hits / dev work-package scope) over a right PREVIEW that
+ * renders the buildSow markdown by default (0021 渲染轮 — MarkdownText, the
+ * work-package-dialog precedent) with an edit toggle into the 0009 textarea
+ * editor. The TEXT behind either face is what the copy/deliver verbs use
+ * (markdown source — the wire format; a dirty edit survives left-column
+ * toggles and view swaps; the 恢复生成内容 button resyncs to the live
  * build).
  *
  * 0009 任务书精简轮: the PRD pick group is dev/review-only (their five-block
@@ -30,7 +32,7 @@
  * cache precedent).
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Modal, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
+import { MarkdownText, Modal, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 import { createRequirementsFetcher } from '../requirements/fetcher.js'
 import { createReposFetcher } from '../repos-pool/fetcher.js'
 import { repoDirName } from '../../requirements-shared/repo-dir.js'
@@ -132,6 +134,12 @@ export function SowModal(props: {
   // once the user types, the edit wins until 恢复生成内容 resets to null. ---
   const [editedText, setEditedText] = useState<string | null>(null)
 
+  // 0021 渲染轮: the preview face defaults to RENDERED markdown; the toggle
+  // button swaps in the 0009 textarea editor. Edits survive the swap — the
+  // rendered pane shows `text` (editedText ?? preview), same WYSIWYG text the
+  // copy/deliver verbs use.
+  const [editMode, setEditMode] = useState(false)
+
   // Open → reset and lazily pull the PRD listing (analysis/consolidate only);
   // dev pulls the plan.
   useEffect(() => {
@@ -148,6 +156,7 @@ export function SowModal(props: {
     setCopyFailed(false)
     setGeneratedAt(new Date().toISOString())
     setEditedText(null)
+    setEditMode(false)
     void (async () => {
       // 0009 D2: split has no PRD face at all — no listing, no focus doc (the
       // baseline doc line rides the ledger, the input block carries it).
@@ -292,6 +301,13 @@ export function SowModal(props: {
   // all use THIS text (0009).
   const text = editedText ?? preview
 
+  // Stable identity — MarkdownText's memo drops its render cache otherwise
+  // (the prd-section labels-memo precedent).
+  const markdownLabels = useMemo(() => ({
+    code: { copyLabel: t('md.copyCode'), copiedLabel: t('md.copiedCode') },
+    footnotes: t('md.footnotes'),
+  }), [t])
+
   const warnText = overLimit
     ? t('sow.knowledgeOverLimit')
       .replaceAll('{entries}', String(selectedKnowledge.length))
@@ -426,13 +442,34 @@ export function SowModal(props: {
           ) : null}
         </div>
 
-        <textarea
-          className={styles.sowEditor}
-          data-testid="sow-preview"
-          value={text}
-          spellCheck={false}
-          onChange={(event) => { setEditedText(event.target.value) }}
-        />
+        {/* 0021 渲染轮: rendered markdown is the default face; the toggle
+            swaps in the 0009 textarea editor (edits survive the swap). The
+            column wrapper keeps the toggle bar + face as ONE grid child. */}
+        <div className={styles.sowPreviewColumn}>
+          <div className={styles.sowEditBar}>
+            <button
+              type="button"
+              className={styles.ghostButton}
+              data-testid="sow-view-toggle"
+              onClick={() => { setEditMode((prev) => !prev) }}
+            >
+              {editMode ? t('md.preview') : t('md.edit')}
+            </button>
+          </div>
+          {editMode ? (
+            <textarea
+              className={styles.sowEditor}
+              data-testid="sow-preview"
+              value={text}
+              spellCheck={false}
+              onChange={(event) => { setEditedText(event.target.value) }}
+            />
+          ) : (
+            <div className={styles.sowRendered} data-testid="sow-rendered">
+              <MarkdownText text={text} labels={markdownLabels} />
+            </div>
+          )}
+        </div>
       </div>
     </Modal>
   )

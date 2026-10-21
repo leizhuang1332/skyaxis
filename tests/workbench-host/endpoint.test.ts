@@ -1999,7 +1999,7 @@ describe('回传轮：analysis proposals（bind / seed / adopt / dismiss）', ()
 
   it('四次诊断 shell 修复：锚内容寻址真会话——改绑指针 + 种子一次落账、锚保留', async () => {
     const h = await harness()
-    const ANCHOR = '# skyaxis 分析任务书 · 短信账单扣费网点调整\n\n## 目标\n为需求「短信账单扣费网点调整」的需求理解阶段做一次只读分析'
+    const ANCHOR = '# 分析任务书 · 短信账单扣费网点调整\n\n## 目标\n为需求「短信账单扣费网点调整」的需求理解阶段做一次只读分析'
     await h.post(WORKBENCH_PATH, body('bindAnalysisSession', { sessionId: 'session-shell', anchor: ANCHOR.slice(0, 200) }, 0))
     // The SHELL: config seeds only, no user/message, no declare block.
     const shellEvents = [
@@ -2021,7 +2021,7 @@ describe('回传轮：analysis proposals（bind / seed / adopt / dismiss）', ()
         return { events: id === 'session-shell' ? shellEvents : realEvents }
       },
       searchSessions: async (request: { query: string }) => {
-        expect(request.query).toContain('skyaxis 分析任务书')
+        expect(request.query).toContain('# 分析任务书 · 短信账单扣费网点调整')
         return { items: [{ header: { id: 'session-real', createdAt: 1791793257690 } }] }
       },
     })
@@ -2031,7 +2031,7 @@ describe('回传轮：analysis proposals（bind / seed / adopt / dismiss）', ()
     expect(seeded.revision).toBe(2)
     // Pointer swapped to the repaired id; anchor preserved for future repairs.
     expect(seeded.record.analysis?.session.sessionId).toBe('session-real')
-    expect(seeded.record.analysis?.session.anchor).toContain('skyaxis 分析任务书')
+    expect(seeded.record.analysis?.session.anchor).toContain('# 分析任务书')
     expect(seeded.record.analysis?.findings.map((row) => row.title)).toEqual(['真会话的发现'])
     expect(readCount).toBe(2) // shell read + real read (the search is content-addressed, not a read)
   })
@@ -2756,7 +2756,7 @@ describe('0016 P1a: seedDevDeclare flow + devDeclare-keyed import + adjudicateDe
     // no-declare-block — a REAL session (user message present) whose declare
     // is not written yet; the assistant-only log would read as a shell.
     h.declareReader.setEngine({ readSession: async () => ({ events: [
-      { type: 'user/message', seq: 0, time: 0, data: { content: [{ type: 'text', text: '# skyaxis 工作包任务书 WP1' }] } } as never,
+      { type: 'user/message', seq: 0, time: 0, data: { content: [{ type: 'text', text: '# 工作包任务书 WP1' }] } } as never,
       assistantText('干活中，没有声明块') as never,
     ] }) })
     expect((await post(revision, 'WP1')).devSeedMissing).toBe('no-declare-block')
@@ -2845,6 +2845,40 @@ describe('0016 P1a: seedDevDeclare flow + devDeclare-keyed import + adjudicateDe
     expect(body.record.workPackages[0]!.sessions.some((row) => row.sessionId === 'sess-real' && row.purpose === 'dev')).toBe(true)
     // shell 行保留（append-only），真实行追加为最新 dev 绑定
     expect(body.record.workPackages[0]!.sessions.some((row) => row.sessionId === 'sess-dev')).toBe(true)
+  })
+
+  it('0021 渲染轮：新锚 miss ⇒ legacy 锚兜底（在途旧标题会话）；两锚皆 miss ⇒ no-binding 如实披露', async () => {
+    const h = await harness()
+    const revision = await h.seed([devRecord()]) // WP1 in-dev + shell binding sess-dev
+    const queries: string[] = []
+    h.declareReader.setEngine({
+      readSession: async (id: string) => {
+        if (id === 'sess-dev') return { events: [] as never[] }
+        return { events: [assistantText(devFence('WP1')) as never] }
+      },
+      searchSessions: async (request: { query: string }) => {
+        queries.push(request.query)
+        // 新形锚空手、legacy 锚命中——兜底臂。
+        if (request.query.includes('skyaxis')) return { items: [{ header: { id: 'sess-legacy', createdAt: 5 } }] }
+        return { items: [] }
+      },
+    })
+    const res = await h.post(WORKBENCH_PATH, { expectedRevision: revision, requirementId: RID, action: 'seedDevDeclare', workPackageId: 'WP1' })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { ok: true; revision: number; record: WorkbenchRecord; devSeedMissing?: string }
+    expect(queries).toEqual(['# 工作包任务书 WP1', '# skyaxis 工作包任务书 WP1'])
+    expect(body.devSeedMissing).toBeUndefined()
+    expect(body.record.devDeclares?.WP1?.seed.sessionId).toBe('sess-legacy')
+
+    // 两锚皆 miss ⇒ honest no-binding（不误绑）。
+    h.declareReader.setEngine({
+      readSession: async () => ({ events: [] as never[] }),
+      searchSessions: async () => ({ items: [] }),
+    })
+    const miss = await h.post(WORKBENCH_PATH, { expectedRevision: body.revision, requirementId: RID, action: 'seedDevDeclare', workPackageId: 'WP1' })
+    expect(miss.status).toBe(200)
+    const missBody = (await miss.json()) as { devSeedMissing?: string }
+    expect(missBody.devSeedMissing).toBe('no-binding')
   })
 
   it('刀一验收三修：无绑定的 planned WP 寻址绑定 + 收取一气呵成（in-dev 门仅守导入）', async () => {

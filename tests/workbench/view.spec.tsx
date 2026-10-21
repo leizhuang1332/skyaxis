@@ -493,10 +493,11 @@ describe('0007 定稿软门：S1 就绪披露 + 定稿/撤销 + 摘要导出', (
     )
     fireEvent.click(screen.getByRole('button', { name: workbenchZh['understand.consolidateButton'] }))
     const dialog = await screen.findByRole('dialog', { name: workbenchZh['sow.title'] })
-    // 0009：预览是可编辑 textarea——断言读 value（textContent 不含受控值）。
+    // 0021 渲染轮：默认渲染面——先切编辑态再读 value（0009 断言读 value 纪律延续）。
+    fireEvent.click(within(dialog).getByRole('button', { name: workbenchZh['md.edit'] }))
     const editor = dialog.querySelector('textarea[data-testid="sow-preview"]') as HTMLTextAreaElement
     expect(editor).toBeTruthy()
-    await waitFor(() => { expect(editor.value).toContain('# skyaxis 需求整理任务书 · 报价管理：导入导出与数据校验') })
+    await waitFor(() => { expect(editor.value).toContain('# 需求整理任务书 · 报价管理：导入导出与数据校验') })
     // consolidate 语境的输入段在场（view.spec 不注入 PRD fake ⇒ jsdom 列表
     // 不可得的诚实行；左侧提示组已退役）。
     expect(editor.value).toContain('（PRD 文档列表未可得——可列举 prds/ 目录确认）')
@@ -551,9 +552,11 @@ describe('0007 定稿软门：S1 就绪披露 + 定稿/撤销 + 摘要导出', (
     )
     fireEvent.click(screen.getByRole('button', { name: workbenchZh['sow.planButton'] }))
     const dialog = await screen.findByRole('dialog', { name: workbenchZh['sow.title'] })
+    // 0021 渲染轮：先切编辑态再读 value。
+    fireEvent.click(within(dialog).getByRole('button', { name: workbenchZh['md.edit'] }))
     const editor = dialog.querySelector('textarea[data-testid="sow-preview"]') as HTMLTextAreaElement
     expect(editor).toBeTruthy()
-    await waitFor(() => { expect(editor.value).toContain('# skyaxis 规划任务书 · 报价管理：导入导出与数据校验') })
+    await waitFor(() => { expect(editor.value).toContain('# 规划任务书 · 报价管理：导入导出与数据校验') })
     expect(editor.value).not.toContain('skyaxis-declare')
   })
 
@@ -620,7 +623,9 @@ describe('0007 定稿软门：S1 就绪披露 + 定稿/撤销 + 摘要导出', (
     )
     fireEvent.click(screen.getByRole('button', { name: workbenchZh['sow.splitButton'] }))
     const dialog = await screen.findByRole('dialog', { name: workbenchZh['sow.title'] })
-    await waitFor(() => { expect((dialog.querySelector('textarea[data-testid="sow-preview"]') as HTMLTextAreaElement).value).toContain('# skyaxis 拆分任务书') })
+    // 0021 渲染轮：先切编辑态再读 value。
+    fireEvent.click(within(dialog).getByRole('button', { name: workbenchZh['md.edit'] }))
+    await waitFor(() => { expect((dialog.querySelector('textarea[data-testid="sow-preview"]') as HTMLTextAreaElement).value).toContain('# 拆分任务书') })
     fireEvent.click(within(dialog).getByRole('button', { name: workbenchZh['sow.deliver'] }))
     await waitFor(() => expect(deliver).toHaveBeenCalled())
     await waitFor(() => expect(controller.bindSplitSession).toHaveBeenCalledWith(RID, 'sess-split-real', expect.any(String)))
@@ -650,7 +655,9 @@ describe('0007 定稿软门：S1 就绪披露 + 定稿/撤销 + 摘要导出', (
     const ack = await screen.findByRole('dialog', { name: workbenchZh['detail.devNoPlanAckTitle'] })
     fireEvent.click(within(ack).getByRole('button', { name: workbenchZh['detail.devNoPlanAckConfirm'] }))
     const sowDialog = await screen.findByRole('dialog', { name: workbenchZh['sow.title'] })
-    await waitFor(() => { expect((sowDialog.querySelector('textarea[data-testid="sow-preview"]') as HTMLTextAreaElement).value).toContain('# skyaxis 工作包任务书 WP1') })
+    // 0021 渲染轮：先切编辑态再读 value。
+    fireEvent.click(within(sowDialog).getByRole('button', { name: workbenchZh['md.edit'] }))
+    await waitFor(() => { expect((sowDialog.querySelector('textarea[data-testid="sow-preview"]') as HTMLTextAreaElement).value).toContain('# 工作包任务书 WP1') })
     fireEvent.click(within(sowDialog).getByRole('button', { name: workbenchZh['sow.deliver'] }))
     await waitFor(() => expect(deliver).toHaveBeenCalled())
     await waitFor(() => expect(controller.bindDevSession).toHaveBeenCalledWith(RID, 'WP1', 'sess-v3-real'))
@@ -700,13 +707,16 @@ describe('0007 定稿软门：S1 就绪披露 + 定稿/撤销 + 摘要导出', (
     const ack = await screen.findByRole('dialog', { name: workbenchZh['detail.devNoPlanAckTitle'] })
     fireEvent.click(within(ack).getByRole('button', { name: workbenchZh['detail.devNoPlanAckConfirm'] }))
     const sowDialog = await screen.findByRole('dialog', { name: workbenchZh['sow.title'] })
-    await waitFor(() => { expect((sowDialog.querySelector('textarea[data-testid="sow-preview"]') as HTMLTextAreaElement).value).toContain('# skyaxis 工作包任务书 WP1') })
+    // 0021 渲染轮：先切编辑态再读 value。
+    fireEvent.click(within(sowDialog).getByRole('button', { name: workbenchZh['md.edit'] }))
+    await waitFor(() => { expect((sowDialog.querySelector('textarea[data-testid="sow-preview"]') as HTMLTextAreaElement).value).toContain('# 工作包任务书 WP1') })
     fireEvent.click(within(sowDialog).getByRole('button', { name: workbenchZh['sow.deliver'] }))
     await waitFor(() => expect(deliver).toHaveBeenCalled())
     // 投递即 shell——不绑定
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(controller.bindDevSession).not.toHaveBeenCalled()
     // 用户发送：真实会话物化，fallback 标题=任务书头行 → 翻转后 pass 绑定
+    // （0021 渲染轮：此处钉 legacy 形——matcher 双臂的存量在途臂）
     sessions = [...sessions, { id: 'sess-real', displayTitle: '# skyaxis 工作包任务书 WP1 · 报价管理：导入导出与数据校验', running: true, blank: false }]
     for (const listener of [...listeners]) listener()
     await waitFor(() => expect(controller.bindDevSession).toHaveBeenCalledWith(RID, 'WP1', 'sess-real'))
@@ -756,7 +766,9 @@ describe('0007 定稿软门：S1 就绪披露 + 定稿/撤销 + 摘要导出', (
     // 卡哪·存疑：in-dev 且无 dev 绑定 ⇒ 「打开详情」行在场。
     fireEvent.click(await screen.findByRole('button', { name: workbenchZh['inbox.openDetail'] }))
     const sowDialog = await screen.findByRole('dialog', { name: workbenchZh['sow.title'] })
-    await waitFor(() => { expect((sowDialog.querySelector('textarea[data-testid="sow-preview"]') as HTMLTextAreaElement).value).toContain('# skyaxis 工作包任务书 WP1') })
+    // 0021 渲染轮：先切编辑态再读 value。
+    fireEvent.click(within(sowDialog).getByRole('button', { name: workbenchZh['md.edit'] }))
+    await waitFor(() => { expect((sowDialog.querySelector('textarea[data-testid="sow-preview"]') as HTMLTextAreaElement).value).toContain('# 工作包任务书 WP1') })
   })
 
   it('0018 合并轮：plan-approved 经「开始开发」直开 dev 任务书，投递（sent）⇒ 后翻状态 startWorkPackage + 投递即绑 bindDevSession', async () => {
@@ -781,7 +793,9 @@ describe('0007 定稿软门：S1 就绪披露 + 定稿/撤销 + 摘要导出', (
     // footer「开始开发」（合并轮：与 dev 任务书合一）直开 dev 任务书，点击零账本写。
     fireEvent.click(within(dialog).getByRole('button', { name: workbenchZh['detail.startWork'] }))
     const sowDialog = await screen.findByRole('dialog', { name: workbenchZh['sow.title'] })
-    await waitFor(() => { expect((sowDialog.querySelector('textarea[data-testid="sow-preview"]') as HTMLTextAreaElement).value).toContain('# skyaxis 工作包任务书 WP1') })
+    // 0021 渲染轮：先切编辑态再读 value。
+    fireEvent.click(within(sowDialog).getByRole('button', { name: workbenchZh['md.edit'] }))
+    await waitFor(() => { expect((sowDialog.querySelector('textarea[data-testid="sow-preview"]') as HTMLTextAreaElement).value).toContain('# 工作包任务书 WP1') })
     expect(controller.startWorkPackage).not.toHaveBeenCalled()
     fireEvent.click(within(sowDialog).getByRole('button', { name: workbenchZh['sow.deliver'] }))
     await waitFor(() => expect(deliver).toHaveBeenCalled())

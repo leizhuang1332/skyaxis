@@ -327,9 +327,12 @@ interface WorkbenchDictionary {
   readonly 'detail.drop': string
   readonly 'detail.dropTitle': string
   // md.* — MarkdownText labels (the prd-section precedent; stable identity via useMemo at the call site)
+  // + 0021 渲染轮: md.edit/md.preview — 任务书预览面的渲染↔编辑切换钮
   readonly 'md.copyCode': string
   readonly 'md.copiedCode': string
+  readonly 'md.edit': string
   readonly 'md.footnotes': string
+  readonly 'md.preview': string
 
   // --- P2: session strip / knowledge base / SOW generation ---
   // scan.* — 产物对账 Modal（挂账轮：P1b scan 端点首个消费面，只读披露）
@@ -953,7 +956,9 @@ const zh: WorkbenchDictionary = {
   'detail.dropTitle': '放弃工作包',
   'md.copyCode': '复制代码',
   'md.copiedCode': '已复制',
+  'md.edit': '编辑',
   'md.footnotes': '脚注',
+  'md.preview': '预览',
   'detail.dropDescription': '确定放弃该工作包？已放弃的工作包不再入板，历史保留。',
   'detail.devNoPlanAckTitle': '尚无已批准计划',
   'detail.devNoPlanAckBody': '本工作包尚无已批准计划——直接投递开发任务书时，AI 将仅依据工作包边界开发（任务书不含已批准计划）。建议先生成工作包规划任务书，批准后再投递开发。',
@@ -1548,7 +1553,9 @@ const en: WorkbenchDictionary = {
   'detail.dropTitle': 'Drop work package',
   'md.copyCode': 'Copy code',
   'md.copiedCode': 'Copied',
+  'md.edit': 'Edit',
   'md.footnotes': 'Footnotes',
+  'md.preview': 'Preview',
   'detail.dropDescription': 'Drop this work package? Dropped packages leave the board; history is preserved.',
   'detail.devNoPlanAckTitle': 'No approved plan yet',
   'detail.devNoPlanAckBody': 'This work package has no approved plan — delivering the dev SOW now means the session develops from the boundary alone (no approved plan embedded). Consider generating the WP planning SOW first and approving its plan before delivery.',

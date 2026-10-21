@@ -1332,7 +1332,8 @@
 }
 
 /* 0009: the SOW preview pre became an EDITABLE textarea (user-trimmed task
- * books) — same mono/border chrome as .sowPreview above. */
+ * books) — same mono/border chrome as .sowPreview above. 0021 渲染轮: the
+ * edit FACE behind the toggle (rendered is the default face). */
 .sowEditor {
   box-sizing: border-box;
   width: 100%;
@@ -1346,6 +1347,39 @@
   line-height: 18px;
   overflow-y: auto;
   resize: vertical;
+  min-width: 0;
+}
+
+/* 0021 渲染轮: the right grid column of the SOW modal — wraps the toggle
+ * bar + the render/edit face as ONE grid child (sowGrid is 2-column). */
+.sowPreviewColumn {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* 0021 渲染轮: the render↔edit toggle bar above the SOW preview face
+ * (sow-modal: toggle alone; rework-modal: preview label left + toggle right). */
+.sowEditBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+/* 0021 渲染轮: the RENDERED default face — a MarkdownText scroll container
+ * (the .wpDocBody border/radius/bg vocabulary at the .sowEditor height
+ * class; non-mono, MarkdownText brings its own typography). */
+.sowRendered {
+  box-sizing: border-box;
+  max-height: 50vh;
+  min-height: 160px;
+  padding: 12px 16px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+  overflow-y: auto;
   min-width: 0;
 }
 

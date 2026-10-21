@@ -387,10 +387,11 @@ export function WorkbenchTabBody(props: {
       // only when the candidate differs (terminates after one hop).
       if (outcome?.miss === 'no-declare-block' && outcome.shell === true
         && record?.analysis?.session.anchor === undefined) {
-        const prefix = '# skyaxis 分析任务书'
+        // 0021 渲染轮: 标题去品牌——新形为主，legacy 前缀臂保住在途旧标题会话。
+        const prefixes = ['# 分析任务书', '# skyaxis 分析任务书']
         const candidates = sessionSummaries.ids
           .map((id) => sessionSummaries.byId[id])
-          .filter((summary): summary is NonNullable<typeof summary> => summary !== undefined && summary.displayTitle.startsWith(prefix))
+          .filter((summary): summary is NonNullable<typeof summary> => summary !== undefined && prefixes.some((prefix) => summary.displayTitle.startsWith(prefix)))
         const preferred = candidates.find((summary) => summary.displayTitle.includes(props.requirement.title)) ?? candidates.at(-1)
         if (preferred !== undefined && preferred.id !== analysisSessionId) {
           void controller.bindAnalysisSession(requirementId, preferred.id)

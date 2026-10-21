@@ -647,8 +647,9 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
    * later retitles it away from any marker, so TITLES are not a durable
    * address) → when the binding is absent or its log is a shell, the host
    * content-addresses the REAL session via searchSessions over the SOW head
-   * (`# skyaxis 工作包任务书 WP<n>` — the first user message always carries
-   * it verbatim, immune to retitling) and APPENDS the binding (bindSession
+   * (`# (skyaxis )?工作包任务书 WP<n>` — the first user message always carries
+   * it verbatim, immune to retitling; 0021 去品牌后新锚为主、legacy 锚兜底)
+   * and APPENDS the binding (bindSession
    * real guards; association is valid for any non-dropped WP — the user
    * generates dev SOWs before pressing 开始开发, and the strip owes them the
    * live state) → the in-dev gate → fence scope check → hash → seed. Every
@@ -690,8 +691,10 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
       } // else: the bound log is a delivery shell → fall through to repair
     }
     if (targetSession === undefined) {
-      const anchor = `# skyaxis 工作包任务书 ${body.workPackageId}`
-      const repaired = await services.declareReader.findTaskbookSession(anchor, binding?.sessionId ?? '')
+      // 0021 渲染轮: 标题去品牌——先按新锚寻址，总 miss 才用 legacy 锚兜底
+      // （在途旧标题会话，0018 存量修复先例；两锚皆 miss 即如实披露）。
+      const repaired = await services.declareReader.findTaskbookSession(`# 工作包任务书 ${body.workPackageId}`, binding?.sessionId ?? '')
+        ?? await services.declareReader.findTaskbookSession(`# skyaxis 工作包任务书 ${body.workPackageId}`, binding?.sessionId ?? '')
       if (repaired === undefined) {
         return json({ ok: true, revision: current.revision, record: existing, devSeedMissing: 'no-binding' })
       }

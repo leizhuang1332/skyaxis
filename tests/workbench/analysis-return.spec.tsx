@@ -228,6 +228,17 @@ describe('回传轮 watcher（sessions face 五态——legacy 会话通道，�
     expect(controller.bindAnalysisSession).toHaveBeenCalledTimes(1)
   })
 
+  it('0021 渲染轮: 标题去品牌——新形前缀同样改绑（双臂；上例钉 legacy 形）', async () => {
+    const sessions = fakeFace({ running: false, blank: false })
+    sessions.addTitled('session-real', '# 分析任务书 · 导出功能改')
+    const controller = fakeController()
+    controller.seedAnalysisQuiet.mockImplementation(async () => ({ miss: 'no-declare-block' as const, scan: 'events=4 [permission/preset:1]', shell: true }))
+    renderBody({ slot: slot({ record: workbenchRecord({ analysis: analysisContainer({ findings: [], criteria: [] }) }) }), controller, sessions: sessions.face })
+    await waitFor(() => expect(controller.bindAnalysisSession).toHaveBeenCalledWith(RID, 'session-real'))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(controller.bindAnalysisSession).toHaveBeenCalledTimes(1)
+  })
+
   it('锚已盖（seed 指向绑定会话）⇒ 挂载与翻转都不触发', async () => {
     const sessions = fakeFace({ running: false, blank: false })
     const controller = fakeController()
@@ -298,7 +309,7 @@ describe('回传轮投递接线', () => {
     expect(typeof bindArgs[2]).toBe('string')
     expect((bindArgs[2] as string).length).toBeGreaterThan(0)
     expect((bindArgs[2] as string).length).toBeLessThanOrEqual(200)
-    expect(bindArgs[2]).toContain('skyaxis 分析任务书')
+    expect(bindArgs[2]).toContain('# 分析任务书')
     await waitFor(() => expect(screen.queryByRole('dialog', { name: workbenchZh['sow.title'] })).toBeNull())
   })
 })

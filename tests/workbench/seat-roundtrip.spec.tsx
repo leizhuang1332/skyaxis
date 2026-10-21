@@ -257,6 +257,8 @@ describe('seat round-trip: S4 评审节穿线（P5b 钉）', () => {
     // 点开任务书 → 预览出现 review 约定骨架（requirement 穿线见证：标题进 [需求] 段）。
     fireEvent.click(screen.getByRole('button', { name: workbenchZh['sow.reviewButton'] }))
     const sowDialog = await screen.findByRole('dialog', { name: workbenchZh['sow.title'] })
+    // 0021 渲染轮：默认渲染面——先切编辑态再读文本。
+    fireEvent.click(within(sowDialog).getByRole('button', { name: workbenchZh['md.edit'] }))
     await waitFor(() => expect((within(sowDialog).getByTestId('sow-preview').textContent ?? '')).toContain('# skyaxis-review'))
     // requirement 穿线见证：需求标题进 [需求] 段（seat 传的是 requirement={requirement}，title='R'）。
     expect(within(sowDialog).getByTestId('sow-preview').textContent).toContain('标题：R')

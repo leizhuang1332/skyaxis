@@ -1,8 +1,9 @@
 /**
  * 0019 rework-note modal (decision 0019 D1-B/D2-C/D3-B): the failed-
- * acceptance feedback channel's send side — a live EDITOR seeded by
- * buildReworkMessage (the ledger's tail fail note the user just wrote; the
- * 0009 editedText discipline: the user edit wins over the live build), a
+ * acceptance feedback channel's send side — a PREVIEW that renders the
+ * buildReworkMessage markdown by default (0021 渲染轮 — MarkdownText, the
+ * sow-modal twin) with an edit toggle into the 0009 textarea editor (the
+ * user edit wins over the live build), a
  * target-session row (the WP's tail dev binding, dev-watcher.ts:70 addressing
  * precedent) with the jump-to-host button, and the send verb through the
  * session messenger (delivery.ts createSessionMessenger — prompt('queue')
@@ -12,7 +13,7 @@
  * manual fallback (the P5a honest no-render discipline).
  */
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { MarkdownText, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { WorkbenchWorkPackage } from '../../workbench-shared/protocol.js'
 import type { WorkbenchT } from './dictionary.js'
 import type { SendMessageFace } from './delivery.js'
@@ -39,16 +40,28 @@ export function ReworkModal(props: {
   const [editedText, setEditedText] = useState<string | null>(null)
   const [sendState, setSendState] = useState<'idle' | 'busy' | 'failed'>('idle')
 
+  // 0021 渲染轮: rendered markdown is the default face; the toggle swaps in
+  // the 0009 textarea editor (edits survive the swap — the sow-modal twin).
+  const [editMode, setEditMode] = useState(false)
+
   useEffect(() => {
     if (!props.open) return
     setEditedText(null)
     setSendState('idle')
+    setEditMode(false)
   }, [props.open])
 
   const preview = useMemo(() => buildReworkMessage(workPackage, requirementTitle), [workPackage, requirementTitle])
   // The user edit (if any) wins over the live build — the copy/send verbs
   // both use THIS text (0009).
   const text = editedText ?? preview
+
+  // Stable identity — MarkdownText's memo drops its render cache otherwise
+  // (the prd-section labels-memo precedent).
+  const markdownLabels = useMemo(() => ({
+    code: { copyLabel: t('md.copyCode'), copiedLabel: t('md.copiedCode') },
+    footnotes: t('md.footnotes'),
+  }), [t])
 
   const onSend = (): void => {
     // Guard busy only — the failed state stays retryable (the alert already
@@ -99,17 +112,35 @@ export function ReworkModal(props: {
           {targetSessionId.slice(0, 8)} {props.targetDisplayTitle ?? ''}
         </div>
       </div>
-      <label className={styles.formField}>
-        <span>{t('rework.previewLabel')}</span>
-        <textarea
-          rows={10}
-          className={styles.sowEditor}
-          data-testid="rework-preview"
-          value={text}
-          spellCheck={false}
-          onChange={(event) => { setEditedText(event.target.value) }}
-        />
-      </label>
+      {/* 0021 渲染轮: label→div — the control is conditional behind the
+          render↔edit toggle, so a wrapping label has no stable control. */}
+      <div className={styles.formField}>
+        <div className={styles.sowEditBar}>
+          <span>{t('rework.previewLabel')}</span>
+          <button
+            type="button"
+            className={styles.ghostButton}
+            data-testid="rework-view-toggle"
+            onClick={() => { setEditMode((prev) => !prev) }}
+          >
+            {editMode ? t('md.preview') : t('md.edit')}
+          </button>
+        </div>
+        {editMode ? (
+          <textarea
+            rows={10}
+            className={styles.sowEditor}
+            data-testid="rework-preview"
+            value={text}
+            spellCheck={false}
+            onChange={(event) => { setEditedText(event.target.value) }}
+          />
+        ) : (
+          <div className={styles.sowRendered} data-testid="rework-rendered">
+            <MarkdownText text={text} labels={markdownLabels} />
+          </div>
+        )}
+      </div>
     </Modal>
   )
 }
