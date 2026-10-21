@@ -5,7 +5,7 @@
  * 404 缺失态（尾草稿重试写入 / 已批准版本只披露）+ 草稿保存后清缓存重拉
  * + 硬门②批准计划 + footer 生命周期按 status（开始开发/标记完成待验收/
  * 重开/放弃含确认 Modal/dropped 无按钮）+ 验收节（通过/不通过、手动完成
- * 披露、fail 历史行）。
+ * 披露、fail 历史行）+ 0020 工作包内容区（所有状态常驻、空臂 —）。
  *
  * MarkdownText 在 vitest 下是代理 stub（micromark 族被 vitest.config 打
  * 桩），正文 DOM 不可预测——正文断言一律不做到 Markdown 层，只钉版本
@@ -519,5 +519,28 @@ describe('WorkPackageDialog（S3 详情 Modal + 硬门②）', () => {
     await tick()
     expect(screen.getByRole('button', { name: workbenchZh['detail.planRewrite'] })).toBeTruthy()
     expect(screen.queryByRole('button', { name: workbenchZh['detail.planReseed'] })).toBeNull()
+  })
+
+  it('0020 工作包内容区：所有状态常驻——planned 与 in-dev 都渲染边界/依赖/覆盖标准（台账字段直渲染，待计划态详情不再是空壳）；并行标跟随标题行', () => {
+    const boundary = '实现下载导出功能：blob + a[download]，不含打印链路'
+    const base = { boundary, dependsOn: ['WP1'], covers: ['C1', 'C2'], parallel: true }
+    // planned（待计划）：用户实机反馈的缺口面——此前弹窗只有「尚无计划」占位。
+    const planned = subject(wp('WP2', { ...base }))
+    expect(planned.getByText(workbenchZh['detail.contentSection'])).toBeTruthy()
+    expect(planned.getByText(boundary)).toBeTruthy()
+    expect(planned.getByText(new RegExp(`${workbenchZh['wp.dependsLabel']}：WP1`))).toBeTruthy()
+    expect(planned.getByText(new RegExp(`${workbenchZh['wp.coversLabel']}：C1, C2`))).toBeTruthy()
+    expect(planned.getByText(workbenchZh['wp.parallelTag'])).toBeTruthy()
+    planned.unmount()
+
+    // in-dev 重挂：内容区常驻（D1——boundary 是任务身份信息，验收期同样回看）。
+    const inDev = subject(wp('WP2', { ...base, status: 'in-dev', plans: [planEntry(1, { approvedAt: AT })] }))
+    expect(inDev.getByText(workbenchZh['detail.contentSection'])).toBeTruthy()
+    expect(inDev.getByText(boundary)).toBeTruthy()
+  })
+
+  it('0020 内容区空臂：依赖/覆盖标准皆空 → meta 行显「—」（wp.noneMark）', () => {
+    const rendered = subject(wp('WP1'))
+    expect(rendered.getByText(new RegExp(`${workbenchZh['wp.dependsLabel']}：${workbenchZh['wp.noneMark']} · ${workbenchZh['wp.coversLabel']}：${workbenchZh['wp.noneMark']}`))).toBeTruthy()
   })
 })

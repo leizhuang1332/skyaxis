@@ -263,6 +263,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       | 'detail.approvePlan'
       | 'detail.builtSourceManual'
       | 'detail.commitsSection'
+      | 'detail.contentSection'
       | 'detail.devNoPlanAckBody'
       | 'detail.devNoPlanAckConfirm'
       | 'detail.devNoPlanAckTitle'

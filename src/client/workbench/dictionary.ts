@@ -292,6 +292,7 @@ interface WorkbenchDictionary {
   readonly 'detail.statusBuilt': string
   readonly 'detail.statusAccepted': string
   readonly 'detail.statusDropped': string
+  readonly 'detail.contentSection': string
   readonly 'detail.planSection': string
   readonly 'detail.versionCurrent': string
   readonly 'detail.versionDraft': string
@@ -917,6 +918,7 @@ const zh: WorkbenchDictionary = {
   'detail.statusBuilt': '待验收（已完成声明）',
   'detail.statusAccepted': '已验收',
   'detail.statusDropped': '已放弃',
+  'detail.contentSection': '工作包内容',
   'detail.planSection': '开发计划',
   'detail.versionCurrent': '当前',
   'detail.versionDraft': '草稿',
@@ -1511,6 +1513,7 @@ const en: WorkbenchDictionary = {
   'detail.statusBuilt': 'To accept (completion declared)',
   'detail.statusAccepted': 'Accepted',
   'detail.statusDropped': 'Dropped',
+  'detail.contentSection': 'Work package content',
   'detail.planSection': 'Implementation plan',
   'detail.versionCurrent': 'current',
   'detail.versionDraft': 'draft',

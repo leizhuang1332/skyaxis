@@ -239,6 +239,23 @@ export function WorkPackageDialog(props: {
         </div>
       }
     >
+      {/* 0020 功能优化：工作包内容区——详情弹窗此前从不渲染任务陈述字段
+          （boundary/dependsOn/covers 只在②列表行与拆分文档可见，待计划态
+          详情近乎空壳）；台账字段直渲染（D2），所有状态常驻（D1），字段
+          语言复用②列表行（split-section 同款 meta 形态）。 */}
+      <div className={styles.wpDialogSection}>
+        <div className={styles.sectionTitle}>
+          {t('detail.contentSection')}
+          {workPackage.parallel === true ? <Tag tone="info">{t('wp.parallelTag')}</Tag> : null}
+        </div>
+        <div className={`${styles.wpDocBody} ${styles.wpBoundaryBody}`}>{workPackage.boundary}</div>
+        <div className={styles.findingRowMeta}>
+          {t('wp.dependsLabel')}：{workPackage.dependsOn.length > 0 ? workPackage.dependsOn.join(', ') : t('wp.noneMark')}
+          {' · '}
+          {t('wp.coversLabel')}：{workPackage.covers.length > 0 ? workPackage.covers.join(', ') : t('wp.noneMark')}
+        </div>
+      </div>
+
       <div className={styles.wpDialogSection}>
         <div className={styles.sectionTitle}>
           {t('detail.planSection')}

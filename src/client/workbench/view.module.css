@@ -1051,6 +1051,14 @@
   background: var(--dsw-alias-bg-layer-1);
 }
 
+/* 0020 工作包内容区：wpDocBody 供边框滚动容器，pre-wrap 尊重 boundary 多行。 */
+.wpBoundaryBody {
+  white-space: pre-wrap;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsh-alias-label-secondary);
+}
+
 .wpWarnStrip {
   padding: 6px 10px;
   border: 0.5px solid var(--dsw-alias-state-warn-primary);

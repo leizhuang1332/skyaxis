@@ -181,6 +181,7 @@ describe('workbench: dictionaries', () => {
       'detail.approvePlan',
       'detail.builtSourceManual',
       'detail.commitsSection',
+      'detail.contentSection',
       'detail.devNoPlanAckBody',
       'detail.devNoPlanAckConfirm',
       'detail.devNoPlanAckTitle',
