@@ -707,7 +707,7 @@ describe('restoreWorkPackage（已放弃回收站化——验收轮三）', () =
 // ---------------------------------------------------------------------------
 
 describe('bindSession (P2 session binding)', () => {
-  const bind = (id: string, sessionId: string, purpose: 'analysis' | 'dev' | 'review') => ({
+  const bind = (id: string, sessionId: string, purpose: 'analysis' | 'dev' | 'review' | 'wp-plan') => ({
     ...mutate(),
     action: 'bindSession' as const,
     id,
@@ -763,6 +763,22 @@ describe('bindSession (P2 session binding)', () => {
       workPackages: [wp('WP1', { sessions: [{ sessionId: 'sess-1', purpose: 'dev', boundAt: NOW }] })],
     })
     expect(applyRecordAction(base, bind('WP1', 'sess-1', 'analysis'))).toEqual({ ok: false, status: 400, code: 'bad-request' })
+  })
+
+  // 0022（0018 D8 修订）：wp-plan 投递即绑——与 dev/analysis 同一 append 语义，
+  // 手动 picker 不开放该用途（仅投递回调写入），账本面不区分来源。
+  it('0022 wp-plan 臂：append {purpose: "wp-plan"} 绑定行；同会话重放幂等；异用途（dev）⇒ 400', () => {
+    const base = baseRecord({ splitApprovedAt: NOW, workPackages: [wp('WP1')] })
+    const first = applyRecordAction(base, bind('WP1', 'sess-plan', 'wp-plan'))
+    expect(first.ok).toBe(true)
+    if (!first.ok) return
+    const sessions = first.record.workPackages[0]?.sessions ?? []
+    expect(sessions).toHaveLength(1)
+    expect(sessions[0]).toEqual({ sessionId: 'sess-plan', purpose: 'wp-plan', boundAt: expect.any(String) })
+    // 同会话同用途重放 ⇒ unchanged（投递回放/重试安全）
+    expect(applyRecordAction(first.record, bind('WP1', 'sess-plan', 'wp-plan'))).toEqual({ ok: true, record: first.record, unchanged: true })
+    // 同会话异用途 ⇒ 客户端 bug 面 400
+    expect(applyRecordAction(first.record, bind('WP1', 'sess-plan', 'dev'))).toEqual({ ok: false, status: 400, code: 'bad-request' })
   })
 })
 

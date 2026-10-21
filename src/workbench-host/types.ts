@@ -25,7 +25,14 @@ const FINDING_CATEGORY_VALUES = ['feasibility', 'conflict', 'compatibility', 'ri
 const SEVERITY_VALUES = ['high', 'medium', 'low'] as const
 const FINDING_STATUS_VALUES = ['open', 'resolved', 'wont-fix'] as const
 const WORK_PACKAGE_STATUS_VALUES = ['planned', 'plan-draft', 'plan-approved', 'in-dev', 'built', 'accepted', 'dropped'] as const
-const SESSION_PURPOSE_VALUES = ['analysis', 'dev', 'review'] as const
+/**
+ * 0022 (0018 D8 修订): 'wp-plan' joins the union. ONE constant deliberately
+ * feeds BOTH the storage schema and BindSessionSchema — unlike the verdict
+ * two-enum split above, the wp-plan delivery callback legitimately WRITES
+ * this purpose through the ordinary bindSession action (the manual picker
+ * simply never offers it: session-picker's candidate list stays three-valued).
+ */
+const SESSION_PURPOSE_VALUES = ['analysis', 'dev', 'review', 'wp-plan'] as const
 const RELEASE_TYPE_VALUES = ['sql', 'config', 'flag', 'mq', 'other'] as const
 const RELEASE_STATUS_VALUES = ['pending', 'confirmed', 'applied', 'verified', 'rolled-back'] as const
 /**

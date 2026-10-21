@@ -145,6 +145,30 @@ describe('WorkPackageDialog（S3 详情 Modal + 硬门②）', () => {
     expect(screen.getByText(/deadbeef/).textContent).toContain(workbenchZh['session.stateGone'])
   })
 
+  it('0022（0018 D8 修订）：wp-plan 绑定行标签=「规划」——不落评审 else 臂（静默错标面）', () => {
+    const planSessionId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeffff0001'
+    const workPackage = wp('WP1', {
+      status: 'planned',
+      sessions: [{ sessionId: planSessionId, purpose: 'wp-plan' as const, boundAt: AT }],
+    })
+    render(
+      <WorkPackageDialog
+        t={bindZh()}
+        workPackage={workPackage}
+        slot={slot()}
+        controller={fakeController()}
+        requirementId={RID}
+        sessions={{ ids: [planSessionId], summariesById: { [planSessionId]: { id: planSessionId, displayTitle: '规划会话', running: true, blank: false } } }}
+        onNavigateSession={() => { /* noop */ }}
+        onClose={() => { /* noop */ }}
+      />,
+    )
+    const row = screen.getByRole('button', { name: new RegExp(planSessionId.slice(0, 8)) })
+    expect(row.textContent).toContain(workbenchZh['session.purposeWpPlan'])
+    // 正确性关键位点：标签三元若漏 wp-plan 臂会静默落「评审」。
+    expect(row.textContent).not.toContain(workbenchZh['session.purposeReview'])
+  })
+
   it('打开即拉当前版本正文一次；切换版本 chip 再拉对应版本；缓存命中不重复拉', async () => {
     const controller = fakeController()
     const rendered = subject(draftWp(), controller)

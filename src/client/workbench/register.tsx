@@ -591,6 +591,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       | 'session.purposeAnalysis'
       | 'session.purposeDev'
       | 'session.purposeReview'
+      | 'session.purposeWpPlan'
       | 'session.sectionTitle'
       | 'session.stateBlank'
       | 'session.stateGone'

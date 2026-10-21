@@ -16,10 +16,15 @@ import styles from './view.module.css'
 
 type SessionPurpose = WorkbenchSessionBinding['purpose']
 
+// 'wp-plan' entry is type-completeness only (0022: the union widened) — the
+// candidate array below stays three-valued: manual binding of a planning row
+// would NOT write the planSeed pointer, so it would never arm the seeding
+// watcher (a half-truth UI; re-delivery is the honest repair path).
 const PURPOSE_LABEL_KEY: Record<SessionPurpose, Parameters<WorkbenchT>[0]> = {
   analysis: 'session.purposeAnalysis',
   dev: 'session.purposeDev',
   review: 'session.purposeReview',
+  'wp-plan': 'session.purposeWpPlan',
 }
 
 export function SessionPicker(props: {

@@ -356,6 +356,8 @@ interface WorkbenchDictionary {
   readonly 'session.purposeAnalysis': string
   readonly 'session.purposeDev': string
   readonly 'session.purposeReview': string
+  /** 0022 (0018 D8 修订): the wp-plan delivery's sessions[] row label. */
+  readonly 'session.purposeWpPlan': string
   readonly 'session.bindButton': string
   readonly 'session.bindTitle': string
   readonly 'session.pickerHint': string
@@ -985,6 +987,7 @@ const zh: WorkbenchDictionary = {
   'session.purposeAnalysis': '分析',
   'session.purposeDev': '开发',
   'session.purposeReview': '评审',
+  'session.purposeWpPlan': '规划',
   'session.bindButton': '＋ 关联',
   'session.bindTitle': '关联 session',
   'session.pickerHint': '从会话列表选择要绑定的 session（已绑定本工作包的不可重复绑定）。',
@@ -1582,6 +1585,7 @@ const en: WorkbenchDictionary = {
   'session.purposeAnalysis': 'analysis',
   'session.purposeDev': 'dev',
   'session.purposeReview': 'review',
+  'session.purposeWpPlan': 'wp-plan',
   'session.bindButton': '＋ Bind',
   'session.bindTitle': 'Bind a session',
   'session.pickerHint': 'Pick a session to bind (sessions already bound to this work package are disabled).',

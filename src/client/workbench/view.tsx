@@ -971,7 +971,12 @@ export function WorkbenchTabBody(props: {
               // endpoint content addressing repair those.
               // 0018: wp-plan records the provenance POINTER on sent only
               // (0017 刀二口径 — a degraded id is the shell); the wp-plan
-              // watcher arms off the pointer, sessions[] stays untouched.
+              // watcher arms off the pointer. 0022 (0018 D8 修订，用户拍板
+              // 「投递即绑关联会话」): the delivery ALSO lands a sessions[] row
+              // (purpose 'wp-plan', 关联会话面) — pointer first (it arms the
+              // watcher; a fully-failed bind then only degrades to the pre-0022
+              // status quo), bind after (serial — the twin carries one bounded
+              // 409 retry). Degraded deliveries still bind nothing.
               if (sow === null) return
               if (sow.purpose === 'split') {
                 void controller.bindSplitSession(requirementId, sessionId, sowText.slice(0, 200))
@@ -996,7 +1001,11 @@ export function WorkbenchTabBody(props: {
               }
               if (sow.purpose === 'wp-plan') {
                 if (sent && sow.workPackage !== undefined) {
-                  void controller.recordWpPlanSession(requirementId, sow.workPackage.id, sessionId)
+                  const target = sow.workPackage
+                  void (async () => {
+                    await controller.recordWpPlanSession(requirementId, target.id, sessionId)
+                    void controller.bindWpPlanSession(requirementId, target.id, sessionId)
+                  })()
                 }
                 return
               }

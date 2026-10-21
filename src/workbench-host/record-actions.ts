@@ -753,8 +753,10 @@ export function applyRecordAction(base: WorkbenchRecord, body: WorkbenchMutateRe
   }
 
   // --- 0018: wp-plan delivery bookkeeping. The pointer names the planning
-  // delivery's conversation for the watcher and the source row — it is NOT a
-  // sessions[] binding (that purpose union stays analysis/dev/review). ---
+  // delivery's conversation for the watcher and the source row — pointer-only
+  // semantics (0022 / 0018 D8 修订: the delivery ALSO lands a sessions[] row,
+  // but through the ordinary bindSession arm above with purpose 'wp-plan',
+  // NOT through this action). ---
 
   if (body.action === 'recordWpPlanSession') {
     if (base.splitApprovedAt === undefined) return fail(400, 'locked-split')

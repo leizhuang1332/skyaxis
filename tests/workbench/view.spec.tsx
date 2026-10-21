@@ -104,9 +104,11 @@ function fakeController(): WorkbenchController & { advanceStage: ReturnType<type
     seedDevDeclareQuiet: vi.fn(async () => undefined),
     // 0018: the wp-plan watcher's quiet seed + the delivery pointer face
     // (undefined outcome = quiet miss — records without an armed planSeed
-    // never fire it anyway).
+    // never fire it anyway). 0022 (0018 D8 修订): the delivery's sessions[]
+    // bind twin joins the stub set.
     seedWpPlanQuiet: vi.fn(async () => undefined),
     recordWpPlanSession: vi.fn(async () => true),
+    bindWpPlanSession: vi.fn(async () => true),
     // 0018 合并轮用例：WP 详情计划节按需拉正文（undefined = 读取失败面）；
     // 后翻状态的 startWorkPackage 面（投递回调断言）。
     planContent: vi.fn(async () => undefined),
@@ -662,6 +664,65 @@ describe('0007 定稿软门：S1 就绪披露 + 定稿/撤销 + 摘要导出', (
     await waitFor(() => expect(deliver).toHaveBeenCalled())
     await waitFor(() => expect(controller.bindDevSession).toHaveBeenCalledWith(RID, 'WP1', 'sess-v3-real'))
     expect((controller.bindDevSession as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1)
+  })
+
+  it('0022（0018 D8 修订）：wp-plan v3 投递（sent）⇒ 指针先行 + 投递即绑——recordWpPlanSession 后 bindWpPlanSession，关联会话与开发路径同形', async () => {
+    const controller = fakeController()
+    const deliver = vi.fn(async () => ({ ok: true as const, sessionId: 'sess-plan-real', sent: true as const }))
+    render(
+      <WorkbenchTabBody
+        t={bindZh()}
+        requirement={requirement}
+        slot={slot({ record: workbenchRecord({ stage: 'implement', splitApprovedAt: AT, workPackages: [({
+          id: 'WP1', title: '数据导出', boundary: '导出', order: 1, dependsOn: [], covers: [], status: 'planned' as const, plans: [], sessions: [], commits: [], acceptances: [],
+        })] }) })}
+        controller={controller}
+        knowledge={knowledgeState()}
+        deliver={deliver}
+      />,
+    )
+    fireEvent.click(screen.getByRole('tab', { name: /③ 执行实施/ }))
+    // planned 卡动作=「生成工作包规划任务书」直开 wp-plan 任务书（0018 刀二）。
+    fireEvent.click(await screen.findByRole('button', { name: workbenchZh['sow.wpPlanButton'] }))
+    const sowDialog = await screen.findByRole('dialog', { name: workbenchZh['sow.title'] })
+    // 0021 渲染轮：先切编辑态再读 value。
+    fireEvent.click(within(sowDialog).getByRole('button', { name: workbenchZh['md.edit'] }))
+    await waitFor(() => { expect((sowDialog.querySelector('textarea[data-testid="sow-preview"]') as HTMLTextAreaElement).value).toContain('# 工作包规划任务书 WP1') })
+    fireEvent.click(within(sowDialog).getByRole('button', { name: workbenchZh['sow.deliver'] }))
+    await waitFor(() => expect(deliver).toHaveBeenCalled())
+    await waitFor(() => expect(controller.recordWpPlanSession).toHaveBeenCalledWith(RID, 'WP1', 'sess-plan-real'))
+    await waitFor(() => expect(controller.bindWpPlanSession).toHaveBeenCalledWith(RID, 'WP1', 'sess-plan-real'))
+    // 指针先行（布防收取 watcher），绑定后行（串行避 revision 竞争）。
+    const record = controller.recordWpPlanSession as ReturnType<typeof vi.fn>
+    const bind = controller.bindWpPlanSession as ReturnType<typeof vi.fn>
+    expect(record.mock.invocationCallOrder[0]).toBeLessThan(bind.mock.invocationCallOrder[0])
+  })
+
+  it('0022（0018 D8 修订）：wp-plan 降级投递（sent 缺省）不记指针不绑——0017 刀二 shell 口径延续', async () => {
+    const controller = fakeController()
+    const deliver = vi.fn(async () => ({ ok: true as const, sessionId: 'sess-shell' }))
+    render(
+      <WorkbenchTabBody
+        t={bindZh()}
+        requirement={requirement}
+        slot={slot({ record: workbenchRecord({ stage: 'implement', splitApprovedAt: AT, workPackages: [({
+          id: 'WP1', title: '数据导出', boundary: '导出', order: 1, dependsOn: [], covers: [], status: 'planned' as const, plans: [], sessions: [], commits: [], acceptances: [],
+        })] }) })}
+        controller={controller}
+        knowledge={knowledgeState()}
+        deliver={deliver}
+      />,
+    )
+    fireEvent.click(screen.getByRole('tab', { name: /③ 执行实施/ }))
+    fireEvent.click(await screen.findByRole('button', { name: workbenchZh['sow.wpPlanButton'] }))
+    const sowDialog = await screen.findByRole('dialog', { name: workbenchZh['sow.title'] })
+    fireEvent.click(within(sowDialog).getByRole('button', { name: workbenchZh['md.edit'] }))
+    await waitFor(() => { expect((sowDialog.querySelector('textarea[data-testid="sow-preview"]') as HTMLTextAreaElement).value).toContain('# 工作包规划任务书 WP1') })
+    fireEvent.click(within(sowDialog).getByRole('button', { name: workbenchZh['sow.deliver'] }))
+    await waitFor(() => expect(deliver).toHaveBeenCalled())
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(controller.recordWpPlanSession).not.toHaveBeenCalled()
+    expect(controller.bindWpPlanSession).not.toHaveBeenCalled()
   })
 
   it('0017 刀二：dev 降级投递（sent=false/缺省）不绑定——v2 shell 病理仍在；标题寻址 pass 绑定真实会话（0016 刀一验收修正口径延续）', async () => {

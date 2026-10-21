@@ -348,7 +348,7 @@ export function createWorkbenchFetcher() {
 
     // --- P2: session binding + knowledge candidates (main union) ---
 
-    async bindSession(requirementId: string, expectedRevision: number, id: string, sessionId: string, purpose: 'analysis' | 'dev' | 'review', signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+    async bindSession(requirementId: string, expectedRevision: number, id: string, sessionId: string, purpose: 'analysis' | 'dev' | 'review' | 'wp-plan', signal?: AbortSignal): Promise<WorkbenchMutateResult> {
       return this.mutate({ expectedRevision, requirementId, action: 'bindSession', id, sessionId, purpose }, signal)
     },
 

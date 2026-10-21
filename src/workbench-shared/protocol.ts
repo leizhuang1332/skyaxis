@@ -124,7 +124,9 @@ export interface PlanEntry {
 
 export interface WorkbenchSessionBinding {
   readonly sessionId: string
-  readonly purpose: 'analysis' | 'dev' | 'review'
+  /** 0022 (0018 D8 修订): 'wp-plan' joins the union — the planning delivery
+   * binds at delivery like dev; planSeed.session stays the watcher's arm. */
+  readonly purpose: 'analysis' | 'dev' | 'review' | 'wp-plan'
   readonly boundAt: string
 }
 
@@ -144,9 +146,11 @@ export interface WorkbenchAcceptance {
 /**
  * 0018 D8: the wp-plan channel's per-WP anchor — provenance + idempotency
  * for the AI-drafted plan deliveries. `session` names the delivery's real
- * conversation (provenance ONLY: the sessions[] binding union stays
- * analysis/dev/review — recorded by the delivery callback, and a DIFFERENT
- * session's delivery replaces it and re-arms collection). `contentHash` is
+ * conversation (recorded by the delivery callback, and a DIFFERENT session's
+ * delivery replaces it and re-arms collection). 0022 (0018 D8 修订): the
+ * delivery ALSO lands an ordinary sessions[] row (purpose 'wp-plan') for the
+ * 关联会话 face — this pointer stays the watcher's arm and the seed's
+ * provenance, NOT that row's duplicate. `contentHash` is
  * the disk sha256 the seed anchored — deliberately NOT the tail PlanEntry's
  * hash, because a human tail-draft edit rewrites the entry's while the
  * watcher's file read keeps matching this stamp (a hand-polished draft
@@ -1194,7 +1198,7 @@ export interface BindSessionRequest {
   readonly id: string
   /** Host-minted binding row {sessionId, purpose, boundAt}; sessions[] is append-only (no unbind). */
   readonly sessionId: string
-  readonly purpose: 'analysis' | 'dev' | 'review'
+  readonly purpose: 'analysis' | 'dev' | 'review' | 'wp-plan'
 }
 
 // --- Knowledge candidates (S6; OUTSIDE the split gate — retro spans the
@@ -1473,9 +1477,12 @@ export interface ConfirmDevDeclareCommitRequest {
 // ---------------------------------------------------------------------------
 // WP-plan actions (0018 工作包规划两步化) — the AI-drafted plan channel.
 // recordWpPlanSession is the delivery callback's bookkeeping (the provenance
-// pointer on wp.planSeed — NOT a sessions[] binding, whose purpose union
-// stays analysis/dev/review; a plain union arm, no IO). seedWpPlan is the
-// file channel's collector — a dedicated endpoint flow reads
+// pointer on wp.planSeed — NOT a sessions[] binding; a plain union arm, no
+// IO). 0022 (0018 D8 修订): the wp-plan delivery ALSO binds into sessions[]
+// via the ordinary bindSession action with purpose 'wp-plan' — this action
+// keeps its pointer-only semantics (same-session unchanged / different
+// session replaces the pointer and clears the hash stamps). seedWpPlan is
+// the file channel's collector — a dedicated endpoint flow reads
 // .skyaxis/wps/<wpId>/plan.md itself (seedSplit's per-WP shape; no slot
 // content rides the wire).
 // ---------------------------------------------------------------------------
@@ -2078,7 +2085,7 @@ function isString(v: unknown): v is string {
 
 const STAGES_OR_CLOSED: readonly string[] = [...WORKBENCH_STAGES, 'closed']
 const WORK_PACKAGE_STATUSES = ['planned', 'plan-draft', 'plan-approved', 'in-dev', 'built', 'accepted', 'dropped']
-const SESSION_PURPOSES = ['analysis', 'dev', 'review']
+const SESSION_PURPOSES = ['analysis', 'dev', 'review', 'wp-plan']
 const ACCEPTANCE_RESULTS = ['pass', 'fail']
 const FINDING_CATEGORIES = ['feasibility', 'conflict', 'compatibility', 'risk', 'capacity', 'other']
 const SEVERITIES = ['high', 'medium', 'low']

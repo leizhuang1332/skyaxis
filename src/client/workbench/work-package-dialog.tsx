@@ -370,7 +370,7 @@ export function WorkPackageDialog(props: {
           )
           const meta = (
             <div className={styles.findingRowMeta}>
-              {binding.purpose === 'analysis' ? t('session.purposeAnalysis') : binding.purpose === 'dev' ? t('session.purposeDev') : t('session.purposeReview')}
+              {binding.purpose === 'analysis' ? t('session.purposeAnalysis') : binding.purpose === 'dev' ? t('session.purposeDev') : binding.purpose === 'wp-plan' ? t('session.purposeWpPlan') : t('session.purposeReview')}
               {' · '}
               {chip === null ? t('session.stateGone') : t(chip.labelKey)}
               {' · '}

@@ -406,7 +406,7 @@ export function createWorkbenchController(store: WorkbenchStore, fetcher: Workbe
 
     // --- P2: session binding + knowledge candidates (main union mutations) ---
 
-    bindSession: (requirementId: string, id: string, sessionId: string, purpose: 'analysis' | 'dev' | 'review', signal?: AbortSignal) =>
+    bindSession: (requirementId: string, id: string, sessionId: string, purpose: 'analysis' | 'dev' | 'review' | 'wp-plan', signal?: AbortSignal) =>
       mutate(requirementId, () => fetcher.bindSession(requirementId, slotRevision(requirementId), id, sessionId, purpose, signal), signal),
 
     // --- 回传轮: analysis proposals ---
@@ -501,6 +501,15 @@ export function createWorkbenchController(store: WorkbenchStore, fetcher: Workbe
       const first = await mutate(requirementId, () => fetcher.bindSession(requirementId, slotRevision(requirementId), workPackageId, sessionId, 'dev', signal), signal)
       if (first || disposed) return first
       return mutate(requirementId, () => fetcher.bindSession(requirementId, slotRevision(requirementId), workPackageId, sessionId, 'dev', signal), signal)
+    },
+
+    /** 0022 (0018 D8 修订): wp-plan delivery ALSO binds into sessions[] (purpose
+     * 'wp-plan' — the 关联会话 face); the bindDevSession twin shape. The manual
+     * picker never offers this purpose — only the delivery callback writes it. */
+    bindWpPlanSession: async (requirementId: string, workPackageId: string, sessionId: string, signal?: AbortSignal): Promise<boolean> => {
+      const first = await mutate(requirementId, () => fetcher.bindSession(requirementId, slotRevision(requirementId), workPackageId, sessionId, 'wp-plan', signal), signal)
+      if (first || disposed) return first
+      return mutate(requirementId, () => fetcher.bindSession(requirementId, slotRevision(requirementId), workPackageId, sessionId, 'wp-plan', signal), signal)
     },
 
     /** User dismissal of a collected declaration batch (the card's 忽略 button — the mutate channel, unlike the seeds). */
