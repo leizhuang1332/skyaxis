@@ -329,4 +329,78 @@ describe('S4 评审节：P5b 会话抓取 + 种子披露', () => {
     fireEvent.click(within(dialog).getAllByRole('button', { name: workbenchZh['action.save'] }).at(-1)!)
     await waitFor(() => expect(within(dialog).getByText(workbenchZh['review.seededWithBlockError'].replaceAll('{n}', '0'))).toBeTruthy())
   })
+
+  it('0023：done 状态行连带核验计数（seededChecks 在场时追加）', async () => {
+    const controller = fakeController({
+      importReview: vi.fn(async () => ({ ok: true as const, reviewId: 'rev-new', seeded: 2, seededChecks: 4 })),
+    })
+    const rendered = subject(slot({ record: boundRecord() }), controller)
+    fireEvent.click(rendered.getByRole('button', { name: workbenchZh['review.importButton'] }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.change(within(dialog).getByLabelText(workbenchZh['review.bodyLabel']), { target: { value: '# 报告' } })
+    fireEvent.click(within(dialog).getAllByRole('button', { name: workbenchZh['action.save'] }).at(-1)!)
+    // 状态行 = 种子数与核验计数同节点拼接（两个文本子节点），以 textContent 整体断言
+    await waitFor(() => expect(within(dialog).getByRole('status').textContent).toBe(
+      `${workbenchZh['review.seededCount'].replaceAll('{n}', '2')} · ${workbenchZh['review.seededChecks'].replaceAll('{n}', '4')}`,
+    ))
+  })
+})
+
+describe('S4 评审节：0023 核验行（criteriaChecks 信息面）与证据面（detail 只读）', () => {
+  it('报告卡第二 Tag：核验计数（直数不差减）；无 criteriaChecks 的旧报告不渲染核验面', () => {
+    subject(slot({ record: record({
+      reviewReports: [
+        report('rev-new', { title: '新形报告', criteriaChecks: [
+          { ref: 'C1', result: 'satisfied' },
+          { ref: 'C2', result: 'unmet' },
+          { ref: 'C3', result: 'not-verifiable' },
+        ] }),
+        report('rev-legacy', { title: '旧形报告' }),
+      ],
+    }) }))
+    expect(screen.getByText('核验 1 满足 / 1 不满足 / 1 无法核验')).toBeTruthy()
+    // 旧形（0023 前）报告：字段缺席 ⇒ 零渲染（诚实缺席，不造 0/0/0 假面）
+    expect(screen.queryByText('核验 0 满足 / 0 不满足 / 0 无法核验')).toBeNull()
+  })
+
+  it('详情 Modal：核验表在正文之上（结果 Tag 三态 + ref + 证据行）', async () => {
+    const controller = fakeController({
+      reviewContent: vi.fn(async () => ({ kind: 'ok' as const, content: '# 评审正文', contentTampered: false })),
+    })
+    const rendered = subject(slot({ record: record({
+      reviewReports: [report('rev-a1', { title: '全量评审', criteriaChecks: [
+        { ref: 'C1', result: 'satisfied', evidence: 'src/export/service.ts:30-42' },
+        { ref: 'C2', result: 'not-verifiable', evidence: '需人工在浏览器验证' },
+        { ref: 'C3', result: 'unmet' },
+      ] })],
+    }) }), controller)
+    fireEvent.click(rendered.getByText('全量评审'))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText(workbenchZh['review.checksTitle'])).toBeTruthy()
+    expect(within(dialog).getByText(workbenchZh['review.checkSatisfied'])).toBeTruthy()
+    expect(within(dialog).getByText(workbenchZh['review.checkUnmet'])).toBeTruthy()
+    expect(within(dialog).getByText(workbenchZh['review.checkNotVerifiable'])).toBeTruthy()
+    expect(within(dialog).getByText(`${workbenchZh['review.checkEvidence']}：src/export/service.ts:30-42`)).toBeTruthy()
+    expect(within(dialog).getByText(`${workbenchZh['review.checkEvidence']}：需人工在浏览器验证`)).toBeTruthy()
+    // 无证据的核验行不渲染空证据行
+    expect(within(dialog).queryByText(`${workbenchZh['review.checkEvidence']}：`)).toBeNull()
+  })
+
+  it('裁决表单：proposed 行的证据只读在场，保存原样回传（全行替换不丢证据）', async () => {
+    const controller = fakeController()
+    const seeded = report('rev-a1', { verdicts: [{ id: 'v-9', title: '事务缺失', severity: 'high', verdict: 'proposed', detail: 'src/export/importer.ts:88 导入与校验不在同一事务' }] })
+    const rendered = subject(slot({ record: record({ reviewReports: [seeded] }) }), controller)
+    fireEvent.click(rendered.getByText('事务缺失'))
+    const dialog = await screen.findByRole('dialog')
+    // 证据以只读文本在场（不是输入面）
+    expect(within(dialog).getByText('src/export/importer.ts:88 导入与校验不在同一事务')).toBeTruthy()
+    fireEvent.click(within(dialog).getAllByRole('button', { name: workbenchZh['action.save'] }).at(-1)!)
+    await waitFor(() => expect(controller.saveReviewVerdict).toHaveBeenCalledWith(RID, 'rev-a1', {
+      id: 'v-9',
+      title: '事务缺失',
+      severity: 'high',
+      verdict: 'confirmed',
+      detail: 'src/export/importer.ts:88 导入与校验不在同一事务',
+    }))
+  })
 })

@@ -251,6 +251,30 @@ export interface ReviewVerdict {
   readonly verdict: 'proposed' | 'confirmed' | 'rejected'
   readonly disposition?: 'to-fix' | 'fixed' | 'wont-fix'
   readonly note?: string
+  /**
+   * 0023 (D4-A): the finding's 说明与证据（路径:行号） seeded from the
+   * `# skyaxis-review` block — host-minted with the row, read-only in the
+   * adjudication form, resent verbatim on save (full-row replace must not
+   * drop the AI's evidence; it is not a user input face). Optional per the
+   * field-evolution discipline (pre-0023 rows carry none).
+   */
+  readonly detail?: string
+}
+
+/**
+ * 0023 (D2-A): one acceptance-criteria conformance check seeded from the
+ * report block's `criteriaChecks:` section (decisions 0023 — the PR-Agent
+ * TicketCompliance precedent: fully-compliant / not-compliant /
+ * requires-further-human-verification). INFORMATIONAL only: no adjudication
+ * loop of its own (it feeds the user's per-WP accept/fail ruling, the
+ * existing closure) and it never becomes a verdict row.
+ */
+export interface WorkbenchCriteriaCheck {
+  /** Criterion id as the ledger knows it (C1…) — seeding filters to known refs. */
+  readonly ref: string
+  readonly result: 'satisfied' | 'unmet' | 'not-verifiable'
+  /** What the judgment is grounded in: 路径:行号, or the manual verification the not-verifiable row needs. */
+  readonly evidence?: string
 }
 
 /**
@@ -265,6 +289,13 @@ export interface ReviewReportEntry {
   readonly title?: string
   readonly contentHash?: string
   readonly verdicts: readonly ReviewVerdict[]
+  /**
+   * 0023 (D2-A): criteria conformance checks seeded at import (unknown refs
+   * filtered against the ledger's criteria ids). Optional per the
+   * field-evolution discipline — pre-0023 reports carry none and the UI
+   * simply does not render the checks face for them.
+   */
+  readonly criteriaChecks?: readonly WorkbenchCriteriaCheck[]
 }
 
 export interface ReleaseItem {
@@ -1155,6 +1186,12 @@ export interface SaveReviewVerdictRequest {
     readonly verdict: 'confirmed' | 'rejected'
     readonly disposition?: 'to-fix' | 'fixed' | 'wont-fix'
     readonly note?: string
+    /**
+     * 0023: the seeded row's evidence rides through UNCHANGED (the form shows
+     * it read-only and resends it — full-row replace without it would drop
+     * the AI's evidence). Not a user input face; capped like note.
+     */
+    readonly detail?: string
   }
 }
 
@@ -1672,6 +1709,12 @@ export type ReviewSkipReason =
   | 'bad-severity'
   | 'bad-title'
   | 'over-cap'
+  /** 0023: criteriaChecks row is not a record / missing usable keys. */
+  | 'bad-check-shape'
+  /** 0023: criteriaChecks row's result is outside the closed three-value enum. */
+  | 'bad-check-result'
+  /** 0023: a criteriaChecks ref/evidence exceeds its cap — skip, never truncate. */
+  | 'check-over-cap'
 
 /** Per-row skip reasons — closed enum so the client maps to dictionary keys (the rejection-keys discipline). */
 export type DeclareSkipReason =
@@ -2015,6 +2058,13 @@ export interface ArtifactWriteResponseOk {
    */
   readonly seeded?: number
   /**
+   * Review writes only (0023 D2-A) — how many `criteriaChecks:` rows were
+   * seeded onto the NEWLY created report (after the unknown-ref filter).
+   * Same absence rule as `seeded`: absent on the idempotent-convergence
+   * path (a retry never re-seeds) and on plan writes.
+   */
+  readonly seededChecks?: number
+  /**
    * Review writes only, ADVISORY — unlike the declare route's blockError
    * (where a bad block means nothing imports), a review report is free-form
    * markdown: a missing or unparseable convention block still creates the
@@ -2255,6 +2305,20 @@ function isReviewVerdict(v: unknown): v is ReviewVerdict {
     && isString(r.verdict) && VERDICT_OUTCOMES.includes(r.verdict)
     && (r.disposition === undefined || (isString(r.disposition) && DISPOSITIONS.includes(r.disposition)))
     && (r.note === undefined || isString(r.note))
+    && (r.detail === undefined || isString(r.detail))
+  )
+}
+
+const CHECK_RESULTS: readonly string[] = ['satisfied', 'unmet', 'not-verifiable']
+
+/** 0023: guard for the seeded conformance-check row (D2-A). */
+function isWorkbenchCriteriaCheck(v: unknown): v is WorkbenchCriteriaCheck {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  return (
+    isString(r.ref) && r.ref.length > 0
+    && isString(r.result) && CHECK_RESULTS.includes(r.result)
+    && (r.evidence === undefined || isString(r.evidence))
   )
 }
 
@@ -2267,6 +2331,7 @@ function isReviewReportEntry(v: unknown): v is ReviewReportEntry {
     && (r.title === undefined || isString(r.title))
     && (r.contentHash === undefined || isString(r.contentHash))
     && Array.isArray(r.verdicts) && r.verdicts.every(isReviewVerdict)
+    && (r.criteriaChecks === undefined || (Array.isArray(r.criteriaChecks) && r.criteriaChecks.every(isWorkbenchCriteriaCheck)))
   )
 }
 

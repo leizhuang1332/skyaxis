@@ -637,6 +637,14 @@ interface WorkbenchDictionary {
   readonly 'review.noBoundSessions': string
   readonly 'review.seededCount': string
   readonly 'review.seededWithBlockError': string
+  // 0023 评审方法论轮: criteriaChecks 核验面（D2-A 信息展示）与 findings 证据面（D4-A 只读）
+  readonly 'review.checksTitle': string
+  readonly 'review.checkSatisfied': string
+  readonly 'review.checkUnmet': string
+  readonly 'review.checkNotVerifiable': string
+  readonly 'review.checksCount': string
+  readonly 'review.checkEvidence': string
+  readonly 'review.seededChecks': string
   // sow.reviewButton — S4 评审任务书入口（P5b 第四种 purpose）
   readonly 'sow.reviewButton': string
   // knowledge.candidateAdd — S6 手动提炼（P4 §7.4 通道②）
@@ -1259,6 +1267,13 @@ const zh: WorkbenchDictionary = {
   'review.noBoundSessions': '尚无绑定会话——在 S3 工作包详情里关联 session 后可从会话抓取；也可直接粘贴。',
   'review.seededCount': '已导入，种子裁决行 {n} 条（待你逐条裁决）。',
   'review.seededWithBlockError': '已导入报告，但未解析到 # skyaxis-review 约定块或块语法有误——种子裁决行 {n} 条。',
+  'review.checksTitle': '验收核验（AI 提议，供对照）',
+  'review.checkSatisfied': '满足',
+  'review.checkUnmet': '不满足',
+  'review.checkNotVerifiable': '无法核验',
+  'review.checksCount': '核验 {s} 满足 / {u} 不满足 / {v} 无法核验',
+  'review.checkEvidence': '证据',
+  'review.seededChecks': '核验行 {n} 条',
   'knowledge.candidateAdd': '＋ 提炼',
   'knowledge.candidateAddTitle': '提炼知识候选',
 }
@@ -1856,6 +1871,13 @@ const en: WorkbenchDictionary = {
   'review.noBoundSessions': 'No bound sessions yet — bind one in the S3 work-package detail to fetch; pasting always works.',
   'review.seededCount': 'Imported — {n} verdict row(s) seeded as proposed (adjudicate each one).',
   'review.seededWithBlockError': 'Report imported, but no # skyaxis-review block parsed (missing or malformed) — {n} verdict row(s) seeded.',
+  'review.checksTitle': 'Criteria checks (AI proposed, for reference)',
+  'review.checkSatisfied': 'satisfied',
+  'review.checkUnmet': 'unmet',
+  'review.checkNotVerifiable': 'not verifiable',
+  'review.checksCount': 'Checks {s} satisfied / {u} unmet / {v} not verifiable',
+  'review.checkEvidence': 'Evidence',
+  'review.seededChecks': '{n} criteria check(s) seeded',
   'knowledge.candidateAdd': '＋ Distill',
   'knowledge.candidateAddTitle': 'Distill a knowledge candidate',
 }

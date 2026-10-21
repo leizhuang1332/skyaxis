@@ -11,8 +11,9 @@
  *
  * Analysis redesign (research 0008; the 挂账轮 after 0006's slices): the
  * analysis purpose gets its OWN nine-block assembly — goal / snapshot /
- * inputs / knowledge / constraints / workflow / output — while dev/review
- * keep the original five-block shape. The dividing line for reference-vs-
+ * inputs / knowledge / constraints / workflow / output — while dev keeps
+ * the original five-block shape (review joined the nine-block family in
+ * 0023 with its own two-goal methodology). The dividing line for reference-vs-
  * embed is physical location: PRDs (prds/) and clone repos (repos/) live
  * INSIDE the delivered session's cwd, so they are cited by path (industry
  * consensus: spec-kit "REQUIRED: Read <path>", Anthropic just-in-time
@@ -245,14 +246,10 @@ function requirementBlock(ctx: SowContext): string {
   for (const wp of ctx.record.workPackages) {
     lines.push(`${wp.id} ${wp.title} · ${WP_STATUS_LABEL[wp.status]}（${wp.status}）`)
   }
-  // review needs the criteria as the acceptance checklist it audits coverage
-  // against (P5b). (0009: the dead split arm is gone — split rides the
-  // nine-block assembly since 0007 and reads the baseline doc since 0009.)
-  if (ctx.purpose === 'review') {
-    for (const criterion of ctx.record.criteria) {
-      lines.push(`${criterion.id} ${criterion.text}`)
-    }
-  }
+  // (0023: review's criteria arm retired — review rides the nine-block
+  // assembly with its own snapshot block; this is the dev-only five-block
+  // face. 0009: the dead split arm is long gone — split rides the nine-block
+  // assembly since 0007 and reads the baseline doc since 0009.)
   return lines.join('\n')
 }
 
@@ -376,26 +373,9 @@ function declareSplitSkeleton(): string[] {
 }
 
 function outputBlock(ctx: SowContext): string {
-  // Review purpose gets its OWN convention block (# skyaxis-review + findings),
-  // distinct from the declare block — the declare path below stays byte-identical
-  // (sow.test.ts pins its exact string). Findings teach the block-mapping shape
-  // via YAML comments (P3b lesson: the research §7.1 inline-comma form throws
-  // BLOCK_AS_IMPLICIT_KEY, so a model copying it would emit an unparseable block).
-  if (ctx.purpose === 'review') {
-    return [
-      '[输出约定]',
-      '评审结束时先给出完整报告正文（markdown），并在结尾附上如下机器可读的发现块（条目用缩进键值，勿用行内逗号）：',
-      '```yaml',
-      '# skyaxis-review',
-      '# findings 每条 = 一个待用户裁决的发现；severity: high|medium|low',
-      '# 条目形如：',
-      '#   - title: 发现标题（64 字内）',
-      '#     severity: high',
-      'findings: []',
-      '```',
-      '说明：findings 只列发现，裁决（成立/驳回）与处置由用户在工作台完成——不要替用户下结论。',
-    ].join('\n')
-  }
+  // (0023: the review arm retired — review's `# skyaxis-review` convention
+  // now rides its own nine-block output section; this is the dev-only
+  // five-block face, declare path byte-identical as pinned by sow.test.ts.)
   const lines = ['[输出约定]', '结束时请输出如下机器可读的声明块（条目用缩进键值，勿用行内逗号）：', '```yaml', '# skyaxis-declare']
   if (ctx.purpose === 'dev' && ctx.workPackage !== undefined) {
     // dev 骨架：workPackage 键（决策 0006 连带，旧 module: 键已废）+ built
@@ -1199,23 +1179,150 @@ function consolidateOutputBlock(ctx: SowContext): string {
 }
 
 // ---------------------------------------------------------------------------
+// Review assembly (0023 评审方法论轮, decisions 0023) — review joins the
+// nine-block family with its own TWO-GOAL wording: ① criteria conformance
+// (逐条验收标准核验 — the PR-Agent TicketCompliance precedent: satisfied /
+// unmet / requires-further-human-verification, zh 无法核验) and ② a quality
+// sweep (六维 + per-dimension judging criteria, the 0008 recipe applied to
+// review). The snapshot carries the ledger's criteria AND the per-WP
+// confirmed commits as the 改动面 anchor (zero commits = honest absence);
+// constraints gain 不运行代码 (what needs a run is not-verifiable, honestly
+// listed — never run on the reviewer's own initiative); the output contract
+// adds criteriaChecks + findings detail to the `# skyaxis-review` block.
+// NO revision stamp (the family discipline since 0009/0010: the AI-context
+// honesty anchor is the snapshot header's 生成时快照 wording); dev keeps the
+// five-block shape and its stamp untouched.
+// ---------------------------------------------------------------------------
+
+function reviewGoalBlock(ctx: SowContext): string {
+  return [
+    '## 目标',
+    `为需求「${ctx.requirement.title}」的评审阶段做一次只读代码评审，回答两个问题——当前代码实现满足验收标准吗（需求完成情况）？代码本身有没有缺陷、漏洞或显著风险（代码质量情况）？产出一份供需求负责人裁决的评审报告——报告读者没读过你的评审过程，只读结论与证据。本阶段两个产物：`,
+    '1. 验收核验——逐条验收标准 × 当前代码，给出 满足 / 不满足 / 无法核验（仅凭读代码判不了的如实标注，并说明需要什么人工验证），每条带证据（路径:行号）。',
+    '2. 质量发现——代码缺陷、安全漏洞与显著风险（六维排查，判据见「工作流」第 4 步），每条带说明、证据与触发场景。',
+    '本阶段不改任何代码、不运行代码、不裁决——验收通过与处置由用户在工作台完成；修复是后续开发会话的事，现在动手会污染评审。',
+  ].join('\n')
+}
+
+function reviewSnapshotBlock(ctx: SowContext): string {
+  const lines = [
+    '## 需求快照（工作台账本，生成时快照）',
+    `标题：${ctx.requirement.title}`,
+    `描述：${ctx.requirement.description}`,
+  ]
+  if (ctx.record === null) {
+    lines.push('（工作台记录未建立——无验收标准与工作包可核验，评审以质量发现为主）')
+    return lines.join('\n')
+  }
+  lines.push(`当前阶段：${STAGE_LABEL[ctx.record.stage]}`)
+  // The checklist the reviewer audits against — the ledger is the criteria
+  // truth (P5b), the baseline doc carries the surrounding requirement prose.
+  lines.push('验收标准（你将逐条核验它们）：')
+  if (ctx.record.criteria.length === 0) lines.push('（尚无）')
+  for (const criterion of ctx.record.criteria) lines.push(`- ${criterion.id} ${criterion.text}`)
+  // 0023 D1-A: the per-WP confirmed commits are the 改动面 anchor — the
+  // reviewer scopes to them (plus package boundaries) instead of roaming the
+  // whole repo. Zero confirmed commits = the honest absence line (the
+  // boundary + baseline doc stand in as the scope).
+  lines.push('工作包与改动面（提交由用户逐条确认，是你定位本次改动的主要锚）：')
+  if (ctx.record.workPackages.length === 0) {
+    lines.push('（尚无工作包——改动面以基线文档与仓库现状为准）')
+    return lines.join('\n')
+  }
+  for (const wp of ctx.record.workPackages) {
+    lines.push(`- ${wp.id} ${wp.title} · ${WP_STATUS_LABEL[wp.status]}（${wp.status}）`)
+    if (wp.commits.length === 0) {
+      lines.push('  （尚无已确认提交——该包改动面以其边界与基线文档描述为准）')
+      continue
+    }
+    for (const commit of wp.commits) {
+      lines.push(`  - 提交 ${commit.hash.slice(0, 7)} ${commit.note}`)
+    }
+  }
+  return lines.join('\n')
+}
+
+function reviewConstraintsBlock(ctx: SowContext): string {
+  return [
+    '## 约束',
+    // Review is read-only INCLUDING runs: a reviewer-initiated run writes
+    // artifacts and its outcome belongs to the user's own verification —
+    // the not-verifiable channel carries those criteria honestly instead.
+    '- 严格只读：不修改、创建、删除任何文件；不建分支、不提交、不推送；不运行代码、测试或构建——需要运行才能核验的标准判「无法核验」并写明需要什么人工验证，不要替人运行。评审报告在会话内交付，不写文件。',
+    '- 不裁决：核验结论与发现皆为建议，验收（通过/不通过）、处置、阶段推进全部由用户在工作台完成；发现处置建议可以给，但不要顺手实施。',
+    '- 有据：每条核验与每条发现给出证据（路径:行号）；查不到依据的结论显式标「推测」；与参考知识条目冲突的发现至少「高」级并注明知识条目标题。',
+    // PR-Agent's flagging discipline, zh: thorough on clear bugs/security,
+    // certain before flagging the rest, uncertainty disclosed when impact is
+    // high, zero findings stated gracefully.
+    '- 如实分级：有把握才报——明确的缺陷与安全问题要彻底查；低严重度的问题说得出具体触发场景才报；不确定但可能高危（如数据丢失、安全）的，注明不确定处再报，否则宁可不报；不夸大影响——仅在特定输入或环境才出现的问题开头就说明条件；某维度没有发现时如实写「未发现」，不要硬凑。',
+    '- 有限停止：仅当关键输入（基线文档、仓库）不可读，或验收标准信息不足以核验任何一条时停下来问用户；其余自行推进。',
+  ].join('\n')
+}
+
+const REVIEW_WORKFLOW = [
+  '## 工作流',
+  '1. 通读需求基线文档与需求快照——列出核验清单：每条验收标准一个判定点（快照「验收标准」节的 C 编号即清单）。',
+  '2. 定位改动面：以快照「工作包与改动面」的包边界与提交为锚；无提交的包以边界与基线文档描述为界。探索限改动面及其直接接缝，不做全库漫游；探察过的文件路径记入报告（「已评审」以清单为证）。',
+  '3. 逐条核验：每条标准找到对应实现，读代码判定 满足 / 不满足 / 无法核验，记证据（路径:行号）；一条标准横跨多个包时逐包注明；找不到对应关系的（标准与代码对不上号）判「无法核验」并说明找过哪里。',
+  '4. 六维质量排查（每维一条判据，逐维给结论）：',
+  '   - 缺陷：会实际出错的逻辑、边界、并发与资源问题——说得出具体触发场景才算，泛泛的「可能有问题」不算。',
+  '   - 安全：注入、输入校验、认证与会话、访问控制、敏感信息、加密误用，六类逐一过（OWASP 代码评审清单的常设类别）。',
+  '   - 性能与容量：数据量级、超时、资源上限、明显低效的路径。',
+  '   - 复杂度与可维护性：对改动逐段两问——不看注释能看懂吗？真的需要吗（为推测性未来写的过度设计也是缺陷）？重复与误导性命名/注释在此列。',
+  '   - 测试：本次改动有没有对应测试；明显缺口逐条列出。',
+  '   - 一致性：与既有实现、既定行为、参考知识直接冲突处。',
+  '5. 汇总报告（三节结构见「输出」），总体结论先行，无法核验项单独成列。',
+  '先查后问：能从代码、基线文档、目录里查证的自己查；只有影响结论的取舍留给需求方——提问带推荐答案，而不是自行假设。',
+].join('\n')
+
+function reviewOutputBlock(ctx: SowContext): string {
+  return [
+    '## 输出',
+    '评审结束时先给出完整报告正文（markdown，会话内交付，不写文件），并在结尾附上机器可读的发现块（条目用缩进键值，勿用行内逗号；块体必须完整包在 ```yaml 围栏内——三个反引号起、三个反引号收，缺围栏无法收取）。报告按三节组织：',
+    '1. 总体结论——两三句：验收面达成概况（n 满足 / m 不满足 / k 无法核验）、总体风险等级（判据见下）、建议用户优先查看的文件。',
+    '2. 验收核验——每条一行起：C1 满足｜证据：路径:行号；不满足的随后一两句说明差距；无法核验的写明需要什么人工验证（如「需人工在浏览器验证」「需运行测试套件」）。按 C 编号排序，一条不漏。',
+    '3. 质量发现——每条一行起：Q1 [维度·级别] 标题；随后说明（一两句）、证据（路径:行号）、（如适用）触发场景。按级别降序、同级按维度分组；编号 Q1、Q2… 稳定不重排；六维逐维给过结论——没有发现的维度如实写「未发现」，不要硬凑；全部为零时显式说明残余风险与未覆盖范围（哪些没查、为什么）。',
+    '（级别判据：高 = 明确缺陷或安全漏洞、不处理则验收不成立或触碰安全/数据/已注入约定；中 = 不阻塞验收但应在验收通过前解决；低 = 提示性、可延后。）',
+    '（总体风险判据：高 = 存在「高」级发现或验收面有「不满足」；中 = 无「高」级发现但存在「中」级发现或需人工细看的非平凡区域；低 = 无重要问题。）',
+    '```yaml',
+    '# skyaxis-review',
+    '# criteriaChecks 每条 = 一条验收标准的核验结论；result: satisfied|unmet|not-verifiable',
+    '# 条目形如：',
+    '#   - ref: C1',
+    '#     result: satisfied',
+    '#     evidence: 路径:行号（not-verifiable 时写需要什么人工验证）',
+    'criteriaChecks: []',
+    '# findings 每条 = 一个待用户裁决的发现；severity: high|medium|low',
+    '# 条目形如：',
+    '#   - title: 发现标题（64 字内）',
+    '#     severity: high',
+    '#     detail: 说明与证据（路径:行号）',
+    'findings: []',
+    '```',
+    '说明：criteriaChecks 与 findings 皆是提议——核验结论供用户对照，发现的裁决（成立/驳回）与处置由用户在工作台完成，不要替用户下结论；机器块与报告正文一致（正文详述，块收结构化结论）。',
+    '完成自检（全部满足才算收尾）：每条标准有判定与证据 · 无法核验项已列明所需人工验证 · 六维逐维有结论 · 每条发现有级别/证据/触发场景 · 机器块已附（criteriaChecks 覆盖全部标准、findings 与正文一致）。',
+  ].join('\n')
+}
+
+// ---------------------------------------------------------------------------
 // Document assembly
 // ---------------------------------------------------------------------------
 
 function revisionStamp(ctx: SowContext): string {
-  // 0009: dev/review only — the three AI-session purposes dropped the stamp
-  // (conservative trim, user ruling); their honesty anchor is the snapshot
-  // header's 生成时快照 wording.
+  // 0009: dev/review originally; 0023: dev only — review joined the
+  // nine-block family and follows its discipline (the honesty anchor is the
+  // snapshot header's 生成时快照 wording).
   const date = ctx.generatedAt.slice(0, 10)
   return `生成于 revision ${ctx.revision} · ${date} · 此后账本变更不自动同步`
 }
 
 /**
  * Assemble the SOW markdown. Analysis/split/consolidate get the nine-block
- * research-0008 assembly; dev/review keep the original five-block shape
- * (research 0006 §7.1). 0009: the revision stamp retires for the three
- * AI-session purposes (conservative trim, user ruling — the ledger-move
- * honesty rides the snapshot's 生成时快照 header); dev/review keep it.
+ * research-0008 assembly; dev keeps the original five-block shape (research
+ * 0006 §7.1); review rejoined the nine-block family in 0023 with its own
+ * two-goal methodology (decisions 0023). 0009: the revision stamp retires
+ * for the AI-session purposes (conservative trim, user ruling — the
+ * ledger-move honesty rides the snapshot's 生成时快照 header); dev keeps it.
  * Section headers are fixed zh; the declare skeleton is dev-shaped
  * (`workPackage:` + claims) or the plain shape.
  */
@@ -1299,10 +1406,30 @@ export function buildSow(ctx: SowContext): string {
     ]
     return blocks.join('\n\n')
   }
-  // 0015: the five-block path (dev/review) carries the SAME input rows the
-  // nine-block purposes do — [PRD 节选] retired, the baseline-doc 必读 line +
-  // clone-repo rows ride an [输入] block; the ledger snapshot (requirement /
-  // WP / criteria / approved plan) stays embedded (P1).
+  if (ctx.purpose === 'review') {
+    // 0023 评审方法论轮 (decisions 0023 D1-A): review joins the nine-block
+    // family — two-goal wording, commits-anchored snapshot, 六维 sweep,
+    // criteriaChecks+detail output contract. No revision stamp (the family
+    // discipline — the honesty anchor is the snapshot header's 生成时快照);
+    // no [工作包] block (review audits the WHOLE acceptance face, the WP
+    // scope anchor rides the snapshot lines).
+    const blocks = [
+      `# 评审任务书 · ${ctx.requirement.title}`,
+      reviewGoalBlock(ctx),
+      reviewSnapshotBlock(ctx),
+      analysisInputBlock(ctx, `## 输入${INPUT_INSTRUCTION}`),
+      knowledgeBlock(ctx, ANALYSIS_KNOWLEDGE_HEADER),
+      reviewConstraintsBlock(ctx),
+      REVIEW_WORKFLOW,
+      reviewOutputBlock(ctx),
+    ]
+    return blocks.join('\n\n')
+  }
+  // 0015: the five-block path (dev since 0023 — review moved to the
+  // nine-block family) carries the SAME input rows the nine-block purposes
+  // do — [PRD 节选] retired, the baseline-doc 必读 line + clone-repo rows
+  // ride an [输入] block; the ledger snapshot (requirement / WP / criteria /
+  // approved plan) stays embedded (P1).
   // 0016 刀一验收修正: the five-block purposes gain the family's discriminative
   // head line (`# …任务书`, the analysis/split/plan precedent — 0021 渲染轮去
   // skyaxis 品牌). For dev
@@ -1312,9 +1439,7 @@ export function buildSow(ctx: SowContext): string {
   // auto-bind pass content-addresses it per WP. The [需求] head cannot serve:
   // it is byte-identical across a requirement's WPs (decisions/0016 修订 #8).
   const blocks = [
-    ctx.purpose === 'dev'
-      ? devSowTitleLine(ctx.workPackage?.id, ctx.requirement.title)
-      : `# 评审任务书 · ${ctx.requirement.title}`,
+    devSowTitleLine(ctx.workPackage?.id, ctx.requirement.title),
     requirementBlock(ctx),
     analysisInputBlock(ctx, `[输入]${INPUT_INSTRUCTION}`),
     ctx.purpose === 'dev' && ctx.workPackage !== undefined ? workPackageBlock(ctx) : '',

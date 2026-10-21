@@ -1029,6 +1029,9 @@ export function applyRecordAction(base: WorkbenchRecord, body: WorkbenchMutateRe
     const note = input.note?.trim()
     if (input.verdict === 'rejected' && (note === undefined || note.length === 0)) return fail(400, 'bad-request')
     if (input.verdict === 'rejected' && input.disposition !== undefined) return fail(400, 'bad-request')
+    // 0023 D4-A: detail is the seeded evidence riding through unchanged —
+    // trim-preserve like note (an empty one drops the key, the honest absence).
+    const detail = input.detail?.trim()
     const row: ReviewVerdict = {
       ...(input.id !== undefined ? { id: input.id } : {}),
       title: input.title.trim(),
@@ -1036,6 +1039,7 @@ export function applyRecordAction(base: WorkbenchRecord, body: WorkbenchMutateRe
       verdict: input.verdict,
       ...(input.disposition !== undefined ? { disposition: input.disposition } : {}),
       ...(note !== undefined && note.length > 0 ? { note } : {}),
+      ...(detail !== undefined && detail.length > 0 ? { detail } : {}),
     }
     if (input.id !== undefined) {
       const existing = report.verdicts.find((row) => row.id === input.id)
@@ -1187,6 +1191,9 @@ function reviewVerdictEquivalent(a: ReviewVerdict, b: ReviewVerdict): boolean {
     && a.verdict === b.verdict
     && a.disposition === b.disposition
     && a.note === b.note
+    // 0023: the evidence field rides identity too — a resend that dropped it
+    // is a real change (the row would lose its grounding), never a no-op.
+    && a.detail === b.detail
 }
 
 /**

@@ -1361,6 +1361,20 @@ describe('P5b proposed verdicts', () => {
     const same = applyRecordAction(base, saveVerdict({ id: 'v1', title: 'AI 报的', severity: 'high', verdict: 'confirmed', disposition: 'to-fix' }))
     expect(same.ok && same.unchanged).toBeUndefined()
   })
+
+  it('0023 D4-A：detail 随行替换透传（trim，空白落缺席）；等价比较含 detail——掉 detail 的重提是真变更', () => {
+    const base = baseRecord({ reviewReports: [reviewReport('rev-a1', { verdicts: [{ id: 'v1', title: 'AI 报的', severity: 'high', verdict: 'proposed', detail: 'src/a.ts:12 未判空' }] })] })
+    // 编辑 proposed 行落终裁，证据原样透传（表单只读回传的语义）
+    const adjudicated = applyOk(base, saveVerdict({ id: 'v1', title: 'AI 报的', severity: 'high', verdict: 'confirmed', disposition: 'to-fix', detail: 'src/a.ts:12 未判空' }))
+    expect(adjudicated.reviewReports[0]?.verdicts[0]).toEqual({ id: 'v1', title: 'AI 报的', severity: 'high', verdict: 'confirmed', disposition: 'to-fix', detail: 'src/a.ts:12 未判空' })
+    // 同 payload（含 detail）重提 → unchanged no-op
+    const same = applyRecordAction(adjudicated, saveVerdict({ id: 'v1', title: 'AI 报的', severity: 'high', verdict: 'confirmed', disposition: 'to-fix', detail: 'src/a.ts:12 未判空' }))
+    expect(same).toEqual({ ok: true, record: adjudicated, unchanged: true })
+    // 掉 detail 的重提是真变更（行会丢证据，绝不静默 no-op），空串落缺席
+    const dropped = applyRecordAction(adjudicated, saveVerdict({ id: 'v1', title: 'AI 报的', severity: 'high', verdict: 'confirmed', disposition: 'to-fix', detail: '  ' }))
+    expect(dropped.ok && dropped.unchanged).toBeUndefined()
+    if (dropped.ok) expect(dropped.record.reviewReports[0]?.verdicts[0]?.detail).toBeUndefined()
+  })
 })
 
 describe('0007 定稿软门：approveUnderstand / revokeUnderstand', () => {

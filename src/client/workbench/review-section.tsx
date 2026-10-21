@@ -30,7 +30,7 @@
  */
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { MarkdownText, Modal, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { ReviewReportEntry, ReviewVerdict, SaveReviewVerdictRequest, WorkbenchRecord } from '../../workbench-shared/protocol.js'
+import type { ReviewReportEntry, ReviewVerdict, SaveReviewVerdictRequest, WorkbenchCriteriaCheck, WorkbenchRecord } from '../../workbench-shared/protocol.js'
 import { WORKBENCH_ARTIFACT_MAX_CHARS } from '../../workbench-shared/protocol.js'
 import type { RequirementRecord } from '../../requirements-shared/protocol.js'
 import type { WorkbenchT } from './dictionary.js'
@@ -67,6 +67,41 @@ const WP_STATUS_LABEL_KEY: Record<WorkbenchRecord['workPackages'][number]['statu
   built: 'detail.statusBuilt',
   accepted: 'detail.statusAccepted',
   dropped: 'detail.statusDropped',
+}
+
+/** 0023 D2-A: conformance-check result → the row's tag key (informational face). */
+const CHECK_RESULT_LABEL_KEY: Record<WorkbenchCriteriaCheck['result'], Parameters<WorkbenchT>[0]> = {
+  satisfied: 'review.checkSatisfied',
+  unmet: 'review.checkUnmet',
+  'not-verifiable': 'review.checkNotVerifiable',
+}
+
+const CHECK_RESULT_TAG_TONE: Record<WorkbenchCriteriaCheck['result'], 'success' | 'danger' | 'info'> = {
+  satisfied: 'success',
+  unmet: 'danger',
+  'not-verifiable': 'info',
+}
+
+/**
+ * 0023 D2-A: the report card's second tag — conformance counts. Null when
+ * the report carries no criteriaChecks (pre-0023 rows: the honest absence,
+ * no face rendered).
+ */
+function reportChecksTag(report: ReviewReportEntry, t: WorkbenchT): { text: string; tone: 'success' | 'warning' | 'info' } | null {
+  const checks = report.criteriaChecks
+  if (checks === undefined) return null
+  const satisfied = checks.filter((row) => row.result === 'satisfied').length
+  const unmet = checks.filter((row) => row.result === 'unmet').length
+  const notVerifiable = checks.filter((row) => row.result === 'not-verifiable').length
+  return {
+    text: t('review.checksCount')
+      .replaceAll('{s}', String(satisfied))
+      .replaceAll('{u}', String(unmet))
+      .replaceAll('{v}', String(notVerifiable)),
+    // Direct counting, never by subtraction (the reportCountsTag lesson):
+    // warning whenever anything is unmet or awaiting human verification.
+    tone: unmet > 0 || notVerifiable > 0 ? 'warning' : 'success',
+  }
 }
 
 export function ReviewSection(props: {
@@ -156,6 +191,7 @@ export function ReviewSection(props: {
       {reports.length === 0 ? <div className={styles.guideHint}>{t('review.empty')}</div> : null}
       {reports.map((report) => {
         const counts = reportCountsTag(report)
+        const checks = reportChecksTag(report, t)
         return (
           <div key={report.id} className={styles.wpRow}>
             <div
@@ -167,6 +203,7 @@ export function ReviewSection(props: {
             >
               <div className={styles.wpRowTitle}>
                 <Tag tone={counts.tone}>{counts.text}</Tag>
+                {checks !== null ? <>{' '}<Tag tone={checks.tone}>{checks.text}</Tag></> : null}
                 {' '}{report.title !== undefined && report.title.length > 0 ? report.title : `${t('review.detailTitle')} · ${report.at.slice(0, 10)}`}
               </div>
               <div className={styles.wpRowMeta}>{report.at.slice(0, 10)}</div>
@@ -370,9 +407,10 @@ function ReviewImportModal(props: {
   const [sessionId, setSessionId] = useState('')
   const [fetchBusy, setFetchBusy] = useState(false)
   const [fetchError, setFetchError] = useState<string | null>(null)
-  // done phase carries the seeded count + advisory blockError for honest
-  // disclosure (a report with no convention block still imports — verdicts 0).
-  const [done, setDone] = useState<{ seeded: number; blockError?: 'no-review-block' | 'yaml-syntax' } | null>(null)
+  // done phase carries the seeded counts + advisory blockError for honest
+  // disclosure (a report with no convention block still imports — verdicts 0;
+  // 0023: seededChecks rides along when the block carried criteriaChecks).
+  const [done, setDone] = useState<{ seeded: number; seededChecks?: number; blockError?: 'no-review-block' | 'yaml-syntax' } | null>(null)
   useEffect(() => {
     if (props.open) {
       setTitle('')
@@ -415,7 +453,7 @@ function ReviewImportModal(props: {
   const submit = (): void => {
     const trimmed = title.trim()
     void controller.importReview(requirementId, trimmed.length > 0 ? trimmed : undefined, text).then((outcome) => {
-      if (outcome !== undefined && outcome.ok) setDone({ seeded: outcome.seeded, blockError: outcome.blockError })
+      if (outcome !== undefined && outcome.ok) setDone({ seeded: outcome.seeded, ...(outcome.seededChecks !== undefined ? { seededChecks: outcome.seededChecks } : {}), blockError: outcome.blockError })
     })
   }
 
@@ -438,6 +476,9 @@ function ReviewImportModal(props: {
               {done.blockError !== undefined
                 ? t('review.seededWithBlockError').replaceAll('{n}', String(done.seeded))
                 : t('review.seededCount').replaceAll('{n}', String(done.seeded))}
+              {done.seededChecks !== undefined
+                ? ` · ${t('review.seededChecks').replaceAll('{n}', String(done.seededChecks))}`
+                : ''}
             </div>
           ) : null}
           <div className={styles.wpFooterMain}>
@@ -549,6 +590,28 @@ function ReportDetailModal(props: {
       {body.phase === 'ready' ? (
         <>
           {body.tampered ? <div className={styles.wpWarnStrip}>{t('detail.tampered')}</div> : null}
+          {/* 0023 D2-A: the seeded conformance rows — an INFORMATIONAL face
+              above the report body (no adjudication loop of its own; the
+              user's accept/fail ruling is the closure it feeds). Absent on
+              pre-0023 reports: nothing renders. */}
+          {(props.report.criteriaChecks?.length ?? 0) > 0 ? (
+            <div className={styles.wpDocBody}>
+              <div className={styles.sectionTitle}>{t('review.checksTitle')}</div>
+              {props.report.criteriaChecks!.map((check) => (
+                <div key={`${check.ref}:${check.result}`} className={styles.criterionRow}>
+                  <div className={styles.criterionRowMain}>
+                    <div className={styles.criterionRowTitle}>
+                      <Tag tone={CHECK_RESULT_TAG_TONE[check.result]}>{t(CHECK_RESULT_LABEL_KEY[check.result])}</Tag>
+                      {' '}{check.ref}
+                    </div>
+                    {check.evidence !== undefined && check.evidence.length > 0 ? (
+                      <div className={styles.wpRowMeta}>{t('review.checkEvidence')}：{check.evidence}</div>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
           <div className={styles.wpDraftActions}>
             <CopyTextButton t={t} text={body.content} />
           </div>
@@ -602,6 +665,9 @@ function VerdictFormModal(props: {
       verdict,
       ...(verdict === 'confirmed' && disposition !== '' ? { disposition: disposition as ReviewVerdict['disposition'] } : {}),
       ...(trimmedNote.length > 0 ? { note: trimmedNote } : {}),
+      // 0023 D4-A: the seeded evidence rides through UNCHANGED — full-row
+      // replace without it would drop the AI's grounding (not a user face).
+      ...(row?.detail !== undefined ? { detail: row.detail } : {}),
     })
   }
 
@@ -634,6 +700,12 @@ function VerdictFormModal(props: {
           <span>{t('review.verdictTitleLabel')}</span>
           <input value={title} maxLength={64} onChange={(event) => { setTitle(event.target.value); setFieldError(null) }} />
         </label>
+        {row?.detail !== undefined && row.detail.length > 0 ? (
+          <div className={styles.formField}>
+            <span>{t('review.checkEvidence')}</span>
+            <div className={styles.formHint}>{row.detail}</div>
+          </div>
+        ) : null}
         <div className={styles.formField}>
           <span>{t('finding.severityLabel')}</span>
           {(['high', 'medium', 'low'] as const).map((level) => (

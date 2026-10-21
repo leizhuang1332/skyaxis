@@ -1713,6 +1713,63 @@ describe('P5b: review seeding + reSplit + confirmSplitStillValid', () => {
     }
   })
 
+  it('0023 D2-A/D4-A：criteriaChecks 播种（账本未知 ref 过滤）+ verdict 铸 detail + seededChecks 计数；幂等收敛不补种核验行', async () => {
+    const h = await harness()
+    await h.seed([seedRecord(RID, {
+      criteria: [
+        { id: 'C1', text: '十万行导出 30 秒内完成', coveredBy: ['WP1'] },
+        { id: 'C2', text: '导出任务可取消', coveredBy: [] },
+      ],
+    })])
+    const withBoth = [
+      '```yaml',
+      '# skyaxis-review',
+      'criteriaChecks:',
+      '  - ref: C1',
+      '    result: satisfied',
+      '    evidence: src/export/service.ts:30-42',
+      '  - ref: C2',
+      '    result: not-verifiable',
+      '    evidence: 需人工在浏览器验证取消交互',
+      '  - ref: C9',
+      '    result: satisfied',
+      'findings:',
+      '  - title: 事务缺失',
+      '    severity: high',
+      '    detail: src/export/importer.ts:88 导入与校验不在同一事务',
+      '```',
+    ].join('\n')
+    const res = await postReview(h, { requirementId: RID, expectedRevision: 1 }, withBoth)
+    expect(res.status).toBe(200)
+    const parsed = (await res.json()) as { revision: number; reviewId: string; seeded: number; seededChecks: number }
+    expect(parsed.seeded).toBe(1)
+    // C9 是账本未知 ref（解析合法但账本无此标准）→ 过滤不入账本（连带口径⑤）
+    expect(parsed.seededChecks).toBe(2)
+
+    const loaded = h.file.load()
+    expect(loaded.ok).toBe(true)
+    if (loaded.ok) {
+      const report = loaded.value.records[0]?.reviewReports[0]
+      expect(report?.verdicts).toEqual([
+        { id: expect.any(String), title: '事务缺失', severity: 'high', verdict: 'proposed', detail: 'src/export/importer.ts:88 导入与校验不在同一事务' },
+      ])
+      expect(report?.criteriaChecks).toEqual([
+        { ref: 'C1', result: 'satisfied', evidence: 'src/export/service.ts:30-42' },
+        { ref: 'C2', result: 'not-verifiable', evidence: '需人工在浏览器验证取消交互' },
+      ])
+      // 幂等收敛不补种（核验行推广同一纪律）：删核验行后重导同内容 → 同一报告、不复活
+      const kept = [{ ...report!, criteriaChecks: undefined }]
+      await h.file.save(loaded.value.revision, [{ ...loaded.value.records[0]!, reviewReports: kept }])
+      const retry = await postReview(h, { requirementId: RID, expectedRevision: loaded.value.revision + 1 }, withBoth)
+      const retryBody = (await retry.json()) as { reviewId: string; seeded?: number; seededChecks?: number }
+      expect(retryBody.reviewId).toBe(parsed.reviewId)
+      expect(retryBody.seeded).toBeUndefined()
+      expect(retryBody.seededChecks).toBeUndefined()
+      const after = h.file.load()
+      expect(after.ok && after.value.records[0]?.reviewReports[0]?.criteriaChecks).toBeUndefined()
+    }
+  })
+
   it('幂等锚收敛**不补种**：删掉种子行后重导同内容 → 同一报告、不复活已删行', async () => {
     const h = await harness()
     await h.seed([seedRecord(RID)])

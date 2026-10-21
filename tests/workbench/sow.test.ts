@@ -836,7 +836,8 @@ describe('buildSow', () => {
     const unbound = buildSow(devBase)
     expect(unbound).toContain('（工作区未绑定——无可引用的文档与仓库，开发只能基于需求描述）')
 
-    // review 同形：「本次评审」措辞；[需求] 段的 criteria 清单照旧嵌入（评审对照面）。
+    // review 同形（0023 九块化后）：「本次评审」措辞；输入段头随家族形（## 输入）；
+    // criteria 清单照旧嵌入（进快照节，评审对照面）。
     const reviewSow = buildSow({
       ...baseCtx,
       purpose: 'review',
@@ -850,7 +851,7 @@ describe('buildSow', () => {
     })
     expect(reviewSow).toContain('- 必读 .skyaxis/requirements/11111111-1111-4111-8111-111111111111.md——需求基线文档，本次评审的唯一需求真源')
     expect(reviewSow).not.toContain('[PRD 节选]')
-    expect(reviewSow).toContain('[输入]（用文件读取能力按路径阅读；不要凭记忆，不要猜）')
+    expect(reviewSow).toContain('## 输入（用文件读取能力按路径阅读；不要凭记忆，不要猜）')
     expect(reviewSow).not.toContain('[工作包]')
   })
 
@@ -909,6 +910,92 @@ describe('buildSow', () => {
 
     const fresh = buildSow({ ...baseCtx, purpose: 'dev', record: record({ stage: 'implement', workPackages: [wp('WP1')] }), workPackage: wp('WP1') })
     expect(fresh).not.toContain('返工历史')
+  })
+  // --- 0023 评审方法论轮（decisions 0023 D1-D4）：review 九块化 ---
+
+  it('0023 评审九节骨架：双目标目标节 + 六维判据工作流 + 只读/不运行约束 + 三节输出模板 + criteriaChecks/detail 机器骨架；无修订戳；五块头退役', () => {
+    const text = buildSow({
+      ...baseCtx,
+      purpose: 'review',
+      requirement: { ...requirement, workspacePath: 'C:\\ws\\repo-a' },
+      record: record({
+        stage: 'review',
+        criteria,
+        understandApprovedAt: AT,
+        understandBaseline: { at: AT, criteria: [], findings: [], clarifications: [], docHash: 'a'.repeat(64) },
+        workPackages: [wp('WP1', { status: 'built' })],
+      }),
+    })
+    // 七节头逐节在场
+    expect(text.startsWith('# 评审任务书 · 导出功能改造\n\n## 目标\n')).toBe(true)
+    for (const section of ['## 需求快照（工作台账本，生成时快照）', '## 输入（用文件读取能力按路径阅读；不要凭记忆，不要猜）', '## 参考知识（工作台注入，已审定）', '## 约束', '## 工作流', '## 输出']) {
+      expect(text).toContain(section)
+    }
+    // 双目标措辞（decisions 0023 拍板的两方向）
+    expect(text).toContain('当前代码实现满足验收标准吗（需求完成情况）')
+    expect(text).toContain('代码本身有没有缺陷、漏洞或显著风险（代码质量情况）')
+    expect(text).toContain('满足 / 不满足 / 无法核验')
+    // 六维逐维判据在场（D3-A）
+    for (const dimension of ['- 缺陷：', '- 安全：', '- 性能与容量：', '- 复杂度与可维护性：', '- 测试：', '- 一致性：']) {
+      expect(text).toContain(dimension)
+    }
+    expect(text).toContain('注入、输入校验、认证与会话、访问控制、敏感信息、加密误用')
+    // 约束：只读 + 不运行（运行需求走无法核验通道）
+    expect(text).toContain('不运行代码、测试或构建')
+    // 输出：三节模板 + 级别判据 + 机器骨架（criteriaChecks + findings detail，D2-A/D4-A）
+    expect(text).toContain('1. 总体结论')
+    expect(text).toContain('2. 验收核验')
+    expect(text).toContain('3. 质量发现')
+    expect(text).toContain('（级别判据：')
+    expect(text).toContain('# skyaxis-review')
+    expect(text).toContain('criteriaChecks: []')
+    expect(text).toContain('result: satisfied|unmet|not-verifiable')
+    expect(text).toContain('detail: 说明与证据（路径:行号）')
+    expect(text).toContain('完成自检')
+    // 家族纪律：无修订戳（诚实锚=快照头生成时快照）；五块头全部退役
+    expect(text).not.toContain('生成于 revision')
+    expect(text).not.toContain('[需求]')
+    expect(text).not.toContain('[知识注入]')
+    expect(text).not.toContain('[输出约定]')
+    expect(text).not.toContain('# skyaxis-declare')
+  })
+
+  it('0023 评审快照：criteria 清单在场（评审对照面）+ commits 改动面锚（短哈希+note）；零提交/零工作包诚实缺席行', () => {
+    const withCommits = buildSow({
+      ...baseCtx,
+      purpose: 'review',
+      record: record({
+        stage: 'review',
+        criteria,
+        workPackages: [
+          wp('WP1', { status: 'in-dev', commits: [{ hash: 'abcdef1234567890', note: '导出服务与取消端点', at: AT }] }),
+          wp('WP2', { status: 'built', commits: [] }),
+        ],
+      }),
+    })
+    expect(withCommits).toContain('验收标准（你将逐条核验它们）：')
+    expect(withCommits).toContain('- C1 十万行导出 30 秒内完成')
+    expect(withCommits).toContain('- C2 导出任务可取消')
+    expect(withCommits).toContain('- WP1 工作包-WP1 · 开发中（in-dev）')
+    expect(withCommits).toContain('- 提交 abcdef1 导出服务与取消端点')
+    expect(withCommits).toContain('（尚无已确认提交——该包改动面以其边界与基线文档描述为准）')
+    // 零工作包 ⇒ 诚实缺席行（无悬挂头）
+    const noWps = buildSow({ ...baseCtx, purpose: 'review', record: record({ stage: 'review', criteria, workPackages: [] }) })
+    expect(noWps).toContain('（尚无工作包——改动面以基线文档与仓库现状为准）')
+    // record null ⇒ 降级行
+    const noRecord = buildSow({ ...baseCtx, purpose: 'review', record: null })
+    expect(noRecord).toContain('（工作台记录未建立——无验收标准与工作包可核验，评审以质量发现为主）')
+  })
+
+  it('0023 dev 回归：五块路径不动（[需求]/[输入]/[知识注入]/[输出约定]/修订戳照旧，无六维与 criteria 清单）', () => {
+    const dev = buildSow({ ...baseCtx, purpose: 'dev', record: record({ stage: 'implement', workPackages: [wp('WP1')] }), workPackage: wp('WP1') })
+    expect(dev).toContain('[需求]')
+    expect(dev).toContain('[输入]（用文件读取能力按路径阅读；不要凭记忆，不要猜）')
+    expect(dev).toContain('[知识注入]')
+    expect(dev).toContain('[输出约定]')
+    expect(dev.endsWith('此后账本变更不自动同步')).toBe(true)
+    expect(dev).not.toContain('criteriaChecks')
+    expect(dev).not.toContain('六维质量排查')
   })
 })
 

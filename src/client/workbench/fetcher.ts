@@ -330,7 +330,7 @@ export function createWorkbenchFetcher() {
 
     // --- P4: review verdicts + manual candidate distillation ---
 
-    async saveReviewVerdict(requirementId: string, expectedRevision: number, reportId: string, verdict: { id?: string; title: string; severity: 'high' | 'medium' | 'low'; verdict: 'confirmed' | 'rejected'; disposition?: 'to-fix' | 'fixed' | 'wont-fix'; note?: string }, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+    async saveReviewVerdict(requirementId: string, expectedRevision: number, reportId: string, verdict: { id?: string; title: string; severity: 'high' | 'medium' | 'low'; verdict: 'confirmed' | 'rejected'; disposition?: 'to-fix' | 'fixed' | 'wont-fix'; note?: string; detail?: string }, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
       return this.mutate({ expectedRevision, requirementId, action: 'saveReviewVerdict', reportId, verdict: { ...verdict } }, signal)
     },
 

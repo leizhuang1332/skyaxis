@@ -47,6 +47,8 @@ const RELEASE_STATUS_VALUES = ['pending', 'confirmed', 'applied', 'verified', 'r
  */
 const VERDICT_INPUT_VALUES = ['confirmed', 'rejected'] as const
 const VERDICT_STORAGE_VALUES = ['proposed', 'confirmed', 'rejected'] as const
+/** 0023 D2-A: the conformance-check result enum (satisfied / unmet / not-verifiable). */
+const CHECK_RESULT_VALUES = ['satisfied', 'unmet', 'not-verifiable'] as const
 const DISPOSITION_VALUES = ['to-fix', 'fixed', 'wont-fix'] as const
 const CANDIDATE_TYPE_VALUES = ['business', 'convention'] as const
 const CANDIDATE_STATUS_VALUES = ['pending', 'promoted', 'dismissed'] as const
@@ -158,6 +160,18 @@ const ReviewVerdictSchema = z.object({
   verdict: z.enum(VERDICT_STORAGE_VALUES),
   disposition: z.enum(DISPOSITION_VALUES).optional(),
   note: z.string().max(2000).optional(),
+  // 0023 D4-A: the seeded evidence (host-minted with the row, resent verbatim
+  // on save through the two-valued input) — same cap as note. Without this
+  // key the load-time schema parse STRIPS it (zod drops unknown keys) and the
+  // save→load round-trip silently loses the evidence.
+  detail: z.string().max(2000).optional(),
+})
+
+/** 0023 D2-A: the seeded conformance-check row (storage face of WorkbenchCriteriaCheck). */
+const CriteriaCheckSchema = z.object({
+  ref: z.string().trim().min(1).max(64),
+  result: z.enum(CHECK_RESULT_VALUES),
+  evidence: z.string().max(2000).optional(),
 })
 
 export const ReviewReportEntrySchema = z.object({
@@ -166,6 +180,9 @@ export const ReviewReportEntrySchema = z.object({
   title: z.string().max(128).optional(),
   contentHash: ContentHashSchema.optional(),
   verdicts: z.array(ReviewVerdictSchema),
+  // 0023 D2-A: informational conformance rows (unknown refs already filtered
+  // at seeding); optional per the field-evolution discipline.
+  criteriaChecks: z.array(CriteriaCheckSchema).optional(),
 })
 
 export const ReleaseItemSchema = z.object({
@@ -689,6 +706,9 @@ const ReviewVerdictInputSchema = z.object({
   verdict: z.enum(VERDICT_INPUT_VALUES),
   disposition: z.enum(DISPOSITION_VALUES).optional(),
   note: z.string().max(2000).optional(),
+  // 0023 D4-A: the seeded evidence rides through unchanged (read-only face,
+  // resent verbatim on save — full-row replace must not drop it).
+  detail: z.string().max(2000).optional(),
 })
 
 export const SaveReviewVerdictSchema = z.object({

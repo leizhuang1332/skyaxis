@@ -31,9 +31,10 @@ export interface DevSeedOutcome {
   readonly revision?: number
 }
 
-/** importReview outcome — ok carries the seeded count + advisory blockError for honest disclosure. */
+/** importReview outcome — ok carries the seeded counts + advisory blockError for honest disclosure
+ *  (0023: seededChecks = criteriaChecks rows that landed after the unknown-ref filter). */
 export type ReviewImportOutcome =
-  | { readonly ok: true; readonly reviewId: string | null; readonly seeded: number; readonly blockError?: 'no-review-block' | 'yaml-syntax'; readonly blockErrorLine?: number }
+  | { readonly ok: true; readonly reviewId: string | null; readonly seeded: number; readonly seededChecks?: number; readonly blockError?: 'no-review-block' | 'yaml-syntax'; readonly blockErrorLine?: number }
   | { readonly ok: false }
 
 export function createWorkbenchController(store: WorkbenchStore, fetcher: WorkbenchFetcher) {
@@ -257,7 +258,7 @@ export function createWorkbenchController(store: WorkbenchStore, fetcher: Workbe
 
     // --- P4: review verdicts + manual candidate distillation (main-union mutations) ---
 
-    saveReviewVerdict: (requirementId: string, reportId: string, verdict: { id?: string; title: string; severity: 'high' | 'medium' | 'low'; verdict: 'confirmed' | 'rejected'; disposition?: 'to-fix' | 'fixed' | 'wont-fix'; note?: string }, signal?: AbortSignal) =>
+    saveReviewVerdict: (requirementId: string, reportId: string, verdict: { id?: string; title: string; severity: 'high' | 'medium' | 'low'; verdict: 'confirmed' | 'rejected'; disposition?: 'to-fix' | 'fixed' | 'wont-fix'; note?: string; detail?: string }, signal?: AbortSignal) =>
       mutate(requirementId, () => fetcher.saveReviewVerdict(requirementId, slotRevision(requirementId), reportId, verdict, signal), signal),
 
     removeReviewVerdict: (requirementId: string, reportId: string, id: string, signal?: AbortSignal) =>
@@ -283,6 +284,7 @@ export function createWorkbenchController(store: WorkbenchStore, fetcher: Workbe
           ok: true,
           reviewId: result.anchor.reviewId ?? null,
           seeded: result.anchor.seeded ?? 0,
+          ...(result.anchor.seededChecks !== undefined ? { seededChecks: result.anchor.seededChecks } : {}),
           ...(result.anchor.reviewBlockError !== undefined ? { blockError: result.anchor.reviewBlockError, blockErrorLine: result.anchor.reviewBlockErrorLine } : {}),
         }
       }

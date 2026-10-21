@@ -1036,6 +1036,11 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     // response carries seeded count + blockError for honest disclosure. Each
     // finding is host-minted as a 'proposed' verdict (the AI-proposal state a
     // client can never write); bad rows are skipped, never truncated.
+    // 0023 D2-A: the block's criteriaChecks rows seed the report's
+    // INFORMATIONAL conformance list — filtered here (not in parse, which is
+    // ledger-blind) to refs the ledger's criteria actually carry: an unknown
+    // ref would render as an unanchored row in the checks face. D4-A: each
+    // seeded verdict carries the finding's detail (说明与证据) verbatim.
     const reviewParse = parseReviewFindings(text)
     const seededVerdicts: ReviewVerdict[] = reviewParse.ok
       ? reviewParse.findings.map((finding) => ({
@@ -1043,7 +1048,12 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
         title: finding.title,
         severity: finding.severity,
         verdict: 'proposed',
+        ...(finding.detail !== undefined ? { detail: finding.detail } : {}),
       }))
+      : []
+    const knownCriteriaRefs = new Set(record.criteria.map((criterion) => criterion.id))
+    const seededChecks = reviewParse.ok
+      ? reviewParse.checks.filter((check) => knownCriteriaRefs.has(check.ref))
       : []
     const reviewAdvisory = reviewParse.ok
       ? {}
@@ -1060,7 +1070,14 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
       ...record,
       reviewReports: [
         ...record.reviewReports,
-        { id: reviewId, at: new Date().toISOString(), ...(title !== null ? { title } : {}), contentHash: hash, verdicts: seededVerdicts },
+        {
+          id: reviewId,
+          at: new Date().toISOString(),
+          ...(title !== null ? { title } : {}),
+          contentHash: hash,
+          verdicts: seededVerdicts,
+          ...(seededChecks.length > 0 ? { criteriaChecks: seededChecks } : {}),
+        },
       ],
     }
     const nextRecords = withRecord(ledgerRecords, requirementId, nextRecord)
@@ -1078,7 +1095,7 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
         log?.(error)
         return errorResponse(500, 'internal')
       }
-      return json({ ok: true, revision: saved.revision, kind: 'review', reviewId, seeded: seededVerdicts.length, ...reviewAdvisory })
+      return json({ ok: true, revision: saved.revision, kind: 'review', reviewId, seeded: seededVerdicts.length, seededChecks: seededChecks.length, ...reviewAdvisory })
     } catch (error) {
       log?.(error)
       return errorResponse(500, 'internal')
