@@ -195,8 +195,41 @@ export function ReviewSection(props: {
     }
   }
 
+  // 0026 排版轮 (A 摘要条置顶): the stage STATE leads the page — done tag +
+  // disposition summary + the acceptance-face check counts in one strip, so
+  // opening the tab answers「过没过、还差多少」without scrolling to the
+  // matrix. The full matrix stays at the bottom (per-criterion detail with
+  // evidence); a long criterion list never buries the fresh report cards or
+  // the action buttons.
+  const checkTally = (() => {
+    const tally: Record<WorkbenchCriteriaCheck['result'] | 'unchecked', number> = { satisfied: 0, unmet: 0, 'not-verifiable': 0, unchecked: 0 }
+    for (const criterion of record.criteria) {
+      const check = latestChecks.get(criterion.id)
+      if (check === undefined) tally.unchecked += 1
+      else tally[check.result] += 1
+    }
+    return tally
+  })()
+
   return (
     <div className={styles.reviewSection}>
+      {record.criteria.length > 0 ? (
+        <div className={styles.sectionHead}>
+          <Tag tone={matrix.done ? 'success' : 'neutral'}>{t(matrix.done ? 'review.matrixDone' : 'review.matrixUndone')}</Tag>
+          <span className={styles.gonogoText}>
+            {t('review.matrixSummary')
+              .replaceAll('{n}', String(matrix.disposed))
+              .replaceAll('{m}', String(matrix.total))
+              .replaceAll('{k}', String(matrix.holes))}
+            {' · '}
+            {t('review.stripChecks')
+              .replaceAll('{s}', String(checkTally.satisfied))
+              .replaceAll('{u}', String(checkTally.unmet))
+              .replaceAll('{v}', String(checkTally['not-verifiable']))
+              .replaceAll('{w}', String(checkTally.unchecked))}
+          </span>
+        </div>
+      ) : null}
       <div className={styles.sectionHead}>
         <div className={styles.sectionTitle}>{t('review.sectionTitle')}</div>
         {props.onOpenSow !== undefined ? (
@@ -290,6 +323,13 @@ export function ReviewSection(props: {
                       : <Tag tone="neutral">{t('review.unchecked')}</Tag>}
                     {' '}{criterion.id}　{criterion.text}
                   </div>
+                  {/* 0026: the latest check's evidence rides the row (the detail
+                      modal's per-report table retired — the matrix is the one
+                      checks face; grounding stays readable without opening
+                      the report body). */}
+                  {check?.evidence !== undefined && check.evidence.length > 0 ? (
+                    <div className={styles.wpRowMeta}>{t('review.checkEvidence')}：{check.evidence}</div>
+                  ) : null}
                   <div className={styles.coverChips}>
                     {criterion.coveredBy.length === 0 ? (
                       <span className={styles.coverChipHole}>{t('review.holeChip')}</span>
@@ -650,28 +690,11 @@ function ReportDetailModal(props: {
       {body.phase === 'ready' ? (
         <>
           {body.tampered ? <div className={styles.wpWarnStrip}>{t('detail.tampered')}</div> : null}
-          {/* 0023 D2-A: the seeded conformance rows — an INFORMATIONAL face
-              above the report body (no adjudication loop of its own; the
-              user's accept/fail ruling is the closure it feeds). Absent on
-              pre-0023 reports: nothing renders. */}
-          {(props.report.criteriaChecks?.length ?? 0) > 0 ? (
-            <div className={styles.wpDocBody}>
-              <div className={styles.sectionTitle}>{t('review.checksTitle')}</div>
-              {props.report.criteriaChecks!.map((check) => (
-                <div key={`${check.ref}:${check.result}`} className={styles.criterionRow}>
-                  <div className={styles.criterionRowMain}>
-                    <div className={styles.criterionRowTitle}>
-                      <Tag tone={CHECK_RESULT_TAG_TONE[check.result]}>{t(CHECK_RESULT_LABEL_KEY[check.result])}</Tag>
-                      {' '}{check.ref}
-                    </div>
-                    {check.evidence !== undefined && check.evidence.length > 0 ? (
-                      <div className={styles.wpRowMeta}>{t('review.checkEvidence')}：{check.evidence}</div>
-                    ) : null}
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : null}
+          {/* 0026: the per-report checks table RETIRED — the matrix on the
+              section page is the one checks face (latest-wins aggregation +
+              evidence); the report body below already carries the same
+              section in prose by the 0023 output contract (正文第二节), so
+              the table was a third copy in the same modal. */}
           <div className={styles.wpDraftActions}>
             <CopyTextButton t={t} text={body.content} />
           </div>

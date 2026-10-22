@@ -601,6 +601,8 @@ interface WorkbenchDictionary {
   readonly 'review.addVerdict': string
   readonly 'review.matrixTitle': string
   readonly 'review.matrixSummary': string
+  /** 0026 排版轮: 置顶状态条的核验计数段（四段全列——诚实计数，未核验也是状态）。 */
+  readonly 'review.stripChecks': string
   readonly 'review.matrixDone': string
   readonly 'review.matrixUndone': string
   readonly 'review.holeChip': string
@@ -639,7 +641,6 @@ interface WorkbenchDictionary {
   readonly 'review.seededCount': string
   readonly 'review.seededWithBlockError': string
   // 0023 评审方法论轮: criteriaChecks 核验面（D2-A 信息展示）与 findings 证据面（D4-A 只读）
-  readonly 'review.checksTitle': string
   readonly 'review.checkSatisfied': string
   readonly 'review.checkUnmet': string
   readonly 'review.checkNotVerifiable': string
@@ -1233,7 +1234,8 @@ const zh: WorkbenchDictionary = {
   'review.verdictsTitle': '裁决',
   'review.verdictsEmpty': '暂无裁决行——导入报告后逐条添加发现并裁决。',
   'review.addVerdict': '＋ 添加发现',
-  'review.matrixTitle': 'PRD 覆盖矩阵',
+  'review.matrixTitle': '验收核验矩阵',
+  'review.stripChecks': '核验 {s} 满足 / {u} 不满足 / {v} 无法核验 / {w} 未核验',
   'review.matrixSummary': '已处置 {n}/{m} · 空洞 {k}',
   'review.matrixDone': '完成',
   'review.matrixUndone': '未完成',
@@ -1270,7 +1272,6 @@ const zh: WorkbenchDictionary = {
   'review.noSessions': '当前工作区没有可抓取的会话（从未运行的空壳不算）；也可直接粘贴。',
   'review.seededCount': '已导入，种子裁决行 {n} 条（待你逐条裁决）。',
   'review.seededWithBlockError': '已导入报告，但未解析到 # skyaxis-review 约定块或块语法有误——种子裁决行 {n} 条。',
-  'review.checksTitle': '验收核验（AI 提议，供对照）',
   'review.checkSatisfied': '满足',
   'review.checkUnmet': '不满足',
   'review.checkNotVerifiable': '无法核验',
@@ -1838,7 +1839,8 @@ const en: WorkbenchDictionary = {
   'review.verdictsTitle': 'Adjudication',
   'review.verdictsEmpty': 'No verdict rows yet — import a report, then add findings one by one and adjudicate.',
   'review.addVerdict': '＋ Add finding',
-  'review.matrixTitle': 'PRD coverage matrix',
+  'review.matrixTitle': 'Acceptance verification matrix',
+  'review.stripChecks': 'Checks {s} satisfied / {u} unmet / {v} not verifiable / {w} not checked',
   'review.matrixSummary': 'Disposed {n}/{m} · holes {k}',
   'review.matrixDone': 'Complete',
   'review.matrixUndone': 'Incomplete',
@@ -1875,7 +1877,6 @@ const en: WorkbenchDictionary = {
   'review.noSessions': 'No fetchable sessions in this workspace (blank never-ran shells excluded); pasting always works.',
   'review.seededCount': 'Imported — {n} verdict row(s) seeded as proposed (adjudicate each one).',
   'review.seededWithBlockError': 'Report imported, but no # skyaxis-review block parsed (missing or malformed) — {n} verdict row(s) seeded.',
-  'review.checksTitle': 'Criteria checks (AI proposed, for reference)',
   'review.checkSatisfied': 'satisfied',
   'review.checkUnmet': 'unmet',
   'review.checkNotVerifiable': 'not verifiable',

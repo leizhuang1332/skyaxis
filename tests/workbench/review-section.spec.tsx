@@ -111,7 +111,8 @@ describe('S4 评审节：三节渲染', () => {
     expect(screen.getByRole('button', { name: workbenchZh['review.importButton'] })).toBeTruthy()
     expect(screen.getByText(workbenchZh['review.matrixTitle'])).toBeTruthy()
     expect(screen.getByText('已处置 0/0 · 空洞 0')).toBeTruthy()
-    expect(screen.getByText(workbenchZh['review.matrixUndone'])).toBeTruthy() // 零裁决行 = 未完成（非空真）
+    // 0026：状态条与底表双 Tag 在场——零裁决行 = 未完成（非空真）
+    expect(screen.getAllByText(workbenchZh['review.matrixUndone'])).toHaveLength(2)
   })
 
   it('报告卡：计数 Tag 空=info；有未处置 confirmed=warning；全处置=success', () => {
@@ -172,12 +173,18 @@ describe('S4 评审节：三节渲染', () => {
     expect(screen.getByText(workbenchZh['review.holeChip'])).toBeTruthy()
     // 完成口径不动：发现处置 + 无空洞 + 空集守卫
     expect(screen.getByText('已处置 1/1 · 空洞 1')).toBeTruthy()
-    expect(screen.getByText(workbenchZh['review.matrixUndone'])).toBeTruthy()
+    // 0026 状态条：置顶 Tag + 核验四段计数（与底表 Tag 双在场）
+    expect(screen.getAllByText(workbenchZh['review.matrixUndone'])).toHaveLength(2)
+    expect(screen.getByText('已处置 1/1 · 空洞 1 · 核验 0 满足 / 1 不满足 / 0 无法核验 / 1 未核验')).toBeTruthy()
+    // 置顶序：状态条先于报告区标题出现
+    const html = document.body.innerHTML
+    expect(html.indexOf('核验 0 满足')).toBeGreaterThan(-1)
+    expect(html.indexOf('核验 0 满足')).toBeLessThan(html.indexOf('评审报告'))
 
     const covered = record({ ...base, criteria: [{ id: 'C1', text: '异步导出', coveredBy: ['WP1'] }] })
     subject(slot({ record: covered }))
     expect(screen.getByText('已处置 1/1 · 空洞 0')).toBeTruthy()
-    expect(screen.getByText(workbenchZh['review.matrixDone'])).toBeTruthy()
+    expect(screen.getAllByText(workbenchZh['review.matrixDone'])).toHaveLength(2)
   })
 })
 
@@ -375,27 +382,29 @@ describe('S4 评审节：0023 核验行（criteriaChecks 信息面）与证据�
     expect(screen.queryByText('核验 0 满足 / 0 不满足 / 0 无法核验')).toBeNull()
   })
 
-  it('详情 Modal：核验表在正文之上（结果 Tag 三态 + ref + 证据行）', async () => {
+  it('详情 Modal（0026）：核验表退役——证据/结论读正文与矩阵，弹窗只剩正文与复制；证据在矩阵行在场', async () => {
     const controller = fakeController({
-      reviewContent: vi.fn(async () => ({ kind: 'ok' as const, content: '# 评审正文', contentTampered: false })),
+      reviewContent: vi.fn(async () => ({ kind: 'ok' as const, content: '# 评审正文\n\n## 验收核验\nC1 满足｜证据：src/export/service.ts:30-42', contentTampered: false })),
     })
     const rendered = subject(slot({ record: record({
+      criteria: [
+        { id: 'C1', text: '异步导出', coveredBy: ['WP1'] },
+      ],
+      workPackages: [wp('WP1')],
       reviewReports: [report('rev-a1', { title: '全量评审', criteriaChecks: [
         { ref: 'C1', result: 'satisfied', evidence: 'src/export/service.ts:30-42' },
-        { ref: 'C2', result: 'not-verifiable', evidence: '需人工在浏览器验证' },
-        { ref: 'C3', result: 'unmet' },
       ] })],
     }) }), controller)
+    // 弹窗内：无核验表（正面钉：核验三态 Tag 均缺席，正文在）
     fireEvent.click(rendered.getByText('全量评审'))
     const dialog = await screen.findByRole('dialog')
-    expect(within(dialog).getByText(workbenchZh['review.checksTitle'])).toBeTruthy()
-    expect(within(dialog).getByText(workbenchZh['review.checkSatisfied'])).toBeTruthy()
-    expect(within(dialog).getByText(workbenchZh['review.checkUnmet'])).toBeTruthy()
-    expect(within(dialog).getByText(workbenchZh['review.checkNotVerifiable'])).toBeTruthy()
-    expect(within(dialog).getByText(`${workbenchZh['review.checkEvidence']}：src/export/service.ts:30-42`)).toBeTruthy()
-    expect(within(dialog).getByText(`${workbenchZh['review.checkEvidence']}：需人工在浏览器验证`)).toBeTruthy()
-    // 无证据的核验行不渲染空证据行
-    expect(within(dialog).queryByText(`${workbenchZh['review.checkEvidence']}：`)).toBeNull()
+    await waitFor(() => expect(controller.reviewContent).toHaveBeenCalledWith(RID, 'rev-a1'))
+    expect(within(dialog).queryByText(workbenchZh['review.checkSatisfied'])).toBeNull()
+    expect(within(dialog).queryByText(workbenchZh['review.checkUnmet'])).toBeNull()
+    expect(within(dialog).queryByText(`${workbenchZh['review.checkEvidence']}：src/export/service.ts:30-42`)).toBeNull()
+    // 弹窗外（页面矩阵）：最新核验结论 + 证据 meta 行在场（核验信息唯一面）
+    expect(screen.getByText(workbenchZh['review.checkSatisfied'])).toBeTruthy()
+    expect(screen.getByText(`${workbenchZh['review.checkEvidence']}：src/export/service.ts:30-42`)).toBeTruthy()
   })
 
   it('裁决表单：proposed 行的证据只读在场，保存原样回传（全行替换不丢证据）', async () => {
