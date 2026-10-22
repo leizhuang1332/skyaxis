@@ -883,7 +883,7 @@ export function WorkbenchTabBody(props: {
               />
             ) : null}
             {record !== null && viewing === 'implement' && executionView === null ? (
-              <BoardSection key={`board-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} sessions={sessionsFace} waitingIds={waitingIds} onNavigateSession={(sessionId) => { sessionsFace.navigate(sessionId) }} onOpenSow={(workPackage, purpose) => { setSow({ purpose, workPackage }) }} onOpenExecution={(workPackage) => { setExecutionView(workPackage) }} onSendRework={(wpId) => { setReworkId(wpId) }} />
+              <BoardSection key={`board-${requirementId}`} t={t} slot={slot} controller={controller} requirementId={requirementId} workspacePath={props.requirement.workspacePath} sessions={sessionsFace} waitingIds={waitingIds} onNavigateSession={(sessionId) => { sessionsFace.navigate(sessionId) }} onOpenSow={(workPackage, purpose) => { setSow({ purpose, workPackage }) }} onOpenExecution={(workPackage) => { setExecutionView(workPackage) }} onSendRework={(wpId) => { setReworkId(wpId) }} />
             ) : null}
             {record !== null && viewing === 'implement' && executionView !== null ? (
               <ExecutionSection

@@ -2,11 +2,13 @@
  * Declare-block import modal (P3b, the repos-pool import-dialog contract
  * over the user-ratified 逐条勾选 UX):
  *
- *  - TWO CHANNELS CONVERGE ON TEXT: the bound-session fetch only fills the
+ *  - TWO CHANNELS CONVERGE ON TEXT: the session fetch only fills the
  *    textarea (the user sees the exact text before anything parses); the
  *    paste channel is always alive and never depends on the session face
  *    (D3 fallback — the fetch section hides entirely when the face is
- *    absent, honest no-render).
+ *    absent, honest no-render). The picker itself follows the review-modal
+ *    rule since 0027: workspace-scoped candidates (cwd anchor), bound
+ *    sessions pinned, scrollable radio list.
  *  - Two-stage with the revision anchor: the REAL import carries the
  *    revision the DRY-RUN response returned (never the store's current);
  *    conflict NEVER auto-chains — it lands in a stale state and only the
@@ -20,13 +22,15 @@
  *    with the user (research §5.1); nothing lands anywhere.
  */
 import { useEffect, useState, type ReactNode } from 'react'
-import { Modal, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Modal, StateDot, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { DeclareEntry, DeclarePreviewResponseOk, DeclareReport, DeclareSkipReason } from '../../workbench-shared/protocol.js'
 import type { WorkbenchT } from './dictionary.js'
 import type { WorkbenchController } from './controller.js'
 import type { RequirementWorkbenchState } from './store.js'
 import type { WorkbenchSessionsFace } from './view.js'
 import type { WorkbenchFailure } from './fetcher.js'
+import { sessionChipState } from './session-chip.js'
+import { sameHostPath } from './delivery.js'
 import styles from './view.module.css'
 
 /** Skip reason → dictionary key. Exhaustive Record — a new enum member is a type error here. */
@@ -79,12 +83,14 @@ export function DeclareImportModal(props: {
   open: boolean
   requirementId: string
   slot: RequirementWorkbenchState
+  /** The requirement's workspace anchor — scopes the fetch candidates (0027, the review-modal 0024 修订#2 rule). */
+  workspacePath: string
   controller: WorkbenchController
   /** Optional live-session face — absent (jsdom/tests) ⇒ paste channel only. */
   sessions?: WorkbenchSessionsFace
   /** 0016 P1a: land this import through a WP's devDeclare slot (slot stamped imported + receipt, atomically). */
   devDeclare?: { workPackageId: string }
-  /** 0016 P1a: the card's entry preselects the slot's seed session in the fetch dropdown. */
+  /** 0016 P1a: the card's entry preselects the slot's seed session in the fetch picker. */
   preselectSessionId?: string
   onClose: () => void
 }): ReactNode {
@@ -112,9 +118,35 @@ export function DeclareImportModal(props: {
   }, [props.open, props.preselectSessionId])
 
   const record = slot.record
-  const boundSessions = Array.from(new Set(
+  // 0027 (user ruling「与评审面保持一致」): the fetch candidates join the
+  // review-import modal's rule (0024 修订#1+#2) — ALL workspace sessions, not
+  // just bound ones (the fetch is a pure read; a hand-opened session's log
+  // can carry a # skyaxis-declare block). The sessions face is MACHINE-wide
+  // ("filtering stays with the consumer"), so the face rows scope by cwd
+  // against the requirement's workspacePath (sameHostPath — Win11
+  // case/separator/trailing-slash folding) and blank shells filter; a row
+  // with no cwd passes (host rows carry one — undefined is the create-echo
+  // placeholder race). The WP-bound sessions PIN the order (ledger order:
+  // WP order then binding order — the manual-repair first choices, mirroring
+  // reviewSession's pin).
+  //
+  // UNLIKE review, a bound session that LEFT the live face STAYS listed:
+  // declareFetch reads the persisted log, so an archived dev session remains
+  // fetchable — dropping the row would silently lose the existing repair
+  // path (0027 D2). Such rows render in the fallback form: idle dot,
+  // id-slice title (the pre-0027 form for absent summaries).
+  const boundIds = Array.from(new Set(
     (record?.workPackages ?? []).flatMap((workPackage) => workPackage.sessions.map((binding) => binding.sessionId)),
   ))
+  const faceIds = props.sessions !== undefined
+    ? props.sessions.ids
+      .map((id) => props.sessions?.summariesById[id])
+      .filter((summary): summary is NonNullable<typeof summary> =>
+        summary !== undefined && !summary.blank
+        && (summary.cwd === undefined || props.workspacePath === '' || sameHostPath(summary.cwd, props.workspacePath)))
+      .map((summary) => summary.id)
+    : []
+  const fetchableIds = [...boundIds, ...faceIds.filter((id) => !boundIds.includes(id))]
   const sessionTitle = (id: string): string =>
     props.sessions?.summariesById[id]?.displayTitle ?? `${id.slice(0, 8)}…`
 
@@ -355,20 +387,40 @@ export function DeclareImportModal(props: {
           {props.sessions !== undefined ? (
             <div className={styles.formField}>
               <span>{t('declare.sessionLabel')}</span>
-              {boundSessions.length === 0 ? (
-                <div className={styles.formHint}>{t('declare.noBoundSessions')}</div>
+              {fetchableIds.length === 0 ? (
+                <div className={styles.formHint}>{t('declare.noSessions')}</div>
               ) : (
-                <div className={styles.findingFieldRow}>
-                  <select value={sessionId} onChange={(event) => { setSessionId(event.target.value) }}>
-                    <option value="">{t('declare.sessionPlaceholder')}</option>
-                    {boundSessions.map((id) => (
-                      <option key={id} value={id}>{sessionTitle(id)}</option>
-                    ))}
-                  </select>
-                  <button type="button" className={styles.ghostButton} disabled={fetchBusy || sessionId === ''} onClick={onFetch}>
-                    {t('declare.fetchButton')}
-                  </button>
-                </div>
+                // 0027: the scrollable picker list replaces the native
+                // <select> — the same webview popup defect the review modal
+                // shed (0024 D3-B): the host-rendered layer does not scroll
+                // past the viewport, lower sessions unreachable. SessionPicker
+                // precedent: radio rows + StateDot + max-height list.
+                <>
+                  <div className={styles.formHint}>{t('declare.sessionPlaceholder')}</div>
+                  <div className={styles.pickerList} role="radiogroup" aria-label={t('declare.sessionLabel')}>
+                    {fetchableIds.map((id) => {
+                      const summary = props.sessions?.summariesById[id]
+                      return (
+                        <label key={id} className={styles.pickerRow}>
+                          <input
+                            type="radio"
+                            name="declare-fetch-session"
+                            value={id}
+                            checked={sessionId === id}
+                            onChange={() => { setSessionId(id); setFetchError(null) }}
+                          />
+                          <StateDot state={sessionChipState(false, summary?.running === true, summary?.blank === true).dot} />
+                          <span className={styles.pickerRowTitle}>{sessionTitle(id)}</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                  <div className={styles.findingFieldRow}>
+                    <button type="button" className={styles.ghostButton} disabled={fetchBusy || sessionId === ''} onClick={onFetch}>
+                      {t('declare.fetchButton')}
+                    </button>
+                  </div>
+                </>
               )}
               {fetchError !== null ? <div className={styles.fieldError}>{fetchError}</div> : null}
             </div>

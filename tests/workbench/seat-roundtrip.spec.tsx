@@ -141,7 +141,7 @@ describe('seat round-trip: S5 deliver（P3a 穿线钉）', () => {
 })
 
 describe('seat round-trip: S5 导入声明的 sessions 穿线（P3b 钉）', () => {
-  it('sessions face 经 seat → Body → DeliverSection 到达导入 Modal 的会话下拉（P2b 断裂同款防线）', async () => {
+  it('sessions face 经 seat → Body → DeliverSection 到达导入 Modal 的会话选择列表（P2b 断裂同款防线）', async () => {
     const bound: WorkbenchRecord = {
       ...record,
       workPackages: [{
@@ -175,7 +175,8 @@ describe('seat round-trip: S5 导入声明的 sessions 穿线（P3b 钉）', () 
     fireEvent.click(screen.getByRole('button', { name: workbenchZh['declare.importButton'] }))
     const dialog = await screen.findByRole('dialog')
     // 会话标题来自 sessions face —— 断在 seat 边界这里就看不到标题。
-    expect(within(dialog).getByRole('option', { name: /WP1·开发 声明会话/ })).toBeTruthy()
+    // 0027：形从原生 select 迁到滚动单选列表（radio 行）。
+    expect(within(dialog).getByRole('radio', { name: /WP1·开发 声明会话/ })).toBeTruthy()
   })
 })
 

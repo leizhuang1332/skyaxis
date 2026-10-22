@@ -35,6 +35,8 @@ export function BoardSection(props: {
   slot: RequirementWorkbenchState
   controller: WorkbenchController
   requirementId: string
+  /** The requirement's workspace anchor — threads through to the declare-import picker (0027). */
+  workspacePath: string
   /** Live-session face (register-injected; absent in tests ⇒ picker/strip degrade). */
   sessions?: { ids: readonly string[]; summariesById: Readonly<Record<string, { id: string; displayTitle: string; running: boolean; blank: boolean } | undefined>> }
   /** SessionIds with a pending approval/question (P2b fourth state). */
@@ -216,6 +218,7 @@ export function BoardSection(props: {
           slot={slot}
           controller={controller}
           requirementId={requirementId}
+          workspacePath={props.workspacePath}
           sessions={props.sessions}
           waitingIds={props.waitingIds}
           onNavigateSession={props.onNavigateSession}

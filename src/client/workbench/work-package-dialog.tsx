@@ -58,6 +58,8 @@ export function WorkPackageDialog(props: {
   slot: RequirementWorkbenchState
   controller: WorkbenchController
   requirementId: string
+  /** The requirement's workspace anchor — threads through to the declare-import picker (0027). */
+  workspacePath: string
   sessions?: { ids: readonly string[]; summariesById: Readonly<Record<string, { id: string; displayTitle: string; running: boolean; blank: boolean } | undefined>> }
   /** SessionIds with a pending approval/question (P2b fourth state). */
   waitingIds?: ReadonlySet<string>
@@ -438,6 +440,7 @@ export function WorkPackageDialog(props: {
           slot={slot}
           controller={controller}
           workPackage={workPackage}
+          workspacePath={props.workspacePath}
           sessions={props.sessions}
         />
         {workPackage.status === 'built' ? (

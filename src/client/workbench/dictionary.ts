@@ -512,7 +512,7 @@ interface WorkbenchDictionary {
   readonly 'declare.fetchNotFound': string
   readonly 'declare.fetchUnreadable': string
   readonly 'declare.fetchNoBlock': string
-  readonly 'declare.noBoundSessions': string
+  readonly 'declare.noSessions': string
   readonly 'declare.textLabel': string
   readonly 'declare.parseButton': string
   readonly 'declare.blockNoBlock': string
@@ -1139,14 +1139,14 @@ const zh: WorkbenchDictionary = {
   // declare.* — 声明块导入（P3b）
   'declare.importButton': '导入声明',
   'declare.title': '导入声明',
-  'declare.sessionLabel': '从绑定会话抓取',
+  'declare.sessionLabel': '从会话抓取',
   'declare.sessionPlaceholder': '选择会话…',
   'declare.fetchButton': '抓取',
   'declare.fetchNoService': '宿主未提供会话读取服务——请手动粘贴声明块文本。',
   'declare.fetchNotFound': '会话不存在或已被清理。',
   'declare.fetchUnreadable': '会话日志读取失败。',
   'declare.fetchNoBlock': '该会话的助手消息里没有 # skyaxis-declare 声明块。',
-  'declare.noBoundSessions': '尚无绑定会话——在 S3 工作包详情里关联 session 后可从会话抓取；也可直接粘贴。',
+  'declare.noSessions': '当前工作区没有可抓取的会话（从未运行的空壳不算）；也可直接粘贴。',
   'declare.textLabel': '声明块文本（抓取或粘贴）',
   'declare.parseButton': '解析预览',
   'declare.blockNoBlock': '文本里没有 # skyaxis-declare 声明块。',
@@ -1745,14 +1745,14 @@ const en: WorkbenchDictionary = {
   // declare.* — declare-block import (P3b)
   'declare.importButton': 'Import declare',
   'declare.title': 'Import declare block',
-  'declare.sessionLabel': 'Fetch from a bound session',
+  'declare.sessionLabel': 'Fetch from a session',
   'declare.sessionPlaceholder': 'Select a session…',
   'declare.fetchButton': 'Fetch',
   'declare.fetchNoService': 'The host does not mount the session-read service — paste the declare text manually.',
   'declare.fetchNotFound': 'The session does not exist or has been cleaned up.',
   'declare.fetchUnreadable': 'Failed to read the session log.',
   'declare.fetchNoBlock': 'No # skyaxis-declare block in this session\'s assistant messages.',
-  'declare.noBoundSessions': 'No bound sessions yet — bind one in the S3 work-package detail to fetch; pasting always works.',
+  'declare.noSessions': 'No fetchable sessions in this workspace (blank never-ran shells excluded); pasting always works.',
   'declare.textLabel': 'Declare text (fetched or pasted)',
   'declare.parseButton': 'Parse preview',
   'declare.blockNoBlock': 'No # skyaxis-declare block in the text.',

@@ -119,7 +119,7 @@ function boardWorkPackages(): WorkbenchWorkPackage[] {
 
 function subject(s: RequirementWorkbenchState = slot({ record: record({ splitApprovedAt: AT, workPackages: boardWorkPackages() }) }), controller: WorkbenchController = fakeController()) {
   return {
-    ...render(<BoardSection t={bindZh()} slot={s} controller={controller} requirementId={RID} />),
+    ...render(<BoardSection t={bindZh()} slot={s} controller={controller} requirementId={RID} workspacePath="/ws" />),
     controller,
   }
 }
@@ -220,7 +220,7 @@ describe('BoardSection（S3 执行看板）', () => {
 
   it('0019 D2-C：拒绝提交 await-ok 跟进——记录成功且有 dev 绑定才 onSendRework；无绑定/记录失败零跟进', async () => {
     const rejectVia = (controller: WorkbenchController, onSendRework: (id: string) => void, workPackage: WorkbenchWorkPackage) => render(
-      <BoardSection t={bindZh()} slot={slot({ record: record({ splitApprovedAt: AT, workPackages: [workPackage] }) })} controller={controller} requirementId={RID} onSendRework={onSendRework} />,
+      <BoardSection t={bindZh()} slot={slot({ record: record({ splitApprovedAt: AT, workPackages: [workPackage] }) })} controller={controller} requirementId={RID} workspacePath="/ws" onSendRework={onSendRework} />,
     )
 
     // 成功 + dev 绑定 ⇒ 跟进（返工话 Modal 由 view 打开）。
@@ -294,6 +294,7 @@ describe('BoardSection（S3 执行看板）', () => {
         slot={slot({ record: record({ splitApprovedAt: AT, workPackages: boardWorkPackages() }) })}
         controller={fakeController()}
         requirementId={RID}
+        workspacePath="/ws"
         onOpenSow={onOpenSow}
       />,
     )

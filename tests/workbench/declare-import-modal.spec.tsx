@@ -3,8 +3,9 @@
  * 声明块导入 Modal（P3b client 组件测试）：粘贴→解析→逐条勾选→导入的
  * payload（选中 key 集 + dry-run 响应 revision 锚定——不是 store 当前值）；
  * duplicate 默认不勾；抓取四降级文案与填充；sessions face 缺席时抓取行
- * 整块不渲染；无绑定会话提示；409 → stale + 重新解析；导入中禁关；
- * blockError 保编辑态；done 报告计数。
+ * 整块不渲染；0027 会话候选=本工作区全体（cwd 收窄/空壳过滤/绑定置顶/
+ * 离列表绑定保留）与滚动单选列表形 + 空态；409 → stale + 重新解析；
+ * 导入中禁关；blockError 保编辑态；done 报告计数。
  *
  * 全部断言走真词典 workbenchZh；Modal portal，afterEach cleanup。
  */
@@ -80,9 +81,18 @@ function fakeController(overrides: Record<string, unknown> = {}): WorkbenchContr
   } as never
 }
 
+// 0027：候选=本工作区全体——sess-a 绑定置顶；sess-free '/WS/' 钉大小写/
+// 尾斜杠折叠；sess-caps 无 cwd 钉占位行放行；sess-foreign 别的 cwd 钉缺席；
+// sess-shell 空壳钉过滤（requirement 夹具 workspacePath='/ws'）。
 const sessionsFace = (): WorkbenchSessionsFace => ({
-  ids: ['sess-a'],
-  summariesById: { 'sess-a': { id: 'sess-a', displayTitle: 'WP1·开发 会话A', running: false, blank: false } },
+  ids: ['sess-a', 'sess-free', 'sess-caps', 'sess-foreign', 'sess-shell'],
+  summariesById: {
+    'sess-a': { id: 'sess-a', displayTitle: 'WP1·开发 会话A', running: false, blank: false, cwd: '/ws' },
+    'sess-free': { id: 'sess-free', displayTitle: '手动开的会话', running: false, blank: false, cwd: '/WS/' },
+    'sess-caps': { id: 'sess-caps', displayTitle: '刚投递的会话', running: false, blank: false },
+    'sess-foreign': { id: 'sess-foreign', displayTitle: '别的项目的会话', running: false, blank: false, cwd: '/elsewhere' },
+    'sess-shell': { id: 'sess-shell', displayTitle: undefined as unknown as string, running: false, blank: true, cwd: '/ws' },
+  },
   subscribe: () => () => {},
   navigate: () => {},
 })
@@ -91,6 +101,7 @@ function subject(overrides: {
   slot?: RequirementWorkbenchState
   controller?: WorkbenchController
   sessions?: WorkbenchSessionsFace | undefined
+  preselectSessionId?: string
 } = {}) {
   const controller = overrides.controller ?? fakeController()
   const rendered = render(
@@ -99,8 +110,10 @@ function subject(overrides: {
       open
       requirementId={RID}
       slot={overrides.slot ?? slot()}
+      workspacePath="/ws"
       controller={controller}
       sessions={overrides.sessions}
+      preselectSessionId={overrides.preselectSessionId}
       onClose={() => {}}
     />,
   )
@@ -194,15 +207,66 @@ describe('声明块导入 Modal：抓取通道', () => {
     expect(rendered.getByLabelText(workbenchZh['declare.textLabel'])).toBeTruthy()
   })
 
-  it('无绑定会话 → 提示行', () => {
-    const rendered = subject({ slot: slot({ record: record({ workPackages: [] }) }), sessions: sessionsFace() })
-    expect(rendered.getByText(workbenchZh['declare.noBoundSessions'])).toBeTruthy()
+  it('会话候选（0027）：本工作区全体在场；绑定置顶；离列表绑定保留（回退形）；外工作区缺席；空壳过滤；自由会话可抓', async () => {
+    const controller = fakeController()
+    const rendered = subject({
+      controller,
+      sessions: sessionsFace(),
+      slot: slot({ record: record({ workPackages: [{
+        id: 'WP1', title: 'WP1', boundary: '', order: 1, dependsOn: [], covers: [],
+        status: 'in-dev', plans: [],
+        sessions: [
+          { sessionId: 'sess-a', purpose: 'dev' as const, boundAt: AT },
+          { sessionId: 'sess-gone', purpose: 'dev' as const, boundAt: AT },
+        ],
+        commits: [], acceptances: [],
+      }] }) }),
+    })
+    const radios = rendered.getAllByRole('radio')
+    // 绑定置顶（存活 sess-a + 离列表 sess-gone 回退形标题）+ '/WS/' 折叠命中 + 无 cwd 占位行；
+    // 外工作区（/elsewhere）与空壳（blank）过滤
+    expect(radios).toHaveLength(4)
+    expect(radios[0]).toHaveProperty('value', 'sess-a')
+    expect(radios[1]).toHaveProperty('value', 'sess-gone')
+    expect(radios[2]).toHaveProperty('value', 'sess-free')
+    expect(radios[3]).toHaveProperty('value', 'sess-caps')
+    expect(rendered.getByText('sess-gon…')).toBeTruthy()
+    expect(rendered.queryByRole('radio', { name: /别的项目的会话/ })).toBeNull()
+    // 自由会话（无任何绑定）同样可抓取
+    fireEvent.click(rendered.getByRole('radio', { name: /手动开的会话/ }))
+    fireEvent.click(rendered.getByRole('button', { name: workbenchZh['declare.fetchButton'] }))
+    await waitFor(() => expect(controller.declareFetch).toHaveBeenCalledWith('sess-free'))
+  })
+
+  it('preselect（0016 P1a）：卡片入口预选 seed 会话——radio checked', () => {
+    const rendered = subject({ sessions: sessionsFace(), preselectSessionId: 'sess-a' })
+    expect((rendered.getByRole('radio', { name: /WP1·开发 会话A/ }) as HTMLInputElement).checked).toBe(true)
+  })
+
+  it('工作区零会话（无绑定）⇒ noSessions 空态提示（粘贴常在）', () => {
+    const emptyFace: WorkbenchSessionsFace = { ids: [], summariesById: {}, subscribe: () => () => {}, navigate: () => {} }
+    const rendered = subject({ slot: slot({ record: record({ workPackages: [] }) }), sessions: emptyFace })
+    expect(rendered.getByText(workbenchZh['declare.noSessions'])).toBeTruthy()
+    expect(rendered.queryByRole('radio')).toBeNull()
+    expect(rendered.getByLabelText(workbenchZh['declare.textLabel'])).toBeTruthy()
+  })
+
+  it('列表非空但全是外工作区会话且无绑定 ⇒ 同一 noSessions 空态', () => {
+    const foreignFace: WorkbenchSessionsFace = {
+      ids: ['sess-foreign'],
+      summariesById: { 'sess-foreign': { id: 'sess-foreign', displayTitle: '别的项目的会话', running: false, blank: false, cwd: '/elsewhere' } },
+      subscribe: () => () => {},
+      navigate: () => {},
+    }
+    const rendered = subject({ slot: slot({ record: record({ workPackages: [] }) }), sessions: foreignFace })
+    expect(rendered.getByText(workbenchZh['declare.noSessions'])).toBeTruthy()
+    expect(rendered.queryByRole('radio')).toBeNull()
   })
 
   it('选中会话抓取 → textarea 填入声明块文本', async () => {
     const controller = fakeController()
     const rendered = subject({ controller, sessions: sessionsFace() })
-    fireEvent.change(rendered.getByRole('combobox'), { target: { value: 'sess-a' } })
+    fireEvent.click(rendered.getByRole('radio', { name: /WP1·开发 会话A/ }))
     fireEvent.click(rendered.getByRole('button', { name: workbenchZh['declare.fetchButton'] }))
     await waitFor(() => expect(controller.declareFetch).toHaveBeenCalledWith('sess-a'))
     await waitFor(() => expect((rendered.getByLabelText(workbenchZh['declare.textLabel']) as HTMLTextAreaElement).value).toContain('# skyaxis-declare'))
@@ -219,7 +283,7 @@ describe('声明块导入 Modal：抓取通道', () => {
         declareFetch: vi.fn(async () => ({ kind: 'ok' as const, response: { ok: true as const, missing } })),
       })
       const rendered = subject({ controller, sessions: sessionsFace() })
-      fireEvent.change(rendered.getByRole('combobox'), { target: { value: 'sess-a' } })
+      fireEvent.click(rendered.getByRole('radio', { name: /WP1·开发 会话A/ }))
       fireEvent.click(rendered.getByRole('button', { name: workbenchZh['declare.fetchButton'] }))
       expect(await rendered.findByText(workbenchZh[key])).toBeTruthy()
       cleanup()
@@ -270,6 +334,7 @@ describe('声明块导入 Modal：409 stale 与导入中禁关', () => {
         open
         requirementId={RID}
         slot={slot()}
+        workspacePath="/ws"
         controller={controller}
         onClose={onClose}
       />,

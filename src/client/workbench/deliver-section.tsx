@@ -346,6 +346,7 @@ export function DeliverSection(props: {
         open={importOpen}
         requirementId={requirementId}
         slot={slot}
+        workspacePath={props.requirement.workspacePath}
         controller={controller}
         sessions={props.sessions}
         onClose={() => { setImportOpen(false) }}

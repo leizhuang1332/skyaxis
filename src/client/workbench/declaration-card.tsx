@@ -40,7 +40,9 @@ export function DeclarationCard(props: {
   slot: RequirementWorkbenchState
   controller: WorkbenchController
   workPackage: WorkbenchWorkPackage
-  /** Session snapshot (the dialog's plain shape) — feeds the embedded import modal's fetch dropdown. */
+  /** The requirement's workspace anchor — threads through to the embedded import modal's picker (0027). */
+  workspacePath: string
+  /** Session snapshot (the dialog's plain shape) — feeds the embedded import modal's fetch picker. */
   sessions?: { ids: readonly string[]; summariesById: Readonly<Record<string, { id: string; displayTitle: string; running: boolean; blank: boolean } | undefined>> }
 }): ReactNode {
   const { t, controller, requirementId, slot } = props
@@ -148,6 +150,7 @@ export function DeclarationCard(props: {
         open={importOpen}
         requirementId={requirementId}
         slot={slot}
+        workspacePath={props.workspacePath}
         controller={controller}
         sessions={modalSessions}
         devDeclare={{ workPackageId: props.workPackage.id }}

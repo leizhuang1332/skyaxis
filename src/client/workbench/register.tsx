@@ -225,7 +225,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       | 'declare.miss.noBinding'
       | 'declare.miss.wpNotInDev'
       | 'declare.miss.wpMismatch'
-      | 'declare.noBoundSessions'
+      | 'declare.noSessions'
       | 'declare.parseButton'
       | 'declare.reparseButton'
       | 'declare.sessionLabel'

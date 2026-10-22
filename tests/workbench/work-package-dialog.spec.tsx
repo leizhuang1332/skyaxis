@@ -104,7 +104,7 @@ function subject(workPackage: WorkbenchWorkPackage, controller: WorkbenchControl
       workPackage={workPackage}
       slot={s}
       controller={controller}
-      requirementId={RID}
+      requirementId={RID} workspacePath="/ws"
       onClose={() => { /* noop */ }}
     />,
   )
@@ -130,7 +130,7 @@ describe('WorkPackageDialog（S3 详情 Modal + 硬门②）', () => {
         workPackage={workPackage}
         slot={slot()}
         controller={fakeController()}
-        requirementId={RID}
+        requirementId={RID} workspacePath="/ws"
         sessions={{ ids: ['aaaaaaaa-bbbb-4ccc-8ddd-eeeeffff0000'], summariesById: { 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeffff0000': { id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeffff0000', displayTitle: '会话甲', running: false, blank: false } } }}
         onNavigateSession={onNavigateSession}
         onClose={() => { /* noop */ }}
@@ -157,7 +157,7 @@ describe('WorkPackageDialog（S3 详情 Modal + 硬门②）', () => {
         workPackage={workPackage}
         slot={slot()}
         controller={fakeController()}
-        requirementId={RID}
+        requirementId={RID} workspacePath="/ws"
         sessions={{ ids: [planSessionId], summariesById: { [planSessionId]: { id: planSessionId, displayTitle: '规划会话', running: true, blank: false } } }}
         onNavigateSession={() => { /* noop */ }}
         onClose={() => { /* noop */ }}
@@ -271,7 +271,7 @@ describe('WorkPackageDialog（S3 详情 Modal + 硬门②）', () => {
         workPackage={wp('WP1', { status: 'plan-approved', plans: [planEntry(1, { approvedAt: AT })] })}
         slot={slot()}
         controller={controller}
-        requirementId={RID}
+        requirementId={RID} workspacePath="/ws"
         onOpenSow={onOpenSow}
         onClose={() => { /* noop */ }}
       />,
@@ -355,7 +355,7 @@ describe('WorkPackageDialog（S3 详情 Modal + 硬门②）', () => {
         workPackage={workPackage}
         slot={slot()}
         controller={fakeController()}
-        requirementId={RID}
+        requirementId={RID} workspacePath="/ws"
         sessions={sessions}
         onSendRework={onSendRework}
         onClose={() => { /* noop */ }}
@@ -389,7 +389,7 @@ describe('WorkPackageDialog（S3 详情 Modal + 硬门②）', () => {
         workPackage={wp('WP1', { status: 'built', sessions: [devSession] })}
         slot={slot()}
         controller={controller}
-        requirementId={RID}
+        requirementId={RID} workspacePath="/ws"
         onSendRework={onSendRework}
         onClose={() => { /* noop */ }}
       />,
@@ -437,7 +437,7 @@ describe('WorkPackageDialog（S3 详情 Modal + 硬门②）', () => {
         workPackage={wp('WP1', { status: 'planned' })}
         slot={slot()}
         controller={fakeController()}
-        requirementId={RID}
+        requirementId={RID} workspacePath="/ws"
         onOpenSow={onOpenSow}
         onClose={() => { /* noop */ }}
       />,
@@ -477,7 +477,7 @@ describe('WorkPackageDialog（S3 详情 Modal + 硬门②）', () => {
         workPackage={wp('WP1', { status: 'plan-approved', plans: [planEntry(1, { approvedAt: AT })] })}
         slot={slot()}
         controller={fakeController()}
-        requirementId={RID}
+        requirementId={RID} workspacePath="/ws"
         onOpenSow={onOpenSowApproved}
         onClose={() => { /* noop */ }}
       />,
@@ -502,7 +502,7 @@ describe('WorkPackageDialog（S3 详情 Modal + 硬门②）', () => {
         })}
         slot={slot()}
         controller={fakeController()}
-        requirementId={RID}
+        requirementId={RID} workspacePath="/ws"
         onOpenSow={onOpenSowDev}
         onClose={() => { /* noop */ }}
       />,
