@@ -29,6 +29,7 @@ import { createSessionMessenger, createSowDelivery, type DeliverFace, type SendM
 import { createWorkbenchTabSeat, type WorkbenchSessionsFace } from './view.js'
 import { createWorkbenchStore } from './store.js'
 import { createDevDeclareWatcher } from './dev-watcher.js'
+import { createReviewWatcher } from './review-watcher.js'
 import type { WaitingFace } from '../waiting-tracker.js'
 
 /** The detail tab seat id/order (D5 naming, unchanged from P1a). */
@@ -91,6 +92,10 @@ export function registerWorkbenchView(ctx: Context, waiting?: WaitingFace): () =
   // structural precedent) — global completion signal for requirements
   // nobody is watching; inert without the sessions face (honest degrade).
   const devWatcher = createDevDeclareWatcher({ fetcher, controller, sessions })
+  // 0024 D2-A: REGISTER-level review-report watcher — the same global
+  // completion signal for the bound review session (idle-edge sweep →
+  // quiet auto-import through the writeReview idempotency anchor).
+  const reviewWatcher = createReviewWatcher({ fetcher, controller, sessions })
   const seat = createWorkbenchTabSeat({ t: t satisfies WorkbenchT, store, controller, sessions, waiting, deliver, sendToSession })
 
   const disposeSeat = ctx.slots.inject('requirements.detail.view', () =>
@@ -102,6 +107,7 @@ export function registerWorkbenchView(ctx: Context, waiting?: WaitingFace): () =
   return () => {
     disposeSeat()
     devWatcher.dispose()
+    reviewWatcher.dispose()
     controller.dispose()
   }
 }

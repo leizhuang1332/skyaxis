@@ -37,6 +37,13 @@ export type ReviewImportOutcome =
   | { readonly ok: true; readonly reviewId: string | null; readonly seeded: number; readonly seededChecks?: number; readonly blockError?: 'no-review-block' | 'yaml-syntax'; readonly blockErrorLine?: number }
   | { readonly ok: false }
 
+/** 0024 D2-A: autoImportReview outcome — the QUIET face (never banners). miss =
+ *  the fetch advisory reason (no-review-block = not there yet); landed carries
+ *  the fresh file revision for the watcher's threading. */
+export type ReviewAutoImportOutcome =
+  | { readonly landed: true; readonly revision: number }
+  | { readonly landed: false; readonly miss?: 'no-service' | 'not-found' | 'unreadable' | 'no-review-block' }
+
 export function createWorkbenchController(store: WorkbenchStore, fetcher: WorkbenchFetcher) {
   let disposed = false
   const refreshSeqByRequirement = new Map<string, number>()
@@ -299,6 +306,32 @@ export function createWorkbenchController(store: WorkbenchStore, fetcher: Workbe
     reviewFetch: (sessionId: string, signal?: AbortSignal) =>
       fetcher.reviewFetch(sessionId, signal),
 
+    /**
+     * 0024 D2-A: the review auto-collect face — fetch the bound session's
+     * report and import it. QUIET by design (the dev-watcher discipline:
+     * never banners, never busy-toggles — the register watcher and the view
+     * mount catch-up both call this; a miss means "not there yet", the next
+     * idle edge or mount retries). Echo: refreshes the slot ONLY when the
+     * requirement is open (never fabricates one — the detached discipline,
+     * seedDevDeclareDetached's store-peek shape). The write rides the same
+     * writeReview idempotency anchor as the manual import: byte-identical
+     * repeats converge zero-write and never re-seed deleted rows.
+     */
+    autoImportReview: async (requirementId: string, sessionId: string, revision: number, signal?: AbortSignal): Promise<ReviewAutoImportOutcome | undefined> => {
+      const read = await fetcher.reviewFetch(sessionId, signal)
+      if (!alive(read)) return undefined
+      if (read.kind !== 'ok') return { landed: false }
+      if ('missing' in read.response) return { landed: false, miss: read.response.missing }
+      const result = await fetcher.writeReview(requirementId, read.response.text, revision, undefined, signal)
+      if (!alive(result)) return undefined
+      if (result.kind !== 'ok') return { landed: false } // 409/network → the next edge/mount retries (the other writer landed it, or it simply failed)
+      if (store.getSnapshot().byRequirement[requirementId] !== undefined) {
+        patchSlot(requirementId, { busy: false, revision: result.revision, banner: undefined })
+        await open(requirementId, signal)
+      }
+      return { landed: true, revision: result.revision }
+    },
+
     /** 0016 P1b: session-digest tail-window fetch. Pure read, no store, no busy (the declareFetch precedent). */
     sessionDigest: (sessionId: string, signal?: AbortSignal) =>
       fetcher.sessionDigest(sessionId, signal),
@@ -422,6 +455,14 @@ export function createWorkbenchController(store: WorkbenchStore, fetcher: Workbe
       const first = await mutate(requirementId, () => fetcher.bindAnalysisSession(requirementId, slotRevision(requirementId), sessionId, anchor, signal), signal)
       if (first || disposed) return first
       return mutate(requirementId, () => fetcher.bindAnalysisSession(requirementId, slotRevision(requirementId), sessionId, anchor, signal), signal)
+    },
+
+    /** 0024 D1-A: bind the review delivery's session (the auto-collect watch
+     *  target) — the bindAnalysisSession bounded-retry shape. */
+    bindReviewSession: async (requirementId: string, sessionId: string, anchor?: string, signal?: AbortSignal): Promise<boolean> => {
+      const first = await mutate(requirementId, () => fetcher.bindReviewSession(requirementId, slotRevision(requirementId), sessionId, anchor, signal), signal)
+      if (first || disposed) return first
+      return mutate(requirementId, () => fetcher.bindReviewSession(requirementId, slotRevision(requirementId), sessionId, anchor, signal), signal)
     },
 
     /** Watcher-only seed face — deliberately NOT the mutate() busy/banner

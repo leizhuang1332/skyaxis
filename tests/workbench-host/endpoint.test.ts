@@ -1770,6 +1770,31 @@ describe('P5b: review seeding + reSplit + confirmSplitStillValid', () => {
     }
   })
 
+  it('0024 D1-A：bindReviewSession——record-null 隐式铸账落指针；同 id 同锚 unchanged；异 id 换指针；load 往返在案（存储 schema 登记钉）', async () => {
+    const h = await harness()
+    const ANCHOR = '# 评审任务书 · 导出功能改造'
+    const bind = (extra: Record<string, unknown>, expectedRevision: number) =>
+      h.post(WORKBENCH_PATH, { expectedRevision, requirementId: RID, action: 'bindReviewSession', ...extra })
+    const res1 = await bind({ sessionId: 'sess-review', anchor: ANCHOR }, 0)
+    expect(res1.status).toBe(200)
+    const row1 = await res1.json() as { ok: boolean; revision: number }
+    expect(row1.revision).toBe(1)
+    const loaded1 = h.file.load()
+    expect(loaded1.ok && loaded1.value.records[0]?.reviewSession).toEqual({ sessionId: 'sess-review', boundAt: expect.any(String), anchor: ANCHOR })
+
+    // 同 id 同锚 → unchanged（revision 不动）
+    const res2 = await bind({ sessionId: 'sess-review', anchor: ANCHOR }, 1)
+    expect(((await res2.json()) as { revision: number }).revision).toBe(1)
+
+    // 异 id → 指针最新优先（重投递）
+    const res3 = await bind({ sessionId: 'sess-review-2' }, 1)
+    expect(res3.status).toBe(200)
+    const loaded3 = h.file.load()
+    expect(loaded3.ok && loaded3.value.records[0]?.reviewSession?.sessionId).toBe('sess-review-2')
+    // 无锚重绑保旧锚（bindAnalysisSession 语义）
+    expect(loaded3.ok && loaded3.value.records[0]?.reviewSession?.anchor).toBe(ANCHOR)
+  })
+
   it('幂等锚收敛**不补种**：删掉种子行后重导同内容 → 同一报告、不复活已删行', async () => {
     const h = await harness()
     await h.seed([seedRecord(RID)])

@@ -274,14 +274,14 @@ describe('S4 评审节：P5b 会话抓取 + 种子披露', () => {
     expect(within(dialog).getByLabelText(workbenchZh['review.bodyLabel'])).toBeTruthy()
   })
 
-  it('有绑定会话 ⇒ 抓取行渲染；选中会话抓取填入正文', async () => {
+  it('有绑定会话 ⇒ 抓取行渲染（0024 滚动列表形）；选中会话抓取填入正文', async () => {
     const controller = fakeController()
     const rendered = subject(slot({ record: boundRecord() }), controller, sessionsFace())
     fireEvent.click(rendered.getByRole('button', { name: workbenchZh['review.importButton'] }))
     const dialog = await screen.findByRole('dialog')
     expect(within(dialog).getByText(workbenchZh['review.sessionLabel'])).toBeTruthy()
 
-    fireEvent.change(within(dialog).getByRole('combobox'), { target: { value: 'sess-review' } })
+    fireEvent.click(within(dialog).getByRole('radio', { name: /评审·09-27/ }))
     fireEvent.click(within(dialog).getByRole('button', { name: workbenchZh['review.fetchButton'] }))
     await waitFor(() => expect(controller.reviewFetch).toHaveBeenCalledWith('sess-review'))
     await waitFor(() => expect((within(dialog).getByLabelText(workbenchZh['review.bodyLabel']) as HTMLTextAreaElement).value).toBe('# 抓取的报告'))
@@ -299,7 +299,7 @@ describe('S4 评审节：P5b 会话抓取 + 种子披露', () => {
       const rendered = subject(slot({ record: boundRecord() }), controller, sessionsFace())
       fireEvent.click(rendered.getByRole('button', { name: workbenchZh['review.importButton'] }))
       const dialog = await screen.findByRole('dialog')
-      fireEvent.change(within(dialog).getByRole('combobox'), { target: { value: 'sess-review' } })
+      fireEvent.click(within(dialog).getByRole('radio', { name: /评审·09-27/ }))
       fireEvent.click(within(dialog).getByRole('button', { name: workbenchZh['review.fetchButton'] }))
       expect(await within(dialog).findByText(workbenchZh[key])).toBeTruthy()
       cleanup()
@@ -402,5 +402,55 @@ describe('S4 评审节：0023 核验行（criteriaChecks 信息面）与证据�
       verdict: 'confirmed',
       detail: 'src/export/importer.ts:88 导入与校验不在同一事务',
     }))
+  })
+})
+
+describe('S4 评审节：0024 自动收取候选与会话/报告列表形', () => {
+  const reviewSessionsFace = (): WorkbenchSessionsFace => ({
+    ids: ['sess-review', 'sess-dev'],
+    summariesById: {
+      'sess-review': { id: 'sess-review', displayTitle: '评审任务书 · R', running: false, blank: false },
+      'sess-dev': { id: 'sess-dev', displayTitle: '工作包任务书 WP1 · R', running: false, blank: false },
+    },
+    subscribe: () => () => {},
+    navigate: () => {},
+  })
+
+  it('会话候选：reviewSession 绑定居首（自动收取源=人工修复路径），WP 绑定随后——滚动单选列表形', async () => {
+    const controller = fakeController()
+    const rendered = subject(slot({ record: record({
+      reviewSession: { sessionId: 'sess-review', boundAt: AT, anchor: '# 评审任务书 · R' },
+      workPackages: [wp('WP1', { sessions: [{ sessionId: 'sess-dev', purpose: 'dev', boundAt: AT }] })],
+    }) }), controller, reviewSessionsFace())
+    fireEvent.click(rendered.getByRole('button', { name: workbenchZh['review.importButton'] }))
+    const dialog = await screen.findByRole('dialog')
+    const radios = within(dialog).getAllByRole('radio')
+    expect(radios).toHaveLength(2)
+    // 候选序：评审会话第一（收取失败时的人工抓取首选）
+    expect(within(dialog).getAllByRole('radio')[0]).toHaveProperty('value', 'sess-review')
+    expect(within(dialog).getAllByRole('radio')[1]).toHaveProperty('value', 'sess-dev')
+    // 选中评审会话 → 抓取
+    fireEvent.click(within(dialog).getByRole('radio', { name: /评审任务书 · R/ }))
+    fireEvent.click(within(dialog).getByRole('button', { name: workbenchZh['review.fetchButton'] }))
+    await waitFor(() => expect(controller.reviewFetch).toHaveBeenCalledWith('sess-review'))
+  })
+
+  it('裁决表单报告选择：多报告时为滚动单选列表（原生 select 弹层 webview 不滚动的连带修复）', async () => {
+    const controller = fakeController()
+    const reports = [
+      report('rev-b', { title: '第二轮评审', at: '2026-10-22T08:00:00.000Z' }),
+      report('rev-a', { title: '首轮评审', at: '2026-10-21T08:00:00.000Z', verdicts: [{ id: 'v-1', title: '旧发现', severity: 'low', verdict: 'confirmed' }] }),
+    ]
+    const rendered = subject(slot({ record: record({ reviewReports: reports }) }), controller)
+    // 打开「添加裁决」——默认挂最新报告（rev-b）
+    fireEvent.click(rendered.getByRole('button', { name: workbenchZh['review.addVerdict'] }))
+    const dialog = await screen.findByRole('dialog')
+    const radios = within(dialog).getAllByRole('radio', { name: /轮评审/ })
+    expect(radios).toHaveLength(2)
+    // 切到首轮评审 → 提交落 rev-a
+    fireEvent.click(within(dialog).getByRole('radio', { name: /首轮评审/ }))
+    fireEvent.change(within(dialog).getByLabelText(workbenchZh['review.verdictTitleLabel']), { target: { value: '历史发现' } })
+    fireEvent.click(within(dialog).getAllByRole('button', { name: workbenchZh['action.save'] }).at(-1)!)
+    await waitFor(() => expect(controller.saveReviewVerdict).toHaveBeenCalledWith(RID, 'rev-a', expect.objectContaining({ title: '历史发现' })))
   })
 })

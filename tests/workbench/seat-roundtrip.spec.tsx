@@ -266,10 +266,11 @@ describe('seat round-trip: S4 评审节穿线（P5b 钉）', () => {
     fireEvent.click(within(sowDialog).getAllByRole('button', { name: workbenchZh['action.cancel'] }).at(-1)!)
     await waitFor(() => expect(screen.queryByRole('dialog', { name: workbenchZh['sow.title'] })).toBeNull())
 
-    // sessions 穿线见证：导入报告 Modal 的会话下拉列出绑定会话标题（缺席则整块不渲染）。
+    // sessions 穿线见证：导入报告 Modal 的会话列表列出绑定会话标题（缺席则整块不渲染；
+    // 0024 D3-B 起为滚动单选列表形——原生 select 弹层在宿主 webview 不滚动）。
     fireEvent.click(screen.getByRole('button', { name: workbenchZh['review.importButton'] }))
     const importDialog = await screen.findByRole('dialog', { name: workbenchZh['review.importTitle'] })
     expect(within(importDialog).getByText(workbenchZh['review.sessionLabel'])).toBeTruthy()
-    expect(within(importDialog).getByRole('option', { name: /评审·09-27/ })).toBeTruthy()
+    expect(within(importDialog).getByRole('radio', { name: /评审·09-27/ })).toBeTruthy()
   })
 })

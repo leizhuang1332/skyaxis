@@ -418,6 +418,11 @@ export function createWorkbenchFetcher() {
       return this.mutate({ expectedRevision, requirementId, action: 'bindAnalysisSession', sessionId, ...(anchor !== undefined ? { anchor } : {}) }, signal)
     },
 
+    /** 0024 D1-A: bind the review delivery's session (auto-collect watch target). */
+    async bindReviewSession(requirementId: string, expectedRevision: number, sessionId: string, anchor?: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
+      return this.mutate({ expectedRevision, requirementId, action: 'bindReviewSession', sessionId, ...(anchor !== undefined ? { anchor } : {}) }, signal)
+    },
+
     async seedAnalysis(requirementId: string, expectedRevision: number, sessionId: string, signal?: AbortSignal): Promise<WorkbenchMutateResult> {
       return this.mutate({ expectedRevision, requirementId, action: 'seedAnalysis', sessionId }, signal)
     },

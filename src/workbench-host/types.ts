@@ -416,6 +416,17 @@ export const WorkbenchRecordSchema = z.object({
   workPackages: z.array(WorkbenchWorkPackageSchema),
   releaseItems: z.array(ReleaseItemSchema),
   reviewReports: z.array(ReviewReportEntrySchema),
+  /**
+   * 0024 D1-A: the bound review-session pointer (auto-collect watch target).
+   * STORAGE face — without this key the load-time schema parse strips it
+   * (zod drop-unknown-keys, the 0023 fifth-place lesson) and the watcher's
+   * target silently vanishes across a save→load round-trip.
+   */
+  reviewSession: z.object({
+    sessionId: SessionIdSchema,
+    boundAt: TimestampSchema,
+    anchor: z.string().min(1).max(512).optional(),
+  }).optional(),
   knowledgeCandidates: z.array(KnowledgeCandidateSchema),
   /** Analysis-proposal container — optional per the field-evolution discipline. */
   analysis: AnalysisProposalsSchema.optional(),
@@ -838,6 +849,15 @@ const BindSplitSessionSchema = z.object({
   anchor: z.string().min(1).max(512).optional(),
 })
 
+/** 0024 D1-A: bind the review delivery's session (BindAnalysisSessionSchema's shape). */
+const BindReviewSessionSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  requirementId: z.uuid(),
+  action: z.literal('bindReviewSession'),
+  sessionId: SessionIdSchema,
+  anchor: z.string().min(1).max(512).optional(),
+})
+
 const SeedSplitSchema = z.object({
   expectedRevision: z.number().int().nonnegative(),
   requirementId: z.uuid(),
@@ -964,6 +984,7 @@ export const WorkbenchMutateSchema = z.discriminatedUnion('action', [
   EditKnowledgeCandidateSchema,
   DismissKnowledgeCandidateSchema,
   BindAnalysisSessionSchema,
+  BindReviewSessionSchema,
   SeedAnalysisSchema,
   AdoptFindingProposalSchema,
   DismissFindingProposalSchema,

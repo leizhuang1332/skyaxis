@@ -29,7 +29,8 @@
  *    the artifacts route whose 409s leave zero file side effects).
  */
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { MarkdownText, Modal, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
+import { MarkdownText, Modal, StateDot, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
+import { sessionChipState } from './session-chip.js'
 import type { ReviewReportEntry, ReviewVerdict, SaveReviewVerdictRequest, WorkbenchCriteriaCheck, WorkbenchRecord } from '../../workbench-shared/protocol.js'
 import { WORKBENCH_ARTIFACT_MAX_CHARS } from '../../workbench-shared/protocol.js'
 import type { RequirementRecord } from '../../requirements-shared/protocol.js'
@@ -422,9 +423,14 @@ function ReviewImportModal(props: {
     }
   }, [props.open])
 
-  const boundSessions = Array.from(new Set(
-    record.workPackages.flatMap((workPackage) => workPackage.sessions.map((binding) => binding.sessionId)),
-  ))
+  // 0024 D1-A: the review delivery's own binding leads the candidate list
+  // (the auto-collect source is also the manual-fetch repair path); the WP
+  // dev/wp-plan bindings follow (a review report from a dev session is the
+  // in-session-review shape P5b was built for).
+  const boundSessions = Array.from(new Set([
+    ...(record.reviewSession !== undefined ? [record.reviewSession.sessionId] : []),
+    ...record.workPackages.flatMap((workPackage) => workPackage.sessions.map((binding) => binding.sessionId)),
+  ]))
   const sessionTitle = (id: string): string =>
     props.sessions?.summariesById[id]?.displayTitle ?? `${id.slice(0, 8)}…`
 
@@ -495,17 +501,37 @@ function ReviewImportModal(props: {
             {boundSessions.length === 0 ? (
               <div className={styles.formHint}>{t('review.noBoundSessions')}</div>
             ) : (
-              <div className={styles.findingFieldRow}>
-                <select value={sessionId} onChange={(event) => { setSessionId(event.target.value) }}>
-                  <option value="">{t('review.sessionPlaceholder')}</option>
-                  {boundSessions.map((id) => (
-                    <option key={id} value={id}>{sessionTitle(id)}</option>
-                  ))}
-                </select>
-                <button type="button" className={styles.ghostButton} disabled={fetchBusy || sessionId === ''} onClick={onFetch}>
-                  {t('review.fetchButton')}
-                </button>
-              </div>
+              // 0024 D3-B: the SCROLLABLE picker list replaces the native
+              // <select> — its popup is rendered by the host webview and does
+              // NOT scroll past the viewport height (the acceptance finding:
+              // lower sessions unreachable). The SessionPicker precedent
+              // (radio rows + StateDot + max-height list) carries over.
+              <>
+                <div className={styles.formHint}>{t('review.sessionPlaceholder')}</div>
+                <div className={styles.pickerList} role="radiogroup" aria-label={t('review.sessionLabel')}>
+                  {boundSessions.map((id) => {
+                    const summary = props.sessions?.summariesById[id]
+                    return (
+                      <label key={id} className={styles.pickerRow}>
+                        <input
+                          type="radio"
+                          name="review-fetch-session"
+                          value={id}
+                          checked={sessionId === id}
+                          onChange={() => { setSessionId(id); setFetchError(null) }}
+                        />
+                        <StateDot state={sessionChipState(false, summary?.running === true, summary?.blank === true).dot} />
+                        <span className={styles.pickerRowTitle}>{sessionTitle(id)}</span>
+                      </label>
+                    )
+                  })}
+                </div>
+                <div className={styles.findingFieldRow}>
+                  <button type="button" className={styles.ghostButton} disabled={fetchBusy || sessionId === ''} onClick={onFetch}>
+                    {t('review.fetchButton')}
+                  </button>
+                </div>
+              </>
             )}
             {fetchError !== null ? <div className={styles.fieldError}>{fetchError}</div> : null}
           </div>
@@ -687,14 +713,26 @@ function VerdictFormModal(props: {
     >
       <div className={styles.modalForm}>
         {props.reports.length > 1 ? (
-          <label className={styles.formField}>
+          // 0024 D3-B: the report dropdown joins the scrollable picker list
+          // (the same native-select popup defect — a long report list would
+          // be equally unreachable in the webview).
+          <div className={styles.formField}>
             <span>{t('review.sectionTitle')}</span>
-            <select value={reportId} onChange={(event) => { setReportId(event.target.value) }}>
+            <div className={styles.pickerList} role="radiogroup" aria-label={t('review.sectionTitle')}>
               {props.reports.map((report) => (
-                <option key={report.id} value={report.id}>{report.title !== undefined && report.title.length > 0 ? report.title : report.id}</option>
+                <label key={report.id} className={styles.pickerRow}>
+                  <input
+                    type="radio"
+                    name="verdict-report"
+                    value={report.id}
+                    checked={reportId === report.id}
+                    onChange={() => { setReportId(report.id) }}
+                  />
+                  <span className={styles.pickerRowTitle}>{report.title !== undefined && report.title.length > 0 ? report.title : report.id}</span>
+                </label>
               ))}
-            </select>
-          </label>
+            </div>
+          </div>
         ) : null}
         <label className={styles.formField}>
           <span>{t('review.verdictTitleLabel')}</span>

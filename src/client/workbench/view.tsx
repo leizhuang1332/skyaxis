@@ -558,6 +558,32 @@ export function WorkbenchTabBody(props: {
     }
   }, [slot.phase, record, requirementId, controller, sessionSummaries])
 
+  // 0024 D2-A: review-report mount catch-up — the REGISTER-level watcher (see
+  // register.tsx / review-watcher.ts) covers session flips globally; this is
+  // the one-shot for a tab opened after a missed sweep (the dev mount
+  // catch-up's shape, requirement-granular). RUNNING skips (never read
+  // mid-run); a running→idle transition re-arms (the follow-up-turn case).
+  // Belt and suspenders — both zero-write when the idempotency anchor
+  // already covers the text.
+  const reviewSessionBinding = record?.reviewSession
+  const reviewSeedAttemptedRef = useRef(false)
+  useEffect(() => {
+    reviewSeedAttemptedRef.current = false
+  }, [requirementId, reviewSessionBinding?.sessionId])
+  useEffect(() => {
+    if (sessionSummaries.byId[reviewSessionBinding?.sessionId ?? '']?.running === true) {
+      reviewSeedAttemptedRef.current = false
+    }
+  }, [sessionSummaries, reviewSessionBinding?.sessionId])
+  useEffect(() => {
+    if (slot.phase !== 'ready' || record === null) return
+    if (reviewSessionBinding === undefined) return
+    if (sessionSummaries.byId[reviewSessionBinding.sessionId]?.running === true) return
+    if (reviewSeedAttemptedRef.current) return
+    reviewSeedAttemptedRef.current = true
+    void controller.autoImportReview(requirementId, reviewSessionBinding.sessionId, slot.revision)
+  }, [slot.phase, slot.revision, record, requirementId, reviewSessionBinding, sessionSummaries, controller])
+
   const advance = (): void => {
     if (nextStage === null) return
     void controller.advanceStage(requirementId, nextStage).then((ok) => {
@@ -957,7 +983,7 @@ export function WorkbenchTabBody(props: {
             busy={slot.busy}
             workPackage={sow?.workPackage}
             deliver={props.deliver}
-            onDelivered={sow !== null && sow.purpose !== 'analysis' && sow.purpose !== 'split' && sow.purpose !== 'dev' && sow.purpose !== 'wp-plan' ? undefined : (sessionId: string, sowText: string, sent: boolean) => {
+            onDelivered={sow !== null && sow.purpose !== 'analysis' && sow.purpose !== 'split' && sow.purpose !== 'dev' && sow.purpose !== 'wp-plan' && sow.purpose !== 'review' ? undefined : (sessionId: string, sowText: string, sent: boolean) => {
               // Analysis + split deliveries are the auto-watched sources
               // (ruling ③ shape) — bind with the task-book anchor (provenance
               // parity; the split channel is file-only, so its anchor is
@@ -980,6 +1006,14 @@ export function WorkbenchTabBody(props: {
               if (sow === null) return
               if (sow.purpose === 'split') {
                 void controller.bindSplitSession(requirementId, sessionId, sowText.slice(0, 200))
+                return
+              }
+              if (sow.purpose === 'review') {
+                // 0024 D1-A: 投递即绑——需求级 reviewSession 槽（评审对照全部
+                // 验收标准，不挂工作包）。有意不设 sent 门（与 dev/wp-plan 口径
+                // 不同）：v2 降级尾巴落在同一 id，用户手发后的 idle 边沿照样
+                // 布防收取；shell 绑定零害——读取 miss 只是咨询位，不落盘。
+                void controller.bindReviewSession(requirementId, sessionId, sowText.slice(0, 200))
                 return
               }
               if (sow.purpose === 'dev') {

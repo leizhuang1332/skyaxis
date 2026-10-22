@@ -176,6 +176,33 @@ export function applyRecordAction(base: WorkbenchRecord, body: WorkbenchMutateRe
       },
     }
   }
+  if (body.action === 'bindReviewSession') {
+    // 0024 D1-A: bindAnalysisSession's semantics verbatim — same id + same
+    // anchor → unchanged (repeat-bind precedent, no revision churn); a
+    // DIFFERENT id swaps the pointer (newest delivery wins, the analysis
+    // ruling ②); an absent anchor keeps the stored one (rebind has nothing
+    // fresh to offer). Unlike dev/wp-plan there is NO sent gate: the v2
+    // degraded tail lands the draft in the SAME id, so the user's manual
+    // send later arms the watcher off this very binding (a read path —
+    // misses are advisory, nothing writes from a shell).
+    const anchor = body.anchor ?? base.reviewSession?.anchor
+    if (base.reviewSession?.sessionId === body.sessionId && base.reviewSession.anchor === anchor) {
+      return { ok: true, record: base, unchanged: true }
+    }
+    if (base.reviewSession?.sessionId === body.sessionId) {
+      return {
+        ok: true,
+        record: { ...base, reviewSession: { ...base.reviewSession, ...(anchor !== undefined ? { anchor } : {}) } },
+      }
+    }
+    return {
+      ok: true,
+      record: {
+        ...base,
+        reviewSession: { sessionId: body.sessionId, boundAt: now(), ...(anchor !== undefined ? { anchor } : {}) },
+      },
+    }
+  }
   if (body.action === 'adoptFindingProposal' || body.action === 'dismissFindingProposal') {
     const container = base.analysis
     if (container === undefined) return fail(404, 'not-found')

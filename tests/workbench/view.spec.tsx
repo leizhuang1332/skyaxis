@@ -109,6 +109,10 @@ function fakeController(): WorkbenchController & { advanceStage: ReturnType<type
     seedWpPlanQuiet: vi.fn(async () => undefined),
     recordWpPlanSession: vi.fn(async () => true),
     bindWpPlanSession: vi.fn(async () => true),
+    // 0024: the review delivery's bind + the mount catch-up auto-import face
+    // (undefined outcome = quiet miss).
+    bindReviewSession: vi.fn(async () => true),
+    autoImportReview: vi.fn(async () => undefined),
     // 0018 合并轮用例：WP 详情计划节按需拉正文（undefined = 读取失败面）；
     // 后翻状态的 startWorkPackage 面（投递回调断言）。
     planContent: vi.fn(async () => undefined),
@@ -631,6 +635,31 @@ describe('0007 定稿软门：S1 就绪披露 + 定稿/撤销 + 摘要导出', (
     fireEvent.click(within(dialog).getByRole('button', { name: workbenchZh['sow.deliver'] }))
     await waitFor(() => expect(deliver).toHaveBeenCalled())
     await waitFor(() => expect(controller.bindSplitSession).toHaveBeenCalledWith(RID, 'sess-split-real', expect.any(String)))
+  })
+
+  it('0024 D1-A：review 投递即绑（不设 sent 门）⇒ bindReviewSession(RID, sessionId, 任务书头 200 字锚)——降级尾巴同 id 手发后照样布防收取', async () => {
+    const controller = fakeController()
+    // sent 缺席 = v2 降级尾巴形态——review 臂有意不设 sent 门（decisions 0024）
+    const deliver = vi.fn(async () => ({ ok: true as const, sessionId: 'sess-review-real' }))
+    render(
+      <WorkbenchTabBody
+        t={bindZh()}
+        requirement={requirement}
+        slot={slot({ record: workbenchRecord({ stage: 'review' }) })}
+        controller={controller}
+        knowledge={knowledgeState()}
+        deliver={deliver}
+      />,
+    )
+    fireEvent.click(screen.getByRole('tab', { name: /④ 评审/ }))
+    await waitFor(() => expect(screen.getByRole('button', { name: workbenchZh['sow.reviewButton'] })).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: workbenchZh['sow.reviewButton'] }))
+    const dialog = await screen.findByRole('dialog', { name: workbenchZh['sow.title'] })
+    fireEvent.click(within(dialog).getByRole('button', { name: workbenchZh['md.edit'] }))
+    await waitFor(() => { expect((dialog.querySelector('textarea[data-testid="sow-preview"]') as HTMLTextAreaElement).value).toContain('# 评审任务书') })
+    fireEvent.click(within(dialog).getByRole('button', { name: workbenchZh['sow.deliver'] }))
+    await waitFor(() => expect(deliver).toHaveBeenCalled())
+    await waitFor(() => expect(controller.bindReviewSession).toHaveBeenCalledWith(RID, 'sess-review-real', expect.any(String)))
   })
 
   it('0017 刀二：dev v3 投递（sent）⇒ 投递即绑 bindDevSession(RID, WP1, sessionId)——prompted id 即真实会话', async () => {

@@ -830,6 +830,20 @@ export interface WorkbenchRecord {
   readonly workPackages: readonly WorkbenchWorkPackage[]
   readonly releaseItems: readonly ReleaseItem[]
   readonly reviewReports: readonly ReviewReportEntry[]
+  /**
+   * 0024 (decisions 0024 D1-A): the bound review-session pointer — the
+   * auto-collect watcher's watch target (requirement-scoped: a review audits
+   * the WHOLE acceptance face, so it never hangs off a work package). The
+   * bindAnalysisSession shape verbatim (session + anchor provenance);
+   * re-delivery swaps the pointer (newest wins, the analysis ruling ②).
+   * Optional per the field-evolution discipline: pre-0024 records carry none.
+   */
+  readonly reviewSession?: {
+    readonly sessionId: string
+    readonly boundAt: string
+    /** Task-book anchor head (~200 chars) — provenance parity with the analysis bind. */
+    readonly anchor?: string
+  }
   readonly knowledgeCandidates: readonly KnowledgeCandidate[]
   /**
    * Analysis-proposal container (回传轮) — optional per the field-evolution
@@ -1317,6 +1331,7 @@ export type WorkbenchMutateRequestBody =
   | EditKnowledgeCandidateRequest
   | DismissKnowledgeCandidateRequest
   | BindAnalysisSessionRequest
+  | BindReviewSessionRequest
   | SeedAnalysisRequest
   | AdoptFindingProposalRequest
   | DismissFindingProposalRequest
@@ -1350,6 +1365,20 @@ export interface BindAnalysisSessionRequest {
   readonly action: 'bindAnalysisSession'
   readonly sessionId: string
   /** Task-book anchor head (~200 chars) — rides the delivery bind (see WorkbenchAnalysisProposals.session.anchor). */
+  readonly anchor?: string
+}
+
+/**
+ * 0024 D1-A: bind the review-SOW delivery's session as the auto-collect
+ * source (bindAnalysisSession's shape) — requirement-scoped (a review audits
+ * the whole acceptance face), pointer swap on re-delivery (newest wins).
+ */
+export interface BindReviewSessionRequest {
+  readonly expectedRevision: number
+  readonly requirementId: string
+  readonly action: 'bindReviewSession'
+  readonly sessionId: string
+  /** Task-book anchor head (~200 chars) — provenance parity (see reviewSession.anchor). */
   readonly anchor?: string
 }
 
@@ -2564,6 +2593,10 @@ export function isWorkbenchRecord(v: unknown): v is WorkbenchRecord {
     && Array.isArray(r.workPackages) && r.workPackages.every(isWorkbenchWorkPackage)
     && Array.isArray(r.releaseItems) && r.releaseItems.every(isReleaseItem)
     && Array.isArray(r.reviewReports) && r.reviewReports.every(isReviewReportEntry)
+    && (r.reviewSession === undefined || (typeof r.reviewSession === 'object' && r.reviewSession !== null
+      && isString((r.reviewSession as Record<string, unknown>).sessionId) && ((r.reviewSession as Record<string, unknown>).sessionId as string).length > 0
+      && isString((r.reviewSession as Record<string, unknown>).boundAt)
+      && ((r.reviewSession as Record<string, unknown>).anchor === undefined || isString((r.reviewSession as Record<string, unknown>).anchor))))
     && Array.isArray(r.knowledgeCandidates) && r.knowledgeCandidates.every(isKnowledgeCandidate)
     && (r.analysis === undefined || isWorkbenchAnalysisProposals(r.analysis))
     && (r.splitProposals === undefined || isWorkbenchSplitProposals(r.splitProposals))
