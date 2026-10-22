@@ -193,6 +193,10 @@ export interface WorkbenchSessionSummary {
   readonly displayTitle: string
   readonly running: boolean
   readonly blank: boolean
+  /** 0024 修订#2: the session's working directory (host list rows carry it —
+   *  cold rows without one are dropped host-side). Powers the review-import
+   *  candidate scoping to the requirement's workspace. */
+  readonly cwd?: string
 }
 
 export interface WorkbenchSessionsFace {

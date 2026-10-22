@@ -89,8 +89,10 @@ interface WorkspacesFace {
  * Host-path equality for workspace matching: case-insensitive + separator-
  * insensitive + trailing-slash-insensitive (zh-CN Win11 实机——台账路径与
  * WorkspaceView.path 可能差在反斜杠/大小写/尾斜杠；sow.ts:424 反斜杠折叠先例).
+ * Exported for the review-import candidate scoping (0024 修订#2) — one
+ * spelling of the comparison, never two.
  */
-const sameHostPath = (left: string, right: string): boolean => {
+export const sameHostPath = (left: string, right: string): boolean => {
   const norm = (path: string): string => path.replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase()
   return norm(left) === norm(right)
 }

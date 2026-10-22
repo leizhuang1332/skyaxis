@@ -40,6 +40,7 @@ import type { RequirementWorkbenchState } from './store.js'
 import type { WorkbenchSessionsFace } from './view.js'
 import { RowMenu } from './row-menu.js'
 import { CopyTextButton } from './copy-text-button.js'
+import { sameHostPath } from './delivery.js'
 import styles from './view.module.css'
 
 const SEVERITY_TAG_TONE: Record<ReviewVerdict['severity'], 'danger' | 'warning' | 'info'> = {
@@ -356,6 +357,7 @@ export function ReviewSection(props: {
         busy={slot.busy}
         record={record}
         sessions={props.sessions}
+        workspacePath={props.requirement.workspacePath}
         controller={controller}
         requirementId={requirementId}
         onClose={() => { setImportOpen(false) }}
@@ -462,6 +464,8 @@ function ReviewImportModal(props: {
   busy: boolean
   record: WorkbenchRecord
   requirementId: string
+  /** The requirement's workspace anchor (required on RequirementRecord) — scopes the fetch candidates (0024 修订#2). */
+  workspacePath: string
   controller: WorkbenchController
   /** Optional live-session face — absent (jsdom/tests) ⇒ paste-only. */
   sessions?: WorkbenchSessionsFace
@@ -495,10 +499,25 @@ function ReviewImportModal(props: {
   // SessionPicker rationale). The record's reviewSession pointer only PINS
   // the order: the auto-collect source leads, the manual repair path when
   // the watcher missed.
+  //
+  // 0024 修订#2 (user acceptance): the sessions face is MACHINE-wide, not
+  // workspace-wide — the host list RPC answers every visible session of
+  // every workspace ("filtering stays with the consumer", the store carries
+  // every row), so 修订#1's「工作区全体」was in fact「全机器全体」and the
+  // picker listed other projects' sessions. Scope the candidates by the
+  // summary's cwd against the requirement's workspacePath (the delivery.ts
+  // sameHostPath precedent — Win11 case/separator/trailing-slash folding).
+  // A row with NO cwd still passes: host list rows carry one, so undefined
+  // is the create-echo placeholder race (manager.d.ts "fill the
+  // placeholder's missing cwd") — a just-delivered session stays visible
+  // rather than blinking out; an empty anchor degrades unscoped the same
+  // honest way (the field is host-validated required, '' is pathological).
   const sessionRows = props.sessions !== undefined
     ? props.sessions.ids
       .map((id) => props.sessions?.summariesById[id])
-      .filter((summary): summary is NonNullable<typeof summary> => summary !== undefined && !summary.blank)
+      .filter((summary): summary is NonNullable<typeof summary> =>
+        summary !== undefined && !summary.blank
+        && (summary.cwd === undefined || props.workspacePath === '' || sameHostPath(summary.cwd, props.workspacePath)))
     : []
   const faceIds = sessionRows.map((row) => row.id)
   const pinnedSessionId = record.reviewSession?.sessionId

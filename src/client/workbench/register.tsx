@@ -44,7 +44,7 @@ function sessionsFace(ctx: Context): SessionsFace | undefined {
   const sessions = (ctx as unknown as { sessions?: { list: unknown; subagentAddress: (id: string) => unknown; open: (id: string) => void; openSubagent: (address: never) => void } }).sessions
   if (sessions === undefined || sessions.list === undefined) return undefined
   const list = sessions.list as {
-    getSnapshot(): { ids: readonly string[]; byId: Readonly<Record<string, { id: string; displayTitle: string; running: boolean; blank: boolean } | undefined>> }
+    getSnapshot(): { ids: readonly string[]; byId: Readonly<Record<string, { id: string; displayTitle: string; running: boolean; blank: boolean; cwd?: string } | undefined>> }
     subscribe(listener: () => void): () => void
   }
   return {
