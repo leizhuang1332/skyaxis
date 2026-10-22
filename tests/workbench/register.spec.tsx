@@ -445,6 +445,7 @@ describe('workbench: dictionaries', () => {
       'review.checkSatisfied',
       'review.checkUnmet',
       'review.checksCount',
+      'review.checksTitle',
       'review.counts',
       'review.detailTitle',
       'review.disposition.fixed',

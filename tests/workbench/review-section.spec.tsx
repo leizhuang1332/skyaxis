@@ -16,7 +16,7 @@ import type { WorkbenchController } from '../../src/client/workbench/controller.
 import type { RequirementWorkbenchState } from '../../src/client/workbench/store.js'
 import type { RequirementRecord } from '../../src/requirements-shared/protocol.js'
 import type { WorkbenchSessionsFace } from '../../src/client/workbench/view.js'
-import { ReviewSection } from '../../src/client/workbench/review-section.js'
+import { ReviewSection, formatReportAt } from '../../src/client/workbench/review-section.js'
 
 const RID = '11111111-1111-4111-8111-111111111111'
 const AT = '2026-09-27T08:00:00.000Z'
@@ -382,29 +382,40 @@ describe('S4 评审节：0023 核验行（criteriaChecks 信息面）与证据�
     expect(screen.queryByText('核验 0 满足 / 0 不满足 / 0 无法核验')).toBeNull()
   })
 
-  it('详情 Modal（0026）：核验表退役——证据/结论读正文与矩阵，弹窗只剩正文与复制；证据在矩阵行在场', async () => {
+  it('详情 Modal（0026 修订#1）：核验表复役=该报告独立快照（三态 Tag+ref+证据行），与矩阵最新聚合互补并存', async () => {
     const controller = fakeController({
-      reviewContent: vi.fn(async () => ({ kind: 'ok' as const, content: '# 评审正文\n\n## 验收核验\nC1 满足｜证据：src/export/service.ts:30-42', contentTampered: false })),
+      reviewContent: vi.fn(async () => ({ kind: 'ok' as const, content: '# 评审正文', contentTampered: false })),
     })
     const rendered = subject(slot({ record: record({
-      criteria: [
-        { id: 'C1', text: '异步导出', coveredBy: ['WP1'] },
-      ],
+      criteria: [{ id: 'C1', text: '异步导出', coveredBy: ['WP1'] }],
       workPackages: [wp('WP1')],
       reviewReports: [report('rev-a1', { title: '全量评审', criteriaChecks: [
         { ref: 'C1', result: 'satisfied', evidence: 'src/export/service.ts:30-42' },
       ] })],
     }) }), controller)
-    // 弹窗内：无核验表（正面钉：核验三态 Tag 均缺席，正文在）
     fireEvent.click(rendered.getByText('全量评审'))
     const dialog = await screen.findByRole('dialog')
     await waitFor(() => expect(controller.reviewContent).toHaveBeenCalledWith(RID, 'rev-a1'))
-    expect(within(dialog).queryByText(workbenchZh['review.checkSatisfied'])).toBeNull()
-    expect(within(dialog).queryByText(workbenchZh['review.checkUnmet'])).toBeNull()
-    expect(within(dialog).queryByText(`${workbenchZh['review.checkEvidence']}：src/export/service.ts:30-42`)).toBeNull()
-    // 弹窗外（页面矩阵）：最新核验结论 + 证据 meta 行在场（核验信息唯一面）
-    expect(screen.getByText(workbenchZh['review.checkSatisfied'])).toBeTruthy()
-    expect(screen.getByText(`${workbenchZh['review.checkEvidence']}：src/export/service.ts:30-42`)).toBeTruthy()
+    // 弹窗内：本报告快照表在场（表头为弹窗唯一文本），行为 Tag/ref/证据行
+    expect(within(dialog).getByText(workbenchZh['review.checksTitle'])).toBeTruthy()
+    expect(within(dialog).getByText('C1')).toBeTruthy()
+    // 屏级计数（结构无关）：结果 Tag 与证据行各 2——弹窗快照 + 页面矩阵聚合，两形互补并存
+    expect(screen.getAllByText(workbenchZh['review.checkSatisfied'])).toHaveLength(2)
+    expect(screen.getAllByText(`${workbenchZh['review.checkEvidence']}：src/export/service.ts:30-42`)).toHaveLength(2)
+  })
+
+  it('0026 修订#1：报告卡时间显示到时分（yyyy-MM-dd HH:mm，本地时区；无题报告回退标题同格式）', () => {
+    subject(slot({ record: record({
+      reviewReports: [
+        report('rev-titled', { title: '全量评审', at: '2026-10-22T02:05:00.000Z' }),
+        report('rev-plain', { at: '2026-10-21T16:45:00.000Z' }),
+      ],
+    }) }))
+    // 期望值经同一函数计算——不假设测试机时区
+    expect(screen.getByText(formatReportAt('2026-10-22T02:05:00.000Z'))).toBeTruthy()
+    expect(screen.getByText(`${workbenchZh['review.detailTitle']} · ${formatReportAt('2026-10-21T16:45:00.000Z')}`)).toBeTruthy()
+    // 旧日式（UTC 裸日期）不再出现在卡片 meta
+    expect(screen.queryByText('2026-10-22')).toBeNull()
   })
 
   it('裁决表单：proposed 行的证据只读在场，保存原样回传（全行替换不丢证据）', async () => {

@@ -85,6 +85,20 @@ const CHECK_RESULT_TAG_TONE: Record<WorkbenchCriteriaCheck['result'], 'success' 
 }
 
 /**
+ * 0026 修订#1: report timestamps display to the minute (yyyy-MM-dd HH:mm) in
+ * the USER's local time — the ledger stores UTC ISO, and once minutes are
+ * shown a raw slice would drift hours off the local clock. One truth for the
+ * card meta line and every untitled-report fallback title. Exported for the
+ * spec (the devTitleBindTargets precedent — tests compute the expectation
+ * through the same function, so no timezone assumption leaks in).
+ */
+export function formatReportAt(iso: string): string {
+  const date = new Date(iso)
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+/**
  * 0023 D2-A: the report card's second tag — conformance counts. Null when
  * the report carries no criteriaChecks (pre-0023 rows: the honest absence,
  * no face rendered).
@@ -254,9 +268,9 @@ export function ReviewSection(props: {
               <div className={styles.wpRowTitle}>
                 <Tag tone={counts.tone}>{counts.text}</Tag>
                 {checks !== null ? <>{' '}<Tag tone={checks.tone}>{checks.text}</Tag></> : null}
-                {' '}{report.title !== undefined && report.title.length > 0 ? report.title : `${t('review.detailTitle')} · ${report.at.slice(0, 10)}`}
+                {' '}{report.title !== undefined && report.title.length > 0 ? report.title : `${t('review.detailTitle')} · ${formatReportAt(report.at)}`}
               </div>
-              <div className={styles.wpRowMeta}>{report.at.slice(0, 10)}</div>
+              <div className={styles.wpRowMeta}>{formatReportAt(report.at)}</div>
             </div>
             <RowMenu
               menuLabel={report.id}
@@ -291,7 +305,7 @@ export function ReviewSection(props: {
                 {' '}{row.title}
                 {' '}<Tag tone={state.tone}>{state.text}</Tag>
               </div>
-              <div className={styles.wpRowMeta}>{report.title !== undefined && report.title.length > 0 ? report.title : `${t('review.detailTitle')} · ${report.at.slice(0, 10)}`}</div>
+              <div className={styles.wpRowMeta}>{report.title !== undefined && report.title.length > 0 ? report.title : `${t('review.detailTitle')} · ${formatReportAt(report.at)}`}</div>
             </div>
             <RowMenu
               menuLabel={row.id ?? row.title}
@@ -693,7 +707,7 @@ function ReportDetailModal(props: {
     <Modal
       open
       onClose={() => { props.onClose() }}
-      title={props.report.title !== undefined && props.report.title.length > 0 ? props.report.title : `${t('review.detailTitle')} · ${props.report.at.slice(0, 10)}`}
+      title={props.report.title !== undefined && props.report.title.length > 0 ? props.report.title : `${t('review.detailTitle')} · ${formatReportAt(props.report.at)}`}
       closeLabel={t('action.cancel')}
       className={styles.wpDialog}
       contentClassName={styles.wpDialogBody}
@@ -709,11 +723,31 @@ function ReportDetailModal(props: {
       {body.phase === 'ready' ? (
         <>
           {body.tampered ? <div className={styles.wpWarnStrip}>{t('detail.tampered')}</div> : null}
-          {/* 0026: the per-report checks table RETIRED — the matrix on the
-              section page is the one checks face (latest-wins aggregation +
-              evidence); the report body below already carries the same
-              section in prose by the 0023 output contract (正文第二节), so
-              the table was a third copy in the same modal. */}
+          {/* 0026 修订#1 (user ruling): the per-report checks table RESTORED —
+              each report's rows are an INDEPENDENT SNAPSHOT of that review
+              round, complementary to (not a duplicate of) the section-page
+              matrix: the matrix aggregates latest-wins across rounds, this
+              table shows what THIS round concluded with its evidence — the
+              multi-round audit face (compare round N vs N+1 per criterion).
+              Absent on pre-0023 reports: nothing renders. */}
+          {(props.report.criteriaChecks?.length ?? 0) > 0 ? (
+            <div className={styles.wpDocBody}>
+              <div className={styles.sectionTitle}>{t('review.checksTitle')}</div>
+              {props.report.criteriaChecks!.map((check) => (
+                <div key={`${check.ref}:${check.result}`} className={styles.criterionRow}>
+                  <div className={styles.criterionRowMain}>
+                    <div className={styles.criterionRowTitle}>
+                      <Tag tone={CHECK_RESULT_TAG_TONE[check.result]}>{t(CHECK_RESULT_LABEL_KEY[check.result])}</Tag>
+                      {' '}{check.ref}
+                    </div>
+                    {check.evidence !== undefined && check.evidence.length > 0 ? (
+                      <div className={styles.wpRowMeta}>{t('review.checkEvidence')}：{check.evidence}</div>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
           <div className={styles.wpDraftActions}>
             <CopyTextButton t={t} text={body.content} />
           </div>

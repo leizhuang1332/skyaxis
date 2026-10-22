@@ -565,6 +565,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       | 'review.sectionTitle'
       | 'review.seededCount'
       | 'review.seededWithBlockError'
+      | 'review.checksTitle'
       | 'review.checkSatisfied'
       | 'review.checkUnmet'
       | 'review.checkNotVerifiable'

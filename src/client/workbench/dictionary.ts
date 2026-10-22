@@ -640,7 +640,9 @@ interface WorkbenchDictionary {
   readonly 'review.noSessions': string
   readonly 'review.seededCount': string
   readonly 'review.seededWithBlockError': string
-  // 0023 评审方法论轮: criteriaChecks 核验面（D2-A 信息展示）与 findings 证据面（D4-A 只读）
+  // 0023 评审方法论轮: criteriaChecks 核验面（D2-A 信息展示）与 findings 证据面（D4-A 只读）。
+  // 0026 修订#1: checksTitle 复役——详情弹窗的核验表是该报告的独立快照（矩阵=最新聚合，互补非重复）。
+  readonly 'review.checksTitle': string
   readonly 'review.checkSatisfied': string
   readonly 'review.checkUnmet': string
   readonly 'review.checkNotVerifiable': string
@@ -1272,6 +1274,7 @@ const zh: WorkbenchDictionary = {
   'review.noSessions': '当前工作区没有可抓取的会话（从未运行的空壳不算）；也可直接粘贴。',
   'review.seededCount': '已导入，种子裁决行 {n} 条（待你逐条裁决）。',
   'review.seededWithBlockError': '已导入报告，但未解析到 # skyaxis-review 约定块或块语法有误——种子裁决行 {n} 条。',
+  'review.checksTitle': '验收核验（本报告快照）',
   'review.checkSatisfied': '满足',
   'review.checkUnmet': '不满足',
   'review.checkNotVerifiable': '无法核验',
@@ -1877,6 +1880,7 @@ const en: WorkbenchDictionary = {
   'review.noSessions': 'No fetchable sessions in this workspace (blank never-ran shells excluded); pasting always works.',
   'review.seededCount': 'Imported — {n} verdict row(s) seeded as proposed (adjudicate each one).',
   'review.seededWithBlockError': 'Report imported, but no # skyaxis-review block parsed (missing or malformed) — {n} verdict row(s) seeded.',
+  'review.checksTitle': 'Criteria checks (report snapshot)',
   'review.checkSatisfied': 'satisfied',
   'review.checkUnmet': 'unmet',
   'review.checkNotVerifiable': 'not verifiable',
