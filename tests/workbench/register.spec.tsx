@@ -480,6 +480,7 @@ describe('workbench: dictionaries', () => {
       'review.seededWithBlockError',
       'review.sessionLabel',
       'review.sessionPlaceholder',
+      'review.unchecked',
       'review.verdictAddTitle',
       'review.verdictConfirmed',
       'review.verdictEditTitle',

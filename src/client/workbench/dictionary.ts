@@ -643,6 +643,8 @@ interface WorkbenchDictionary {
   readonly 'review.checkSatisfied': string
   readonly 'review.checkUnmet': string
   readonly 'review.checkNotVerifiable': string
+  // 0025 核验矩阵轮: 矩阵主列的诚实缺席——尚无任何报告核验过该标准（区别于 AI 判「无法核验」）
+  readonly 'review.unchecked': string
   readonly 'review.checksCount': string
   readonly 'review.checkEvidence': string
   readonly 'review.seededChecks': string
@@ -1272,6 +1274,7 @@ const zh: WorkbenchDictionary = {
   'review.checkSatisfied': '满足',
   'review.checkUnmet': '不满足',
   'review.checkNotVerifiable': '无法核验',
+  'review.unchecked': '未核验',
   'review.checksCount': '核验 {s} 满足 / {u} 不满足 / {v} 无法核验',
   'review.checkEvidence': '证据',
   'review.seededChecks': '核验行 {n} 条',
@@ -1876,6 +1879,7 @@ const en: WorkbenchDictionary = {
   'review.checkSatisfied': 'satisfied',
   'review.checkUnmet': 'unmet',
   'review.checkNotVerifiable': 'not verifiable',
+  'review.unchecked': 'not checked',
   'review.checksCount': 'Checks {s} satisfied / {u} unmet / {v} not verifiable',
   'review.checkEvidence': 'Evidence',
   'review.seededChecks': '{n} criteria check(s) seeded',

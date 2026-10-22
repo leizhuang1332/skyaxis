@@ -180,6 +180,21 @@ export function ReviewSection(props: {
 
   const wpById = new Map(record.workPackages.map((workPackage) => [workPackage.id, workPackage]))
 
+  // 0025 核验矩阵轮: the review-stage matrix LEADS with the latest
+  // conformance verdict — per criterion, the newest report carrying a
+  // criteriaChecks row for that ref wins (a re-review supersedes its
+  // predecessor; `reports` is already at-desc so first hit is newest).
+  // Absent = 未核验, the honest absence (no report checked it yet — a
+  // distinct state from the AI's not-verifiable ruling). The planning-
+  // coverage chips (coveredBy) stay as the secondary line; holes stay
+  // (the completion gate reads them); the 完成口径 itself is untouched.
+  const latestChecks = new Map<string, WorkbenchCriteriaCheck>()
+  for (const report of reports) {
+    for (const check of report.criteriaChecks ?? []) {
+      if (!latestChecks.has(check.ref)) latestChecks.set(check.ref, check)
+    }
+  }
+
   return (
     <div className={styles.reviewSection}>
       <div className={styles.sectionHead}>
@@ -262,26 +277,36 @@ export function ReviewSection(props: {
             </span>
             <Tag tone={matrix.done ? 'success' : 'neutral'}>{t(matrix.done ? 'review.matrixDone' : 'review.matrixUndone')}</Tag>
           </div>
-          {record.criteria.map((criterion) => (
-            <div key={criterion.id} className={styles.criterionRow}>
-              <div className={styles.criterionRowMain}>
-                <div className={styles.criterionRowTitle}>{criterion.id}　{criterion.text}</div>
-                <div className={styles.coverChips}>
-                  {criterion.coveredBy.length === 0 ? (
-                    <span className={styles.coverChipHole}>{t('review.holeChip')}</span>
-                  ) : criterion.coveredBy.map((workPackageId) => {
-                    const workPackage = wpById.get(workPackageId)
-                    const statusSuffix = workPackage !== undefined && workPackage.status !== 'accepted'
-                      ? ` · ${t(WP_STATUS_LABEL_KEY[workPackage.status])}`
-                      : ''
-                    return (
-                      <span key={workPackageId} className={styles.coverChip}>{`← ${workPackageId}${statusSuffix}`}</span>
-                    )
-                  })}
+          {record.criteria.map((criterion) => {
+            // 0025: the verdict tag leads the line (the review-stage
+            // question is "is it met"), coverage chips trail as secondary.
+            const check = latestChecks.get(criterion.id)
+            return (
+              <div key={criterion.id} className={styles.criterionRow}>
+                <div className={styles.criterionRowMain}>
+                  <div className={styles.criterionRowTitle}>
+                    {check !== undefined
+                      ? <Tag tone={CHECK_RESULT_TAG_TONE[check.result]}>{t(CHECK_RESULT_LABEL_KEY[check.result])}</Tag>
+                      : <Tag tone="neutral">{t('review.unchecked')}</Tag>}
+                    {' '}{criterion.id}　{criterion.text}
+                  </div>
+                  <div className={styles.coverChips}>
+                    {criterion.coveredBy.length === 0 ? (
+                      <span className={styles.coverChipHole}>{t('review.holeChip')}</span>
+                    ) : criterion.coveredBy.map((workPackageId) => {
+                      const workPackage = wpById.get(workPackageId)
+                      const statusSuffix = workPackage !== undefined && workPackage.status !== 'accepted'
+                        ? ` · ${t(WP_STATUS_LABEL_KEY[workPackage.status])}`
+                        : ''
+                      return (
+                        <span key={workPackageId} className={styles.coverChip}>{`← ${workPackageId}${statusSuffix}`}</span>
+                      )
+                    })}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </>
       ) : null}
 

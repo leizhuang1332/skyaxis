@@ -144,23 +144,35 @@ describe('S4 评审节：三节渲染', () => {
     expect(screen.getAllByText('全量评审').length).toBeGreaterThanOrEqual(2) // 卡标题 + 裁决 meta 行
   })
 
-  it('覆盖矩阵：chip 带非 accepted 状态后缀、accepted 裸 id、空洞 hollow；完成口径翻转', () => {
+  it('核验矩阵（0025）：主列=最新核验结论（最新报告优先/未核验诚实缺席），覆盖 chip 降为次要；完成口径与空洞不变', () => {
     const base = record({
       criteria: [
         { id: 'C1', text: '异步导出', coveredBy: ['WP1', 'WP2'] },
         { id: 'C2', text: '权限全覆盖', coveredBy: [] },
       ],
       workPackages: [wp('WP1', { status: 'accepted' }), wp('WP2', { status: 'built' })],
-      reviewReports: [report('rev-a1', { verdicts: [
-        { id: 'v1', title: 'a', severity: 'low', verdict: 'rejected', note: 'r' },
-      ] })],
+      reviewReports: [
+        // 旧报告：C1 判 satisfied——被更新报告推翻（最新优先）
+        report('rev-old', { at: '2026-10-20T08:00:00.000Z', verdicts: [], criteriaChecks: [{ ref: 'C1', result: 'satisfied' }] }),
+        report('rev-a1', { at: '2026-10-22T08:00:00.000Z', verdicts: [
+          { id: 'v1', title: 'a', severity: 'low', verdict: 'rejected', note: 'r' },
+        ], criteriaChecks: [
+          { ref: 'C1', result: 'unmet', evidence: 'src/export/service.ts:10 未过卡' },
+        ] }),
+      ],
     })
     subject(slot({ record: base }))
-    expect(screen.getByText('← WP1')).toBeTruthy() // accepted：裸 id
-    expect(screen.getByText(`← WP2 · ${workbenchZh['detail.statusBuilt']}`)).toBeTruthy() // 非 accepted：状态后缀
+    // 主列：C1 取最新报告的核验（unmet 压过旧报告的 satisfied）；C2 未核验（无任何报告核过它）
+    expect(screen.getByText(workbenchZh['review.checkUnmet'])).toBeTruthy()
+    expect(screen.queryByText(workbenchZh['review.checkSatisfied'])).toBeNull()
+    expect(screen.getByText(workbenchZh['review.unchecked'])).toBeTruthy()
+    // 次要列：覆盖 chips 照旧（accepted 裸 id / 非 accepted 状态后缀 / 空洞）
+    expect(screen.getByText('← WP1')).toBeTruthy()
+    expect(screen.getByText(`← WP2 · ${workbenchZh['detail.statusBuilt']}`)).toBeTruthy()
     expect(screen.getByText(workbenchZh['review.holeChip'])).toBeTruthy()
+    // 完成口径不动：发现处置 + 无空洞 + 空集守卫
     expect(screen.getByText('已处置 1/1 · 空洞 1')).toBeTruthy()
-    expect(screen.getByText(workbenchZh['review.matrixUndone'])).toBeTruthy() // 有空洞
+    expect(screen.getByText(workbenchZh['review.matrixUndone'])).toBeTruthy()
 
     const covered = record({ ...base, criteria: [{ id: 'C1', text: '异步导出', coveredBy: ['WP1'] }] })
     subject(slot({ record: covered }))
