@@ -47,7 +47,7 @@ import type {
   WorkbenchListResponse,
   WorkbenchRecord,
 } from '../workbench-shared/protocol.js'
-import { planDocPath, reviewDocPath, analysisReportPath, requirementDocPath, planningDocPath, splitResultPath, devDeclarePendingPath, devDeclareImportedPath, wpPlanPath } from './artifact-path.js'
+import { planDocPath, reviewDocPath, workspaceReviewPath, analysisReportPath, requirementDocPath, planningDocPath, splitResultPath, devDeclarePendingPath, devDeclareImportedPath, wpPlanPath } from './artifact-path.js'
 import { ArtifactStore, contentHashOf } from './artifact-store.js'
 import { scanWorkbenchArtifacts } from './orphan-scan.js'
 import { applyRecordAction, applyAnalysisSeed, applySplitSeed, approveUnderstandWith, adoptPlanWith, nextReleaseItemId, applyDevDeclareSeed, stampDevDeclareImported, applyWpPlanSeed } from './record-actions.js'
@@ -177,10 +177,14 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
           exists: existsSync(planDocPath(services.workbenchRoot, requirementId, workPackage.id, plan.version)),
         })),
       ),
-      reviewFileExists: record.reviewReports.map((report) => ({
-        reviewId: report.id,
-        exists: existsSync(reviewDocPath(services.workbenchRoot, requirementId, report.id)),
-      })),
+      reviewFileExists: record.reviewReports.map((report) => {
+        // 0028 D2-A: dual-path existence — the body lives in EITHER channel.
+        const locations = reviewBodyLocations(requirementId, report.id)
+        return {
+          reviewId: report.id,
+          exists: existsSync(locations.workspace ?? locations.legacy) || existsSync(locations.legacy),
+        }
+      }),
       // Drift is recomputed at READ time, never stored (细化④②'s projection
       // discipline applied to inline content): the endpoint re-hashes every
       // item's content and compares with the registration-time contentHash.
@@ -887,6 +891,23 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
   }
 
   /**
+   * 0028 D1-A (decisions/0028): review-body channel locations. `workspace`
+   * is the bound-workspace channel when armed (absent when unbound / no
+   * resolver); `legacy` is the plugin store. Writes target the CURRENT
+   * channel; reads and convergence check BOTH — workspace first, legacy
+   * fallback (D2-A dual-path: pre-0028 bodies stay readable in place, and a
+   * convergence under an armed workspace migrates them across lazily).
+   */
+  function reviewBodyLocations(requirementId: string, reviewId: string): { workspace?: string; legacy: string } {
+    const resolve = services.resolveWorkspacePath
+    const workspaceRoot = resolve !== undefined ? resolve(requirementId) : ''
+    return {
+      ...(workspaceRoot !== '' ? { workspace: workspaceReviewPath(workspaceRoot, requirementId, reviewId) } : {}),
+      legacy: reviewDocPath(services.workbenchRoot, requirementId, reviewId),
+    }
+  }
+
+  /**
    * Plan write pipeline (D4-③): tail-draft semantics + approved-version lock
    * + byte-identical idempotent convergence, ledger-first throughout.
    */
@@ -1017,9 +1038,20 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     // correct idempotent behavior (a test pins it).
     const existing = record.reviewReports.find((entry) => entry.contentHash === hash && (entry.title ?? '') === (title ?? ''))
     if (existing !== undefined) {
-      const target = reviewDocPath(services.workbenchRoot, requirementId, existing.id)
-      const read = artifacts.read(target)
-      if (read.status !== 'ok' || read.sha256 !== hash) {
+      // 0028 D2-A: channel-aware convergence. Armed ⇒ the workspace copy is
+      // the canonical home — a missing/stale copy is repaired here, and a
+      // legacy-only body (pre-0028, or written while unbound) gets its
+      // workspace copy on the first convergence (the lazy migration; the
+      // legacy copy is never deleted — a legit duplicate, scan-clean).
+      // Unarmed ⇒ the legacy path stays the only home (a reverse copy keeps
+      // unarmed reads self-contained when a workspace went away later).
+      const locations = reviewBodyLocations(requirementId, existing.id)
+      const hashOk = (path: string): boolean => {
+        const read = artifacts.read(path)
+        return read.status === 'ok' && read.sha256 === hash
+      }
+      const target = locations.workspace ?? locations.legacy
+      if (!hashOk(target)) {
         try {
           artifacts.write(target, text)
         } catch (error) {
@@ -1090,7 +1122,9 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
         return errorResponse(409, 'unreadable-file')
       }
       try {
-        artifacts.write(reviewDocPath(services.workbenchRoot, requirementId, reviewId), text)
+        // 0028 D1-A: the CURRENT channel — workspace when armed, legacy otherwise.
+        artifacts.write(reviewBodyLocations(requirementId, reviewId).workspace
+          ?? reviewDocPath(services.workbenchRoot, requirementId, reviewId), text)
       } catch (error) {
         log?.(error)
         return errorResponse(500, 'internal')
@@ -1198,8 +1232,9 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     const record = current.value.records.find((candidate) => candidate.requirementId === requirementId)
     if (record === undefined) return errorResponse(404, 'not-found')
 
-    let target: string
+    let target: string | undefined
     let expectedHash: string | undefined
+    let read: ReturnType<ArtifactStore['read']> | undefined
     if (kind === 'plan') {
       const workPackageId = url.searchParams.get('workPackageId')
       const version = Number(url.searchParams.get('version'))
@@ -1210,16 +1245,21 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
       if (entry === undefined) return errorResponse(404, 'not-found')
       target = planDocPath(services.workbenchRoot, requirementId, workPackageId, version)
       expectedHash = entry.contentHash
+      read = artifacts.read(target)
     } else {
       const reviewId = url.searchParams.get('reviewId')
       if (reviewId === null || !isReviewId(reviewId)) return errorResponse(400, 'bad-request')
       const entry = record.reviewReports.find((report) => report.id === reviewId)
       if (entry === undefined) return errorResponse(404, 'not-found')
-      target = reviewDocPath(services.workbenchRoot, requirementId, reviewId)
+      // 0028 D2-A: dual-path read — workspace channel first, legacy fallback
+      // (pre-0028 bodies read in place; the read path never writes — the
+      // lazy migration rides the write/convergence branch only).
+      const locations = reviewBodyLocations(requirementId, reviewId)
+      read = artifacts.read(locations.workspace ?? locations.legacy)
+      if (read.status === 'missing' && locations.workspace !== undefined) read = artifacts.read(locations.legacy)
       expectedHash = entry.contentHash
     }
-
-    const read = artifacts.read(target)
+    if (read === undefined) return errorResponse(400, 'bad-request') // unreachable: the kind gate above
     if (read.status === 'missing') return errorResponse(404, 'not-found')
     if (read.status === 'too-large') return errorResponse(413, 'too-large')
     // Legacy entries without a hash read back untampered-silent (field-
@@ -1240,7 +1280,9 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     fetch: async () => {
       const current = file.load()
       if (!current.ok) return errorResponse(409, 'unreadable-file')
-      return json({ ok: true, ...scanWorkbenchArtifacts(services.workbenchRoot, current.value.records) })
+      // 0028 D2-A: the scan knows the workspace channel (neither-location =
+      // missing); absent resolver degrades to the plugin-store-only check.
+      return json({ ok: true, ...scanWorkbenchArtifacts(services.workbenchRoot, current.value.records, services.resolveWorkspacePath) })
     },
   })
 

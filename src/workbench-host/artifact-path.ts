@@ -2,17 +2,19 @@
  * Workbench artifact document locations (0006 P1b) — the host-side pure
  * functions behind decisions/0005 细化①②: every plan/review file path is
  * DERIVED here from (requirementId, workPackageId, version / reviewId), so the
- * wire and the ledger never carry a path. Layout template, frozen at v1:
+ * wire and the ledger never carry a path. Layout template v2 (0028 修订,
+ * decisions/0028 — supersedes the frozen v1 reviews line per the revise-ADR-
+ * first rule below):
  *
  *   <root>/<requirementId>/plans/<workPackageId>-v<version>.md
- *   <root>/<requirementId>/reviews/<reviewId>.md
+ *   <root>/<requirementId>/reviews/<reviewId>.md          (legacy channel —
+ *     the unbound-requirement home; pre-0028 reports live here)
+ *   <workspace>/.skyaxis/reviews/<requirementId>/<reviewId>.md  (workspace
+ *     channel — 0028: bound-workspace writes route here, reads check both)
  *   <root>/<requirementId>/                 (requirementArtifactDir)
  *   trash NAME: <requirementId>-<ISO timestamp, ':' → '-'>   (D6 cascade;
  *     colons are illegal in Windows directory names)
  *
- * A template change is a BREAKING migration — every stored ledger reference
- * and contentHash points through these conventions — and must revise ADR
- * 0005 first, never reshuffle silently.
  *
  * The browser NEVER imports this file: node:path lives here on purpose, and
  * the browser half consumes ids and existence rows (workbench-shared/
@@ -78,11 +80,27 @@ export function planDocPath(root: string, requirementId: string, workPackageId: 
   return join(root, requirementId, 'plans', `${workPackageId}-v${version}.md`)
 }
 
-/** Review report markdown — reviews/<reviewId>.md. */
+/** Review report markdown — reviews/<reviewId>.md (the plugin-store LEGACY channel; 0028 D1-A keeps it as the unbound-requirement home). */
 export function reviewDocPath(root: string, requirementId: string, reviewId: string): string {
   assertRequirementId(requirementId)
   assertReviewId(reviewId)
   return join(root, requirementId, 'reviews', `${reviewId}.md`)
+}
+
+/**
+ * Review report markdown, WORKSPACE channel (0028, decisions/0028 D1-A) —
+ * `.skyaxis/reviews/<requirementId>/<reviewId>.md`, the declares/<rid>/
+ * per-requirement-directory precedent (the review stage's deliverable joins
+ * the workspace channel family: visible in the user's project tree, like
+ * analysis/requirements/planning/split/wps/declares). CHANNEL RULE: a bound
+ * workspace routes writes here; an unbound requirement keeps reviewDocPath
+ * (the body must never be homeless). Reads/convergence locate BOTH
+ * (workspace first, legacy fallback — D2-A dual-path + lazy migration).
+ */
+export function workspaceReviewPath(workspaceRoot: string, requirementId: string, reviewId: string): string {
+  assertRequirementId(requirementId)
+  assertReviewId(reviewId)
+  return join(workspaceRoot, '.skyaxis', 'reviews', requirementId, `${reviewId}.md`)
 }
 
 /**

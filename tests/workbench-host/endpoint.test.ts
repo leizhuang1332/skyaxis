@@ -1643,6 +1643,82 @@ describe('P4: review verdicts + idempotency anchor + candidate distillation', ()
   })
 })
 
+describe('0028 评审报告工作区通道（D1-A 双通道 + D2-A 双路径读/顺迁）', () => {
+  /** A bound-workspace harness — resolve answers the temp dir for every rid (the fileWorkspace face). */
+  const wsHarness = async (): Promise<{ h: Harness; dir: string }> => {
+    const dir = mkdtempSync(join(tmpdir(), 'workbench-review-ws-test-'))
+    dirs.push(dir)
+    const h = await harness({ resolveWorkspacePath: () => dir })
+    return { h, dir }
+  }
+  const BODY = ['# 评审报告', '', '```yaml', '# skyaxis-review', 'findings: []', '```'].join('\n')
+  const legacySeed = (): WorkbenchRecord => seedRecord(RID, {
+    reviewReports: [{ id: 'rev-legacy', at: NOW, contentHash: contentHashOf(BODY), verdicts: [] }],
+  })
+
+  it('armed 新报告 → 正文落 .skyaxis/reviews/<rid>/<reviewId>.md（插件库零文件）；GET 读回；详情 exists 双路径', async () => {
+    const { h, dir } = await wsHarness()
+    await h.seed([seedRecord(RID)])
+    const res = await postReview(h, { requirementId: RID, expectedRevision: 1, title: 'R' }, BODY)
+    const { reviewId } = await res.json() as { reviewId: string }
+    expect(readFileSync(join(dir, '.skyaxis', 'reviews', RID, `${reviewId}.md`), 'utf8')).toBe(BODY)
+    expect(existsSync(reviewDocPath(h.workbenchRoot, RID, reviewId))).toBe(false) // 插件库零文件——工作区通道唯一落点
+
+    const read = await h.get(`${WORKBENCH_ARTIFACTS_PATH}?${qs({ kind: 'review', requirementId: RID, reviewId })}`)
+    expect(((await read.json()) as { content: string }).content).toBe(BODY)
+    const detail = await h.get(`${WORKBENCH_PATH}?${qs({ requirementId: RID })}`)
+    expect(((await detail.json()) as { reviewFileExists: { reviewId: string; exists: boolean }[] }).reviewFileExists)
+      .toEqual([{ reviewId, exists: true }])
+  })
+
+  it('unarmed（无 resolver）→ 维持插件库老路径（能力零缩水，存量语义不变）', async () => {
+    const h = await harness()
+    await h.seed([seedRecord(RID)])
+    const res = await postReview(h, { requirementId: RID, expectedRevision: 1 }, BODY)
+    const { reviewId } = await res.json() as { reviewId: string }
+    expect(readFileSync(reviewDocPath(h.workbenchRoot, RID, reviewId), 'utf8')).toBe(BODY)
+  })
+
+  it('D2-A 顺迁：legacy 正文 + armed 重导同内容 → 同 reviewId 收敛、工作区副本出现、legacy 保留', async () => {
+    const { h, dir } = await wsHarness()
+    await h.seed([legacySeed()])
+    mkdirSync(join(h.workbenchRoot, RID, 'reviews'), { recursive: true })
+    writeFileSync(reviewDocPath(h.workbenchRoot, RID, 'rev-legacy'), BODY, 'utf8')
+
+    const res = await postReview(h, { requirementId: RID, expectedRevision: 1 }, BODY)
+    expect(((await res.json()) as { reviewId: string }).reviewId).toBe('rev-legacy') // 收敛不新建
+    expect(readFileSync(join(dir, '.skyaxis', 'reviews', RID, 'rev-legacy.md'), 'utf8')).toBe(BODY) // 顺迁副本
+    expect(existsSync(reviewDocPath(h.workbenchRoot, RID, 'rev-legacy'))).toBe(true) // legacy 从不删除
+  })
+
+  it('读双路径：armed、正文仅 legacy → GET 200 读回且读路径零写（工作区仍无文件——迁移只走收敛写臂）', async () => {
+    const { h, dir } = await wsHarness()
+    await h.seed([legacySeed()])
+    mkdirSync(join(h.workbenchRoot, RID, 'reviews'), { recursive: true })
+    writeFileSync(reviewDocPath(h.workbenchRoot, RID, 'rev-legacy'), BODY, 'utf8')
+
+    const read = await h.get(`${WORKBENCH_ARTIFACTS_PATH}?${qs({ kind: 'review', requirementId: RID, reviewId: 'rev-legacy' })}`)
+    expect(((await read.json()) as { content: string }).content).toBe(BODY)
+    expect(existsSync(join(dir, '.skyaxis', 'reviews', RID))).toBe(false) // GET never creates
+  })
+
+  it('scan 双查：armed 记录正文仅在工作区 → 不报 missing；两处皆无 → 报 missing', async () => {
+    const { h, dir } = await wsHarness()
+    await h.seed([seedRecord(RID, {
+      reviewReports: [
+        { id: 'rev-ws', at: NOW, verdicts: [] },   // 仅工作区
+        { id: 'rev-none', at: NOW, verdicts: [] }, // 两处皆无
+      ],
+    })])
+    mkdirSync(join(dir, '.skyaxis', 'reviews', RID), { recursive: true })
+    writeFileSync(join(dir, '.skyaxis', 'reviews', RID, 'rev-ws.md'), BODY, 'utf8')
+
+    const scan = await h.get(WORKBENCH_SCAN_PATH)
+    const body = await scan.json() as { missing: { reviewId: string }[] }
+    expect(body.missing.map((row) => row.reviewId)).toEqual(['rev-none'])
+  })
+})
+
 describe('P5b: review seeding + reSplit + confirmSplitStillValid', () => {
   const REVIEW_BODY = [
     '# 全量代码评审',
