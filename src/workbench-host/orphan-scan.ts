@@ -27,7 +27,7 @@
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { WorkbenchRecord, WorkbenchScanRow, WorkbenchTrashRow } from '../workbench-shared/protocol.js'
-import { workspaceReviewPath } from './artifact-path.js'
+import { workspacePlanPath, workspaceReviewPath } from './artifact-path.js'
 
 const TRASH_DIR_NAME = '.trash'
 const TOMBSTONE_FILE_NAME = 'deleted-record.yaml'
@@ -53,10 +53,11 @@ function reviewKey(requirementId: string, reviewId: string): string {
 }
 
 /**
- * 0028 D2-A: `resolveWorkspaceReview` is the OPTIONAL bound-workspace
- * resolver (the endpoint's services.resolveWorkspacePath face — '' =
- * unbound). A review body is MISSING only when it is in NEITHER channel
- * (plugin store nor workspace `.skyaxis/reviews/`); the orphan face stays
+ * 0028 D2-A / 0029 一并改道: `resolveWorkspaceReview` is the OPTIONAL
+ * bound-workspace resolver (the endpoint's services.resolveWorkspacePath
+ * face — '' = unbound), consulted by BOTH the review and plan missing
+ * checks. A body is MISSING only when it is in NEITHER channel (plugin
+ * store nor workspace `.skyaxis/reviews|plans/`); the orphan face stays
  * plugin-store-only (the workspace channel is the user's domain — none of
  * the family's files are scanned), and a legacy-path file whose id sits in
  * the ledger remains legit even when the workspace copy exists too (the
@@ -122,18 +123,20 @@ export function scanWorkbenchArtifacts(
 
   const missing: WorkbenchScanRow[] = []
   for (const record of records) {
+    const workspaceRoot = resolveWorkspaceReview !== undefined ? resolveWorkspaceReview(record.requirementId) : ''
     for (const workPackage of record.workPackages) {
       for (const plan of workPackage.plans) {
-        if (!onDiskPlanKeys.has(planKey(record.requirementId, workPackage.id, plan.version))) {
-          missing.push({ requirementId: record.requirementId, kind: 'plan', workPackageId: workPackage.id, version: plan.version })
-        }
+        if (onDiskPlanKeys.has(planKey(record.requirementId, workPackage.id, plan.version))) continue
+        // 0029 一并改道: neither-channel check — a workspace-channel body is
+        // not missing just because the plugin store lacks it.
+        if (workspaceRoot !== '' && existsSync(workspacePlanPath(workspaceRoot, record.requirementId, workPackage.id, plan.version))) continue
+        missing.push({ requirementId: record.requirementId, kind: 'plan', workPackageId: workPackage.id, version: plan.version })
       }
     }
     for (const report of record.reviewReports) {
       if (onDiskReviewKeys.has(reviewKey(record.requirementId, report.id))) continue
       // 0028 D2-A: neither-channel check — a workspace-channel body (bound
       // requirement) is not missing just because the plugin store lacks it.
-      const workspaceRoot = resolveWorkspaceReview !== undefined ? resolveWorkspaceReview(record.requirementId) : ''
       if (workspaceRoot !== '' && existsSync(workspaceReviewPath(workspaceRoot, record.requirementId, report.id))) continue
       missing.push({ requirementId: record.requirementId, kind: 'review', reviewId: report.id })
     }

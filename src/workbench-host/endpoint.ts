@@ -47,7 +47,7 @@ import type {
   WorkbenchListResponse,
   WorkbenchRecord,
 } from '../workbench-shared/protocol.js'
-import { planDocPath, reviewDocPath, workspaceReviewPath, analysisReportPath, requirementDocPath, planningDocPath, splitResultPath, devDeclarePendingPath, devDeclareImportedPath, wpPlanPath } from './artifact-path.js'
+import { planDocPath, workspacePlanPath, reviewDocPath, workspaceReviewPath, analysisReportPath, requirementDocPath, planningDocPath, splitResultPath, devDeclarePendingPath, devDeclareImportedPath, wpPlanPath } from './artifact-path.js'
 import { ArtifactStore, contentHashOf } from './artifact-store.js'
 import { scanWorkbenchArtifacts } from './orphan-scan.js'
 import { applyRecordAction, applyAnalysisSeed, applySplitSeed, approveUnderstandWith, adoptPlanWith, nextReleaseItemId, applyDevDeclareSeed, stampDevDeclareImported, applyWpPlanSeed } from './record-actions.js'
@@ -171,11 +171,15 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
       revision: current.value.revision,
       record,
       planFileExists: record.workPackages.flatMap((workPackage) =>
-        workPackage.plans.map((plan) => ({
-          workPackageId: workPackage.id,
-          version: plan.version,
-          exists: existsSync(planDocPath(services.workbenchRoot, requirementId, workPackage.id, plan.version)),
-        })),
+        workPackage.plans.map((plan) => {
+          // 0029 一并改道: dual-path existence — the body lives in EITHER channel.
+          const locations = planBodyLocations(requirementId, workPackage.id, plan.version)
+          return {
+            workPackageId: workPackage.id,
+            version: plan.version,
+            exists: existsSync(locations.workspace ?? locations.legacy) || existsSync(locations.legacy),
+          }
+        }),
       ),
       reviewFileExists: record.reviewReports.map((report) => {
         // 0028 D2-A: dual-path existence — the body lives in EITHER channel.
@@ -908,6 +912,24 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
   }
 
   /**
+   * 0029 一并改道 (decisions/0029): plan-version channel locations — the
+   * 0028 review rule verbatim (current-channel writes, dual-channel reads,
+   * lazy migration on convergence). ONE extra hazard, handled at the read
+   * face: plan DRAFTS are legitimately rewritten, so a channel transition
+   * (armed write, then edited while unbound — or vice versa) can leave a
+   * STALE copy in the other channel; plan reads therefore prefer the copy
+   * whose sha256 matches the ledger contentHash (never first-found).
+   */
+  function planBodyLocations(requirementId: string, workPackageId: string, version: number): { workspace?: string; legacy: string } {
+    const resolve = services.resolveWorkspacePath
+    const workspaceRoot = resolve !== undefined ? resolve(requirementId) : ''
+    return {
+      ...(workspaceRoot !== '' ? { workspace: workspacePlanPath(workspaceRoot, requirementId, workPackageId, version) } : {}),
+      legacy: planDocPath(services.workbenchRoot, requirementId, workPackageId, version),
+    }
+  }
+
+  /**
    * Plan write pipeline (D4-③): tail-draft semantics + approved-version lock
    * + byte-identical idempotent convergence, ledger-first throughout.
    */
@@ -945,7 +967,12 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
       // STALE file (an overwritten draft whose post-save write failed,
       // leaving the previous bytes on disk) both get repaired here; only a
       // disk that already hashes to the ledger value is left untouched.
-      const target = planDocPath(services.workbenchRoot, requirementId, workPackageId, draft.version)
+      // 0029 一并改道: channel-aware — armed ⇒ the workspace copy is the
+      // canonical home (repaired AND lazily migrated from a legacy-only
+      // body); unarmed ⇒ the legacy path stays the only home. The legacy
+      // copy is never deleted (a legit duplicate, scan-clean).
+      const locations = planBodyLocations(requirementId, workPackageId, draft.version)
+      const target = locations.workspace ?? locations.legacy
       const read = artifacts.read(target)
       if (read.status !== 'ok' || read.sha256 !== hash) {
         try {
@@ -1001,8 +1028,10 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
       // Ledger committed; the file write is the only post-commit step. Its
       // failure leaves a dangling reference (500) — retry hits the
       // idempotent branch above and converges without another save.
+      // 0029: the CURRENT channel — workspace when armed, legacy otherwise.
       try {
-        artifacts.write(planDocPath(services.workbenchRoot, requirementId, workPackageId, version), text)
+        artifacts.write(planBodyLocations(requirementId, workPackageId, version).workspace
+          ?? planDocPath(services.workbenchRoot, requirementId, workPackageId, version), text)
       } catch (error) {
         log?.(error)
         return errorResponse(500, 'internal')
@@ -1232,7 +1261,6 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     const record = current.value.records.find((candidate) => candidate.requirementId === requirementId)
     if (record === undefined) return errorResponse(404, 'not-found')
 
-    let target: string | undefined
     let expectedHash: string | undefined
     let read: ReturnType<ArtifactStore['read']> | undefined
     if (kind === 'plan') {
@@ -1243,9 +1271,19 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
       if (workPackage === undefined) return errorResponse(404, 'not-found')
       const entry = workPackage.plans.find((plan) => plan.version === version)
       if (entry === undefined) return errorResponse(404, 'not-found')
-      target = planDocPath(services.workbenchRoot, requirementId, workPackageId, version)
+      // 0029 一并改道: dual-path read with HASH PREFERENCE — a draft
+      // rewritten after a channel transition leaves a stale copy in the
+      // other channel; the ledger-hash-matching copy is the truth, never
+      // first-found (the one semantic difference from the review face).
+      const locations = planBodyLocations(requirementId, workPackageId, version)
+      const wsRead = locations.workspace !== undefined ? artifacts.read(locations.workspace) : undefined
+      const lgRead = artifacts.read(locations.legacy)
       expectedHash = entry.contentHash
-      read = artifacts.read(target)
+      const hashMatch = (candidate: ReturnType<ArtifactStore['read']> | undefined): boolean =>
+        candidate !== undefined && candidate.status === 'ok' && candidate.sha256 === expectedHash
+      read = hashMatch(wsRead) ? wsRead
+        : hashMatch(lgRead) ? lgRead
+          : wsRead ?? lgRead // neither matches: the current-channel copy surfaces, flagged tampered
     } else {
       const reviewId = url.searchParams.get('reviewId')
       if (reviewId === null || !isReviewId(reviewId)) return errorResponse(400, 'bad-request')

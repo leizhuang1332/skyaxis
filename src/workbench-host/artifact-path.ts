@@ -7,10 +7,13 @@
  * first rule below):
  *
  *   <root>/<requirementId>/plans/<workPackageId>-v<version>.md
+ *     (legacy channel — the unbound-requirement home; pre-0029 versions)
  *   <root>/<requirementId>/reviews/<reviewId>.md          (legacy channel —
  *     the unbound-requirement home; pre-0028 reports live here)
+ *   <workspace>/.skyaxis/plans/<requirementId>/<workPackageId>-v<version>.md
  *   <workspace>/.skyaxis/reviews/<requirementId>/<reviewId>.md  (workspace
- *     channel — 0028: bound-workspace writes route here, reads check both)
+ *     channel — 0028 reviews / 0029 plans: bound-workspace writes route
+ *     here, reads check both channels)
  *   <root>/<requirementId>/                 (requirementArtifactDir)
  *   trash NAME: <requirementId>-<ISO timestamp, ':' → '-'>   (D6 cascade;
  *     colons are illegal in Windows directory names)
@@ -72,12 +75,30 @@ function assertReviewId(reviewId: string): void {
   }
 }
 
-/** Plan markdown for one workPackage version — plans/<workPackageId>-v<version>.md. */
+/** Plan markdown for one workPackage version — plans/<workPackageId>-v<version>.md (the plugin-store LEGACY channel; 0029 keeps it as the unbound-requirement home). */
 export function planDocPath(root: string, requirementId: string, workPackageId: string, version: number): string {
   assertRequirementId(requirementId)
   assertWorkPackageId(workPackageId)
   assertPlanVersion(version)
   return join(root, requirementId, 'plans', `${workPackageId}-v${version}.md`)
+}
+
+/**
+ * Plan version markdown, WORKSPACE channel (0029 一并改道, decisions/0029 —
+ * the 0028 review-channel ruling applied to plans) —
+ * `.skyaxis/plans/<requirementId>/<workPackageId>-v<version>.md`, the
+ * reviews/<rid>/ per-requirement-directory shape. Same channel rule: a bound
+ * workspace routes writes here; an unbound requirement keeps planDocPath.
+ * ONE semantic difference from reviews, honored at the read face: a plan
+ * DRAFT is legitimately rewritten, so a channel transition can leave a STALE
+ * copy in the other channel — reads locate BOTH with HASH PREFERENCE (the
+ * copy matching the ledger contentHash wins; never first-found).
+ */
+export function workspacePlanPath(workspaceRoot: string, requirementId: string, workPackageId: string, version: number): string {
+  assertRequirementId(requirementId)
+  assertWorkPackageId(workPackageId)
+  assertPlanVersion(version)
+  return join(workspaceRoot, '.skyaxis', 'plans', requirementId, `${workPackageId}-v${version}.md`)
 }
 
 /** Review report markdown — reviews/<reviewId>.md (the plugin-store LEGACY channel; 0028 D1-A keeps it as the unbound-requirement home). */

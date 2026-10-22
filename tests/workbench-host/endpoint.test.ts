@@ -1719,6 +1719,93 @@ describe('0028 评审报告工作区通道（D1-A 双通道 + D2-A 双路径读/
   })
 })
 
+describe('0029 计划版本文件工作区通道（一并改道：双通道＋双路径读哈希优先＋顺迁）', () => {
+  const wsHarness = async (): Promise<{ h: Harness; dir: string }> => {
+    const dir = mkdtempSync(join(tmpdir(), 'workbench-plan-ws-test-'))
+    dirs.push(dir)
+    const h = await harness({ resolveWorkspacePath: () => dir })
+    return { h, dir }
+  }
+  const BODY = '# 工作包计划 v1\n\n## 任务分解\n- 步骤一'
+  const wsPlan = (dir: string, version = 1): string => join(dir, '.skyaxis', 'plans', RID, `WP1-v${version}.md`)
+
+  it('armed 新草稿 → 正文落 .skyaxis/plans/<rid>/WP1-v1.md（插件库零文件）；GET 读回；planFileExists 双路径', async () => {
+    const { h, dir } = await wsHarness()
+    await h.seed([seedRecord(RID, { splitApprovedAt: NOW, workPackages: [seedWorkPackage('WP1')] })])
+    const res = await postPlan(h, { requirementId: RID, workPackageId: 'WP1', expectedRevision: 1 }, BODY)
+    expect(res.status).toBe(200)
+    const { version } = await res.json() as { version: number }
+    expect(version).toBe(1)
+    expect(readFileSync(wsPlan(dir), 'utf8')).toBe(BODY)
+    expect(existsSync(planDocPath(h.workbenchRoot, RID, 'WP1', 1))).toBe(false) // 插件库零文件
+
+    const read = await h.get(`${WORKBENCH_ARTIFACTS_PATH}?${qs({ kind: 'plan', requirementId: RID, workPackageId: 'WP1', version: 1 })}`)
+    expect(((await read.json()) as { content: string }).content).toBe(BODY)
+    const detail = await h.get(`${WORKBENCH_PATH}?${qs({ requirementId: RID })}`)
+    expect(((await detail.json()) as { planFileExists: { workPackageId: string; version: number; exists: boolean }[] }).planFileExists)
+      .toEqual([{ workPackageId: 'WP1', version: 1, exists: true }])
+  })
+
+  it('D2-A 顺迁：legacy 草稿正文 + armed 重导同文本 → 同版本收敛、工作区副本出现、legacy 保留', async () => {
+    const { h, dir } = await wsHarness()
+    // 草稿态 v1（收敛臂只认未批准尾草稿——已批准版本按既有语义走新版本号）
+    await h.seed([seedRecord(RID, {
+      splitApprovedAt: NOW,
+      workPackages: [seedWorkPackage('WP1', { plans: [planEntry(1, contentHashOf(BODY))] })],
+    })])
+    mkdirSync(join(h.workbenchRoot, RID, 'plans'), { recursive: true })
+    writeFileSync(planDocPath(h.workbenchRoot, RID, 'WP1', 1), BODY, 'utf8')
+
+    const res = await postPlan(h, { requirementId: RID, workPackageId: 'WP1', expectedRevision: 1 }, BODY)
+    expect(((await res.json()) as { version: number }).version).toBe(1) // 收敛不加版本
+    expect(readFileSync(wsPlan(dir), 'utf8')).toBe(BODY) // 顺迁副本
+    expect(existsSync(planDocPath(h.workbenchRoot, RID, 'WP1', 1))).toBe(true) // legacy 从不删除
+  })
+
+  it('读哈希优先（plans 独有险）：通道切换遗留陈旧副本不得压过真身——账本哈希命中的通道为准，双方皆不命中才报篡改', async () => {
+    const { h, dir } = await wsHarness()
+    const STALE = '# 旧文（armed 时期写的草稿）'
+    const FRESH = '# 新文（unbound 期重写的草稿，账本哈希锚它）'
+    await h.seed([seedRecord(RID, {
+      splitApprovedAt: NOW,
+      workPackages: [seedWorkPackage('WP1', { plans: [planEntry(1, contentHashOf(FRESH))] })],
+    })])
+    // 场景：armed 时写过 STALE（工作区遗留），unbound 后重写为 FRESH（legacy 落盘、账本换锚）
+    mkdirSync(join(dir, '.skyaxis', 'plans', RID), { recursive: true })
+    writeFileSync(wsPlan(dir), STALE, 'utf8')
+    mkdirSync(join(h.workbenchRoot, RID, 'plans'), { recursive: true })
+    writeFileSync(planDocPath(h.workbenchRoot, RID, 'WP1', 1), FRESH, 'utf8')
+
+    // GET：陈旧工作区副本在场，仍读出 FRESH 且不报篡改（哈希优先，非先到先得）
+    const read = await h.get(`${WORKBENCH_ARTIFACTS_PATH}?${qs({ kind: 'plan', requirementId: RID, workPackageId: 'WP1', version: 1 })}`)
+    expect(await read.json()).toEqual({ ok: true, content: FRESH, contentTampered: false })
+
+    // 双方皆不命中（真篡改）：当前通道（工作区）副本出面并如实报篡改
+    writeFileSync(wsPlan(dir), '# 被手改的正文', 'utf8')
+    writeFileSync(planDocPath(h.workbenchRoot, RID, 'WP1', 1), '# 也被手改的正文', 'utf8')
+    const tampered = await h.get(`${WORKBENCH_ARTIFACTS_PATH}?${qs({ kind: 'plan', requirementId: RID, workPackageId: 'WP1', version: 1 })}`)
+    expect(((await tampered.json()) as { content: string; contentTampered: boolean }).contentTampered).toBe(true)
+  })
+
+  it('scan 双查：armed 记录计划正文仅在工作区 → 不报 missing；两处皆无 → 报 missing', async () => {
+    const { h, dir } = await wsHarness()
+    await h.seed([seedRecord(RID, {
+      splitApprovedAt: NOW,
+      workPackages: [seedWorkPackage('WP1', {
+        plans: [planEntry(1, 'a'.repeat(64)), planEntry(2, 'b'.repeat(64))], // v1 仅工作区 / v2 两处皆无
+      })],
+    })])
+    mkdirSync(join(dir, '.skyaxis', 'plans', RID), { recursive: true })
+    writeFileSync(wsPlan(dir, 1), '# v1', 'utf8')
+
+    const scan = await h.get(WORKBENCH_SCAN_PATH)
+    const body = await scan.json() as { missing: { kind: string; workPackageId?: string; version?: number }[] }
+    expect(body.missing.filter((row) => row.kind === 'plan')).toEqual([
+      { requirementId: RID, kind: 'plan', workPackageId: 'WP1', version: 2 },
+    ])
+  })
+})
+
 describe('P5b: review seeding + reSplit + confirmSplitStillValid', () => {
   const REVIEW_BODY = [
     '# 全量代码评审',
