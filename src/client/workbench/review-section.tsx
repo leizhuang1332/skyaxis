@@ -423,14 +423,23 @@ function ReviewImportModal(props: {
     }
   }, [props.open])
 
-  // 0024 D1-A: the review delivery's own binding leads the candidate list
-  // (the auto-collect source is also the manual-fetch repair path); the WP
-  // dev/wp-plan bindings follow (a review report from a dev session is the
-  // in-session-review shape P5b was built for).
-  const boundSessions = Array.from(new Set([
-    ...(record.reviewSession !== undefined ? [record.reviewSession.sessionId] : []),
-    ...record.workPackages.flatMap((workPackage) => workPackage.sessions.map((binding) => binding.sessionId)),
-  ]))
+  // 0024 修订#1 (user acceptance): the fetch candidates are ALL workspace
+  // sessions, not just bound ones — the fetch is a pure read, any session's
+  // log can carry a report (delivered from the workbench or run by hand).
+  // Blank sessions filter out (never ran, nothing to fetch — the
+  // SessionPicker rationale). The record's reviewSession pointer only PINS
+  // the order: the auto-collect source leads, the manual repair path when
+  // the watcher missed.
+  const sessionRows = props.sessions !== undefined
+    ? props.sessions.ids
+      .map((id) => props.sessions?.summariesById[id])
+      .filter((summary): summary is NonNullable<typeof summary> => summary !== undefined && !summary.blank)
+    : []
+  const faceIds = sessionRows.map((row) => row.id)
+  const pinnedSessionId = record.reviewSession?.sessionId
+  const fetchableIds = pinnedSessionId !== undefined && faceIds.includes(pinnedSessionId)
+    ? [pinnedSessionId, ...faceIds.filter((id) => id !== pinnedSessionId)]
+    : faceIds
   const sessionTitle = (id: string): string =>
     props.sessions?.summariesById[id]?.displayTitle ?? `${id.slice(0, 8)}…`
 
@@ -498,8 +507,8 @@ function ReviewImportModal(props: {
         {props.sessions !== undefined ? (
           <div className={styles.formField}>
             <span>{t('review.sessionLabel')}</span>
-            {boundSessions.length === 0 ? (
-              <div className={styles.formHint}>{t('review.noBoundSessions')}</div>
+            {fetchableIds.length === 0 ? (
+              <div className={styles.formHint}>{t('review.noSessions')}</div>
             ) : (
               // 0024 D3-B: the SCROLLABLE picker list replaces the native
               // <select> — its popup is rendered by the host webview and does
@@ -509,7 +518,7 @@ function ReviewImportModal(props: {
               <>
                 <div className={styles.formHint}>{t('review.sessionPlaceholder')}</div>
                 <div className={styles.pickerList} role="radiogroup" aria-label={t('review.sessionLabel')}>
-                  {boundSessions.map((id) => {
+                  {fetchableIds.map((id) => {
                     const summary = props.sessions?.summariesById[id]
                     return (
                       <label key={id} className={styles.pickerRow}>

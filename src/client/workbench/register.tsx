@@ -553,7 +553,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       | 'review.matrixSummary'
       | 'review.matrixTitle'
       | 'review.matrixUndone'
-      | 'review.noBoundSessions'
+      | 'review.noSessions'
       | 'review.noteLabel'
       | 'review.noteRequired'
       | 'review.removeReportDescription'

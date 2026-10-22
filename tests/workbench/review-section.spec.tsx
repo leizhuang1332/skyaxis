@@ -406,17 +406,20 @@ describe('S4 评审节：0023 核验行（criteriaChecks 信息面）与证据�
 })
 
 describe('S4 评审节：0024 自动收取候选与会话/报告列表形', () => {
+  // 修订#1：抓取候选=工作区全体会话——含从未绑定的自由会话；空壳过滤
   const reviewSessionsFace = (): WorkbenchSessionsFace => ({
-    ids: ['sess-review', 'sess-dev'],
+    ids: ['sess-review', 'sess-dev', 'sess-free', 'sess-shell'],
     summariesById: {
       'sess-review': { id: 'sess-review', displayTitle: '评审任务书 · R', running: false, blank: false },
       'sess-dev': { id: 'sess-dev', displayTitle: '工作包任务书 WP1 · R', running: false, blank: false },
+      'sess-free': { id: 'sess-free', displayTitle: '手动开的评审会话', running: false, blank: false },
+      'sess-shell': { id: 'sess-shell', displayTitle: undefined as unknown as string, running: false, blank: true },
     },
     subscribe: () => () => {},
     navigate: () => {},
   })
 
-  it('会话候选：reviewSession 绑定居首（自动收取源=人工修复路径），WP 绑定随后——滚动单选列表形', async () => {
+  it('会话候选（修订#1）：工作区全体会话在场（未绑定的自由会话也可选）；reviewSession 绑定居首；空壳过滤；滚动单选列表形', async () => {
     const controller = fakeController()
     const rendered = subject(slot({ record: record({
       reviewSession: { sessionId: 'sess-review', boundAt: AT, anchor: '# 评审任务书 · R' },
@@ -425,14 +428,25 @@ describe('S4 评审节：0024 自动收取候选与会话/报告列表形', () =
     fireEvent.click(rendered.getByRole('button', { name: workbenchZh['review.importButton'] }))
     const dialog = await screen.findByRole('dialog')
     const radios = within(dialog).getAllByRole('radio')
-    expect(radios).toHaveLength(2)
-    // 候选序：评审会话第一（收取失败时的人工抓取首选）
-    expect(within(dialog).getAllByRole('radio')[0]).toHaveProperty('value', 'sess-review')
-    expect(within(dialog).getAllByRole('radio')[1]).toHaveProperty('value', 'sess-dev')
-    // 选中评审会话 → 抓取
-    fireEvent.click(within(dialog).getByRole('radio', { name: /评审任务书 · R/ }))
+    // 全体在场：置顶的评审绑定 + dev 绑定 + 未绑定的自由会话；空壳（blank）过滤
+    expect(radios).toHaveLength(3)
+    expect(radios[0]).toHaveProperty('value', 'sess-review')
+    expect(radios[1]).toHaveProperty('value', 'sess-dev')
+    expect(radios[2]).toHaveProperty('value', 'sess-free')
+    // 自由会话（无任何绑定）同样可抓取
+    fireEvent.click(within(dialog).getByRole('radio', { name: /手动开的评审会话/ }))
     fireEvent.click(within(dialog).getByRole('button', { name: workbenchZh['review.fetchButton'] }))
-    await waitFor(() => expect(controller.reviewFetch).toHaveBeenCalledWith('sess-review'))
+    await waitFor(() => expect(controller.reviewFetch).toHaveBeenCalledWith('sess-free'))
+  })
+
+  it('会话候选（修订#1）：工作区零会话 ⇒ noSessions 空态提示（粘贴常在）', async () => {
+    const emptyFace: WorkbenchSessionsFace = { ids: [], summariesById: {}, subscribe: () => () => {}, navigate: () => {} }
+    const rendered = subject(slot({ record: record() }), fakeController(), emptyFace)
+    fireEvent.click(rendered.getByRole('button', { name: workbenchZh['review.importButton'] }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText(workbenchZh['review.noSessions'])).toBeTruthy()
+    expect(within(dialog).queryByRole('radio')).toBeNull()
+    expect(within(dialog).getByLabelText(workbenchZh['review.bodyLabel'])).toBeTruthy()
   })
 
   it('裁决表单报告选择：多报告时为滚动单选列表（原生 select 弹层 webview 不滚动的连带修复）', async () => {

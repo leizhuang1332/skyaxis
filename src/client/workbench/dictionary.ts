@@ -634,7 +634,8 @@ interface WorkbenchDictionary {
   readonly 'review.fetchNotFound': string
   readonly 'review.fetchUnreadable': string
   readonly 'review.fetchNoBlock': string
-  readonly 'review.noBoundSessions': string
+  // 0024 修订#1: 抓取候选放开为工作区全体会话（绑定指针仅置顶）——空态语义随之改义
+  readonly 'review.noSessions': string
   readonly 'review.seededCount': string
   readonly 'review.seededWithBlockError': string
   // 0023 评审方法论轮: criteriaChecks 核验面（D2-A 信息展示）与 findings 证据面（D4-A 只读）
@@ -1257,14 +1258,14 @@ const zh: WorkbenchDictionary = {
   'review.removeReportTitle': '删除评审报告',
   'review.removeReportDescription': '报告条目将从清单移除；正文文件保留在产物目录（孤儿，扫描端点可见）。',
   'review.fileMissing': '报告正文文件缺失（写入中断或被外部删除）。',
-  'review.sessionLabel': '从绑定会话抓取',
+  'review.sessionLabel': '从会话抓取',
   'review.sessionPlaceholder': '选择会话…',
   'review.fetchButton': '抓取',
   'review.fetchNoService': '宿主未提供会话读取服务——请手动粘贴报告正文。',
   'review.fetchNotFound': '会话不存在或已被清理。',
   'review.fetchUnreadable': '会话日志读取失败。',
   'review.fetchNoBlock': '该会话的助手消息里没有 # skyaxis-review 约定块（可仍作纯报告导入）。',
-  'review.noBoundSessions': '尚无绑定会话——在 S3 工作包详情里关联 session 后可从会话抓取；也可直接粘贴。',
+  'review.noSessions': '当前工作区没有可抓取的会话（从未运行的空壳不算）；也可直接粘贴。',
   'review.seededCount': '已导入，种子裁决行 {n} 条（待你逐条裁决）。',
   'review.seededWithBlockError': '已导入报告，但未解析到 # skyaxis-review 约定块或块语法有误——种子裁决行 {n} 条。',
   'review.checksTitle': '验收核验（AI 提议，供对照）',
@@ -1861,14 +1862,14 @@ const en: WorkbenchDictionary = {
   'review.removeReportTitle': 'Remove the review report',
   'review.removeReportDescription': 'The entry leaves the list; the body file stays in the artifacts directory (a scan-visible orphan).',
   'review.fileMissing': 'Report body file missing (interrupted write or externally deleted).',
-  'review.sessionLabel': 'Fetch from a bound session',
+  'review.sessionLabel': 'Fetch from a session',
   'review.sessionPlaceholder': 'Select a session…',
   'review.fetchButton': 'Fetch',
   'review.fetchNoService': 'The host does not mount the session-read service — paste the report body manually.',
   'review.fetchNotFound': 'The session does not exist or has been cleaned up.',
   'review.fetchUnreadable': 'Failed to read the session log.',
   'review.fetchNoBlock': 'No # skyaxis-review block in this session\'s assistant messages (it can still import as a plain report).',
-  'review.noBoundSessions': 'No bound sessions yet — bind one in the S3 work-package detail to fetch; pasting always works.',
+  'review.noSessions': 'No fetchable sessions in this workspace (blank never-ran shells excluded); pasting always works.',
   'review.seededCount': 'Imported — {n} verdict row(s) seeded as proposed (adjudicate each one).',
   'review.seededWithBlockError': 'Report imported, but no # skyaxis-review block parsed (missing or malformed) — {n} verdict row(s) seeded.',
   'review.checksTitle': 'Criteria checks (AI proposed, for reference)',

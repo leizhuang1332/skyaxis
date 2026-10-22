@@ -466,7 +466,7 @@ describe('workbench: dictionaries', () => {
       'review.matrixSummary',
       'review.matrixTitle',
       'review.matrixUndone',
-      'review.noBoundSessions',
+      'review.noSessions',
       'review.noteLabel',
       'review.noteRequired',
       'review.removeReportDescription',
