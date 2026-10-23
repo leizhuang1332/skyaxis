@@ -31,6 +31,8 @@ import { workspacePlanPath, workspaceReviewPath } from './artifact-path.js'
 
 const TRASH_DIR_NAME = '.trash'
 const TOMBSTONE_FILE_NAME = 'deleted-record.yaml'
+/** 0032: the record shard living beside its plans/reviews — layout, not residue. */
+const RECORD_FILE_NAME = 'record.yaml'
 const PLANS_DIR_NAME = 'plans'
 const REVIEWS_DIR_NAME = 'reviews'
 const PLAN_FILE_RE = /^(WP[1-9]\d*)-v([1-9]\d*)\.md$/
@@ -67,6 +69,14 @@ export function scanWorkbenchArtifacts(
   root: string,
   records: readonly WorkbenchRecord[],
   resolveWorkspaceReview?: (requirementId: string) => string,
+  /**
+   * 0032: requirement ids whose record shard exists but will not load — the
+   * endpoint passes the list face's degradedRows. Their directories are
+   * skipped ENTIRELY: with the ledger face unreadable, the refs are
+   * unknowable and every file would report as an orphan (noise, not signal
+   * — the requirement's reconciliation returns once the shard is repaired).
+   */
+  skipRequirementIds?: ReadonlySet<string>,
 ): WorkbenchScanResult {
   const planRefs = new Set<string>()
   const reviewRefs = new Set<string>()
@@ -90,6 +100,7 @@ export function scanWorkbenchArtifacts(
     for (const entry of readdirSync(root, { withFileTypes: true })) {
       if (!entry.isDirectory() || entry.name === TRASH_DIR_NAME || entry.name.startsWith('.')) continue
       const requirementId = entry.name
+      if (skipRequirementIds?.has(requirementId) === true) continue
       const dirPath = join(root, requirementId)
       scanConventionDir(join(dirPath, PLANS_DIR_NAME), (name) => {
         const match = PLAN_FILE_RE.exec(name)
@@ -112,10 +123,11 @@ export function scanWorkbenchArtifacts(
         if (!reviewRefs.has(key)) orphans.push({ requirementId, kind: 'review', reviewId: match[1] })
       })
       // Files directly under <requirementId>/ are off-layout by definition.
-      // The tombstone is cascade bookkeeping (skipped); anything else is
+      // The tombstone is cascade bookkeeping and the record shard (plus its
+      // steady-state .bak, 0032) is layout — skipped; anything else is
       // reported so the listing never silently swallows disk content.
       scanConventionDir(dirPath, (name) => {
-        if (name === TOMBSTONE_FILE_NAME) return
+        if (name === TOMBSTONE_FILE_NAME || name === RECORD_FILE_NAME || name === `${RECORD_FILE_NAME}.bak`) return
         orphans.push({ requirementId, kind: 'unknown', name })
       })
     }

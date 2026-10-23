@@ -79,12 +79,12 @@ const flush = async (ticks = 5): Promise<void> => {
 afterEach(() => { vi.useRealTimers() })
 
 describe('0024 D2-A: register-level review-report watcher', () => {
-  it('idle edge → 单次 sweep：有 reviewSession 绑定的记录逐个自动收取；revision 随落盘穿线', async () => {
+  it('idle edge → 单次 sweep：有 reviewSession 绑定的记录逐个自动收取；revision 按记录分片穿线（0032）', async () => {
     const { face, flip } = fakeFace([{ id: 'sess-review', running: true }])
     const records = [reviewRecord(RID, 'sess-review'), reviewRecord(RID2, 'sess-review-2')]
     const imports: Array<{ requirementId: string; sessionId: string; revision: number }> = []
     const watcher = createReviewWatcher({
-      fetcher: { list: async () => ({ kind: 'ok' as const, revision: 5, records }) } as unknown as WorkbenchFetcher,
+      fetcher: { list: async () => ({ kind: 'ok' as const, rows: records.map((record) => ({ requirementId: record.requirementId, revision: 5, record })) }) } as unknown as WorkbenchFetcher,
       controller: fakeController(imports),
       sessions: face,
       throttleMs: 0,
@@ -93,8 +93,9 @@ describe('0024 D2-A: register-level review-report watcher', () => {
     await flush()
     expect(imports).toEqual([
       { requirementId: RID, sessionId: 'sess-review', revision: 5 },
-      // RID 的落盘把 revision 顶到 6，穿线给下一条
-      { requirementId: RID2, sessionId: 'sess-review-2', revision: 6 },
+      // 0032: RID 的落盘只顶 RID 自己的分片 revision；RID2 按自己的 5 收取
+      // （单文件时代的共享计数器穿线已随分片退役）。
+      { requirementId: RID2, sessionId: 'sess-review-2', revision: 5 },
     ])
     watcher.dispose()
   })
@@ -103,7 +104,7 @@ describe('0024 D2-A: register-level review-report watcher', () => {
     const { face, flip } = fakeFace([{ id: 'sess-review', running: true }])
     const imports: Array<{ requirementId: string; sessionId: string; revision: number }> = []
     const watcher = createReviewWatcher({
-      fetcher: { list: async () => ({ kind: 'ok' as const, revision: 5, records: [reviewRecord(RID, 'sess-review')] }) } as unknown as WorkbenchFetcher,
+      fetcher: { list: async () => ({ kind: 'ok' as const, rows: [{ requirementId: RID, revision: 5, record: reviewRecord(RID, 'sess-review') }] }) } as unknown as WorkbenchFetcher,
       controller: fakeController(imports),
       sessions: face,
       throttleMs: 0,
@@ -128,7 +129,7 @@ describe('0024 D2-A: register-level review-report watcher', () => {
     const { face, flip } = fakeFace([{ id: 'sess-a', running: true }])
     const imports: Array<{ requirementId: string; sessionId: string; revision: number }> = []
     const watcher = createReviewWatcher({
-      fetcher: { list: async () => ({ kind: 'ok' as const, revision: 5, records: [reviewRecord(RID, 'sess-review')] }) } as unknown as WorkbenchFetcher,
+      fetcher: { list: async () => ({ kind: 'ok' as const, rows: [{ requirementId: RID, revision: 5, record: reviewRecord(RID, 'sess-review') }] }) } as unknown as WorkbenchFetcher,
       controller: fakeController(imports),
       sessions: face,
       throttleMs: 0,
@@ -151,7 +152,7 @@ describe('0024 D2-A: register-level review-report watcher', () => {
     const watcher = createReviewWatcher({
       fetcher: { list: async () => degraded
         ? { kind: 'degraded' as const, reason: 'io' as const, hasBackup: false }
-        : { kind: 'ok' as const, revision: 5, records: [reviewRecord(RID, 'sess-review')] } } as unknown as WorkbenchFetcher,
+        : { kind: 'ok' as const, rows: [{ requirementId: RID, revision: 5, record: reviewRecord(RID, 'sess-review') }] } } as unknown as WorkbenchFetcher,
       controller: fakeController(imports, () => ({ landed: false, miss: 'no-review-block' })),
       sessions: face,
       throttleMs: 0,
@@ -182,7 +183,7 @@ describe('0024 D2-A: register-level review-report watcher', () => {
     const { face, flip } = fakeFace([{ id: 'sess-a', running: true }])
     const imports: Array<{ requirementId: string; sessionId: string; revision: number }> = []
     const watcher = createReviewWatcher({
-      fetcher: { list: async () => ({ kind: 'ok' as const, revision: 5, records: [reviewRecord(RID2), reviewRecord(RID, 'sess-review')] }) } as unknown as WorkbenchFetcher,
+      fetcher: { list: async () => ({ kind: 'ok' as const, rows: [{ requirementId: RID2, revision: 5, record: reviewRecord(RID2) }, { requirementId: RID, revision: 5, record: reviewRecord(RID, 'sess-review') }] }) } as unknown as WorkbenchFetcher,
       controller: fakeController(imports, (requirementId) => requirementId === RID ? undefined : { landed: true, revision: 6 }),
       sessions: face,
       throttleMs: 0,

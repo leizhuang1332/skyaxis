@@ -13,12 +13,17 @@
  *                   directory ("rename ok, tombstone failed").
  *   [step ②         requirements.yaml filter+save — the remove endpoint's
  *                   own committed save, never here.]
- *   completeRemoval steps ③④⑤ workbench.yaml record removal → knowledge.yaml
- *                   scope-split removal (scope==='requirement' AND id match;
- *                   global/workspace rows are promoted public assets,
- *                   untouchable) → whole-directory rename into
- *                   .trash/<rid>-<sanitized ISO> (same-volume single atomic
- *                   syscall; the tombstone rides along).
+ *   completeRemoval steps ③④⑤ record shard unlink (0032 redefinition: the
+ *                   record now lives INSIDE workbench/<rid>/record.yaml —
+ *                   removing it from the live tree is an unlink, so a step ⑤
+ *                   EPERM/EBUSY rename failure no longer leaves a live
+ *                   record behind; the tombstone + artifacts still ride the
+ *                   rename) → knowledge.yaml scope-split removal
+ *                   (scope==='requirement' AND id match; global/workspace
+ *                   rows are promoted public assets, untouchable) →
+ *                   whole-directory rename into .trash/<rid>-<sanitized ISO>
+ *                   (same-volume single atomic syscall; the tombstone rides
+ *                   along).
  *
  * Every step is independently best-effort — no step rolls back, no step
  * short-circuits the next (step ③ failing leaves ④⑤ running), every failure
@@ -45,7 +50,7 @@ import type { WorkbenchCleanupLike } from '../requirements-host/endpoint.js'
 import { trashDirName, requirementArtifactDir } from './artifact-path.js'
 import { ArtifactStore } from './artifact-store.js'
 import type { KnowledgeFileStore } from './knowledge-file.js'
-import type { WorkbenchFileStore } from './workbench-file.js'
+import type { WorkbenchRecordStore } from './record-store.js'
 
 const TOMBSTONE_FILE_NAME = 'deleted-record.yaml'
 const TRASH_DIR_NAME = '.trash'
@@ -66,9 +71,9 @@ const defaultIo: CascadeIo = {
 }
 
 export interface WorkbenchCascadeServices {
-  readonly workbenchFile: WorkbenchFileStore
+  readonly records: WorkbenchRecordStore
   readonly knowledgeFile: KnowledgeFileStore
-  /** $DSH_HOME/skyaxis/workbench — the artifacts root (ledger files are siblings, never inside). */
+  /** $DSH_HOME/skyaxis/workbench — the artifacts root (record shards live INSIDE, 0032). */
   readonly workbenchRoot: string
   /** Host log face for degraded steps. */
   readonly log?: (error: unknown) => void
@@ -88,10 +93,10 @@ export class WorkbenchCascadeService implements WorkbenchCleanupLike {
   beginRemoval(requirement: RequirementRecord): void {
     try {
       const dir = requirementArtifactDir(this.#services.workbenchRoot, requirement.id)
-      const workbenchCurrent = this.#services.workbenchFile.load()
-      const workbenchRecord = workbenchCurrent.ok
-        ? workbenchCurrent.value.records.find((record) => record.requirementId === requirement.id) ?? null
-        : null
+      // 0032: the record loads from its shard; missing/degraded → null (the
+      // same honest snapshot the single-file era produced).
+      const recordLoad = this.#services.records.loadRecord(requirement.id)
+      const workbenchRecord = recordLoad.ok ? recordLoad.value.record : null
       const knowledgeCurrent = this.#services.knowledgeFile.load()
       const knowledgeRows = knowledgeCurrent.ok
         ? knowledgeCurrent.value.records.filter((row) => row.scope === 'requirement' && row.requirementId === requirement.id)
@@ -116,24 +121,13 @@ export class WorkbenchCascadeService implements WorkbenchCleanupLike {
   async completeRemoval(requirement: RequirementRecord): Promise<void> {
     const rid = requirement.id
 
-    // Step ③ — workbench.yaml record removal.
+    // Step ③ — record shard unlink (0032: removing the record from the live
+    // tree is unlinking workbench/<rid>/record.yaml + its .bak; ENOENT is
+    // the idempotent no-op). No revision bookkeeping exists to own — the
+    // unlink either lands or leaves re-runnable residue, never a
+    // user-facing error.
     try {
-      const current = this.#services.workbenchFile.load()
-      if (current.ok) {
-        const nextRecords = current.value.records.filter((record) => record.requirementId !== rid)
-        if (nextRecords.length !== current.value.records.length) {
-          // The cascade owns its revision bookkeeping (fresh load, not the
-          // client's expectedRevision); a concurrent writer makes this step
-          // stale — residue, re-runnable, never a user-facing error.
-          const saved = await this.#services.workbenchFile.save(current.value.revision, nextRecords)
-          if (!saved.ok) {
-            this.#services.log?.(new Error(`cascade step 3 (workbench ledger) skipped: ${saved.rejected}`))
-          }
-        }
-        // Already filtered — idempotent no-op.
-      } else {
-        this.#services.log?.(new Error('cascade step 3 (workbench ledger) skipped: degraded ledger'))
-      }
+      this.#services.records.removeRecord(rid)
     } catch (error) {
       this.#services.log?.(error)
     }

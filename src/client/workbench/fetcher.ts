@@ -38,6 +38,7 @@ import type {
   WorkbenchKnowledgeRecord,
   WorkbenchKnowledgeSaveResponseOk,
   WorkbenchListResponse,
+  WorkbenchListRow,
   WorkbenchMutateRequestBody,
   WorkbenchRecord,
   WorkbenchSaveResponseOk,
@@ -64,8 +65,13 @@ export type WorkbenchFailure =
   | { readonly kind: 'network' }
   | { readonly kind: 'http-error'; readonly status: number; readonly code?: string; readonly currentRevision?: number }
 
+/**
+ * 0032: rows carry each record's OWN shard revision (the single global
+ * revision retired with the single file); the degraded branch is the
+ * whole-store migration-blocked state alone.
+ */
 export type WorkbenchListResult =
-  | { readonly kind: 'ok'; readonly revision: number; readonly records: readonly WorkbenchRecord[] }
+  | { readonly kind: 'ok'; readonly rows: readonly WorkbenchListRow[] }
   | { readonly kind: 'degraded'; readonly reason: 'parse' | 'schema' | 'io'; readonly hasBackup: boolean }
   | WorkbenchFailure
 
@@ -157,7 +163,7 @@ export function createWorkbenchFetcher() {
       const body: unknown = await response.json()
       if (!isWorkbenchListResponse(body)) return { kind: 'http-error', status: response.status }
       const parsed: WorkbenchListResponse = body
-      if (parsed.ok) return { kind: 'ok', revision: parsed.revision, records: [...parsed.records] }
+      if (parsed.ok) return { kind: 'ok', rows: [...parsed.rows] }
       return { kind: 'degraded', reason: parsed.reason, hasBackup: parsed.hasBackup }
     },
 

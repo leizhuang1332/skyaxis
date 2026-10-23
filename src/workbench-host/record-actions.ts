@@ -89,10 +89,12 @@ function nextSequenceId(ids: readonly string[], prefix: string): string {
  * are zero-padded to four digits (`ReleaseItemIdSchema` = /^R\d{4,}$/), and
  * nextSequenceId would mint `R1`: `save()` never re-validates the schema
  * (only `load()` does), so the illegal row lands on disk and the NEXT load
- * degrades the whole workbench.yaml to schema-rejected — every requirement's
- * workbench turns unreadable at once and refuses to write. Same failure mode
- * as the P1b round-2 coveredBy incident (milestones/0006). Padding to four
- * matches research 0006 §6.1 and the mockup's `R0001`.
+ * degrades that record's shard to schema-rejected — the requirement's
+ * workbench turns unreadable and refuses to write (0032 narrowed the blast
+ * radius from the whole ledger to one requirement; at incident time it was
+ * every requirement at once — the P1b round-2 coveredBy incident,
+ * milestones/0006). Padding to four matches research 0006 §6.1 and the
+ * mockup's `R0001`.
  */
 export function nextReleaseItemId(ids: readonly string[]): string {
   let max = 0

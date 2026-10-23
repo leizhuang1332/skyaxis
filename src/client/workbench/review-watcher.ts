@@ -87,9 +87,12 @@ export function createReviewWatcher(deps: ReviewWatcherDeps): { dispose(): void 
     try {
       const list = await deps.fetcher.list()
       if (disposed || list.kind !== 'ok') return // degraded/network → next flip retries
-      let revision = list.revision
+      // 0032: revisions are PER-RECORD (one optimistic lock per shard) — the
+      // sweep threads a per-requirement map, never one global value.
+      const revisions = new Map(list.rows.map((row) => [row.requirementId, row.revision]))
       const liveRunning = deps.sessions
-      for (const record of list.records) {
+      for (const row of list.rows) {
+        const record = row.record
         const binding = record.reviewSession
         if (binding === undefined) continue
         // RUNNING gate (the「关闸永不 mid-run」ruling) — checked BEFORE the
@@ -98,9 +101,9 @@ export function createReviewWatcher(deps: ReviewWatcherDeps): { dispose(): void 
         if (liveRunning !== undefined && liveRunning.summariesById[binding.sessionId]?.running === true) continue
         if (attempted.get(record.requirementId) === binding.sessionId) continue
         attempted.set(record.requirementId, binding.sessionId)
-        const outcome = await deps.controller.autoImportReview(record.requirementId, binding.sessionId, revision)
+        const outcome = await deps.controller.autoImportReview(record.requirementId, binding.sessionId, revisions.get(record.requirementId)!)
         if (outcome === undefined) continue // 409/network → next flip retries (attempted stays set; the view's mount catch-up covers the open tab)
-        if (outcome.landed && outcome.revision !== revision) revision = outcome.revision // a landed write bumped the file revision — thread the fresh value
+        if (outcome.landed && outcome.revision !== undefined) revisions.set(record.requirementId, outcome.revision) // a landed write bumped the shard revision — thread the fresh value
       }
     } finally {
       sweeping = false

@@ -280,9 +280,10 @@ export function parseDeclare(input: { text: string; record: WorkbenchRecord }): 
   // --- analysis proposals (findings / criteria) — parse caps MUST equal the
   // storage caps (finding title 1..64 / detail 32K; criterion text 2000 /
   // sourceSection 256): an over-cap row the host minted into the ledger
-  // would poison the whole workbench.yaml on next load (the nextReleaseItemId
-  // lesson). Over-cap rows are SKIPPED, never truncated — truncation is a
-  // silent data edit.
+  // would poison its record shard on next load (the nextReleaseItemId
+  // lesson; 0032 narrowed the blast radius from the whole ledger to one
+  // requirement — the cap still matters). Over-cap rows are SKIPPED, never
+  // truncated — truncation is a silent data edit.
   const findings: DeclareFindingRow[] = []
   const findingRows = Array.isArray(doc.findings) ? doc.findings : []
   findingRows.forEach((row, index) => {

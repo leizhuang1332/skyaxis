@@ -21,8 +21,12 @@
  * - D4-⑤ semantic split — structural documents (plans, review reports) live
  *   as files under $DSH_HOME/skyaxis/workbench/<requirementId>/; short
  *   attribute snippets (findings.detail, knowledgeCandidates.draft,
- *   releaseItems.content) stay inline in workbench.yaml under
- *   WORKBENCH_INLINE_MAX_CHARS.
+ *   releaseItems.content) stay inline in the record under
+ *   WORKBENCH_INLINE_MAX_CHARS. 0032: the record itself is a per-requirement
+ *   shard (workbench/<requirementId>/record.yaml) with its OWN revision —
+ *   expectedRevision fields below are PER-RECORD locks, and a record the
+ *   client has never loaded is virtually at revision 0 (the implicit-create
+ *   sentinel the client slot model already sends).
  * - Field-evolution discipline: every FUTURE field is optional/default with
  *   the guards relaxed in the same commit (0003 lesson). The first ledger
  *   release has no legacy data, so the initial shapes may require arrays —
@@ -104,7 +108,7 @@ export function isReleaseItemId(value: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Records (workbench.yaml — one per requirement)
+// Records (one per requirement — workbench/<requirementId>/record.yaml, 0032)
 // ---------------------------------------------------------------------------
 
 /**
@@ -1254,8 +1258,9 @@ export interface BindSessionRequest {
 
 // --- Knowledge candidates (S6; OUTSIDE the split gate — retro spans the
 // whole lifecycle. Activate is the dual-ledger promote: candidate → promoted
-// in workbench.yaml (this union's optimistic lock) + an active row in
-// knowledge.yaml as a best-effort tail write keyed by the SAME id.) ---
+// in the record shard (this union's per-record optimistic lock, 0032) + an
+// active row in knowledge.yaml as a best-effort tail write keyed by the
+// SAME id.) ---
 
 export interface ActivateKnowledgeCandidateRequest {
   readonly expectedRevision: number
@@ -1671,10 +1676,11 @@ export type WorkbenchKnowledgeMutateRequestBody = SaveKnowledgeRequest | Archive
 // ---------------------------------------------------------------------------
 // Declare-block import (P3b) — a SEPARATE route (like knowledge): its
 // preview/commit response envelopes cannot fit the main union's
-// {ok, revision, record}, the repos-pool import two-stage precedent. It
-// writes the SAME workbench.yaml revision space — the optimistic lock is
-// shared with the main union, so concurrent writers 409 against each other
-// (correct, not a bug).
+// {ok, revision, record}, the repos-pool import two-stage precedent. 0032:
+// its optimistic lock is the TARGET RECORD's shard revision — concurrent
+// writers on the SAME requirement 409 against each other (correct, not a
+// bug); the single-file era's cross-requirement 409s are gone with the
+// shared revision space.
 // ---------------------------------------------------------------------------
 
 export const WORKBENCH_DECLARE_PATH = '/api/skyaxis/workbench/declare'
@@ -1989,10 +1995,25 @@ export const WORKBENCH_KNOWLEDGE_PATH = '/api/skyaxis/workbench/knowledge'
 // Wire envelopes
 // ---------------------------------------------------------------------------
 
+/**
+ * 0032 list face — one row per HEALTHY shard, carrying the record's OWN
+ * revision (the watchers thread it per-requirement; the single global
+ * revision is gone with the single file). A degraded shard is simply absent
+ * from rows: its automation skips (retry next sweep) and its user-facing
+ * degraded state rides the DETAIL face's 409 → slot banner. The degraded
+ * envelope below now means exactly one thing — the whole store is
+ * migration-blocked (legacy workbench.yaml present but unreadable, or its
+ * post-seed rename never landed).
+ */
+export interface WorkbenchListRow {
+  readonly requirementId: string
+  readonly revision: number
+  readonly record: WorkbenchRecord
+}
+
 export interface WorkbenchListResponseOk {
   readonly ok: true
-  readonly revision: number
-  readonly records: readonly WorkbenchRecord[]
+  readonly rows: readonly WorkbenchListRow[]
 }
 
 export interface WorkbenchListResponseDegraded {
@@ -2607,11 +2628,17 @@ export function isWorkbenchRecord(v: unknown): v is WorkbenchRecord {
   )
 }
 
+function isWorkbenchListRow(v: unknown): v is WorkbenchListRow {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  return isString(r.requirementId) && typeof r.revision === 'number' && isWorkbenchRecord(r.record)
+}
+
 export function isWorkbenchListResponse(v: unknown): v is WorkbenchListResponse {
   if (typeof v !== 'object' || v === null) return false
   const r = v as Record<string, unknown>
   if (r.ok === true) {
-    return typeof r.revision === 'number' && Array.isArray(r.records) && r.records.every(isWorkbenchRecord)
+    return Array.isArray(r.rows) && r.rows.every(isWorkbenchListRow)
   }
   return (
     r.ok === false && r.degraded === true

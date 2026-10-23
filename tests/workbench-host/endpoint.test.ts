@@ -53,7 +53,7 @@ import {
 import { planDocPath, reviewDocPath } from '../../src/workbench-host/artifact-path.js'
 import { contentHashOf } from '../../src/workbench-host/artifact-store.js'
 import { KnowledgeFileStore } from '../../src/workbench-host/knowledge-file.js'
-import { WorkbenchFileStore } from '../../src/workbench-host/workbench-file.js'
+import { WorkbenchRecordStore } from '../../src/workbench-host/record-store.js'
 import { SessionDeclareReader } from '../../src/workbench-host/declare-reader.js'
 import { registerWorkbenchEndpoints } from '../../src/workbench-host/endpoint.js'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
@@ -85,9 +85,12 @@ const expectIsoString = (value: unknown) => {
 async function harness(options: { resolveWorkspacePath?: (requirementId: string) => string } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'workbench-endpoint-test-'))
   dirs.push(dir)
-  const file = new WorkbenchFileStore(join(dir, 'workbench.yaml'))
-  const knowledgeFile = new KnowledgeFileStore(join(dir, 'knowledge.yaml'))
+  // 0032: per-requirement shards under the artifacts root; the legacy
+  // workbench.yaml path is wired (empty in a fresh tmpdir) so the
+  // migration-blocked faces are reachable by planting a file there.
   const workbenchRoot = join(dir, 'workbench')
+  const recordStore = new WorkbenchRecordStore(workbenchRoot, join(dir, 'workbench.yaml'))
+  const knowledgeFile = new KnowledgeFileStore(join(dir, 'knowledge.yaml'))
   const declareReader = new SessionDeclareReader()
   const ctx = new Context()
   const fiber = ctx.plugin((pluginCtx) => {
@@ -96,7 +99,7 @@ async function harness(options: { resolveWorkspacePath?: (requirementId: string)
   await fiber.await()
   const connection = ctx.get('connection') as HostConnectionHandle
   registerWorkbenchEndpoints(connection, {
-    file,
+    records: recordStore,
     knowledgeFile,
     workbenchRoot,
     declareReader,
@@ -109,15 +112,28 @@ async function harness(options: { resolveWorkspacePath?: (requirementId: string)
     shared.fetch(new Request(BASE + path, { method: 'POST', body: JSON.stringify(body) }))
   const postText = (path: string, text: string, contentType = 'text/plain') =>
     shared.fetch(new Request(BASE + path, { method: 'POST', body: text, headers: { 'content-type': contentType } }))
-  const seed = async (records: readonly WorkbenchRecord[], expectedRevision = 0) => {
-    const saved = await file.save(expectedRevision, [...records])
-    if (!saved.ok) throw new Error(`seed failed: ${JSON.stringify(saved)}`)
-    return saved.revision
+  // 0032: seeding writes each record's shard once (create at virtual 0 or
+  // replace at the shard's current revision); the returned revision is the
+  // LAST record's post-save value — every chained-usage call site seeds a
+  // single record, where it equals that record's revision.
+  const seed = async (records: readonly WorkbenchRecord[], expectedRevision?: number) => {
+    let revision = 0
+    for (const record of records) {
+      const current = recordStore.loadRecord(record.requirementId)
+      const expected = expectedRevision ?? (current.ok ? current.value.revision : 0)
+      const saved = await recordStore.saveRecord(record.requirementId, expected, record)
+      if (!saved.ok) throw new Error(`seed failed: ${JSON.stringify(saved)}`)
+      revision = saved.revision
+    }
+    return revision
   }
-  return { file, knowledgeFile, dir, workbenchRoot, declareReader, get, post, postText, seed }
+  return { recordStore, knowledgeFile, dir, workbenchRoot, declareReader, get, post, postText, seed }
 }
 
 type Harness = Awaited<ReturnType<typeof harness>>
+
+/** 0032: RID's shard path — the per-record corruption/read seam (default RID). */
+const shardPath = (h: Harness, requirementId: string = RID): string => join(h.workbenchRoot, requirementId, 'record.yaml')
 
 function seedRecord(requirementId: string, overrides: Partial<WorkbenchRecord> = {}): WorkbenchRecord {
   return {
@@ -223,31 +239,83 @@ const errorCode = async (res: Response) => ((await res.json()) as ErrorResponse)
 // ---------------------------------------------------------------------------
 
 describe('GET /api/skyaxis/workbench — list', () => {
-  it('lists the pristine store as revision 0 with no records', async () => {
+  it('lists the pristine store as an empty rows array', async () => {
     const h = await harness()
     const res = await h.get(WORKBENCH_PATH)
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ ok: true, revision: 0, records: [] })
+    expect(await res.json()).toEqual({ ok: true, rows: [] })
   })
 
-  it('lists seeded records under the current revision', async () => {
+  it('lists seeded records with their own shard revisions', async () => {
     const h = await harness()
     await h.seed([seedRecord(RID), seedRecord(RID2)])
-    const body = (await (await h.get(WORKBENCH_PATH)).json()) as { ok: true; revision: number; records: WorkbenchRecord[] }
+    const body = (await (await h.get(WORKBENCH_PATH)).json()) as { ok: true; rows: { requirementId: string; revision: number }[] }
     expect(body.ok).toBe(true)
-    expect(body.revision).toBe(1)
-    expect(body.records.map((record) => record.requirementId)).toEqual([RID, RID2])
+    expect(body.rows.map((row) => row.requirementId).sort()).toEqual([RID, RID2])
+    expect(body.rows.every((row) => row.revision === 1)).toBe(true)
   })
 
-  it('degrades to {ok:false, degraded:true} with backup availability over a corrupt ledger (a 200 body, not an error status)', async () => {
+  it('omits a degraded shard from rows (per-record degradation, neighbours unaffected)', async () => {
     const h = await harness()
     await h.seed([seedRecord(RID)])
-    await h.seed([seedRecord(RID), seedRecord(RID2)], 1) // second save so a .bak exists
-    writeFileSync(h.file.filePath, 'broken: [', 'utf8')
+    await h.seed([seedRecord(RID2)])
+    writeFileSync(shardPath(h), 'broken: [', 'utf8')
+
+    const res = await h.get(WORKBENCH_PATH)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { ok: true; rows: { requirementId: string }[] }
+    expect(body.ok).toBe(true)
+    expect(body.rows.map((row) => row.requirementId)).toEqual([RID2])
+  })
+
+  it('degrades to the blocked-migration envelope over an unreadable legacy ledger (a 200 body, not an error status)', async () => {
+    const h = await harness()
+    // 0032: the degraded list envelope now means exactly one thing — the
+    // whole store is migration-blocked: the legacy workbench.yaml is present
+    // but unreadable, preserved in place for manual recovery.
+    writeFileSync(join(h.dir, 'workbench.yaml'), 'version: 1\nrevision: 0\nrecords: [', 'utf8')
+    writeFileSync(join(h.dir, 'workbench.yaml.bak'), 'unused', 'utf8')
 
     const res = await h.get(WORKBENCH_PATH)
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ ok: false, degraded: true, reason: 'parse', hasBackup: true })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 0032 record shards — cross-requirement lock independence + the blocked
+// store's faces (decisions/0032).
+// ---------------------------------------------------------------------------
+
+describe('0032 record shards', () => {
+  it('two requirements write without the single-file era\'s cross-record 409 (independent shard locks)', async () => {
+    const h = await harness()
+    await h.seed([seedRecord(RID)])
+    await h.seed([seedRecord(RID2)])
+    // RID moves to revision 2; RID2 still accepts ITS OWN revision 1 — the
+    // old global counter would have 409'd the second write.
+    const first = await h.post(WORKBENCH_PATH, { expectedRevision: 1, requirementId: RID, action: 'advanceStage', stage: 'plan' })
+    expect(first.status).toBe(200)
+    const second = await h.post(WORKBENCH_PATH, { expectedRevision: 1, requirementId: RID2, action: 'advanceStage', stage: 'plan' })
+    expect(second.status).toBe(200)
+    const rid2 = h.recordStore.loadRecord(RID2)
+    expect(rid2.ok && rid2.value.revision).toBe(2)
+  })
+
+  it('the migration-blocked store answers 409 on detail and mutate while the legacy scene stays on disk', async () => {
+    const h = await harness()
+    await h.seed([seedRecord(RID)])
+    writeFileSync(join(h.dir, 'workbench.yaml'), 'version: 1\nrevision: 0\nrecords: [', 'utf8')
+
+    const detail = await h.get(`${WORKBENCH_PATH}?requirementId=${RID}`)
+    expect(detail.status).toBe(409)
+    expect(await errorCode(detail)).toBe('unreadable-file')
+    const mutate = await h.post(WORKBENCH_PATH, { expectedRevision: 1, requirementId: RID, action: 'advanceStage', stage: 'plan' })
+    expect(mutate.status).toBe(409)
+    expect(await errorCode(mutate)).toBe('unreadable-file')
+    // The shard and the broken legacy BOTH stay — no shadow-mint, no repair.
+    expect(existsSync(shardPath(h))).toBe(true)
+    expect(existsSync(join(h.dir, 'workbench.yaml'))).toBe(true)
   })
 })
 
@@ -261,8 +329,8 @@ describe('GET /api/skyaxis/workbench?requirementId — detail', () => {
     const res = await h.get(`${WORKBENCH_PATH}?requirementId=${RID}`)
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ ok: true, revision: 0, record: null, planFileExists: [], reviewFileExists: [], releaseDrifted: [] })
-    // GET never creates: the ledger is still pristine after the read.
-    expect(h.file.load()).toEqual({ ok: true, value: { version: 1, revision: 0, records: [] } })
+    // GET never creates: the shard is still absent after the read.
+    expect(h.recordStore.loadRecord(RID)).toEqual({ ok: false, missing: true })
   })
 
   it('rejects malformed requirement ids with 400 (lowercase uuid only)', async () => {
@@ -277,7 +345,7 @@ describe('GET /api/skyaxis/workbench?requirementId — detail', () => {
   it('answers 409 unreadable-file over a corrupt ledger', async () => {
     const h = await harness()
     await h.seed([seedRecord(RID)])
-    writeFileSync(h.file.filePath, 'broken: [', 'utf8')
+    writeFileSync(shardPath(h), 'broken: [', 'utf8')
 
     const res = await h.get(`${WORKBENCH_PATH}?requirementId=${RID}`)
     expect(res.status).toBe(409)
@@ -493,8 +561,8 @@ describe('POST /api/skyaxis/workbench — action union', () => {
     })
     expect(res.status).toBe(400)
     expect(await errorCode(res)).toBe('bad-request')
-    const listed = (await (await h.get(WORKBENCH_PATH)).json()) as { records: unknown[] }
-    expect(listed.records).toHaveLength(0)
+    const listed = (await (await h.get(WORKBENCH_PATH)).json()) as { rows: unknown[] }
+    expect(listed.rows).toHaveLength(0)
   })
 
   it('enforces the 32K code-unit inline cap on findings.detail (exactly at cap passes)', async () => {
@@ -525,7 +593,7 @@ describe('POST /api/skyaxis/workbench — action union', () => {
   it('refuses writes over a corrupt ledger with 409 unreadable-file', async () => {
     const h = await harness()
     await h.seed([seedRecord(RID)])
-    writeFileSync(h.file.filePath, 'broken: [', 'utf8')
+    writeFileSync(shardPath(h), 'broken: [', 'utf8')
 
     const res = await h.post(WORKBENCH_PATH, { expectedRevision: 1, requirementId: RID, action: 'advanceStage', stage: 'plan' })
     expect(res.status).toBe(409)
@@ -932,6 +1000,27 @@ describe('GET /api/skyaxis/workbench/scan — reconciliation', () => {
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ ok: true, orphans: [], missing: [], trash: [] })
   })
+
+  it('0032: a degraded shard\'s directory is skipped entirely (no orphan noise over unknowable refs)', async () => {
+    const h = await harness()
+    await h.seed([
+      seedRecord(RID, { workPackages: [seedWorkPackage('WP1', { plans: [planEntry(1, contentHashOf('body'))] })] }),
+      seedRecord(RID2, { workPackages: [seedWorkPackage('WP1', { plans: [planEntry(1, contentHashOf('body'))] })] }),
+    ])
+    // RID: body on disk, then the shard goes bad — its ref is unknowable, so
+    // the whole directory is skipped (the body is NOT an orphan). RID2: no
+    // body, healthy shard — the missing row still surfaces.
+    mkdirSync(join(h.workbenchRoot, RID, 'plans'), { recursive: true })
+    writeFileSync(join(h.workbenchRoot, RID, 'plans', 'WP1-v1.md'), 'body', 'utf8')
+    writeFileSync(shardPath(h), 'broken: [', 'utf8')
+
+    const res = await h.get(WORKBENCH_SCAN_PATH)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as WorkbenchScanResponseOk
+    expect(body.ok).toBe(true)
+    expect(body.orphans).toHaveLength(0)
+    expect(body.missing).toEqual([{ requirementId: RID2, kind: 'plan', workPackageId: 'WP1', version: 1 }])
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -954,8 +1043,8 @@ describe('POST /api/skyaxis/workbench — gate and status smoke (second knife)',
     expect(res.status).toBe(404)
     expect(await errorCode(res)).toBe('not-found')
     // The failed action must not persist the implicitly created record.
-    const listed = (await (await h.get(WORKBENCH_PATH)).json()) as { records: unknown[] }
-    expect(listed.records).toHaveLength(0)
+    const listed = (await (await h.get(WORKBENCH_PATH)).json()) as { rows: unknown[] }
+    expect(listed.rows).toHaveLength(0)
   })
 
   it('locks list CRUD behind an approved split over HTTP: 400 locked-split, double approve 400, revoke reopens the list', async () => {
@@ -995,7 +1084,9 @@ describe('POST /api/skyaxis/workbench — gate and status smoke (second knife)',
     expect(await rewrite.json()).toMatchObject({ version: 1 }) // tail draft, same version
     expect(await detailStatus(h)).toBe('plan-draft') // no double flip
 
-    const nextOnApproved = await postPlan(h, { requirementId: RID2, workPackageId: 'WP1', expectedRevision: 3 }, 'v2 新稿')
+    // 0032: RID2's own shard revision (1) — RID's two writes above no longer
+    // bump RID2's lock (the single-file shared counter is gone).
+    const nextOnApproved = await postPlan(h, { requirementId: RID2, workPackageId: 'WP1', expectedRevision: 1 }, 'v2 新稿')
     expect(nextOnApproved.status).toBe(200)
     expect(await nextOnApproved.json()).toMatchObject({ version: 2 })
     expect(await detailStatus(h, RID2)).toBe('plan-approved') // later writes keep the status
@@ -1053,9 +1144,9 @@ describe('POST /api/skyaxis/workbench — P2 knowledge candidates & session bind
     expect(body.revision).toBe(2)
     expect(body.record.knowledgeCandidates[0]?.status).toBe('promoted')
 
-    const wb = h.file.load()
+    const wb = h.recordStore.loadRecord(RID)
     expect(wb.ok).toBe(true)
-    if (wb.ok) expect(wb.value.records[0]?.knowledgeCandidates[0]?.status).toBe('promoted')
+    if (wb.ok) expect(wb.value.record.knowledgeCandidates[0]?.status).toBe('promoted')
 
     const kb = h.knowledgeFile.load()
     expect(kb.ok).toBe(true)
@@ -1091,11 +1182,11 @@ describe('POST /api/skyaxis/workbench — P2 knowledge candidates & session bind
     expect(body.revision).toBe(2) // workbench 侧不增
     expect(body.record.knowledgeCandidates[0]?.status).toBe('promoted')
 
-    const wb = h.file.load()
+    const wb = h.recordStore.loadRecord(RID)
     expect(wb.ok).toBe(true)
     if (wb.ok) {
       expect(wb.value.revision).toBe(2) // workbench 文件未被重写
-      expect(wb.value.records[0]?.knowledgeCandidates).toHaveLength(1)
+      expect(wb.value.record.knowledgeCandidates).toHaveLength(1)
     }
 
     const kb = h.knowledgeFile.load()
@@ -1131,7 +1222,7 @@ describe('POST /api/skyaxis/workbench — P2 knowledge candidates & session bind
     const detail = (await (await h.get(`${WORKBENCH_PATH}?requirementId=${RID}`)).json()) as WorkbenchDetailResponseOk
     expect(detail.record?.knowledgeCandidates[0]?.status).toBe('pending') // 未被推进
 
-    const wb = h.file.load()
+    const wb = h.recordStore.loadRecord(RID)
     expect(wb.ok).toBe(true)
     if (wb.ok) expect(wb.value.revision).toBe(1) // 账本零改动
   })
@@ -1142,7 +1233,7 @@ describe('POST /api/skyaxis/workbench — P2 knowledge candidates & session bind
     const res = await h.post(WORKBENCH_PATH, { ...activateBody(1), id: GHOST })
     expect(res.status).toBe(404)
     expect(await errorCode(res)).toBe('not-found')
-    const wb = h.file.load()
+    const wb = h.recordStore.loadRecord(RID)
     expect(wb.ok).toBe(true)
     if (wb.ok) expect(wb.value.revision).toBe(1)
     expect(h.knowledgeFile.load()).toEqual({ ok: true, value: { version: 1, revision: 0, records: [] } })
@@ -1211,11 +1302,11 @@ describe('POST /api/skyaxis/workbench — P2 knowledge candidates & session bind
     expect(retry.status).toBe(200)
     expect(((await retry.json()) as { revision: number }).revision).toBe(2) // 幂等：revision 不增
 
-    const loaded = h.file.load()
+    const loaded = h.recordStore.loadRecord(RID)
     expect(loaded.ok).toBe(true)
     if (loaded.ok) {
       expect(loaded.value.revision).toBe(2)
-      expect(loaded.value.records[0]?.workPackages[0]?.sessions).toHaveLength(1)
+      expect(loaded.value.record.workPackages[0]?.sessions).toHaveLength(1)
     }
   })
 
@@ -1230,7 +1321,7 @@ describe('POST /api/skyaxis/workbench — P2 knowledge candidates & session bind
     expect(res.status).toBe(400)
     expect(await errorCode(res)).toBe('bad-request')
 
-    const loaded = h.file.load()
+    const loaded = h.recordStore.loadRecord(RID)
     expect(loaded.ok).toBe(true)
     if (loaded.ok) expect(loaded.value.revision).toBe(1) // 被拒写入零残留
   })
@@ -1250,11 +1341,11 @@ describe('POST /api/skyaxis/workbench — P3a release items & rollback plan', ()
     expect(body.record.releaseItems[0]?.id).toBe('R0001')
 
     // 盘上真源：id 必须是四位补零形态，否则下一次 load 全账本 degrade。
-    const loaded = h.file.load()
+    const loaded = h.recordStore.loadRecord(RID)
     expect(loaded.ok).toBe(true)
     if (loaded.ok) {
-      expect(loaded.value.records[0]?.releaseItems[0]?.id).toBe('R0001')
-      expect(isReleaseItemId(loaded.value.records[0]?.releaseItems[0]?.id ?? '')).toBe(true)
+      expect(loaded.value.record.releaseItems[0]?.id).toBe('R0001')
+      expect(isReleaseItemId(loaded.value.record.releaseItems[0]?.id ?? '')).toBe(true)
     }
   })
 
@@ -1288,10 +1379,10 @@ describe('POST /api/skyaxis/workbench — P3a release items & rollback plan', ()
     rev = await step(rev, 'markReleaseItemApplied')
     rev = await step(rev, 'markReleaseItemVerified')
 
-    const loaded = h.file.load()
+    const loaded = h.recordStore.loadRecord(RID)
     expect(loaded.ok).toBe(true)
     if (loaded.ok) {
-      const item = loaded.value.records[0]?.releaseItems[0]
+      const item = loaded.value.record.releaseItems[0]
       expect(item?.status).toBe('verified')
       expect(item?.appliedAt).toBeDefined()
       expect(item?.note).toBe('v1.2')
@@ -1306,11 +1397,11 @@ describe('POST /api/skyaxis/workbench — P3a release items & rollback plan', ()
     expect(res.status).toBe(400)
     expect(await errorCode(res)).toBe('bad-request')
 
-    const loaded = h.file.load()
+    const loaded = h.recordStore.loadRecord(RID)
     expect(loaded.ok).toBe(true)
     if (loaded.ok) {
       expect(loaded.value.revision).toBe(1)
-      expect(loaded.value.records[0]?.releaseItems[0]?.status).toBe('pending')
+      expect(loaded.value.record.releaseItems[0]?.status).toBe('pending')
     }
   })
 
@@ -1337,9 +1428,9 @@ describe('POST /api/skyaxis/workbench — P3a release items & rollback plan', ()
 
     const revoke = await h.post(WORKBENCH_PATH, { expectedRevision: 2, requirementId: RID, action: 'revokeRollbackPlan' })
     expect(revoke.status).toBe(200)
-    const loaded = h.file.load()
+    const loaded = h.recordStore.loadRecord(RID)
     expect(loaded.ok).toBe(true)
-    if (loaded.ok) expect(loaded.value.records[0]?.rollbackPlanConfirmedAt).toBeUndefined()
+    if (loaded.ok) expect(loaded.value.record.rollbackPlanConfirmedAt).toBeUndefined()
   })
 
   it('门外 HTTP 面：拆分未批准照样登记（阶段可跳过 + R5 手动最短路径）', async () => {
@@ -1372,14 +1463,14 @@ describe('POST /api/skyaxis/workbench — P3a release items & rollback plan', ()
     })])
 
     // 外部手改：R0001 的 content 被换掉但登记时的 hash 留在账里。
-    const yamlText = readFileSync(h.file.filePath, 'utf8')
-    writeFileSync(h.file.filePath, yamlText.replace('ALTER TABLE t_order ADD INDEX idx_created_at (created_at)', 'ALTER TABLE t_order DROP INDEX idx_created_at'), 'utf8')
+    const yamlText = readFileSync(shardPath(h), 'utf8')
+    writeFileSync(shardPath(h), yamlText.replace('ALTER TABLE t_order ADD INDEX idx_created_at (created_at)', 'ALTER TABLE t_order DROP INDEX idx_created_at'), 'utf8')
 
     const detail = (await (await h.get(`${WORKBENCH_PATH}?requirementId=${RID}`)).json()) as WorkbenchDetailResponseOk
     expect(detail.releaseDrifted).toEqual(['R0001'])
 
     // 投影绝不回写：账本盘上 contentHash 原样（漂移是读时事实，不是账本状态）。
-    const after = readFileSync(h.file.filePath, 'utf8')
+    const after = readFileSync(shardPath(h), 'utf8')
     expect(after).toContain(contentHashOf('ALTER TABLE t_order ADD INDEX idx_created_at (created_at)'))
   })
 
@@ -1437,7 +1528,7 @@ describe('declare route (P3b) — GET fetch + POST two-stage import', () => {
   it('POST dry-run：预览零写盘（逐字节相等）+ revision 锚定 + stale → 409', async () => {
     const h = await harness()
     await h.seed([seedRecord(RID, { splitApprovedAt: NOW, workPackages: [seedWorkPackage('WP1', { status: 'in-dev' })] })]) // revision 1
-    const before = readFileSync(h.file.filePath, 'utf8')
+    const before = readFileSync(shardPath(h), 'utf8')
 
     const stale = await h.post(WORKBENCH_DECLARE_PATH, { expectedRevision: 0, requirementId: RID, dryRun: true, text: `\`\`\`yaml\n${GOOD}\n\`\`\`` })
     expect(stale.status).toBe(409)
@@ -1450,7 +1541,7 @@ describe('declare route (P3b) — GET fetch + POST two-stage import', () => {
     expect(body.entries.map((entry) => entry.key)).toEqual(['built-0', 'artifact-0', 'knowledge-0'])
     expect(body.skipped).toEqual([])
     expect(body.stageReady).toBe(true)
-    expect(readFileSync(h.file.filePath, 'utf8')).toBe(before) // 零写
+    expect(readFileSync(shardPath(h), 'utf8')).toBe(before) // 零写
   })
 
   it('POST 整块错误走 200 信封：行内逗号形 → blockError yaml-syntax + 行号；无块 → no-declare-block', async () => {
@@ -1479,16 +1570,16 @@ describe('declare route (P3b) — GET fetch + POST two-stage import', () => {
     expect(body.report).toEqual({ built: 1, artifacts: 1, knowledge: 1, skipped: [] })
     expect(body.record.workPackages[0]?.status).toBe('built')
 
-    const loaded = h.file.load()
+    const loaded = h.recordStore.loadRecord(RID)
     expect(loaded.ok).toBe(true)
     if (loaded.ok) {
-      const item = loaded.value.records[0]?.releaseItems[0]
+      const item = loaded.value.record.releaseItems[0]
       expect(item?.id).toBe('R0001')
       expect(item?.status).toBe('pending')
       expect(item?.contentHash).toBe(contentHashOf('ALTER TABLE t_order ADD INDEX i(c)'))
       expect(item?.sessionId).toBe('sess-9')
       expect(item?.workPackageId).toBe('WP1')
-      const candidate = loaded.value.records[0]?.knowledgeCandidates[0]
+      const candidate = loaded.value.record.knowledgeCandidates[0]
       expect(candidate?.status).toBe('pending')
       expect(candidate?.proposedSessionId).toBe('sess-9')
     }
@@ -1515,7 +1606,7 @@ describe('declare route (P3b) — GET fetch + POST two-stage import', () => {
   it('POST commit：零选中 → 200 且 revision 不增不写盘（repos-pool 零变更先例）；未知 selected 键忽略', async () => {
     const h = await harness()
     await h.seed([seedRecord(RID)])
-    const before = readFileSync(h.file.filePath, 'utf8')
+    const before = readFileSync(shardPath(h), 'utf8')
 
     const res = await h.post(WORKBENCH_DECLARE_PATH, {
       expectedRevision: 1, requirementId: RID,
@@ -1524,7 +1615,7 @@ describe('declare route (P3b) — GET fetch + POST two-stage import', () => {
     })
     expect(res.status).toBe(200)
     expect(((await res.json()) as { revision: number }).revision).toBe(1)
-    expect(readFileSync(h.file.filePath, 'utf8')).toBe(before)
+    expect(readFileSync(shardPath(h), 'utf8')).toBe(before)
   })
 
   it('POST 拒形：超 DECLARE_MAX_CHARS → 413；degraded 账本 → 409', async () => {
@@ -1533,7 +1624,7 @@ describe('declare route (P3b) — GET fetch + POST two-stage import', () => {
     expect(tooBig.status).toBe(413)
 
     await h.seed([seedRecord(RID)])
-    writeFileSync(h.file.filePath, 'broken: [', 'utf8')
+    writeFileSync(shardPath(h), 'broken: [', 'utf8')
     const degraded = await h.post(WORKBENCH_DECLARE_PATH, { expectedRevision: 0, requirementId: RID, dryRun: true, text: 'x' })
     expect(degraded.status).toBe(409)
     expect(await errorCode(degraded)).toBe('unreadable-file')
@@ -1549,8 +1640,8 @@ describe('P4: review verdicts + idempotency anchor + candidate distillation', ()
     const first = await postReview(h, { requirementId: RID, expectedRevision: 1, title: '全量评审' }, body)
     expect(first.status).toBe(200)
     const firstBody = (await first.json()) as { revision: number; reviewId: string }
-    const seeded = h.file.load()
-    expect(seeded.ok && seeded.value.records[0]?.reviewReports).toHaveLength(1)
+    const seeded = h.recordStore.loadRecord(RID)
+    expect(seeded.ok && seeded.value.record.reviewReports).toHaveLength(1)
 
     // 收敛分支先于 revision 检查：重试携带过期 expectedRevision 也收敛。
     const retry = await postReview(h, { requirementId: RID, expectedRevision: 1, title: '全量评审' }, body)
@@ -1559,8 +1650,8 @@ describe('P4: review verdicts + idempotency anchor + candidate distillation', ()
     expect(retryBody.reviewId).toBe(firstBody.reviewId)
     expect(retryBody.revision).toBe(firstBody.revision) // 收敛不 bump
 
-    const after = h.file.load()
-    expect(after.ok && after.value.records[0]?.reviewReports).toHaveLength(1)
+    const after = h.recordStore.loadRecord(RID)
+    expect(after.ok && after.value.record.reviewReports).toHaveLength(1)
 
     // 收敛修复面：删掉正文文件再重试 → 文件回来。
     rmSync(reviewDocPath(h.workbenchRoot, RID, firstBody.reviewId), { force: true })
@@ -1602,15 +1693,15 @@ describe('P4: review verdicts + idempotency anchor + candidate distillation', ()
       verdict: { id: rowId, title: '空指针', severity: 'medium', verdict: 'confirmed', disposition: 'fixed' },
     })
     expect(edit.status).toBe(200)
-    const loaded = h.file.load()
-    expect(loaded.ok && loaded.value.records[0]?.reviewReports[0]?.verdicts[0]?.disposition).toBe('fixed')
+    const loaded = h.recordStore.loadRecord(RID)
+    expect(loaded.ok && loaded.value.record.reviewReports[0]?.verdicts[0]?.disposition).toBe('fixed')
 
     const removeRow = await h.post(WORKBENCH_PATH, { expectedRevision: 4, requirementId: RID, action: 'removeReviewVerdict', reportId: reviewId, id: rowId })
     expect(removeRow.status).toBe(200)
     const removeReport = await h.post(WORKBENCH_PATH, { expectedRevision: 5, requirementId: RID, action: 'removeReviewReport', id: reviewId })
     expect(removeReport.status).toBe(200)
-    const final = h.file.load()
-    expect(final.ok && final.value.records[0]?.reviewReports).toHaveLength(0)
+    const final = h.recordStore.loadRecord(RID)
+    expect(final.ok && final.value.record.reviewReports).toHaveLength(0)
     // 条目删除后正文文件留盘成孤儿（P1b 账本/引用分离——scan 可见）。
     expect(existsSync(reviewDocPath(h.workbenchRoot, RID, reviewId))).toBe(true)
   })
@@ -1626,7 +1717,7 @@ describe('P4: review verdicts + idempotency anchor + candidate distillation', ()
       expect(res.status).toBe(400)
       expect(await errorCode(res)).toBe('bad-request')
     }
-    const loaded = h.file.load()
+    const loaded = h.recordStore.loadRecord(RID)
     expect(loaded.ok && loaded.value.revision).toBe(1)
   })
 
@@ -1638,8 +1729,8 @@ describe('P4: review verdicts + idempotency anchor + candidate distillation', ()
       candidate: { title: '导出走异步', draft: '禁止全量拉取', type: 'convention' },
     })
     expect(res.status).toBe(200)
-    const loaded = h.file.load()
-    expect(loaded.ok && loaded.value.records[0]?.knowledgeCandidates[0]?.status).toBe('pending')
+    const loaded = h.recordStore.loadRecord(RID)
+    expect(loaded.ok && loaded.value.record.knowledgeCandidates[0]?.status).toBe('pending')
   })
 })
 
@@ -1832,10 +1923,10 @@ describe('P5b: review seeding + reSplit + confirmSplitStillValid', () => {
     const body = (await withBlock.json()) as { revision: number; reviewId: string; seeded: number }
     expect(body.seeded).toBe(2)
 
-    const loaded = h.file.load()
+    const loaded = h.recordStore.loadRecord(RID)
     expect(loaded.ok).toBe(true)
     if (loaded.ok) {
-      const verdicts = loaded.value.records[0]?.reviewReports[0]?.verdicts
+      const verdicts = loaded.value.record.reviewReports[0]?.verdicts
       expect(verdicts).toHaveLength(2)
       // proposed 是 host 铸的第三态；uuid 齐全；title/severity 来自块。
       expect(verdicts?.[0]).toEqual({ id: expect.any(String), title: '事务缺失', severity: 'high', verdict: 'proposed' })
@@ -1868,9 +1959,9 @@ describe('P5b: review seeding + reSplit + confirmSplitStillValid', () => {
     const res = await postReview(h, { requirementId: RID, expectedRevision: 1 }, mixed)
     const body = (await res.json()) as { seeded: number }
     expect(body.seeded).toBe(1) // 只有好行入库；两条坏行 skip（绝不截断写入）
-    const loaded = h.file.load()
+    const loaded = h.recordStore.loadRecord(RID)
     if (loaded.ok) {
-      expect(loaded.value.records[0]?.reviewReports[0]?.verdicts).toHaveLength(1)
+      expect(loaded.value.record.reviewReports[0]?.verdicts).toHaveLength(1)
       // 账本仍可读 = 没有毒化行落盘
       expect(loaded.ok).toBe(true)
     }
@@ -1909,10 +2000,10 @@ describe('P5b: review seeding + reSplit + confirmSplitStillValid', () => {
     // C9 是账本未知 ref（解析合法但账本无此标准）→ 过滤不入账本（连带口径⑤）
     expect(parsed.seededChecks).toBe(2)
 
-    const loaded = h.file.load()
+    const loaded = h.recordStore.loadRecord(RID)
     expect(loaded.ok).toBe(true)
     if (loaded.ok) {
-      const report = loaded.value.records[0]?.reviewReports[0]
+      const report = loaded.value.record.reviewReports[0]
       expect(report?.verdicts).toEqual([
         { id: expect.any(String), title: '事务缺失', severity: 'high', verdict: 'proposed', detail: 'src/export/importer.ts:88 导入与校验不在同一事务' },
       ])
@@ -1922,14 +2013,14 @@ describe('P5b: review seeding + reSplit + confirmSplitStillValid', () => {
       ])
       // 幂等收敛不补种（核验行推广同一纪律）：删核验行后重导同内容 → 同一报告、不复活
       const kept = [{ ...report!, criteriaChecks: undefined }]
-      await h.file.save(loaded.value.revision, [{ ...loaded.value.records[0]!, reviewReports: kept }])
+      await h.recordStore.saveRecord(RID, loaded.value.revision, { ...loaded.value.record, reviewReports: kept })
       const retry = await postReview(h, { requirementId: RID, expectedRevision: loaded.value.revision + 1 }, withBoth)
       const retryBody = (await retry.json()) as { reviewId: string; seeded?: number; seededChecks?: number }
       expect(retryBody.reviewId).toBe(parsed.reviewId)
       expect(retryBody.seeded).toBeUndefined()
       expect(retryBody.seededChecks).toBeUndefined()
-      const after = h.file.load()
-      expect(after.ok && after.value.records[0]?.reviewReports[0]?.criteriaChecks).toBeUndefined()
+      const after = h.recordStore.loadRecord(RID)
+      expect(after.ok && after.value.record.reviewReports[0]?.criteriaChecks).toBeUndefined()
     }
   })
 
@@ -1942,8 +2033,8 @@ describe('P5b: review seeding + reSplit + confirmSplitStillValid', () => {
     expect(res1.status).toBe(200)
     const row1 = await res1.json() as { ok: boolean; revision: number }
     expect(row1.revision).toBe(1)
-    const loaded1 = h.file.load()
-    expect(loaded1.ok && loaded1.value.records[0]?.reviewSession).toEqual({ sessionId: 'sess-review', boundAt: expect.any(String), anchor: ANCHOR })
+    const loaded1 = h.recordStore.loadRecord(RID)
+    expect(loaded1.ok && loaded1.value.record.reviewSession).toEqual({ sessionId: 'sess-review', boundAt: expect.any(String), anchor: ANCHOR })
 
     // 同 id 同锚 → unchanged（revision 不动）
     const res2 = await bind({ sessionId: 'sess-review', anchor: ANCHOR }, 1)
@@ -1952,10 +2043,10 @@ describe('P5b: review seeding + reSplit + confirmSplitStillValid', () => {
     // 异 id → 指针最新优先（重投递）
     const res3 = await bind({ sessionId: 'sess-review-2' }, 1)
     expect(res3.status).toBe(200)
-    const loaded3 = h.file.load()
-    expect(loaded3.ok && loaded3.value.records[0]?.reviewSession?.sessionId).toBe('sess-review-2')
+    const loaded3 = h.recordStore.loadRecord(RID)
+    expect(loaded3.ok && loaded3.value.record.reviewSession?.sessionId).toBe('sess-review-2')
     // 无锚重绑保旧锚（bindAnalysisSession 语义）
-    expect(loaded3.ok && loaded3.value.records[0]?.reviewSession?.anchor).toBe(ANCHOR)
+    expect(loaded3.ok && loaded3.value.record.reviewSession?.anchor).toBe(ANCHOR)
   })
 
   it('幂等锚收敛**不补种**：删掉种子行后重导同内容 → 同一报告、不复活已删行', async () => {
@@ -1966,19 +2057,19 @@ describe('P5b: review seeding + reSplit + confirmSplitStillValid', () => {
     expect(firstBody.revision).toBe(2)
 
     // 用户删掉一条种子裁决行（真删）。
-    const loaded = h.file.load()
+    const loaded = h.recordStore.loadRecord(RID)
     if (!loaded.ok) throw new Error('fixture degraded')
-    const reports = loaded.value.records[0]?.reviewReports ?? []
+    const reports = loaded.value.record.reviewReports ?? []
     const kept = reports.map((report) => ({ ...report, verdicts: report.verdicts.slice(1) }))
-    await h.file.save(loaded.value.revision, [{ ...loaded.value.records[0]!, reviewReports: kept }])
+    await h.recordStore.saveRecord(RID, loaded.value.revision, { ...loaded.value.record, reviewReports: kept })
 
     // 重导同样内容 → 收敛到同一 reviewId，且不复活被删的行。
     const retry = await postReview(h, { requirementId: RID, expectedRevision: 1, title: 'R' }, REVIEW_BODY)
     expect(retry.status).toBe(200)
     const retryBody = (await retry.json()) as { reviewId: string }
     expect(retryBody.reviewId).toBe(firstBody.reviewId)
-    const after = h.file.load()
-    expect(after.ok && after.value.records[0]?.reviewReports[0]?.verdicts).toHaveLength(1)
+    const after = h.recordStore.loadRecord(RID)
+    expect(after.ok && after.value.record.reviewReports[0]?.verdicts).toHaveLength(1)
   })
 
   it('GET ?kind=review：engine 在场返回整条消息；缺席 → no-service；无块 → no-review-block', async () => {
@@ -2052,8 +2143,8 @@ describe('P5b: review seeding + reSplit + confirmSplitStillValid', () => {
     const blocked = await h2.post(WORKBENCH_PATH, { expectedRevision: 1, requirementId: RID, action: 'reSplit' })
     expect(blocked.status).toBe(400)
     expect(await errorCode(blocked)).toBe('bad-request')
-    const after = h2.file.load()
-    expect(after.ok && after.value.records[0]?.workPackages[1]?.status).toBe('in-dev')
+    const after = h2.recordStore.loadRecord(RID)
+    expect(after.ok && after.value.record.workPackages[1]?.status).toBe('in-dev')
 
     // 未批准 → 400
     const h3 = await harness()
@@ -2101,8 +2192,8 @@ describe('P5b: review seeding + reSplit + confirmSplitStillValid', () => {
     const res = await h.post(WORKBENCH_PATH, payload)
     expect(res.status).toBe(200)
     expect(((await res.json()) as { revision: number }).revision).toBe(1) // 未 bump
-    const loaded = h.file.load()
-    expect(loaded.ok && loaded.value.records[0]?.reviewReports[0]?.verdicts).toHaveLength(1)
+    const loaded = h.recordStore.loadRecord(RID)
+    expect(loaded.ok && loaded.value.record.reviewReports[0]?.verdicts).toHaveLength(1)
   })
 
   it('客户端不能写 proposed：saveReviewVerdict 带 verdict:"proposed" → 400（输入 schema 二值，四权防线）', async () => {
@@ -2562,8 +2653,8 @@ describe('0007 定稿软门：approveUnderstand / revokeUnderstand + stageReady 
       clarifications: [{ question: '上限？', answer: '百万行' }],
     })
     // The ledger reloads with the new fields intact (the mirror-drift guard's e2e face).
-    const loaded = h.file.load()
-    expect(loaded.ok && loaded.value.records[0]?.understandBaseline?.criteria).toHaveLength(1)
+    const loaded = h.recordStore.loadRecord(RID)
+    expect(loaded.ok && loaded.value.record.understandBaseline?.criteria).toHaveLength(1)
   })
 
   it('stageReady 会话通道透传：true 落戳 → 新报告 false 随整戳换新（0007 收编断线）', async () => {
@@ -2606,8 +2697,8 @@ describe('0008 需求基线文档：approveUnderstand 专属 flow + requirement-
     const row1 = await res1.json() as { revision: number; record: WorkbenchRecord }
     expect(row1.record.understandBaseline?.docHash).toBe(contentHashOf(text))
     // 盘上真有记录（append 臂——0008 修复点：commitSeedResponse 原为替换-only）。
-    const loaded = h.file.load()
-    expect(loaded.ok && loaded.value.records[0]?.understandBaseline?.docHash).toBe(contentHashOf(text))
+    const loaded = h.recordStore.loadRecord(RID)
+    expect(loaded.ok && loaded.value.record.understandBaseline?.docHash).toBe(contentHashOf(text))
     // 再定稿 400（approve 家族纪律经由专属 flow 照常生效）。
     expect((await h.post(WORKBENCH_PATH, body('approveUnderstand', {}, 1))).status).toBe(400)
   })
@@ -2709,8 +2800,8 @@ describe('0012 两步化：adoptPlan / seedSplit 专属 flow + planning-doc / sp
     expect(res1.status).toBe(200)
     const row1 = await res1.json() as { revision: number; record: WorkbenchRecord }
     expect(row1.record.planBaseline?.docHash).toBe(contentHashOf(text))
-    const loaded = h.file.load()
-    expect(loaded.ok && loaded.value.records[0]?.planAdoptedAt).toBeDefined() // append 臂盘上真有
+    const loaded = h.recordStore.loadRecord(RID)
+    expect(loaded.ok && loaded.value.record.planAdoptedAt).toBeDefined() // append 臂盘上真有
     expect((await h.post(WORKBENCH_PATH, body('adoptPlan', {}, 1))).status).toBe(400)
 
     const unarmed = await harness()
@@ -3011,8 +3102,10 @@ describe('0016 P1a: seedDevDeclare flow + devDeclare-keyed import + adjudicateDe
       assistantText('干活中，没有声明块') as never,
     ] }) })
     expect((await post(revision, 'WP1')).devSeedMissing).toBe('no-declare-block')
-    // 404s: record / WP absent
-    const ghost = await h.post(WORKBENCH_PATH, { expectedRevision: revision, requirementId: GHOST, action: 'seedDevDeclare', workPackageId: 'WP1' })
+    // 404s: record / WP absent. GHOST never loaded → the honest client
+    // sentinel is the virtual revision 0 (0032); RID's own revision applies
+    // only to RID's shard.
+    const ghost = await h.post(WORKBENCH_PATH, { expectedRevision: 0, requirementId: GHOST, action: 'seedDevDeclare', workPackageId: 'WP1' })
     expect(ghost.status).toBe(404)
     const ghostWp = await h.post(WORKBENCH_PATH, { expectedRevision: revision, requirementId: RID, action: 'seedDevDeclare', workPackageId: 'WP7' })
     expect(ghostWp.status).toBe(404)

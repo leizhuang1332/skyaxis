@@ -80,7 +80,7 @@ function harness(options: {
   const seeds: Array<{ requirementId: string; workPackageId: string; revision: number }> = []
   const fetcher = {
     list: async () => options.records !== undefined
-      ? { kind: 'ok' as const, revision: 5, records: options.records }
+      ? { kind: 'ok' as const, rows: options.records.map((record) => ({ requirementId: record.requirementId, revision: 5, record })) }
       : { kind: 'degraded' as const, reason: 'io' as const, hasBackup: false },
   } as Pick<WorkbenchFetcher, 'list'> as WorkbenchFetcher
   const controller = {
@@ -119,7 +119,7 @@ describe('0016 P1a: register-level dev-declare watcher', () => {
     let revision = 5
     const watcher = createDevDeclareWatcher({
       fetcher: {
-        list: async () => ({ kind: 'ok' as const, revision, records: [due] }),
+        list: async () => ({ kind: 'ok' as const, rows: [{ requirementId: RID, revision, record: due }] }),
         bindSession: async (requirementId: string, expectedRevision: number, workPackageId: string, sessionId: string) => {
           binds.push({ requirementId, workPackageId, sessionId, revision: expectedRevision })
           revision += 1
@@ -137,7 +137,7 @@ describe('0016 P1a: register-level dev-declare watcher', () => {
     ])
     await flush()
     expect(binds).toEqual([{ requirementId: RID, workPackageId: 'WP1', sessionId: 'sess-real', revision: 5 }])
-    // 绑定落账后 revision 穿线到收取（6）
+    // 绑定落账后 revision 穿线到收取（6）——同一需求的分片内穿线
     expect(seeds).toEqual([{ requirementId: RID, workPackageId: 'WP1', revision: 6 }])
     watcher.dispose()
   })
@@ -153,7 +153,7 @@ describe('0016 P1a: register-level dev-declare watcher', () => {
     let revision = 5
     const watcher = createDevDeclareWatcher({
       fetcher: {
-        list: async () => ({ kind: 'ok' as const, revision, records: [due] }),
+        list: async () => ({ kind: 'ok' as const, rows: [{ requirementId: RID, revision, record: due }] }),
         bindSession: async (requirementId: string, expectedRevision: number, workPackageId: string, sessionId: string) => {
           binds.push({ requirementId, workPackageId, sessionId, revision: expectedRevision })
           revision += 1
@@ -247,7 +247,7 @@ describe('0016 P1a: register-level dev-declare watcher', () => {
           listCalls += 1
           return listCalls <= 1
             ? { kind: 'network' as const }
-            : { kind: 'ok' as const, revision: 5, records: [dueA, dueB] }
+            : { kind: 'ok' as const, rows: [dueA, dueB].map((record) => ({ requirementId: record.requirementId, revision: 5, record })) }
         },
       } as unknown as WorkbenchFetcher,
       controller: fakeController(seeds),
@@ -261,10 +261,12 @@ describe('0016 P1a: register-level dev-declare watcher', () => {
     await flush()
     flip([{ id: 'sess-a', running: false }, { id: 'sess-b', running: false }])
     await flush()
-    // Sequential seeds thread the landed revision (5 → 6 after the first write)
+    // 0032: revisions are PER-RECORD — RID's landed write bumps only RID's
+    // map entry; RID2 seeds under ITS OWN revision (5), never RID's 6 (the
+    // single-file shared-counter threading is gone).
     expect(seeds).toEqual([
       { requirementId: RID, workPackageId: 'WP1', revision: 5 },
-      { requirementId: RID2, workPackageId: 'WP2', revision: 6 },
+      { requirementId: RID2, workPackageId: 'WP2', revision: 5 },
     ])
     watcher.dispose()
   })
@@ -272,7 +274,7 @@ describe('0016 P1a: register-level dev-declare watcher', () => {
 
 /** Fake fetcher over a fixed record list. */
 function fakeFetcher(records: readonly WorkbenchRecord[]): WorkbenchFetcher {
-  return { list: async () => ({ kind: 'ok' as const, revision: 5, records }) } as unknown as WorkbenchFetcher
+  return { list: async () => ({ kind: 'ok' as const, rows: records.map((record) => ({ requirementId: record.requirementId, revision: 5, record })) }) } as unknown as WorkbenchFetcher
 }
 
 /** Fake detached controller face; onSeed runs after each recorded attempt (side effects for the next call). */

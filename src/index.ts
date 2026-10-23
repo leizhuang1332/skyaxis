@@ -37,7 +37,7 @@ import { SessionDeclareReader, type SessionQueryLike } from './workbench-host/de
 import { registerWorkbenchEndpoints } from './workbench-host/endpoint.js'
 import { registerWorkbenchKnowledgeEndpoints } from './workbench-host/knowledge-endpoint.js'
 import { KnowledgeFileStore } from './workbench-host/knowledge-file.js'
-import { WorkbenchFileStore } from './workbench-host/workbench-file.js'
+import { WorkbenchRecordStore } from './workbench-host/record-store.js'
 
 export const inject: readonly string[] = []
 
@@ -64,14 +64,17 @@ export function apply(ctx: Context): void {
   const requirementsFile = new RequirementsFileStore(dshHomePath('skyaxis', 'requirements.yaml'))
   const workspaceBinder = new RequirementWorkspaceBinder()
 
-  // Workbench ledgers are SIBLINGS of the artifacts root (decisions/0005
-  // 细化① layout template): workbench.yaml / knowledge.yaml beside the
-  // workbench/ directory, so D6 directory renames never touch a ledger.
+  // 0032 (decisions/0032): the workbench ledger is ONE FILE PER REQUIREMENT
+  // under the artifacts root (workbench/<rid>/record.yaml) — constructing the
+  // store runs the one-time migration off the retired workbench.yaml (D2:
+  // degraded legacy blocks the store, preserving the scene for manual
+  // repair). knowledge.yaml stays a sibling single file (machine-level pool,
+  // out of scope this round).
   const workbenchRoot = dshHomePath('skyaxis', 'workbench')
-  const workbenchFile = new WorkbenchFileStore(dshHomePath('skyaxis', 'workbench.yaml'))
+  const workbenchRecords = new WorkbenchRecordStore(workbenchRoot, dshHomePath('skyaxis', 'workbench.yaml'))
   const knowledgeFile = new KnowledgeFileStore(dshHomePath('skyaxis', 'knowledge.yaml'))
   const workbenchCascade = new WorkbenchCascadeService({
-    workbenchFile,
+    records: workbenchRecords,
     knowledgeFile,
     workbenchRoot,
     log: (error) => ctx.logger.error(error),
@@ -114,7 +117,7 @@ export function apply(ctx: Context): void {
       log: (error) => ctx.logger.error(error),
     })
     registerWorkbenchEndpoints(scope.connection, {
-      file: workbenchFile,
+      records: workbenchRecords,
       knowledgeFile,
       workbenchRoot,
       declareReader,

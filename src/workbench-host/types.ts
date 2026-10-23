@@ -1,8 +1,9 @@
 /**
- * Workbench host-side zod schemas: the storage read boundary (workbench.yaml
- * / knowledge.yaml) and the endpoint request-body boundary. The inferred
- * types are asserted mutually assignable with the hand-written protocol
- * types — the two halves cannot drift without a type error.
+ * Workbench host-side zod schemas: the storage read boundary (the
+ * per-requirement record shards, 0032, / knowledge.yaml) and the endpoint
+ * request-body boundary. The inferred types are asserted mutually assignable
+ * with the hand-written protocol types — the two halves cannot drift
+ * without a type error.
  *
  * First ledger release — no legacy data exists, so nested arrays are
  * REQUIRED (a hand-edited yaml missing a field degrades the whole file to
@@ -445,6 +446,25 @@ export const WorkbenchFileSchema = z.object({
 /** Parse output, with the protocol's readonly array face (records are shared immutable). */
 export type WorkbenchFile = Omit<z.infer<typeof WorkbenchFileSchema>, 'records'> & {
   records: readonly WorkbenchRecord[]
+}
+
+// ---------------------------------------------------------------------------
+// 0032 record shards — ONE FILE PER REQUIREMENT at workbench/<rid>/record.yaml
+// (decisions/0032; the single-file ledger above survives as the migration
+// READ face only). Per-shard optimistic lock; the shard/dir ownership match
+// (record.requirementId === directory name) is asserted by the store AFTER
+// parse — zod cannot see the directory, and the store is defense layer 2.
+// ---------------------------------------------------------------------------
+
+export const RecordEnvelopeSchema = z.object({
+  version: z.literal(1),
+  revision: z.number().int().nonnegative(),
+  record: WorkbenchRecordSchema,
+})
+
+/** Parse output, with the protocol's readonly record face (the WorkbenchFile precedent). */
+export type RecordEnvelope = Omit<z.infer<typeof RecordEnvelopeSchema>, 'record'> & {
+  record: WorkbenchRecord
 }
 
 // ---------------------------------------------------------------------------

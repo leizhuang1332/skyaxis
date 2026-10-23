@@ -138,22 +138,27 @@ export function createDevDeclareWatcher(deps: DevDeclareWatcherDeps): { dispose(
     try {
       const list = await deps.fetcher.list()
       if (disposed || list.kind !== 'ok') return // degraded/network → next flip retries
-      let revision = list.revision
+      // 0032: revisions are PER-RECORD (one optimistic lock per shard) — the
+      // sweep threads a per-requirement map, never one global value: a landed
+      // write on requirement A must not become a stale expectedRevision for
+      // requirement B (the single-file era's shared counter is gone).
+      const revisions = new Map(list.rows.map((row) => [row.requirementId, row.revision]))
       const liveRunning = deps.sessions
       // 0016 刀一验收修正: the title-addressed BIND pass rides the same sweep —
       // binds the real conversation session to its WP for requirements nobody
-      // is watching. fetcher-direct (not the controller face) so the file
+      // is watching. fetcher-direct (not the controller face) so the record
       // revision threads through the sweep; the open requirement's view-level
       // pass covers the in-flight window with the patching controller face.
       if (liveRunning !== undefined) {
-        for (const record of list.records) {
-          for (const target of devTitleBindTargets(record, liveRunning)) {
-            const bound = await deps.fetcher.bindSession(record.requirementId, revision, target.workPackageId, target.sessionId, 'dev')
-            if (bound.kind === 'ok') revision = bound.revision
+        for (const row of list.rows) {
+          for (const target of devTitleBindTargets(row.record, liveRunning)) {
+            const bound = await deps.fetcher.bindSession(row.requirementId, revisions.get(row.requirementId)!, target.workPackageId, target.sessionId, 'dev')
+            if (bound.kind === 'ok') revisions.set(row.requirementId, bound.revision)
           }
         }
       }
-      for (const record of list.records) {
+      for (const row of list.rows) {
+        const record = row.record
         for (const workPackage of record.workPackages) {
           // 刀一验收二修: attempt every non-dropped WP — the endpoint
           // content-addresses the real session itself (shell repair / fresh
@@ -174,9 +179,9 @@ export function createDevDeclareWatcher(deps: DevDeclareWatcherDeps): { dispose(
           // Client-visible due dims only: never seeded, or the binding moved.
           // The hash dimension is the endpoint's judgment (zero-write anchor).
           if (slot !== undefined && binding !== undefined && slot.seed.sessionId === binding.sessionId && slot.adjudication === 'pending') continue
-          const outcome = await deps.controller.seedDevDeclareDetached(record.requirementId, revision, workPackage.id)
+          const outcome = await deps.controller.seedDevDeclareDetached(record.requirementId, revisions.get(record.requirementId)!, workPackage.id)
           if (outcome === undefined) continue // 409/network → next flip retries (attempted stays set; the view's mount catch-up covers the open tab)
-          if (outcome.revision !== undefined) revision = outcome.revision // a landed write bumped the file revision — thread the fresh value
+          if (outcome.revision !== undefined) revisions.set(record.requirementId, outcome.revision) // a landed write bumped the shard revision — thread the fresh value
         }
       }
     } finally {

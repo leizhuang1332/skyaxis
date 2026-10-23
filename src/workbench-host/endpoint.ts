@@ -1,13 +1,19 @@
 /**
  * Workbench endpoints (0006 P1b): records (GET list/detail + POST action
- * union) over workbench.yaml, artifact documents (GET/POST plain-text bodies,
- * query-discriminated) over the conventional file layout, and the orphan
- * reconciliation scan. Route constants live in workbench-shared/protocol.ts.
+ * union) over the per-requirement record shards (0032, decisions/0032 —
+ * workbench/<requirementId>/record.yaml, one optimistic lock per record),
+ * artifact documents (GET/POST plain-text bodies, query-discriminated) over
+ * the conventional file layout, and the orphan reconciliation scan. Route
+ * constants live in workbench-shared/protocol.ts.
  *
  * Preconditions deliberately DROP the no-workspace check the PRD endpoints
  * carry (decisions/0005 细化①): workbench artifacts depend on no workspace
  * binding — an S1 requirement without a workspace can still record findings
- * and write plans. The remaining ladder is 账本可读(409) → 记录存在(404).
+ * and write plans. The remaining ladder is 账本可读(409) → 记录存在(404) —
+ * 0032: a shard that will not load degrades only its OWN requirement (409 on
+ * its detail/mutate faces, an absent row on list); a missing shard is the
+ * record's absence at VIRTUAL revision 0, which the client's unloaded slot
+ * already sends as its implicit-create sentinel.
  *
  * Validation order (the repos-pool pinned style): wire validation → ledger
  * readable → record exists → business guards → revision → side effects. The
@@ -55,15 +61,16 @@ import { parseDeclare, findDeclareFence } from './declare-parse.js'
 import { parseReviewFindings } from './review-parse.js'
 import type { SessionDeclareReader } from './declare-reader.js'
 import type { KnowledgeFileStore } from './knowledge-file.js'
+import type { WorkbenchRecordStore } from './record-store.js'
 import type { KnowledgeRecord } from './types.js'
-import type { WorkbenchFileStore } from './workbench-file.js'
 import { DeclareImportSchema, WorkbenchMutateSchema } from './types.js'
 
 export interface WorkbenchEndpointServices {
-  readonly file: WorkbenchFileStore
+  /** 0032 per-requirement record shards — workbench/<rid>/record.yaml. */
+  readonly records: WorkbenchRecordStore
   /** knowledge.yaml store — consumed by the activate-candidate dual-ledger tail write (P2). */
   readonly knowledgeFile: KnowledgeFileStore
-  /** $DSH_HOME/skyaxis/workbench — the artifacts root. */
+  /** $DSH_HOME/skyaxis/workbench — the artifacts root (record shards live inside it). */
   readonly workbenchRoot: string
   /** Session-log declare fetch (P3b) — engine optionally injected, absent ⇒ GET degrades to no-service. */
   readonly declareReader: SessionDeclareReader
@@ -120,7 +127,7 @@ function emptyRecord(requirementId: string): WorkbenchRecord {
 }
 
 export function registerWorkbenchEndpoints(connection: HostConnectionHandle, services: WorkbenchEndpointServices): void {
-  const { file, log } = services
+  const { records, log } = services
   const artifacts = new ArtifactStore()
 
   // -------------------------------------------------------------------------
@@ -141,22 +148,27 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     const url = new URL(request.url)
     const requirementId = url.searchParams.get('requirementId')
     if (requirementId === null) {
-      const result = file.load()
+      const result = records.listAll()
+      // 0032: healthy shards only — a degraded shard is an absent row (its
+      // automation skips; its user-facing degraded state rides the detail
+      // face). The degraded envelope is the whole-store migration-blocked
+      // state alone.
       const body: WorkbenchListResponse = result.ok
-        ? { ok: true, revision: result.value.revision, records: result.value.records }
+        ? { ok: true, rows: result.rows.map((row) => ({ requirementId: row.requirementId, revision: row.revision, record: row.record })) }
         : { ok: false, degraded: true, reason: result.reason, hasBackup: result.hasBackup }
       return json(body)
     }
     if (!REQUIREMENT_ID_RE.test(requirementId)) return errorResponse(400, 'bad-request')
-    const current = file.load()
-    if (!current.ok) return errorResponse(409, 'unreadable-file')
-    const record = current.value.records.find((candidate) => candidate.requirementId === requirementId)
-    if (record === undefined) {
+    const current = records.loadRecord(requirementId)
+    if (!current.ok && current.degraded) return errorResponse(409, 'unreadable-file')
+    if (current.missing) {
       // No record yet is NOT an error — GET never creates (zero read-path
-      // side effects); the client renders the first-use empty state.
+      // side effects); the client renders the first-use empty state. The
+      // virtual revision 0 matches the unloaded client slot's sentinel, so
+      // the first implicit-create action lands without a re-pull.
       const body: WorkbenchDetailResponseOk = {
         ok: true,
-        revision: current.value.revision,
+        revision: 0,
         record: null,
         planFileExists: [],
         reviewFileExists: [],
@@ -164,6 +176,7 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
       }
       return json(body)
     }
+    const record = current.value.record
     // Existence probing is a RESPONSE projection (细化④②): statSync per
     // reference, flat rows; the ledger itself stays path-free.
     const body: WorkbenchDetailResponseOk = {
@@ -212,12 +225,15 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     // lowercase-only — a non-lowercase id must never mint a ghost record.
     if (!REQUIREMENT_ID_RE.test(body.requirementId)) return errorResponse(400, 'bad-request')
 
-    const current = file.load()
-    if (!current.ok) return errorResponse(409, 'unreadable-file')
-    if (current.value.revision !== body.expectedRevision) {
-      return errorResponse(409, 'conflict', { currentRevision: current.value.revision })
+    const current = records.loadRecord(body.requirementId)
+    if (!current.ok && current.degraded) return errorResponse(409, 'unreadable-file')
+    // 0032: the lock is THIS record's shard revision (a missing shard is
+    // virtually at 0 — the unloaded client slot's implicit-create sentinel).
+    const recordRevision = current.ok ? current.value.revision : 0
+    if (recordRevision !== body.expectedRevision) {
+      return errorResponse(409, 'conflict', { currentRevision: recordRevision })
     }
-    const existing = current.value.records.find((candidate) => candidate.requirementId === body.requirementId)
+    const existing = current.ok ? current.value.record : undefined
     const base = existing ?? emptyRecord(body.requirementId)
 
     // seedAnalysis (回传轮) is the ONE action with its own flow: its input is
@@ -225,7 +241,7 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     // the read IO before the pure core (applyRecordAction stays IO-free).
     // No implicit-create here — seeding requires a prior bindAnalysisSession
     // (the container names the watched session; a missing record has none).
-    if (body.action === 'seedAnalysis') return seedAnalysisFlow(body, existing, current.value)
+    if (body.action === 'seedAnalysis') return seedAnalysisFlow(body, existing, recordRevision)
 
     // approveUnderstand (0008 D4) is the SECOND dedicated flow: its docHash
     // anchor is IO-derived (the requirement-baseline doc's disk sha256) and
@@ -233,7 +249,7 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     // semantics (an all-zero finalize is the ratified skip path) — the flow
     // applies it itself and passes `existing` on for the commit tail's append
     // arm.
-    if (body.action === 'approveUnderstand') return approveUnderstandFlow(body, existing, current.value)
+    if (body.action === 'approveUnderstand') return approveUnderstandFlow(body, existing, recordRevision)
 
     // 0012 两步化轮: adoptPlan is the THIRD dedicated flow (its docHash anchor
     // is IO-derived from the planning doc, approveUnderstand's shape — it
@@ -241,19 +257,19 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     // (the split result file is the ONLY channel — no session-log fallback,
     // the analysis fallback exists for pre-file deliveries split never had;
     // no implicit-create — seeding requires a prior bindSplitSession).
-    if (body.action === 'adoptPlan') return adoptPlanFlow(body, existing, current.value)
-    if (body.action === 'seedSplit') return seedSplitFlow(body, existing, current.value)
+    if (body.action === 'adoptPlan') return adoptPlanFlow(body, existing, recordRevision)
+    if (body.action === 'seedSplit') return seedSplitFlow(body, existing, recordRevision)
 
     // 0016 P1a: seedDevDeclare is the FIFTH dedicated flow (the IO chain is
     // dev-specific: latest dev binding → readSession → fence scope check →
     // hash; no implicit-create — seeding presupposes a bound in-dev WP).
-    if (body.action === 'seedDevDeclare') return seedDevDeclareFlow(body, existing, current.value)
+    if (body.action === 'seedDevDeclare') return seedDevDeclareFlow(body, existing, recordRevision)
 
     // 0018 工作包规划两步化: seedWpPlan is the SIXTH dedicated flow (the
     // wp-plan file channel's collector — the endpoint reads the prescribed
     // workspace file itself, seedSplit's per-WP shape; no implicit-create —
     // seeding presupposes a registered package).
-    if (body.action === 'seedWpPlan') return seedWpPlanFlow(body, existing, current.value)
+    if (body.action === 'seedWpPlan') return seedWpPlanFlow(body, existing, recordRevision)
 
     // All business guards (target existence, split lock, state-machine
     // legality, referential integrity) live in the pure action core.
@@ -276,14 +292,11 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
         const repair = await upsertKnowledgeRow(services.knowledgeFile, applied.knowledgeRow, log)
         if (!repair) return errorResponse(500, 'internal')
       }
-      return json({ ok: true, revision: current.value.revision, record: next })
+      return json({ ok: true, revision: recordRevision, record: next })
     }
 
-    const nextRecords = existing === undefined
-      ? [...current.value.records, next]
-      : current.value.records.map((candidate) => (candidate.requirementId === body.requirementId ? next : candidate))
     try {
-      const saved = await file.save(body.expectedRevision, nextRecords)
+      const saved = await records.saveRecord(body.requirementId, body.expectedRevision, next)
       if (!saved.ok) {
         if (saved.rejected === 'stale-revision') {
           return errorResponse(409, 'conflict', { currentRevision: saved.currentRevision })
@@ -336,7 +349,7 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
   async function seedAnalysisFlow(
     body: { expectedRevision: number; requirementId: string; action: 'seedAnalysis'; sessionId: string },
     existing: WorkbenchRecord | undefined,
-    current: { revision: number; records: readonly WorkbenchRecord[] },
+    recordRevision: number,
   ): Promise<Response> {
     if (existing === undefined
       || existing.analysis === undefined
@@ -347,7 +360,7 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     const reportFile = readAnalysisReportFile(existing.requirementId)
     if (reportFile.status === 'ok') {
       const parsed = parseDeclare({ text: reportFile.text, record: existing })
-      if (!parsed.ok) return json({ ok: true, revision: current.revision, record: existing, seedMissing: 'report-file-syntax' })
+      if (!parsed.ok) return json({ ok: true, revision: recordRevision, record: existing, seedMissing: 'report-file-syntax' })
       const applied = applyAnalysisSeed(existing, {
         sessionId: body.sessionId,
         contentHash: reportFile.sha256,
@@ -356,10 +369,10 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
         criteria: parsed.proposals.criteria,
         clarifications: parsed.proposals.clarifications,
       })
-      return commitSeedResponse(body, applied, current)
+      return commitSeedResponse(body, applied, recordRevision)
     }
     if (reportFile.status === 'too-large') {
-      return json({ ok: true, revision: current.revision, record: existing, seedMissing: 'report-file-too-large' })
+      return json({ ok: true, revision: recordRevision, record: existing, seedMissing: 'report-file-too-large' })
     }
     // --- Session chain: fallback (and the only channel when unarmed). ---
     let base = existing
@@ -392,7 +405,7 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     if (read.status !== 'ok') {
       return json({
         ok: true,
-        revision: current.revision,
+        revision: recordRevision,
         record: existing,
         // 文件交付轮 headline swap: with the file channel armed the file miss
         // is the actionable reason (the session scan still rides along).
@@ -402,7 +415,7 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
       })
     }
     const parsed = parseDeclare({ text: read.text, record: base })
-    if (!parsed.ok) return json({ ok: true, revision: current.revision, record: existing, seedMissing: 'yaml-syntax' })
+    if (!parsed.ok) return json({ ok: true, revision: recordRevision, record: existing, seedMissing: 'yaml-syntax' })
     const applied = applyAnalysisSeed(base, {
       sessionId,
       contentHash: contentHashOf(read.text),
@@ -411,7 +424,7 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
       criteria: parsed.proposals.criteria,
       clarifications: parsed.proposals.clarifications,
     })
-    return commitSeedResponse(body, applied, current)
+    return commitSeedResponse(body, applied, recordRevision)
   }
 
   /**
@@ -442,13 +455,13 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
   async function approveUnderstandFlow(
     body: { expectedRevision: number; requirementId: string },
     existing: WorkbenchRecord | undefined,
-    current: { revision: number; records: readonly WorkbenchRecord[] },
+    recordRevision: number,
   ): Promise<Response> {
     const base = existing ?? emptyRecord(body.requirementId) // implicit-create semantics preserved
     const doc = readRequirementDocFile(body.requirementId)
     if (doc.status === 'too-large') return errorResponse(413, 'too-large')
     const applied = approveUnderstandWith(base, doc.status === 'ok' ? doc.sha256 : undefined)
-    return commitSeedResponse(body, applied, current, existing)
+    return commitSeedResponse(body, applied, recordRevision)
   }
 
   /** 0008: the requirement-baseline doc read (the analysis-report channel family). */
@@ -506,13 +519,13 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
   async function adoptPlanFlow(
     body: { expectedRevision: number; requirementId: string },
     existing: WorkbenchRecord | undefined,
-    current: { revision: number; records: readonly WorkbenchRecord[] },
+    recordRevision: number,
   ): Promise<Response> {
     const base = existing ?? emptyRecord(body.requirementId) // implicit-create semantics preserved (an all-zero adoption is a legal first action)
     const doc = readPlanningDocFile(body.requirementId)
     if (doc.status === 'too-large') return errorResponse(413, 'too-large')
     const applied = adoptPlanWith(base, doc.status === 'ok' ? doc.sha256 : undefined)
-    return commitSeedResponse(body, applied, current, existing)
+    return commitSeedResponse(body, applied, recordRevision)
   }
 
   /**
@@ -526,7 +539,7 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
   async function seedSplitFlow(
     body: { expectedRevision: number; requirementId: string; action: 'seedSplit'; sessionId: string },
     existing: WorkbenchRecord | undefined,
-    current: { revision: number; records: readonly WorkbenchRecord[] },
+    recordRevision: number,
   ): Promise<Response> {
     if (existing === undefined
       || existing.splitProposals === undefined
@@ -537,19 +550,19 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     if (resultFile.status !== 'ok') {
       return json({
         ok: true,
-        revision: current.revision,
+        revision: recordRevision,
         record: existing,
         seedMissing: resultFile.status === 'missing' ? 'split-file-missing' : 'split-file-too-large',
       })
     }
     const parsed = parseDeclare({ text: resultFile.text, record: existing })
-    if (!parsed.ok) return json({ ok: true, revision: current.revision, record: existing, seedMissing: 'split-file-syntax' })
+    if (!parsed.ok) return json({ ok: true, revision: recordRevision, record: existing, seedMissing: 'split-file-syntax' })
     const applied = applySplitSeed(existing, {
       sessionId: body.sessionId,
       contentHash: resultFile.sha256,
       workPackages: parsed.proposals.workPackages,
     })
-    return commitSeedResponse(body, applied, current)
+    return commitSeedResponse(body, applied, recordRevision)
   }
 
   /**
@@ -579,7 +592,7 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
   async function seedWpPlanFlow(
     body: { expectedRevision: number; requirementId: string; action: 'seedWpPlan'; workPackageId: string },
     existing: WorkbenchRecord | undefined,
-    current: { revision: number; records: readonly WorkbenchRecord[] },
+    recordRevision: number,
   ): Promise<Response> {
     if (existing === undefined) return errorResponse(404, 'not-found')
     // Pre-check the target (seedSplit's container pre-check shape): a missing
@@ -591,7 +604,7 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     if (planFile.status !== 'ok') {
       return json({
         ok: true,
-        revision: current.revision,
+        revision: recordRevision,
         record: existing,
         seedMissing: planFile.status === 'too-large' ? 'wp-plan-file-too-large' : 'wp-plan-file-missing',
       })
@@ -620,11 +633,10 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
           return errorResponse(500, 'internal')
         }
       }
-      return json({ ok: true, revision: current.revision, record: applied.record })
+      return json({ ok: true, revision: recordRevision, record: applied.record })
     }
-    const nextRecords = current.records.map((candidate) => (candidate.requirementId === body.requirementId ? applied.record : candidate))
     try {
-      const saved = await file.save(body.expectedRevision, nextRecords)
+      const saved = await records.saveRecord(body.requirementId, body.expectedRevision, applied.record)
       if (!saved.ok) {
         if (saved.rejected === 'stale-revision') {
           return errorResponse(409, 'conflict', { currentRevision: saved.currentRevision })
@@ -672,13 +684,13 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
   async function seedDevDeclareFlow(
     body: { expectedRevision: number; requirementId: string; action: 'seedDevDeclare'; workPackageId: string },
     existing: WorkbenchRecord | undefined,
-    current: { revision: number; records: readonly WorkbenchRecord[] },
+    recordRevision: number,
   ): Promise<Response> {
     if (existing === undefined) return errorResponse(404, 'not-found')
     let workPackage = existing.workPackages.find((candidate) => candidate.id === body.workPackageId)
     if (workPackage === undefined) return errorResponse(404, 'not-found')
     if (workPackage.status === 'dropped') {
-      return json({ ok: true, revision: current.revision, record: existing, devSeedMissing: 'wp-not-in-dev' })
+      return json({ ok: true, revision: recordRevision, record: existing, devSeedMissing: 'wp-not-in-dev' })
     }
     // The revision the flow may WRITE under — the repair-bind's save bumps
     // it, and the seed save below must ride the FRESH value (the request's
@@ -695,7 +707,7 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
       if (read.status === 'ok') {
         targetSession = binding.sessionId
       } else if (!(read.status === 'missing' && read.reason === 'no-declare-block' && read.shell === true)) {
-        return json({ ok: true, revision: current.revision, record: existing, devSeedMissing: read.reason })
+        return json({ ok: true, revision: recordRevision, record: existing, devSeedMissing: read.reason })
       } // else: the bound log is a delivery shell → fall through to repair
     }
     if (targetSession === undefined) {
@@ -704,7 +716,7 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
       const repaired = await services.declareReader.findTaskbookSession(`# 工作包任务书 ${body.workPackageId}`, binding?.sessionId ?? '')
         ?? await services.declareReader.findTaskbookSession(`# skyaxis 工作包任务书 ${body.workPackageId}`, binding?.sessionId ?? '')
       if (repaired === undefined) {
-        return json({ ok: true, revision: current.revision, record: existing, devSeedMissing: 'no-binding' })
+        return json({ ok: true, revision: recordRevision, record: existing, devSeedMissing: 'no-binding' })
       }
       const bound = applyRecordAction(record, {
         expectedRevision: writeRevision,
@@ -716,7 +728,7 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
       })
       if (!bound.ok) return errorResponse(bound.status, bound.code)
       if (bound.unchanged !== true) {
-        const savedBind = await file.save(writeRevision, withRecord(current.records, body.requirementId, bound.record))
+        const savedBind = await records.saveRecord(body.requirementId, writeRevision, bound.record)
         if (!savedBind.ok) {
           if (savedBind.rejected === 'stale-revision') {
             return errorResponse(409, 'conflict', { currentRevision: savedBind.currentRevision })
@@ -770,9 +782,8 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
       ensureDeclareSnapshot(existing.requirementId, body.workPackageId, 'pending', read.text, hash)
       return json({ ok: true, revision: writeRevision, record: applied.record })
     }
-    const nextRecords = current.records.map((candidate) => (candidate.requirementId === body.requirementId ? applied.record : candidate))
     try {
-      const saved = await file.save(writeRevision, nextRecords)
+      const saved = await records.saveRecord(body.requirementId, writeRevision, applied.record)
       if (!saved.ok) {
         if (saved.rejected === 'stale-revision') {
           return errorResponse(409, 'conflict', { currentRevision: saved.currentRevision })
@@ -820,26 +831,23 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
 
   /**
    * Shared commit tail: unchanged no-op, save, and the mapped error responses.
-   * 0008: `existing` opts into the APPEND (implicit-create) arm — seedAnalysis
-   * never passes it (its flow 404s without a record, so replace-only held);
-   * approveUnderstand's implicit-create finalize needs the append (the
-   * mutateFlow `existing === undefined ? [...records, next] : map(...)` shape).
+   * 0032: create-vs-replace no longer forks here — the shard save IS both
+   * arms (a missing shard's virtual revision 0 is the implicit-create arm
+   * the caller's expectedRevision 0 already matches; seedAnalysis's
+   * no-implicit-create contract is unchanged: its flow 404s without a
+   * record, so the save only ever replaces).
    */
   async function commitSeedResponse(
     body: { expectedRevision: number; requirementId: string },
     applied: ReturnType<typeof applyAnalysisSeed>,
-    current: { revision: number; records: readonly WorkbenchRecord[] },
-    existing?: WorkbenchRecord,
+    recordRevision: number,
   ): Promise<Response> {
     if (!applied.ok) return errorResponse(applied.status, applied.code)
     if (applied.unchanged === true) {
-      return json({ ok: true, revision: current.revision, record: applied.record })
+      return json({ ok: true, revision: recordRevision, record: applied.record })
     }
-    const nextRecords = existing === undefined && !current.records.some((candidate) => candidate.requirementId === body.requirementId)
-      ? [...current.records, applied.record]
-      : current.records.map((candidate) => (candidate.requirementId === body.requirementId ? applied.record : candidate))
     try {
-      const saved = await file.save(body.expectedRevision, nextRecords)
+      const saved = await records.saveRecord(body.requirementId, body.expectedRevision, applied.record)
       if (!saved.ok) {
         if (saved.rejected === 'stale-revision') {
           return errorResponse(409, 'conflict', { currentRevision: saved.currentRevision })
@@ -895,15 +903,14 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     const text = await request.text()
     if (text.length > WORKBENCH_ARTIFACT_MAX_CHARS) return errorResponse(413, 'too-large')
 
-    const current = file.load()
-    if (!current.ok) return errorResponse(409, 'unreadable-file')
-    const record = current.value.records.find((candidate) => candidate.requirementId === requirementId)
-    if (record === undefined) return errorResponse(404, 'not-found')
+    const current = records.loadRecord(requirementId)
+    if (!current.ok && current.degraded) return errorResponse(409, 'unreadable-file')
+    if (current.missing) return errorResponse(404, 'not-found')
 
     if (kind === 'plan') {
-      return planWriteFlow(record, current.value.records, current.value.revision, requirementId, workPackageId!, planNote, text, expectedRevision)
+      return planWriteFlow(current.value.record, current.value.revision, requirementId, workPackageId!, planNote, text, expectedRevision)
     }
-    return reviewWriteFlow(record, current.value.records, current.value.revision, requirementId, reviewTitle, text, expectedRevision)
+    return reviewWriteFlow(current.value.record, current.value.revision, requirementId, reviewTitle, text, expectedRevision)
   }
 
   /**
@@ -947,8 +954,7 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
    */
   async function planWriteFlow(
     record: WorkbenchRecord,
-    ledgerRecords: readonly WorkbenchRecord[],
-    ledgerRevision: number,
+    recordRevision: number,
     requirementId: string,
     workPackageId: string,
     note: string | null,
@@ -994,7 +1000,7 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
           return errorResponse(500, 'internal')
         }
       }
-      return json({ ok: true, revision: ledgerRevision, kind: 'plan', workPackageId, version: draft.version })
+      return json({ ok: true, revision: recordRevision, kind: 'plan', workPackageId, version: draft.version })
     }
 
     let version: number
@@ -1015,8 +1021,8 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
       nextPlans = [...workPackage.plans, { version, contentHash: hash, ...(note !== null ? { note } : {}) }]
     }
 
-    if (ledgerRevision !== expectedRevision) {
-      return errorResponse(409, 'conflict', { currentRevision: ledgerRevision })
+    if (recordRevision !== expectedRevision) {
+      return errorResponse(409, 'conflict', { currentRevision: recordRevision })
     }
     // The planned → plan-draft flip rides the SAME ledger save as the first
     // plan entry (atomic — no "plan exists but status didn't move" middle
@@ -1030,7 +1036,7 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
         : candidate)),
     }
     try {
-      const saved = await file.save(expectedRevision, withRecord(ledgerRecords, requirementId, nextRecord))
+      const saved = await records.saveRecord(requirementId, expectedRevision, nextRecord)
       if (!saved.ok) {
         if (saved.rejected === 'stale-revision') {
           return errorResponse(409, 'conflict', { currentRevision: saved.currentRevision })
@@ -1057,8 +1063,7 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
 
   async function reviewWriteFlow(
     record: WorkbenchRecord,
-    ledgerRecords: readonly WorkbenchRecord[],
-    ledgerRevision: number,
+    recordRevision: number,
     requirementId: string,
     title: string | null,
     text: string,
@@ -1100,7 +1105,7 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
           return errorResponse(500, 'internal')
         }
       }
-      return json({ ok: true, revision: ledgerRevision, kind: 'review', reviewId: existing.id })
+      return json({ ok: true, revision: recordRevision, kind: 'review', reviewId: existing.id })
     }
 
     // P5b: seed proposed verdict rows from a `# skyaxis-review` block. A
@@ -1136,8 +1141,8 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
       }
 
     const reviewId = randomUUID()
-    if (ledgerRevision !== expectedRevision) {
-      return errorResponse(409, 'conflict', { currentRevision: ledgerRevision })
+    if (recordRevision !== expectedRevision) {
+      return errorResponse(409, 'conflict', { currentRevision: recordRevision })
     }
     const nextRecord: WorkbenchRecord = {
       ...record,
@@ -1153,9 +1158,8 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
         },
       ],
     }
-    const nextRecords = withRecord(ledgerRecords, requirementId, nextRecord)
     try {
-      const saved = await file.save(expectedRevision, nextRecords)
+      const saved = await records.saveRecord(requirementId, expectedRevision, nextRecord)
       if (!saved.ok) {
         if (saved.rejected === 'stale-revision') {
           return errorResponse(409, 'conflict', { currentRevision: saved.currentRevision })
@@ -1191,9 +1195,9 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     if (kind === 'analysis-report') {
       const reportFile = readAnalysisReportFile(requirementId)
       if (reportFile.status !== 'ok') return errorResponse(404, 'not-found')
-      const current = file.load()
-      if (!current.ok) return errorResponse(409, 'unreadable-file')
-      const record = current.value.records.find((candidate) => candidate.requirementId === requirementId)
+      const current = records.loadRecord(requirementId)
+      if (!current.ok && current.degraded) return errorResponse(409, 'unreadable-file')
+      const record = current.ok ? current.value.record : undefined
       // 细化④ discipline: a present seed hash that disagrees answers 200 +
       // contentTampered — never silently, never blocking. The seed hash is
       // the disk-bytes sha256 (see readAnalysisReportFile), so like hashes
@@ -1210,9 +1214,9 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     if (kind === 'requirement-doc') {
       const doc = readRequirementDocFile(requirementId)
       if (doc.status !== 'ok') return errorResponse(404, 'not-found')
-      const current = file.load()
-      if (!current.ok) return errorResponse(409, 'unreadable-file')
-      const record = current.value.records.find((candidate) => candidate.requirementId === requirementId)
+      const current = records.loadRecord(requirementId)
+      if (!current.ok && current.degraded) return errorResponse(409, 'unreadable-file')
+      const record = current.ok ? current.value.record : undefined
       // An unfinalized record has no anchor yet — untampered-silent (the doc
       // is the deliverable; the anchor only exists once finalized).
       const expectedHash = record?.understandBaseline?.docHash
@@ -1226,9 +1230,9 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     if (kind === 'planning-doc') {
       const doc = readPlanningDocFile(requirementId)
       if (doc.status !== 'ok') return errorResponse(404, 'not-found')
-      const current = file.load()
-      if (!current.ok) return errorResponse(409, 'unreadable-file')
-      const record = current.value.records.find((candidate) => candidate.requirementId === requirementId)
+      const current = records.loadRecord(requirementId)
+      if (!current.ok && current.degraded) return errorResponse(409, 'unreadable-file')
+      const record = current.ok ? current.value.record : undefined
       // An unadopted record has no anchor yet — untampered-silent (the doc
       // is the deliverable; the anchor only exists once adopted).
       const expectedHash = record?.planBaseline?.docHash
@@ -1242,9 +1246,9 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     if (kind === 'split-result') {
       const doc = readSplitResultFile(requirementId)
       if (doc.status !== 'ok') return errorResponse(404, 'not-found')
-      const current = file.load()
-      if (!current.ok) return errorResponse(409, 'unreadable-file')
-      const record = current.value.records.find((candidate) => candidate.requirementId === requirementId)
+      const current = records.loadRecord(requirementId)
+      if (!current.ok && current.degraded) return errorResponse(409, 'unreadable-file')
+      const record = current.ok ? current.value.record : undefined
       const expectedHash = record?.splitProposals?.seed?.contentHash
       const contentTampered = expectedHash !== undefined && expectedHash !== doc.sha256
       return json({ ok: true, content: doc.text, contentTampered })
@@ -1260,18 +1264,18 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
       if (workPackageId === null || !isWorkPackageId(workPackageId)) return errorResponse(400, 'bad-request')
       const planFile = readWpPlanFile(requirementId, workPackageId)
       if (planFile.status !== 'ok') return errorResponse(404, 'not-found')
-      const current = file.load()
-      if (!current.ok) return errorResponse(409, 'unreadable-file')
-      const record = current.value.records.find((candidate) => candidate.requirementId === requirementId)
+      const current = records.loadRecord(requirementId)
+      if (!current.ok && current.degraded) return errorResponse(409, 'unreadable-file')
+      const record = current.ok ? current.value.record : undefined
       const expectedHash = record?.workPackages.find((candidate) => candidate.id === workPackageId)?.planSeed?.contentHash
       const contentTampered = expectedHash !== undefined && expectedHash !== planFile.sha256
       return json({ ok: true, content: planFile.text, contentTampered })
     }
 
-    const current = file.load()
-    if (!current.ok) return errorResponse(409, 'unreadable-file')
-    const record = current.value.records.find((candidate) => candidate.requirementId === requirementId)
-    if (record === undefined) return errorResponse(404, 'not-found')
+    const current = records.loadRecord(requirementId)
+    if (!current.ok && current.degraded) return errorResponse(409, 'unreadable-file')
+    if (current.missing) return errorResponse(404, 'not-found')
+    const record = current.value.record
 
     let expectedHash: string | undefined
     let read: ReturnType<ArtifactStore['read']> | undefined
@@ -1328,11 +1332,22 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     methods: ['GET'],
     requestBody: 'buffered',
     fetch: async () => {
-      const current = file.load()
-      if (!current.ok) return errorResponse(409, 'unreadable-file')
+      const listed = records.listAll()
+      if (!listed.ok) return errorResponse(409, 'unreadable-file')
       // 0028 D2-A: the scan knows the workspace channel (neither-location =
       // missing); absent resolver degrades to the plugin-store-only check.
-      return json({ ok: true, ...scanWorkbenchArtifacts(services.workbenchRoot, current.value.records, services.resolveWorkspacePath) })
+      // 0032: degraded shards contribute no refs AND their directories skip
+      // the orphan walk — with the ledger face unreadable every file would
+      // report as an orphan (noise, not signal; returns once repaired).
+      return json({
+        ok: true,
+        ...scanWorkbenchArtifacts(
+          services.workbenchRoot,
+          listed.rows.map((row) => row.record),
+          services.resolveWorkspacePath,
+          new Set(listed.degradedRows.map((row) => row.requirementId)),
+        ),
+      })
     },
   })
 
@@ -1461,21 +1476,24 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     if (!REQUIREMENT_ID_RE.test(body.requirementId)) return errorResponse(400, 'bad-request')
     if (body.text.length > DECLARE_MAX_CHARS) return errorResponse(413, 'too-large')
 
-    const current = file.load()
-    if (!current.ok) return errorResponse(409, 'unreadable-file')
+    const current = records.loadRecord(body.requirementId)
+    if (!current.ok && current.degraded) return errorResponse(409, 'unreadable-file')
     // dry-run checks the revision too: the preview must be anchored to the
     // same snapshot the follow-up real import would fold onto (repos-pool).
-    if (current.value.revision !== body.expectedRevision) {
-      return errorResponse(409, 'conflict', { currentRevision: current.value.revision })
+    // 0032: the TARGET RECORD's shard revision (a missing shard is virtually
+    // at 0 — the implicit-create import path's sentinel).
+    const recordRevision = current.ok ? current.value.revision : 0
+    if (recordRevision !== body.expectedRevision) {
+      return errorResponse(409, 'conflict', { currentRevision: recordRevision })
     }
-    const existing = current.value.records.find((candidate) => candidate.requirementId === body.requirementId)
+    const existing = current.ok ? current.value.record : undefined
     const base = existing ?? emptyRecord(body.requirementId)
 
     const parse = parseDeclare({ text: body.text, record: base })
     if (!parse.ok) {
       const preview: DeclarePreviewResponseOk = {
         ok: true,
-        revision: current.value.revision,
+        revision: recordRevision,
         entries: [],
         skipped: [],
         stageReady: false,
@@ -1498,7 +1516,7 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
       // Preview only — zero writes (byte-identical file asserted in tests).
       const preview: DeclarePreviewResponseOk = {
         ok: true,
-        revision: current.value.revision,
+        revision: recordRevision,
         entries: parse.entries,
         skipped: parse.skipped,
         stageReady: parse.stageReady,
@@ -1608,14 +1626,11 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     if (applied === 0 && (stamp === undefined || stamp.unchanged)) {
       // Zero real change (nothing selected / all guard-rejected): skip the
       // write entirely — no revision bump, no .bak churn (repos-pool).
-      return json({ ok: true, revision: current.value.revision, record, report: { built: 0, artifacts: 0, knowledge: 0, skipped: reportSkipped } })
+      return json({ ok: true, revision: recordRevision, record, report: { built: 0, artifacts: 0, knowledge: 0, skipped: reportSkipped } })
     }
 
-    const nextRecords = existing === undefined
-      ? [...current.value.records, record]
-      : current.value.records.map((candidate) => (candidate.requirementId === body.requirementId ? record : candidate))
     try {
-      const saved = await file.save(body.expectedRevision, nextRecords)
+      const saved = await records.saveRecord(body.requirementId, body.expectedRevision, record)
       if (!saved.ok) {
         if (saved.rejected === 'stale-revision') {
           return errorResponse(409, 'conflict', { currentRevision: saved.currentRevision })
@@ -1660,15 +1675,11 @@ function declareImportStale(base: WorkbenchRecord, workPackageId: string, hash: 
   return slot !== undefined && slot.seed.contentHash !== hash
 }
 
-/** The records array with `next` replacing the requirement's row. */
-function withRecord(records: readonly WorkbenchRecord[], requirementId: string, next: WorkbenchRecord): readonly WorkbenchRecord[] {
-  return records.map((candidate) => (candidate.requirementId === requirementId ? next : candidate))
-}
-
 /**
  * knowledge.yaml idempotent upsert by row id (the dual-ledger promote's tail
  * write): replace-or-append under a FRESH load's revision (the tail never
- * trusts the client's expectedRevision — that key belongs to workbench.yaml).
+ * trusts the client's expectedRevision — that key belongs to the workbench
+ * record shard, 0032).
  */
 async function upsertKnowledgeRow(
   knowledgeFile: KnowledgeFileStore,

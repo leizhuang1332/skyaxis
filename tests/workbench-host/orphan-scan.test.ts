@@ -146,4 +146,25 @@ describe('scanWorkbenchArtifacts', () => {
     const result = scanWorkbenchArtifacts(root, [record()])
     expect(result.orphans).toEqual([])
   })
+
+  it('0032: record.yaml and its steady-state .bak are layout, never unknown orphans', () => {
+    const root = tempRoot()
+    put(root, RID, join('plans', 'WP1-v1.md'))
+    put(root, RID, 'record.yaml', 'version: 1\nrevision: 1\nrecord: {}')
+    put(root, RID, 'record.yaml.bak', 'previous')
+    const result = scanWorkbenchArtifacts(root, [record({ reviewReports: [] })])
+    expect(result.orphans).toEqual([])
+    expect(result.missing).toEqual([])
+  })
+
+  it('0032: skipRequirementIds skips the whole directory (degraded shard — refs unknowable)', () => {
+    const root = tempRoot()
+    put(root, RID, join('plans', 'WP1-v1.md'))
+    put(root, RID, 'record.yaml', 'broken: [')
+    put(root, RID2, join('reviews', 'rev-a1.md'))
+    const result = scanWorkbenchArtifacts(root, [record()], undefined, new Set([RID]))
+    // RID's directory contributes nothing; RID2's unreferenced review is a
+    // regular orphan (the skip is per-requirement, not global).
+    expect(result.orphans).toEqual([{ requirementId: RID2, kind: 'review', reviewId: 'rev-a1' }])
+  })
 })

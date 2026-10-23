@@ -38,4 +38,4 @@ pnpm --filter @lz/skyaxis test
 pnpm --filter @lz/skyaxis build
 ```
 
-The regression baseline is 1237 tests (vitest).
+The regression baseline is 1258 tests (vitest).

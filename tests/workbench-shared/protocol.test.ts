@@ -288,9 +288,12 @@ describe('isWorkbenchRecord', () => {
 })
 
 describe('envelope guards', () => {
-  it('isWorkbenchListResponse: ok and degraded branches', () => {
-    expect(isWorkbenchListResponse({ ok: true, revision: 3, records: [record()] })).toBe(true)
-    expect(isWorkbenchListResponse({ ok: true, revision: 3, records: [record({ stage: 'nope' as never })] })).toBe(false)
+  it('isWorkbenchListResponse: ok (rows, per-record revisions 0032) and degraded branches', () => {
+    const row = { requirementId: RID, revision: 3, record: record() }
+    expect(isWorkbenchListResponse({ ok: true, rows: [row] })).toBe(true)
+    expect(isWorkbenchListResponse({ ok: true, rows: [{ ...row, record: record({ stage: 'nope' as never }) }] })).toBe(false)
+    expect(isWorkbenchListResponse({ ok: true, rows: [{ ...row, revision: 'x' as never }] })).toBe(false)
+    expect(isWorkbenchListResponse({ ok: true, revision: 3, records: [record()] })).toBe(false) // the pre-0032 shape is gone
     expect(isWorkbenchListResponse({ ok: false, degraded: true, reason: 'schema', hasBackup: true })).toBe(true)
     expect(isWorkbenchListResponse({ ok: false, degraded: true, reason: 'weird', hasBackup: false })).toBe(false)
     expect(isWorkbenchListResponse({ ok: false, degraded: true, hasBackup: false })).toBe(false)

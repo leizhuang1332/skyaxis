@@ -14,8 +14,9 @@
  * 'proposed' — the AI-proposal state a client can never write). Bad rows are
  * SKIPPED with a closed-enum reason, never truncated (truncation is a silent
  * data edit; a skip is an honest refusal — and an over-length title written
- * to the ledger would poison the whole workbench.yaml on next load, the
- * nextReleaseItemId lesson).
+ * to the ledger would poison its record shard on next load, the
+ * nextReleaseItemId lesson; 0032 narrowed the blast radius from the whole
+ * ledger to one requirement).
  *
  * 0023 (decisions 0023 D2-A/D4-A): findings rows may carry `detail`
  * (说明与证据 路径:行号 — optional, over-cap skips the row like title), and

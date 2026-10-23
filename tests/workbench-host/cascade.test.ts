@@ -13,7 +13,7 @@ import type { RequirementRecord } from '../../src/requirements-shared/protocol.j
 import type { WorkbenchRecord } from '../../src/workbench-shared/protocol.js'
 import { WorkbenchCascadeService, type CascadeIo } from '../../src/workbench-host/cascade-service.js'
 import { KnowledgeFileStore } from '../../src/workbench-host/knowledge-file.js'
-import { WorkbenchFileStore } from '../../src/workbench-host/workbench-file.js'
+import { WorkbenchRecordStore } from '../../src/workbench-host/record-store.js'
 
 const RID = '11111111-1111-4111-8111-111111111111'
 const AT = '2026-09-29T08:00:00.000Z'
@@ -65,7 +65,7 @@ function knowledgeRow(id: string, scope: 'global' | 'workspace' | 'requirement')
 interface Fixture {
   dir: string
   root: string
-  workbenchFile: WorkbenchFileStore
+  recordStore: WorkbenchRecordStore
   knowledgeFile: KnowledgeFileStore
   logs: unknown[]
   records(): readonly WorkbenchRecord[]
@@ -76,10 +76,12 @@ async function setup(seed?: { workbench?: readonly WorkbenchRecord[]; knowledge?
   const dir = mkdtempSync(join(tmpdir(), 'workbench-cascade-'))
   dirs.push(dir)
   const root = join(dir, 'workbench')
-  const workbenchFile = new WorkbenchFileStore(join(dir, 'workbench.yaml'))
+  const recordStore = new WorkbenchRecordStore(root, join(dir, 'workbench.yaml'))
   const knowledgeFile = new KnowledgeFileStore(join(dir, 'knowledge.yaml'))
-  const savedWorkbench = await workbenchFile.save(0, seed?.workbench ?? [workbenchRecord()])
-  expect(savedWorkbench.ok).toBe(true)
+  for (const record of seed?.workbench ?? [workbenchRecord()]) {
+    const saved = await recordStore.saveRecord(record.requirementId, 0, record)
+    expect(saved.ok).toBe(true)
+  }
   const savedKnowledge = await knowledgeFile.save(0, (seed?.knowledge ?? [
     knowledgeRow('22222222-2222-4222-8222-222222222222', 'requirement'),
     knowledgeRow('33333333-3333-4333-8333-333333333333', 'global'),
@@ -88,19 +90,19 @@ async function setup(seed?: { workbench?: readonly WorkbenchRecord[]; knowledge?
   expect(savedKnowledge.ok).toBe(true)
   const logs: unknown[] = []
   const records = () => {
-    const load = workbenchFile.load()
-    return load.ok ? load.value.records : []
+    const load = recordStore.listAll()
+    return load.ok ? load.rows.map((row) => row.record) : []
   }
   const knowledgeScopes = () => {
     const load = knowledgeFile.load()
     return load.ok ? load.value.records.map((row) => row.scope) : []
   }
-  return { dir, root, workbenchFile, knowledgeFile, logs, records, knowledgeScopes }
+  return { dir, root, recordStore, knowledgeFile, logs, records, knowledgeScopes }
 }
 
 function cascade(fx: Fixture, io?: CascadeIo): WorkbenchCascadeService {
   return new WorkbenchCascadeService({
-    workbenchFile: fx.workbenchFile,
+    records: fx.recordStore,
     knowledgeFile: fx.knowledgeFile,
     workbenchRoot: fx.root,
     log: (error) => fx.logs.push(error),
@@ -190,34 +192,36 @@ describe('WorkbenchCascadeService: per-step failure injection', () => {
     expect(existsSync(join(fx.root, '.trash', entries[0]!, 'plans', 'WP1-v1.md'))).toBe(true)
   })
 
-  it('stale workbench save does not short-circuit knowledge cleanup or the rename', async () => {
+  it('step-③ shard unlink failure does not short-circuit knowledge cleanup or the rename', async () => {
     const fx = await setup()
-    class StaleOnceStore extends WorkbenchFileStore {
-      saveCalls = 0
-      #calls = 0
-      override save(expectedRevision: number, records: readonly WorkbenchRecord[]) {
-        this.saveCalls += 1
-        this.#calls += 1
-        if (this.#calls === 1) {
-          return Promise.resolve({ ok: false as const, rejected: 'stale-revision' as const, currentRevision: 99 })
-        }
-        return super.save(expectedRevision, records)
+    // 0032: step ③ is now an unlink of workbench/<rid>/record.yaml — the
+    // failure injection mirrors the old stale-save shape (residue tolerated,
+    // ④⑤ still run, re-runnable).
+    class UnlinkFailsStore extends WorkbenchRecordStore {
+      removeCalls = 0
+      override removeRecord(requirementId: string): void {
+        this.removeCalls += 1
+        throw new Error('unlink denied')
       }
     }
-    const staleOnce = new StaleOnceStore(fx.workbenchFile.filePath)
+    const unlinkFails = new UnlinkFailsStore(fx.root, join(fx.dir, 'workbench.yaml'))
     const service = new WorkbenchCascadeService({
-      workbenchFile: staleOnce,
+      records: unlinkFails,
       knowledgeFile: fx.knowledgeFile,
       workbenchRoot: fx.root,
       log: (error) => fx.logs.push(error),
     })
     service.beginRemoval(requirement())
     await service.completeRemoval(requirement())
-    expect(staleOnce.saveCalls).toBe(1)
-    // Step ③ failed (record residue tolerated) — ④⑤ still ran.
-    expect(fx.records()).toHaveLength(1)
+    expect(unlinkFails.removeCalls).toBe(1)
+    // Step ③ failed but ⑤ succeeded — the shard rode into .trash inside the
+    // renamed directory (out of the live tree either way; 0032 design table:
+    // ③败⑤成). Knowledge cleanup and the rename still ran.
+    expect(fx.records()).toHaveLength(0)
     expect(fx.knowledgeScopes()).toEqual(['global', 'workspace'])
-    expect(trashEntries(fx.root)).toHaveLength(1)
+    const entries = trashEntries(fx.root)
+    expect(entries).toHaveLength(1)
+    expect(existsSync(join(fx.root, '.trash', entries[0]!, 'record.yaml'))).toBe(true)
     expect(fx.logs.length).toBeGreaterThan(0)
   })
 
@@ -245,11 +249,14 @@ describe('WorkbenchCascadeService: per-step failure injection', () => {
     const dir = mkdtempSync(join(tmpdir(), 'workbench-cascade-'))
     dirs.push(dir)
     const root = join(dir, 'workbench')
+    // 0032: the record store's blocked face — a broken LEGACY workbench.yaml
+    // refuses migration, so every loadRecord degrades (tombstone segment
+    // null); knowledge.yaml carries the old single-file degradation.
     writeFileSync(join(dir, 'workbench.yaml'), 'broken: [', 'utf8')
     writeFileSync(join(dir, 'knowledge.yaml'), 'broken: [', 'utf8')
     const logs: unknown[] = []
     const service = new WorkbenchCascadeService({
-      workbenchFile: new WorkbenchFileStore(join(dir, 'workbench.yaml')),
+      records: new WorkbenchRecordStore(root, join(dir, 'workbench.yaml')),
       knowledgeFile: new KnowledgeFileStore(join(dir, 'knowledge.yaml')),
       workbenchRoot: root,
       log: (error) => logs.push(error),
@@ -262,7 +269,8 @@ describe('WorkbenchCascadeService: per-step failure injection', () => {
 
     await service.completeRemoval(requirement())
     expect(trashEntries(root)).toHaveLength(1)
-    expect(logs.length).toBeGreaterThanOrEqual(2)
+    // Only step ④ logs now (step ③'s unlink is a silent ENOENT no-op).
+    expect(logs.length).toBeGreaterThanOrEqual(1)
   })
 })
 

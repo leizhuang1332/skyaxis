@@ -31,10 +31,10 @@ afterEach(() => {
 })
 
 describe('workbench fetcher', () => {
-  it('list narrows a healthy envelope and a degraded envelope', async () => {
-    vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ ok: true, revision: 2, records: [okRecord()] })))
+  it('list narrows a healthy rows envelope and a degraded envelope (0032 per-record revisions)', async () => {
+    vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ ok: true, rows: [{ requirementId: RECORD.requirementId, revision: 2, record: okRecord() }] })))
     const ok = await createWorkbenchFetcher().list()
-    expect(ok).toEqual({ kind: 'ok', revision: 2, records: [RECORD] })
+    expect(ok).toEqual({ kind: 'ok', rows: [{ requirementId: RECORD.requirementId, revision: 2, record: RECORD }] })
 
     vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ ok: false, degraded: true, reason: 'schema', hasBackup: true })))
     const degraded = await createWorkbenchFetcher().list()

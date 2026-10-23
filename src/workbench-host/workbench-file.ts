@@ -5,6 +5,13 @@
  * directories and never touches this ledger file.
  * (the requirements-file.ts envelope precedent, ported wholesale).
  *
+ * 0032 (decisions/0032) RETIRED this store as the live ledger — records now
+ * live in per-requirement shards (record-store.ts). This class survives as
+ * the migration READ face (record-store's #legacy.load() parses the old
+ * file); the save/queue surface stays so the already-shipped-ledger tests
+ * keep pinning the atomic-write contract until the shared-envelope-base
+ * refactor folds it in.
+ *
  * This is the fourth isomorphic copy of the envelope store (after the
  * repos pool and requirements.yaml). Extracting a shared base class is a
  * recognized follow-up refactor candidate; the P1b decision deliberately
