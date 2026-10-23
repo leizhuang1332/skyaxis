@@ -264,7 +264,7 @@ describe('S5 交付节：回滚预案与导出', () => {
     expect(screen.getByRole('button', { name: workbenchZh['release.revokeRollbackPlan'] })).toBeTruthy()
   })
 
-  it('导出：Modal 预览含上线单标题/组/戳，copy 注入收到全文', async () => {
+  it('导出：Modal 预览含上线单标题/组（戳已退役 2026-10-23），copy 注入收到全文', async () => {
     const copy = vi.fn(async (_text: string) => true)
     const rendered = subject(slot({ record: record({
       releaseItems: [item('R0001', { status: 'confirmed' })],
@@ -275,7 +275,7 @@ describe('S5 交付节：回滚预案与导出', () => {
     const preview = within(dialog).getByTestId('sheet-preview').textContent ?? ''
     expect(preview).toContain('上线单：报价管理：导入导出与数据校验')
     expect(preview).toContain('## SQL（1）')
-    expect(preview).toContain('生成于 revision 3 ·')
+    expect(preview).not.toContain('生成于 revision')
 
     fireEvent.click(within(dialog).getByRole('button', { name: workbenchZh['sheet.copy'] }))
     await waitFor(() => expect(copy.mock.calls[0]?.[0]).toContain('## SQL（1）'))

@@ -6,8 +6,9 @@
  *    zh literals (the dictionary only serves UI chrome, never the artifact);
  *  - every status carries its raw enum in parentheses (中文标签 + raw 值
  *    双写——人读中文，机器读原值);
- *  - the document ends with the revision stamp (the ledger may move on after
- *    generation and nothing auto-syncs).
+ *  - the trailing revision stamp retired with the 2026-10-23 user ruling
+ *    (the dev SOW stamp removal went family-wide); the ledger may move on
+ *    after generation and nothing auto-syncs.
  *
  * Honesty rules specific to the sheet: empty groups are omitted entirely
  * (a「其他（0）」header claims a category that has nothing in it); drifted
@@ -38,9 +39,6 @@ const RELEASE_TYPE_LABEL: Record<ReleaseItem['type'], string> = {
 export interface ReleaseSheetContext {
   requirement: RequirementRecord
   record: WorkbenchRecord
-  revision: number
-  /** ISO timestamp of generation; its date part lands in the stamp. */
-  generatedAt: string
   /** Drifted item ids from the detail response projection (empty = none). */
   releaseDrifted: readonly string[]
 }
@@ -109,7 +107,8 @@ function groupBlock(ctx: ReleaseSheetContext, type: ReleaseItem['type']): string
 
 /**
  * Assemble the release-sheet markdown: title + go/no-go conclusion → five
- * fixed-order groups (empty ones omitted) → the revision stamp.
+ * fixed-order groups (empty ones omitted). No trailing stamp (retired
+ * 2026-10-23).
  */
 export function buildReleaseSheet(ctx: ReleaseSheetContext): string {
   const blocks = [
@@ -117,7 +116,5 @@ export function buildReleaseSheet(ctx: ReleaseSheetContext): string {
     ...(Object.keys(RELEASE_TYPE_LABEL) as readonly ReleaseItem['type'][])
       .map((type) => groupBlock(ctx, type)),
   ].filter((block) => block.length > 0)
-  const date = ctx.generatedAt.slice(0, 10)
-  const stamp = `生成于 revision ${ctx.revision} · ${date} · 此后账本变更不自动同步`
-  return [...blocks, stamp].join('\n\n')
+  return blocks.join('\n\n')
 }

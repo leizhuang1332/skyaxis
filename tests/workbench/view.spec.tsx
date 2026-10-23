@@ -484,7 +484,7 @@ describe('0007 定稿软门：S1 就绪披露 + 定稿/撤销 + 摘要导出', (
     expect(dialog.textContent).toContain('需求理解摘要：报价管理：导入导出与数据校验')
     expect(dialog.textContent).toContain('[定稿状态] 未定稿')
     expect(dialog.textContent).toContain('C1　导出走异步')
-    expect(dialog.textContent).toContain('账本为真源，导出为分发')
+    expect(dialog.textContent).not.toContain('账本为真源，导出为分发')
   })
 
   it('0008 整理入口：[生成整理任务书] 开 SowModal（consolidate purpose，编辑器含任务书头与基线文件路径段）', async () => {

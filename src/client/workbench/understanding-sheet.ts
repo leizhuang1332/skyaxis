@@ -6,7 +6,8 @@
  *  - the artifact itself is a self-contained CHINESE working file with fixed
  *    zh literals (the dictionary only serves UI chrome, never the artifact);
  *  - every status carries its raw enum in parentheses where it can round-trip;
- *  - the document ends with the revision stamp + 真源/分发 declaration.
+ *  - the trailing revision stamp + 真源/分发 declaration retired with the
+ *    2026-10-23 user ruling (the dev SOW stamp removal went family-wide).
  *
  * Honesty rules: empty groups are omitted entirely; UNANSWERED clarifications
  * are LISTED (not hidden) — they are precisely the questions the review
@@ -36,9 +37,6 @@ const FINDING_SEVERITY_LABEL: Record<WorkbenchFinding['severity'], string> = {
 export interface UnderstandingSheetContext {
   requirement: RequirementRecord
   record: WorkbenchRecord
-  revision: number
-  /** ISO timestamp of generation; its date part lands in the stamp. */
-  generatedAt: string
 }
 
 function titleBlock(ctx: UnderstandingSheetContext): string {
@@ -106,7 +104,7 @@ function clarificationsBlock(ctx: UnderstandingSheetContext): string {
 /**
  * Assemble the understanding-sheet markdown: title + finalize status →
  * criteria → findings grouped by disposition (empty groups omitted) →
- * clarifications answered/unanswered → the revision stamp.
+ * clarifications answered/unanswered. No trailing stamp (retired 2026-10-23).
  */
 export function buildUnderstandingSheet(ctx: UnderstandingSheetContext): string {
   const blocks = [
@@ -115,7 +113,5 @@ export function buildUnderstandingSheet(ctx: UnderstandingSheetContext): string 
     findingsBlock(ctx),
     clarificationsBlock(ctx),
   ].filter((block) => block.length > 0)
-  const date = ctx.generatedAt.slice(0, 10)
-  const stamp = `生成于 revision ${ctx.revision} · ${date} · 此后账本变更不自动同步 · 账本为真源，导出为分发`
-  return [...blocks, stamp].join('\n\n')
+  return blocks.join('\n\n')
 }

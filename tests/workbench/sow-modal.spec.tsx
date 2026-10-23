@@ -100,7 +100,6 @@ function subject(overrides: Partial<SowModalProps> = {}) {
       requirement={requirement}
       record={null}
       knowledgeRecords={[]}
-      revision={7}
       onClose={() => { /* noop */ }}
       fetchPrdList={async () => []}
       fetchPlanText={async () => undefined}
@@ -424,7 +423,7 @@ describe('SowModal（SOW 生成 Modal）', () => {
     const text = previewText(rendered)
     expect(text).toContain('[工作包]\nWP1　导出队列\n边界：做队列；不做存储')
     expect(text).toContain('workPackage: WP1')
-    expect(text).toContain('生成于 revision 7 ·')
+    expect(text).not.toContain('生成于 revision')
     expect(rendered.queryByText(workbenchZh['sow.wpNoApprovedPlan'])).toBeNull()
     // 无依赖工作包 → 依赖摘要勾选行不出现。
     expect(rendered.queryByLabelText(workbenchZh['sow.wpDeps'])).toBeNull()
@@ -505,7 +504,6 @@ describe('SowModal（SOW 生成 Modal）', () => {
         requirement={requirement}
         record={null}
         knowledgeRecords={[]}
-        revision={7}
         onClose={() => { /* noop */ }}
         fetchPrdList={async () => []}
         fetchPlanText={async () => undefined}
@@ -520,7 +518,6 @@ describe('SowModal（SOW 生成 Modal）', () => {
         requirement={requirement}
         record={null}
         knowledgeRecords={[]}
-        revision={7}
         onClose={() => { /* noop */ }}
         fetchPrdList={async () => []}
         fetchPlanText={async () => undefined}

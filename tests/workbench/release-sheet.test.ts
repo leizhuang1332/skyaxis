@@ -53,8 +53,6 @@ function record(overrides: Partial<WorkbenchRecord> = {}): WorkbenchRecord {
 const baseCtx = {
   requirement,
   record: record(),
-  revision: 7,
-  generatedAt: '2026-09-29T12:34:56.789Z',
   releaseDrifted: [] as readonly string[],
 } as const
 
@@ -93,11 +91,11 @@ describe('releaseGoNoGo', () => {
 })
 
 describe('buildReleaseSheet', () => {
-  it('标题 + 结论行（GO / 前置条件未满足 两态）+ 戳收尾', () => {
+  it('标题 + 结论行（GO / 前置条件未满足 两态）+ 无戳收尾（2026-10-23 戳退役）', () => {
     const go = buildReleaseSheet({ ...baseCtx, record: record({ releaseItems: [item()], rollbackPlanConfirmedAt: '2026-09-26T01:00:00.000Z' }) })
     expect(go).toContain('上线单：导出功能改造')
     expect(go).toContain('[结论] GO —— 待确认 0 · 已确认 1 · 漂移 0 · 回滚预案 已确认（2026-09-26）')
-    expect(go.endsWith('生成于 revision 7 · 2026-09-29 · 此后账本变更不自动同步')).toBe(true)
+    expect(go).not.toContain('生成于 revision')
 
     const noGo = buildReleaseSheet(baseCtx)
     expect(noGo).toContain('[结论] 前置条件未满足 —— 待确认 0 · 已确认 0 · 漂移 0 · 回滚预案 未确认')
@@ -132,7 +130,8 @@ describe('buildReleaseSheet', () => {
       item({ id: 'R0002', type: 'flag', title: '开关', content: '', envs: [] }),
     ] }) })
     expect(sheet).toContain('  ```\n  ALTER TABLE a\n  ADD COLUMN b INT;\n  -- tail comment\n  ```')
-    expect(sheet).toContain('- R0002　开关 —— 已确认（confirmed）\n\n生成于')
+    // 戳退役后空内容项收尾：行尾即文档尾（无 fenced 块、无 meta 行）
+    expect(sheet.endsWith('- R0002　开关 —— 已确认（confirmed）')).toBe(true)
     expect(sheet).not.toContain('- R0002　开关 —— 已确认（confirmed）\n  ')
   })
 

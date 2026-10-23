@@ -28,10 +28,11 @@
  * (ledger-decided, the split/plan 必读 line) + clone-repo rows; the
  * requirement/WP/criteria snapshot stays embedded (ledger data, P1).
  *
- * Honesty anchor: dev/review documents end with the revision stamp; the
- * three AI-session purposes dropped it in 0009 (conservative trim, user
- * ruling) — their snapshots carry the 生成时快照 wording instead. The ledger
- * may move on after generation and nothing auto-syncs either way.
+ * Honesty anchor: dev documents carried the trailing revision stamp until
+ * the 2026-10-23 user ruling retired it (0009 retired the other purposes;
+ * this closes the pair — no purpose stamps anymore); the snapshots carry the
+ * 生成时快照 wording instead. The ledger may move on after generation and
+ * nothing auto-syncs either way.
  */
 import type {
   WorkbenchFinding,
@@ -166,9 +167,6 @@ export interface SowContext {
   requirement: RequirementRecord
   /** null = the workbench record is not established yet (first-use entry). */
   record: WorkbenchRecord | null
-  revision: number
-  /** ISO timestamp of generation; its date part lands in the stamp. */
-  generatedAt: string
   /** dev context carries the target work package. */
   workPackage?: WorkbenchWorkPackage
   /** dev context: the highest approvedAt plan version's body (absent = none). */
@@ -1308,21 +1306,14 @@ function reviewOutputBlock(ctx: SowContext): string {
 // Document assembly
 // ---------------------------------------------------------------------------
 
-function revisionStamp(ctx: SowContext): string {
-  // 0009: dev/review originally; 0023: dev only — review joined the
-  // nine-block family and follows its discipline (the honesty anchor is the
-  // snapshot header's 生成时快照 wording).
-  const date = ctx.generatedAt.slice(0, 10)
-  return `生成于 revision ${ctx.revision} · ${date} · 此后账本变更不自动同步`
-}
-
 /**
  * Assemble the SOW markdown. Analysis/split/consolidate get the nine-block
  * research-0008 assembly; dev keeps the original five-block shape (research
  * 0006 §7.1); review rejoined the nine-block family in 0023 with its own
  * two-goal methodology (decisions 0023). 0009: the revision stamp retires
  * for the AI-session purposes (conservative trim, user ruling — the
- * ledger-move honesty rides the snapshot's 生成时快照 header); dev keeps it.
+ * ledger-move honesty rides the snapshot's 生成时快照 header); the 2026-10-23
+ * user ruling retires it for dev too — no purpose ends with a stamp.
  * Section headers are fixed zh; the declare skeleton is dev-shaped
  * (`workPackage:` + claims) or the plain shape.
  */
@@ -1446,7 +1437,7 @@ export function buildSow(ctx: SowContext): string {
     knowledgeBlock(ctx, '[知识注入]'),
     outputBlock(ctx),
   ].filter((block) => block.length > 0)
-  return [...blocks, revisionStamp(ctx)].join('\n\n')
+  return blocks.join('\n\n')
 }
 
 /** 0016: the dev SOW head's fixed prefix (one truth for builder + matcher).

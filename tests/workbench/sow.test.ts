@@ -101,8 +101,6 @@ const baseCtx = {
   purpose: 'analysis',
   requirement,
   record: null,
-  revision: 3,
-  generatedAt: '2026-09-29T12:34:56.789Z',
 } as const
 
 describe('matchKnowledge', () => {
@@ -870,9 +868,11 @@ describe('buildSow', () => {
     expect(buildSow(baseCtx)).not.toContain('[知识注入]')
   })
 
-  it('revision 戳收尾（0009 收窄为 dev/review 五段路径专属）：revision 数 + generatedAt 日期部分', () => {
-    const text = buildSow({ ...baseCtx, purpose: 'dev', record: record({ stage: 'implement', workPackages: [wp('WP1')] }), revision: 7, generatedAt: '2026-09-29T12:34:56.789Z' })
-    expect(text.endsWith('生成于 revision 7 · 2026-09-29 · 此后账本变更不自动同步')).toBe(true)
+  it('修订戳退役（2026-10-23 用户拍板：dev 五段路径冻结条款作废）：dev 亦无戳，尾块是输出节', () => {
+    const text = buildSow({ ...baseCtx, purpose: 'dev', record: record({ stage: 'implement', workPackages: [wp('WP1')] }) })
+    expect(text).not.toContain('生成于 revision')
+    // 尾块是输出节：行尾即声明块 fence 尾（dev 五段无「完成自检」行——那是九段家族的自检节）
+    expect(text.endsWith('stageReady: false\n```')).toBe(true)
   })
 
   it('0016 刀一验收修正：dev 头行带 WP 号（真实会话的 fallback 标题=寻址锚）；review 头行对齐家族形态', () => {
@@ -987,13 +987,13 @@ describe('buildSow', () => {
     expect(noRecord).toContain('（工作台记录未建立——无验收标准与工作包可核验，评审以质量发现为主）')
   })
 
-  it('0023 dev 回归：五块路径不动（[需求]/[输入]/[知识注入]/[输出约定]/修订戳照旧，无六维与 criteria 清单）', () => {
+  it('0023 dev 回归：五块路径不动（[需求]/[输入]/[知识注入]/[输出约定] 照旧，无六维与 criteria 清单；修订戳 2026-10-23 退役）', () => {
     const dev = buildSow({ ...baseCtx, purpose: 'dev', record: record({ stage: 'implement', workPackages: [wp('WP1')] }), workPackage: wp('WP1') })
     expect(dev).toContain('[需求]')
     expect(dev).toContain('[输入]（用文件读取能力按路径阅读；不要凭记忆，不要猜）')
     expect(dev).toContain('[知识注入]')
     expect(dev).toContain('[输出约定]')
-    expect(dev.endsWith('此后账本变更不自动同步')).toBe(true)
+    expect(dev).not.toContain('生成于 revision')
     expect(dev).not.toContain('criteriaChecks')
     expect(dev).not.toContain('六维质量排查')
   })

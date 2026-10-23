@@ -983,7 +983,6 @@ export function WorkbenchTabBody(props: {
             requirement={props.requirement}
             record={record}
             knowledgeRecords={knowledge.records}
-            revision={slot.revision}
             busy={slot.busy}
             workPackage={sow?.workPackage}
             deliver={props.deliver}
@@ -1242,8 +1241,6 @@ export function WorkbenchTabBody(props: {
           sheet={buildUnderstandingSheet({
             requirement: props.requirement,
             record,
-            revision: slot.revision,
-            generatedAt: new Date().toISOString(),
           })}
           filename={`understanding-sheet-${requirementId}.md`}
           onClose={() => { setUnderstandExportOpen(false) }}

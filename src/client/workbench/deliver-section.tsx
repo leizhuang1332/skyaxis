@@ -358,8 +358,6 @@ export function DeliverSection(props: {
         sheet={buildReleaseSheet({
           requirement: props.requirement,
           record,
-          revision: slot.revision,
-          generatedAt: new Date().toISOString(),
           releaseDrifted: slot.releaseDrifted,
         })}
         filename={`release-sheet-${requirementId}.md`}

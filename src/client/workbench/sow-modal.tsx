@@ -80,7 +80,6 @@ export function SowModal(props: {
   record: WorkbenchRecord | null
   /** Server-filtered requirement ∪ global view (may carry archived rows — filtered active here). */
   knowledgeRecords: readonly WorkbenchKnowledgeRecord[]
-  revision: number
   workPackage?: WorkbenchWorkPackage
   busy?: boolean
   onClose: () => void
@@ -99,7 +98,7 @@ export function SowModal(props: {
    *  on it; degraded deliveries must not bind at delivery (0016 修订 #95). */
   onDelivered?: (sessionId: string, sowText: string, sent: boolean) => void
 }): ReactNode {
-  const { t, open, purpose, requirement, record, knowledgeRecords, revision, workPackage } = props
+  const { t, open, purpose, requirement, record, knowledgeRecords, workPackage } = props
   const busy = props.busy === true
 
   // --- PRD state (lazy per open; a stale list response must not win) ---
@@ -128,8 +127,6 @@ export function SowModal(props: {
     if (copyTimerRef.current !== null) window.clearTimeout(copyTimerRef.current)
   }, [])
 
-  const [generatedAt, setGeneratedAt] = useState(() => new Date().toISOString())
-
   // --- edited preview (0009): null = show/copy the live buildSow output;
   // once the user types, the edit wins until 恢复生成内容 resets to null. ---
   const [editedText, setEditedText] = useState<string | null>(null)
@@ -154,7 +151,6 @@ export function SowModal(props: {
     setCheckedKnowledge(null)
     setCopyState('idle')
     setCopyFailed(false)
-    setGeneratedAt(new Date().toISOString())
     setEditedText(null)
     setEditMode(false)
     void (async () => {
@@ -279,8 +275,6 @@ export function SowModal(props: {
     purpose,
     requirement,
     record,
-    revision,
-    generatedAt,
     // 0018: wp-plan carries the WP unconditionally (the boundary is the
     // planning subject, not an optional embed); dev keeps its scope toggle.
     workPackage: purpose === 'wp-plan' ? workPackage : (purpose === 'dev' && includeBoundaryPlan ? workPackage : undefined),
@@ -295,7 +289,7 @@ export function SowModal(props: {
     } : {}),
     analysisRepos: analysisRepoRows,
     analysisUnknownRepos: analysisRepoUnknown,
-  }), [purpose, requirement, record, revision, generatedAt, workPackage, includeBoundaryPlan, planLoaded, planText, selectedKnowledge, includeDeps, prdDocs, analysisRepoRows, analysisRepoUnknown])
+  }), [purpose, requirement, record, workPackage, includeBoundaryPlan, planLoaded, planText, selectedKnowledge, includeDeps, prdDocs, analysisRepoRows, analysisRepoUnknown])
 
   // The user edit (if any) wins over the live build; copy/deliver/anchors
   // all use THIS text (0009).

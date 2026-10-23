@@ -40,14 +40,14 @@ function record(overrides: Partial<WorkbenchRecord> = {}): WorkbenchRecord {
   }
 }
 
-const ctx = (rec: WorkbenchRecord) => ({ requirement, record: rec, revision: 7, generatedAt: '2026-10-14T12:00:00.000Z' })
+const ctx = (rec: WorkbenchRecord) => ({ requirement, record: rec })
 
 describe('buildUnderstandingSheet', () => {
-  it('header + finalize status line + stamp（未定稿形态）', () => {
+  it('header + finalize status line（未定稿形态）；戳已退役（2026-10-23）', () => {
     const sheet = buildUnderstandingSheet(ctx(record()))
     expect(sheet).toContain('需求理解摘要：报价管理：导入导出与数据校验')
     expect(sheet).toContain('[定稿状态] 未定稿')
-    expect(sheet.endsWith('生成于 revision 7 · 2026-10-14 · 此后账本变更不自动同步 · 账本为真源，导出为分发')).toBe(true)
+    expect(sheet).not.toContain('生成于 revision')
   })
 
   it('已定稿形态：状态行带日期；快照不作内容源（摘要取活账本）', () => {
