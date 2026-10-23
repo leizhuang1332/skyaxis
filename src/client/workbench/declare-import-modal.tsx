@@ -44,6 +44,7 @@ const SKIP_REASON_KEY: Record<DeclareSkipReason, Parameters<WorkbenchT>[0]> = {
   'bad-envs': 'declare.skip.bad-envs',
   'wp-not-found': 'declare.skip.wp-not-found',
   'wp-not-in-dev': 'declare.skip.wp-not-in-dev',
+  'wp-already-built': 'declare.skip.wp-already-built',
 }
 
 type Phase =

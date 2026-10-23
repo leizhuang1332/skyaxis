@@ -731,9 +731,16 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     }
     // 刀一验收三修: the in-dev gate is REMOVED from the seed — collection is
     // information-gathering, valid wherever the WP lives (the user delivers
-    // dev SOWs before pressing 开始开发). The IMPORT path's markWorkPackageBuilt
-    // still enforces in-dev (the four-power state change). The card surfaces
-    // the collected declaration; the import button disables when not in-dev.
+    // dev SOWs before pressing 开始开发). The card surfaces the collected
+    // declaration; the import button disables when not in-dev.
+    // 0030 D1-A（收取即翻转）: the 三修 ruling's other half —「the IMPORT path's
+    // markWorkPackageBuilt enforces in-dev (the four-power state change)」—
+    // is RETIRED for in-dev WPs: a fresh seed whose block claims built now
+    // folds the in-dev→built flip into the seed's own atomic save (P13's
+    // ceiling unchanged: declare advances exactly to 待验收, acceptance stays
+    // user-only). Non-in-dev WPs keep information-only seeding; the import
+    // folding's in-dev guard stays as the race defense and the premature-
+    // session path.
     const read = await services.declareReader.readDeclareText(targetSession)
     if (read.status !== 'ok') {
       return json({ ok: true, revision: writeRevision, record, devSeedMissing: read.reason })
@@ -747,10 +754,15 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     // (the main parseDeclare call happens in the import flow, not here).
     const declareParsed = parseDeclare({ text: read.text, record })
     const seedCommits = declareParsed.ok ? declareParsed.declareCommits : undefined
+    // 0030 D1-A: claimsBuilt = this block yields a built entry under the
+    // CURRENT record (all claim semantics inherited from the parser — shape,
+    // scope, split approval). The scope above already matches this WP.
+    const claimsBuilt = declareParsed.ok && declareParsed.entries.some((entry) => entry.kind === 'built')
     const applied = applyDevDeclareSeed(record, {
       workPackageId: body.workPackageId,
       sessionId: targetSession,
       contentHash: hash,
+      ...(claimsBuilt ? { claimsBuilt: true } : {}),
       ...(seedCommits !== undefined ? { commits: seedCommits } : {}),
     })
     if (!applied.ok) return errorResponse(applied.status, applied.code)

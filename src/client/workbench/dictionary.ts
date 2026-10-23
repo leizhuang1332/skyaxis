@@ -553,6 +553,7 @@ interface WorkbenchDictionary {
   readonly 'declare.skip.bad-envs': string
   readonly 'declare.skip.wp-not-found': string
   readonly 'declare.skip.wp-not-in-dev': string
+  readonly 'declare.skip.wp-already-built': string
   // declareCard.* — 0016 P1a 声明收取卡（dev-declare 槽三态面）
   // execution.* — 0016 P1b 执行视图
   readonly 'execution.archiveTitle': string
@@ -1202,6 +1203,7 @@ const zh: WorkbenchDictionary = {
   'declare.skip.bad-envs': '环境列表不合法',
   'declare.skip.wp-not-found': '工作包不存在',
   'declare.skip.wp-not-in-dev': '不可标记 built（拆分未批准或工作包非开发中）',
+  'declare.skip.wp-already-built': '已完成待验收（收取时已自动生效）',
   // execution.* — 0016 P1b 执行视图
   'execution.archiveTitle': '执行档案',
   'execution.backToBoard': '返回看板',
@@ -1809,6 +1811,7 @@ const en: WorkbenchDictionary = {
   'declare.skip.bad-envs': 'invalid environment list',
   'declare.skip.wp-not-found': 'work package not found',
   'declare.skip.wp-not-in-dev': 'not markable as built (split unapproved or package not in dev)',
+  'declare.skip.wp-already-built': 'already pending acceptance (auto-applied on collection)',
   // execution.* — 0016 P1b execution view
   'execution.archiveTitle': 'Execution archive',
   'execution.backToBoard': 'Back to board',

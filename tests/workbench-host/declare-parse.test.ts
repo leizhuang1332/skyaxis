@@ -166,6 +166,16 @@ describe('parseDeclare：块级 workPackage 三态', () => {
       expect(result.skipped).toContainEqual({ key: 'built-0', label: 'WP1', reason: 'wp-not-in-dev' })
     }
   })
+
+  it('0030 D2-A: WP 已 built → built 行良性 skip wp-already-built（收取即翻转后的常态导入面）；artifact/knowledge 照常可导', () => {
+    const base = record({ workPackages: [{ id: 'WP1', title: 'WP1', boundary: '', order: 1, dependsOn: [], covers: [], status: 'built', plans: [], sessions: [], commits: [], acceptances: [] }] })
+    const result = parseDeclare({ text: fence(GOOD_BLOCK), record: base })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.skipped).toEqual([{ key: 'built-0', label: 'WP1', reason: 'wp-already-built' }])
+    expect(result.entries).toHaveLength(2)
+    expect(result.entries[0]?.kind).toBe('artifact')
+  })
 })
 
 describe('parseDeclare：逐条 skip 与 duplicate', () => {

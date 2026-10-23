@@ -174,8 +174,15 @@ export function parseDeclare(input: { text: string; record: WorkbenchRecord }): 
       skipped.push(skipOf(key, scope, 'wp-not-found'))
       return
     }
-    if (input.record.splitApprovedAt === undefined || scopeWp!.status !== 'in-dev') {
+    if (input.record.splitApprovedAt === undefined || (scopeWp!.status !== 'in-dev' && scopeWp!.status !== 'built')) {
       skipped.push(skipOf(key, scope, 'wp-not-in-dev'))
+      return
+    }
+    // 0030 D2-A: 收取即翻转 makes a built WP the import face's COMMON shape —
+    // the built claim already landed in the seed write; disclose as a benign
+    // skip, never the error-toned「不可标记 built」judgment.
+    if (scopeWp!.status === 'built') {
+      skipped.push(skipOf(key, scope, 'wp-already-built'))
       return
     }
     entries.push({ kind: 'built', key, workPackageId: scope } satisfies DeclareBuiltEntry)

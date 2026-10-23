@@ -1845,6 +1845,9 @@ describe('0016 P1a: dev-declare container — seed core / adjudicate / import st
     expect(seeded.ok).toBe(true)
     if (!seeded.ok) return
     expect(seeded.unchanged).toBeUndefined()
+    // No claimsBuilt (a partial handover / 三修 information-only arm) → the
+    // status is untouched — collection alone never flips (0030 D1-A)
+    expect(seeded.record.workPackages[0]!.status).toBe('in-dev')
     expect(seeded.record.devDeclares?.WP1).toEqual({
       seed: { sessionId: SESS, contentHash: HASH_A, seededAt: expect.any(String) },
       adjudication: 'pending',
@@ -1891,6 +1894,31 @@ describe('0016 P1a: dev-declare container — seed core / adjudicate / import st
     const built = baseRecord({ splitApprovedAt: NOW, workPackages: [wp('WP1', { status: 'built', sessions: devBinding })] })
     const seededBuilt = applyDevDeclareSeed(built, { workPackageId: 'WP1', sessionId: SESS, contentHash: HASH_A })
     expect(seededBuilt.ok && seededBuilt.record.devDeclares?.WP1?.adjudication).toBe('pending')
+    // 0030 D1-A: even a built-CLAIMING seed never flips a non-in-dev WP — the
+    // premature session's flip stays with the import path (三修前半保真)
+    const seededPlannedClaim = applyDevDeclareSeed(planned, { workPackageId: 'WP1', sessionId: SESS, contentHash: HASH_B, claimsBuilt: true })
+    expect(seededPlannedClaim.ok && seededPlannedClaim.record.workPackages[0]!.status).toBe('planned')
+    const seededBuiltClaim = applyDevDeclareSeed(built, { workPackageId: 'WP1', sessionId: SESS, contentHash: HASH_B, claimsBuilt: true })
+    expect(seededBuiltClaim.ok && seededBuiltClaim.record.workPackages[0]!.status).toBe('built')
+  })
+
+  it('0030 D1-A 收取即翻转: claimsBuilt fresh seed folds in-dev→built into the SAME record; anchor replay never re-flips; rework re-arms and re-flips', () => {
+    const seeded = applyDevDeclareSeed(inDevRecord(), { workPackageId: 'WP1', sessionId: SESS, contentHash: HASH_A, claimsBuilt: true })
+    if (!seeded.ok) throw new Error('seed failed')
+    // The slot AND the status land in ONE record write — no torn middle state
+    expect(seeded.record.workPackages[0]!.status).toBe('built')
+    expect(seeded.record.devDeclares?.WP1?.adjudication).toBe('pending')
+    // Anchor replay (same session AND hash): unchanged — the flip already
+    // landed with this text's fresh seed; no re-flip path exists
+    const replay = applyDevDeclareSeed(seeded.record, { workPackageId: 'WP1', sessionId: SESS, contentHash: HASH_A, claimsBuilt: true })
+    expect(replay.ok && replay.unchanged).toBe(true)
+    // The rework loop (0019): acceptance fail returns in-dev; a genuinely NEW
+    // declaration (fresh hash) re-arms pending AND re-flips — one step shorter
+    const failed = applyOk(seeded.record, { ...mutate(), action: 'acceptWorkPackage', id: 'WP1', result: 'fail', note: '返工' })
+    expect(failed.workPackages[0]!.status).toBe('in-dev')
+    const reseeded = applyDevDeclareSeed(failed, { workPackageId: 'WP1', sessionId: SESS, contentHash: HASH_B, claimsBuilt: true })
+    expect(reseeded.ok && reseeded.record.workPackages[0]!.status).toBe('built')
+    expect(reseeded.ok && reseeded.record.devDeclares?.WP1?.adjudication).toBe('pending')
   })
 
   it('adjudicateDevDeclare: pending → dismissed (+adjudicatedAt); repeat → unchanged; imported → 400; no slot → 404', () => {

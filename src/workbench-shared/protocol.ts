@@ -1756,6 +1756,7 @@ export type DeclareSkipReason =
   | 'bad-envs'
   | 'wp-not-found'
   | 'wp-not-in-dev'
+  | 'wp-already-built'
 
 // ---------------------------------------------------------------------------
 // Session digest (0016 P1b) — the execution-view's data channel. The HOST
@@ -2806,7 +2807,7 @@ export function isWorkbenchKnowledgeSaveResponseOk(v: unknown): v is WorkbenchKn
 
 const DECLARE_FETCH_MISSING = ['no-service', 'not-found', 'unreadable', 'no-declare-block']
 const REVIEW_FETCH_MISSING = ['no-service', 'not-found', 'unreadable', 'no-review-block']
-const DECLARE_SKIP_REASONS = ['bad-shape', 'bad-type', 'bad-severity', 'bad-title', 'bad-content', 'over-cap', 'bad-envs', 'wp-not-found', 'wp-not-in-dev']
+const DECLARE_SKIP_REASONS = ['bad-shape', 'bad-type', 'bad-severity', 'bad-title', 'bad-content', 'over-cap', 'bad-envs', 'wp-not-found', 'wp-not-in-dev', 'wp-already-built']
 const DECLARE_ENTRY_TYPES = ['sql', 'config', 'flag', 'mq', 'other']
 const DECLARE_KNOWLEDGE_TYPES = ['business', 'convention']
 

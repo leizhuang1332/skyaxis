@@ -154,6 +154,7 @@ describe('workbench: dictionaries', () => {
       'declare.skip.bad-title',
       'declare.skip.bad-type',
       'declare.skip.over-cap',
+      'declare.skip.wp-already-built',
       'declare.skip.wp-not-found',
       'declare.skip.wp-not-in-dev',
       'declare.skippedTitle',

@@ -239,6 +239,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       | 'declare.skip.over-cap'
       | 'declare.skip.wp-not-found'
       | 'declare.skip.wp-not-in-dev'
+      | 'declare.skip.wp-already-built'
       | 'declare.skippedTitle'
       | 'declare.stageReadyProposal'
       | 'declare.staleHint'

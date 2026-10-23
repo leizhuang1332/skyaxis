@@ -1423,6 +1423,16 @@ export interface DevDeclareSeedInput {
   readonly workPackageId: string
   readonly sessionId: string
   readonly contentHash: string
+  /**
+   * 0030 D1-A（收取即翻转）: the block carries a VALID built claim — the flow
+   * parses the fence against the CURRENT record (a built entry would import
+   * today). A fresh seed on an in-dev WP folds the in-dev→built flip into
+   * this same record write: P13's ceiling holds exactly (declare advances to
+   * 待验收 and never further — acceptance stays user-only), while non-in-dev
+   * WPs keep the 刀一验收三修 information-only semantics (the premature
+   * session's flip still belongs to the import path).
+   */
+  readonly claimsBuilt?: boolean
   /** 0016 P2b: commit proposals from the declare block — stored in the slot, confirmed by user action. */
   readonly commits?: readonly { hash: string; note: string }[]
 }
@@ -1435,10 +1445,18 @@ export function applyDevDeclareSeed(base: WorkbenchRecord, input: DevDeclareSeed
   if (slot !== undefined && slot.seed.sessionId === input.sessionId && slot.seed.contentHash === input.contentHash) {
     return { ok: true, record: base, unchanged: true }
   }
+  // 0030 D1-A: the flip rides the fresh seed's OWN record write — the slot
+  // and the status never tear (one ledger save). Only in-dev flips; an
+  // anchor hit never re-flips (the flip landed — or was rightly withheld —
+  // with the original fresh seed of this same text).
+  const flipBuilt = input.claimsBuilt === true && workPackage.status === 'in-dev'
   return {
     ok: true,
     record: {
       ...base,
+      ...(flipBuilt
+        ? { workPackages: base.workPackages.map((candidate) => (candidate.id === input.workPackageId ? { ...candidate, status: 'built' as const } : candidate)) }
+        : {}),
       devDeclares: {
         ...base.devDeclares,
         [input.workPackageId]: {
