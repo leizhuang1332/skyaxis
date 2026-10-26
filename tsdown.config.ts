@@ -10,7 +10,7 @@
  */
 import { clientBundle } from './shared/tsdown.client.ts'
 
-export default clientBundle('@lz/skyaxis', ['src/index.ts', 'src/invariant.ts'], {
+export default clientBundle('@leizhuang1332/skyaxis', ['src/index.ts', 'src/invariant.ts'], {
   libExternal: [
     '@deepseek-ai/dsh-api-gateway',
     '@deepseek-ai/dsh-api-remotes',

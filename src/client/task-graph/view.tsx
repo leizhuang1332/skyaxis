@@ -316,7 +316,7 @@ const taskGraphNodeCss = `
 /* 宿主会话壳的宽度拖拽柄在任务图 tab 下是孤儿元素（所属面板已隐藏但
    handle 仍可交互，悬在画布中间——用户报告 2026-09-23）。用稳定的
    data-width-handle 属性定位：class 前缀（wSkVaW_ 之流）是 CSS module
-   hash，跨宿主构建会变，不可依赖。本规则随 <style data-plugin="@lz/skyaxis">
+   hash，跨宿主构建会变，不可依赖。本规则随 <style data-plugin="@leizhuang1332/skyaxis">
    标签的生命周期生效——仅任务图视图挂载期间禁用拖拽，切回 chat 等 tab
    标签卸载即恢复（宿主修复此 bug 后本规则自然空转）。 */
 [data-width-handle] {
@@ -363,13 +363,13 @@ function TaskGraphBoard({ store, t, navigate }: TaskGraphBoardProps): JSX.Elemen
 
   // DSH web 的 plugin loader 只扫 `*.module.css`，对 `@tsdown/css` 抽出来的
   // `lib/style.css` 不做注入。React Flow 的样式不进 `<head>` 就全是浏览器默认
-  // 渲染（节点变成黑方块）。所以这里手动挂一个 `<style data-plugin="@lz/skyaxis">`
+  // 渲染（节点变成黑方块）。所以这里手动挂一个 `<style data-plugin="@leizhuang1332/skyaxis">`
   // 标签，命名风格对齐 DSH 其它 style 标签，DevTools 里一眼能认出。
   // `useEffect` 在浏览器里跑——SSR / 测试环境没 `document`，因此兜个 typeof 守卫。
   useEffect(() => {
     if (typeof document === 'undefined') return
     const tag = document.createElement('style')
-    tag.dataset.plugin = '@lz/skyaxis'
+    tag.dataset.plugin = '@leizhuang1332/skyaxis'
     tag.textContent = `${reactFlowCss}\n${taskGraphNodeCss}`
     document.head.appendChild(tag)
     return () => {

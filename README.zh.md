@@ -15,13 +15,13 @@ skyaxis 是 deepseek-harness（DSH）的 AI 编程可视化与单人工作流管
 安装聚合包或单独安装本包，然后重启 `dsh web`：
 
 ```sh
-dsh plugin --profile web add @lz/skyaxis@latest
+dsh plugin --profile web add @leizhuang1332/skyaxis@latest
 ```
 
 本地开发安装：
 
 ```sh
-git clone https://github.com/lz/skyaxis.git
+git clone https://github.com/leizhuang1332/skyaxis.git
 cd skyaxis
 pnpm install
 pnpm build
@@ -33,9 +33,9 @@ dsh plugin --profile web add link:$(pwd)/skyaxis
 需要 Node 20 或更高版本及官方 NPM SDK 包；不使用 DSH 源码 checkout。
 
 ```sh
-pnpm --filter @lz/skyaxis typecheck
-pnpm --filter @lz/skyaxis test
-pnpm --filter @lz/skyaxis build
+pnpm --filter @leizhuang1332/skyaxis typecheck
+pnpm --filter @leizhuang1332/skyaxis test
+pnpm --filter @leizhuang1332/skyaxis build
 ```
 
 回归基线为 1263 tests（vitest）。

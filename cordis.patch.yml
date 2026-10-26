@@ -9,4 +9,4 @@
 # (exports "./client", served at /plugins/<id>/client.js) load in the web GUI.
 - insert:
     - id: skyaxis
-      name: '@lz/skyaxis'
+      name: '@leizhuang1332/skyaxis'

@@ -15,13 +15,13 @@ Current surfaces (dual-face plugin):
 Install the aggregate package or this package alone, then restart `dsh web`:
 
 ```sh
-dsh plugin --profile web add @lz/skyaxis@latest
+dsh plugin --profile web add @leizhuang1332/skyaxis@latest
 ```
 
 For local development:
 
 ```sh
-git clone https://github.com/lz/skyaxis.git
+git clone https://github.com/leizhuang1332/skyaxis.git
 cd skyaxis
 pnpm install
 pnpm build
@@ -33,9 +33,9 @@ dsh plugin --profile web add link:$(pwd)/packages/skyaxis
 Node 20 or newer and the official NPM SDK packages are required; no DSH source checkout is used.
 
 ```sh
-pnpm --filter @lz/skyaxis typecheck
-pnpm --filter @lz/skyaxis test
-pnpm --filter @lz/skyaxis build
+pnpm --filter @leizhuang1332/skyaxis typecheck
+pnpm --filter @leizhuang1332/skyaxis test
+pnpm --filter @leizhuang1332/skyaxis build
 ```
 
 The regression baseline is 1263 tests (vitest).

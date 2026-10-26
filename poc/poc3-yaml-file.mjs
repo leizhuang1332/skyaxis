@@ -90,7 +90,7 @@ try {
   // —— 步骤 2：合法增改 + revision 推进 ——
   const r1 = saveWithRevision(file, 1, [
     ...l1.value.repos,
-    { id: 'r3', name: 'skyaxis', url: 'git@github.com:lz/skyaxis.git', description: '本插件' },
+    { id: 'r3', name: 'skyaxis', url: 'git@github.com:leizhuang1332/skyaxis.git', description: '本插件' },
   ])
   check('合法写入 revision 1→2', r1.ok && r1.revision === 2)
   check('.bak 备份存在且内容为上一版本', existsSync(`${file}.bak`) && load(`${file}.bak`).value.repos.length === 2)
