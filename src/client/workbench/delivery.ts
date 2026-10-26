@@ -19,7 +19,7 @@
  * sessions (fork() → binding(childId).session.rename).
  *
  * Degrade (0017 D3): a rejected/throwing prompt — or a missing prompt face —
- * falls back to the v2 tail (setDraft + open + selectPanel), so the task is
+ * falls back to the v2 tail (setDraft + openSession 导航), so the task is
  * never stranded. Degraded deliveries report sent:false; the dev
  * bind-at-delivery (0017 刀二) gates on sent — a degraded shell may still be
  * re-materialized elsewhere, title/content addressing repairs it later.
@@ -31,7 +31,7 @@
  * list. See resolveCreateOpts.
  *
  * Access: same cordis `ctx.get` discipline as v2 — sessions (create/binding/
- * scope/open) is required at arm time; conversation (degrade-only now) is
+ * scope; 0033：open 退役) is required at arm time; conversation (degrade-only now) is
  * armed reactively via ctx.inject (the machine-verified waiting-tracker
  * pattern) and resolved again at call time.
  */
@@ -65,12 +65,11 @@ interface ConversationFace {
   input: { for(actx: unknown): ConversationInputFace }
 }
 
-/** Minimal shape of ctx.sessions.create/binding/scope/open (ISessions 消费面). */
+/** Minimal shape of ctx.sessions.create/binding/scope (ISessions 消费面；0033：open 退役出清单). */
 interface SessionsCreateFace {
   create(opts?: { cwd?: string; workspaceId?: string }): Promise<string>
   binding(id: string): BindingFace | undefined
   scope(sessionId: string): unknown
-  open(sessionId: string): void
 }
 
 /** Minimal WorkspaceView (workspace-controller types.d.ts:12-24 消费面). */
@@ -128,11 +127,6 @@ async function resolveCreateOpts(
   return { cwd: workspacePath }
 }
 
-/** Minimal shape of ctx.layout (degrade 尾巴的尽力而为步). */
-interface LayoutFace {
-  selectPanel(panel: string | null): void
-}
-
 export interface DeliverOutcome {
   readonly ok: boolean
   readonly sessionId?: string
@@ -172,9 +166,9 @@ function armConversation(ctx: Context, get: ((name: string) => unknown) | undefi
 }
 
 /**
- * The shared v2 degrade tail: draft into the conversation input + open +
- * selectPanel — the user presses send (0017 D3). Caller wraps in try/catch
- * and maps a throw to {ok:false,'failed'}.
+ * The shared v2 degrade tail: draft into the conversation input + navigate —
+ * the user presses send (0017 D3). Caller wraps in try/catch and maps a throw
+ * to {ok:false,'failed'}.
  */
 function v2Tail(
   sessions: SessionsCreateFace,
@@ -185,22 +179,23 @@ function v2Tail(
 ): DeliverOutcome {
   const actx = sessions.scope(sessionId)
   conversationFace.input.for(actx).setDraft(text)
-  sessions.open(sessionId)
-  // Official openSession tail — return focus to the Conversation main
-  // panel. Best-effort.
+  // 0033 改道（0.2.1-rc.3）：ISessions.open 退役，导航统一走宿主
+  // UiWorkspace.openSession（单段式 select+show Conversation，含回主面板
+  // ——原 open+selectPanel 两步被其一步覆盖）。Best-effort：face 缺席或
+  // 异形不阻塞——草稿已落，用户可自行切换。
   try {
-    const layout = get?.('layout') as LayoutFace | undefined
-    layout?.selectPanel(null)
+    const uiWorkspace = get?.('uiWorkspace') as { openSession(target: unknown): void } | undefined
+    uiWorkspace?.openSession(sessionId)
   } catch {
-    // A layout service with a different shape never blocks the send.
+    // A uiWorkspace service with a different shape never blocks the send.
   }
   return { ok: true, sessionId, sent: false }
 }
 
-/** The sessions-face shape check shared by both closures (four members). */
+/** The sessions-face shape check shared by both closures (three members；0033：open 退役出清单). */
 const sessionsFaceOk = (sessions: SessionsCreateFace | undefined): sessions is SessionsCreateFace =>
   sessions !== undefined && typeof sessions.create === 'function' && typeof sessions.binding === 'function'
-    && typeof sessions.scope === 'function' && typeof sessions.open === 'function'
+    && typeof sessions.scope === 'function'
 
 /**
  * Assemble the delivery closure from ctx. Returns undefined when the SESSIONS
@@ -259,7 +254,7 @@ export function createSowDelivery(ctx: Context): DeliverFace | undefined {
  * the id is the ledger's tail dev binding, never a minted session.
  *
  * Degrade: a rejected/throwing prompt — or a missing prompt face — falls back
- * to the v2 tail on the SAME id (setDraft + open + selectPanel), so the note
+ * to the v2 tail on the SAME id (setDraft + openSession 导航), so the note
  * is never stranded; conversation absent too → honest no-service (the modal's
  * copy button stays the manual fallback).
  */

@@ -41,7 +41,7 @@ export type SessionsFace = WorkbenchSessionsFace
 
 /** Narrow ctx.sessions into the minimal face (see the file header note). */
 function sessionsFace(ctx: Context): SessionsFace | undefined {
-  const sessions = (ctx as unknown as { sessions?: { list: unknown; subagentAddress: (id: string) => unknown; open: (id: string) => void; openSubagent: (address: never) => void } }).sessions
+  const sessions = (ctx as unknown as { sessions?: { list: unknown; subagentAddress: (id: string) => unknown } }).sessions
   if (sessions === undefined || sessions.list === undefined) return undefined
   const list = sessions.list as {
     getSnapshot(): { ids: readonly string[]; byId: Readonly<Record<string, { id: string; displayTitle: string; running: boolean; blank: boolean; cwd?: string } | undefined>> }
@@ -52,23 +52,18 @@ function sessionsFace(ctx: Context): SessionsFace | undefined {
     get summariesById() { return list.getSnapshot().byId },
     subscribe: (listener) => list.subscribe(listener),
     navigate(sessionId: string): void {
+      // 0033 改道（0.2.1-rc.3）：ISessions.open/openSubagent 已退役（navigation
+      // belongs to view owners），统一走 UiWorkspace.openSession——单段式
+      // select+show Conversation（0017 验收修正（二）的 selectPanel 尾巴被其
+      // 覆盖）；地址臂优先 catalog 直系地址，无地址时 ids 诚实门控保留
+      // （任务图 register.tsx navigate 同款，0033 先行落点）。
+      const uiWorkspace = ctx.get('uiWorkspace') as { openSession(target: unknown): void } | undefined
+      if (uiWorkspace === undefined) return
       const address = sessions.subagentAddress(sessionId)
       if (address !== undefined) {
-        sessions.openSubagent(address as never)
+        uiWorkspace.openSession(address)
       } else if (list.getSnapshot().ids.includes(sessionId)) {
-        sessions.open(sessionId)
-      } else {
-        return
-      }
-      // 0017 验收修正（二）: open/openSubagent only SELECT the session — the
-      // official openSession tail (the delivery.ts v2/degrade precedent) must
-      // also return focus to the Conversation main panel, or the jump is
-      // invisible from the requirements workbench tab (panel never switches).
-      try {
-        const layout = (ctx as unknown as { get?: (name: string) => unknown }).get?.('layout') as { selectPanel(panel: string | null): void } | undefined
-        layout?.selectPanel(null)
-      } catch {
-        // A layout service with a different shape never blocks the select.
+        uiWorkspace.openSession(sessionId)
       }
     },
   }

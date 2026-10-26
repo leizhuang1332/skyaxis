@@ -63,7 +63,7 @@ export function WorkPackageDialog(props: {
   sessions?: { ids: readonly string[]; summariesById: Readonly<Record<string, { id: string; displayTitle: string; running: boolean; blank: boolean } | undefined>> }
   /** SessionIds with a pending approval/question (P2b fourth state). */
   waitingIds?: ReadonlySet<string>
-  /** 0017 修订：会话条退役后 WP 详情是会话入口——行点击跳 DSH 会话页（register.navigate：open+selectPanel 官方尾巴）。 */
+  /** 0017 修订：会话条退役后 WP 详情是会话入口——行点击跳 DSH 会话页（register.navigate：UiWorkspace.openSession 单段式，0033 改道）。 */
   onNavigateSession?: (sessionId: string) => void
   /** 0018: purpose-parameterized — 'wp-plan' opens the planning SOW (the
    * 刀一 raw entry; 刀二 reshapes into status-driven layering), 'dev' the

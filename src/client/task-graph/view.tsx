@@ -30,8 +30,9 @@ import type { TaskGraphT } from './dictionary.js'
  * `store` 由 register.ts 在 apply 阶段创建并通过 props 注入（plan 决策 1：
  * 不走 store seat，实例跟随 register 的 disposer）；`t` 为绑定到
  * skyaxis.taskGraph 命名空间的 i18n 函数；`navigate` 为 subagent 节点的
- * 点击导航回调（register 用 ctx.sessions 的 openSubagent/open 实现，
- * 视图层保持无 ctx）；`startConnector` 为连接器工厂——本视图首次挂载时
+ * 点击导航回调（register 走宿主 UiWorkspace.openSession 实现——0033：
+ * ctx.sessions 的 open/openSubagent 已退役，视图层保持无 ctx）；
+ * `startConnector` 为连接器工厂——本视图首次挂载时
  * 启动、卸载时释放（懒启动：没打开任务图的标签页不持有事件窗口订阅）。
  */
 interface TaskGraphViewProps {
