@@ -29,7 +29,7 @@
  * readers (see store.ts).
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Button, IconPlusOutline16, Input, Modal, RiskConfirmation, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconPlusOutlineRegular, Input, Modal, RiskConfirmation, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { AddressSlot, SaveRequestBody, SaveVerdict, UrlRejection, ValidateOutcome } from '../../repos-pool-shared/protocol.js'
 import type { RepoRecord } from '../../repos-pool-shared/protocol.js'
 import { checkUrlSyntax } from '../../repos-pool-shared/url-syntax.js'
@@ -408,7 +408,7 @@ export function RepoForm(props: {
           <Button variant="ghost" onClick={() => controller.closeForm()}>{t('form.cancel')}</Button>
           <Button
             variant="primary"
-            icon={<IconPlusOutline16 size={16} />}
+            icon={<IconPlusOutlineRegular size={16} />}
             disabled={!canSave}
             onClick={submit}
           >

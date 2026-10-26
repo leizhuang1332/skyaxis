@@ -37,7 +37,7 @@ function sid(id: string): SessionId {
 function summary(
   id: string,
   fields: Partial<
-    Pick<SessionSummary, 'parentId' | 'origin' | 'running' | 'completed' | 'displayTitle'>
+    Pick<SessionSummary, 'parentId' | 'origin' | 'running' | 'displayTitle'>
   > = {},
 ): SessionSummary {
   return {
@@ -46,7 +46,7 @@ function summary(
     parentId: fields.parentId,
     origin: fields.origin,
     running: fields.running ?? false,
-    completed: fields.completed,
+    retainedBy: {},
     blank: false,
     updatedAt: 0,
   } as SessionSummary

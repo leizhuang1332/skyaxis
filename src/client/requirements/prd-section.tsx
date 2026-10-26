@@ -12,9 +12,9 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   Button,
   FileTypeIcon,
-  IconEllipsisOutline16,
-  IconPaperclipOutline16,
-  IconPlusOutline16,
+  IconEllipsisOutlineRegular,
+  IconPaperclipOutlineRegular,
+  IconPlusOutlineRegular,
   Input,
   MarkdownText,
   Menu,
@@ -102,7 +102,7 @@ export function PrdSection(props: {
         <>
           <div className={styles.sectionTitle}>{t('workspace.sectionPrd')}</div>
           <button type="button" className={styles.repoAddCard} aria-label={t('prd.create')} onClick={() => setCreateOpen(true)}>
-            <IconPlusOutline16 size={16} />
+            <IconPlusOutlineRegular size={16} />
             <span className={styles.setupHint}>{t('prd.emptyHint')}</span>
             <span className={styles.setupAction}>{t('prd.create')}</span>
           </button>
@@ -112,7 +112,7 @@ export function PrdSection(props: {
           <div className={styles.sectionTitle}>{t('workspace.sectionPrd')}</div>
           {/* One entry (P3c feedback): the create dialog also carries the
               upload affordance — pick a file there and it uploads immediately. */}
-          <Button variant="ghost" size="sm" icon={<IconPlusOutline16 size={16} />} onClick={() => setCreateOpen(true)}>
+          <Button variant="ghost" size="sm" icon={<IconPlusOutlineRegular size={16} />} onClick={() => setCreateOpen(true)}>
             {t('prd.create')}
           </Button>
         </div>
@@ -230,7 +230,7 @@ function PrdRow(props: {
         }}
         anchor={(
           <button type="button" className={styles.iconButton} aria-label={t('prd.menuLabel')} title={doc.name} onClick={() => setMenuOpen(true)}>
-            <IconEllipsisOutline16 />
+            <IconEllipsisOutlineRegular />
           </button>
         )}
       />
@@ -306,7 +306,7 @@ function CreatePrdModal(props: {
       footer={(
         <>
           <Button variant="ghost" onClick={props.onCancel}>{t('form.cancel')}</Button>
-          <Button variant="primary" icon={<IconPlusOutline16 size={16} />} disabled={submitting} onClick={() => void submit()}>
+          <Button variant="primary" icon={<IconPlusOutlineRegular size={16} />} disabled={submitting} onClick={() => void submit()}>
             {submitting ? t('form.submitting') : t('form.submit')}
           </Button>
         </>
@@ -328,7 +328,7 @@ function CreatePrdModal(props: {
             disabled={uploading}
             onClick={() => fileInputRef.current?.click()}
           >
-            <IconPaperclipOutline16 size={16} />
+            <IconPaperclipOutlineRegular size={16} />
             <span className={styles.setupHint}>{t('prd.uploadHint')}</span>
           </button>
           <input ref={fileInputRef} type="file" hidden onChange={(event) => void onPickFile(event)} />

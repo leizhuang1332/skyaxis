@@ -5,7 +5,7 @@
  * share item semantics and test selectors (getByRole('menuitem', { name })).
  */
 import { useState, type ReactNode } from 'react'
-import { IconEllipsisOutline16, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconEllipsisOutlineRegular, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
 import styles from './view.module.css'
 
 export interface RowMenuItem {
@@ -36,7 +36,7 @@ export function RowMenu(props: { items: readonly RowMenuItem[]; menuLabel: strin
           aria-expanded={open}
           onClick={() => { setOpen(true) }}
         >
-          <IconEllipsisOutline16 />
+          <IconEllipsisOutlineRegular />
         </button>
       )}
     />

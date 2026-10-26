@@ -6,7 +6,7 @@
  * the view layer.
  */
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { Button, IconCloseOutline16, IconDatabaseOutline16, IconDownloadOutline16, IconSearchOutline16, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconCloseOutlineRegular, IconDatabaseOutlineRegular, IconDownloadOutlineRegular, IconSearchOutlineRegular, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { RepoRecord } from '../../repos-pool-shared/protocol.js'
 import type { ReposPoolController } from './controller.js'
@@ -81,7 +81,7 @@ export function ReposPoolPage(props: {
             className={styles.filterInput}
             value={filter}
             placeholder={t('view.filterPlaceholder')}
-            icon={<IconSearchOutline16 size={16} />}
+            icon={<IconSearchOutlineRegular size={16} />}
             spellCheck={false}
             aria-label={t('view.filterPlaceholder')}
             onChange={(event) => setFilter(event.target.value)}
@@ -91,7 +91,7 @@ export function ReposPoolPage(props: {
               (decision 0004 / D5 degraded gate is a subset of this matrix). */}
           <Button
             variant="ghost"
-            icon={<IconDownloadOutline16 size={16} />}
+            icon={<IconDownloadOutlineRegular size={16} />}
             disabled={state.phase !== 'ready' || state.busy}
             onClick={() => setImportOpen(true)}
           >
@@ -108,7 +108,7 @@ export function ReposPoolPage(props: {
               title={t('form.closeLabel')}
               onClick={() => controller.dismissBanner()}
             >
-              <IconCloseOutline16 />
+              <IconCloseOutlineRegular />
             </button>
           </div>
         ) : null}
@@ -209,5 +209,5 @@ export function ReposPoolPage(props: {
  * activation feedback belongs to the shell.
  */
 export function ReposPoolIcon(props: PropsRuntime<'sidebar.panellist'>): ReactNode {
-  return <IconDatabaseOutline16 size={props.size} />
+  return <IconDatabaseOutlineRegular size={props.size} />
 }

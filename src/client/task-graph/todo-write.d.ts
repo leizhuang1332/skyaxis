@@ -13,6 +13,7 @@
  * turn counter (turn/start / user/message) in infer.ts, never from this
  * payload. If a future dsh-tool-todo ships its own types, drop this file and
  * depend on theirs.
+ * Verified against dsh 0.2.1-rc.3 (todo/tool-todo src/types.ts): shapes unchanged (0033 knife-one).
  */
 // 顶层 `export {}` 让本文件成为模块文件 —— 这是 `declare module` 被当作
 // module augmentation（合并进已解析的真实模块）而非独立环境模块声明的

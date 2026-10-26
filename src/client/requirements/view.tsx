@@ -18,7 +18,7 @@
  * the view layer.
  */
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { Button, IconChecklistOutline14, IconChevronDownOutline14, IconChevronLeftOutline14, IconClockOutline16, IconCloseOutline16, IconListPenOutline16, IconSearchOutline16, Input, Menu, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconChecklistOutlineMedium, IconChevronDownOutlineMedium, IconChevronLeftOutlineMedium, IconClockOutlineRegular, IconCloseOutlineRegular, IconListPenOutlineRegular, IconSearchOutlineRegular, Input, Menu, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { RequirementRecord } from '../../requirements-shared/protocol.js'
@@ -52,7 +52,7 @@ const SORT_IDS: readonly RequirementSort[] = ['created-desc', 'created-asc']
  * activation feedback belongs to the shell.
  */
 export function RequirementsIcon(props: PropsRuntime<'sidebar.panellist'>): ReactNode {
-  return <IconListPenOutline16 size={props.size} />
+  return <IconListPenOutlineRegular size={props.size} />
 }
 
 const BANNER_KEY = {
@@ -159,7 +159,7 @@ export function RequirementsPage(props: {
                 className={styles.detailBack}
                 onClick={() => controller.closeDetail()}
               >
-                <IconChevronLeftOutline14 />
+                <IconChevronLeftOutlineMedium />
                 <span>{t('detail.back')}</span>
               </button>
               {/* Requirement switcher (0004 P2): one-step swap without the
@@ -190,9 +190,9 @@ export function RequirementsPage(props: {
                       disabled={state.busy}
                       onClick={() => setSwitchOpen(true)}
                     >
-                      <IconChecklistOutline14 />
+                      <IconChecklistOutlineMedium />
                       <span>{t('detail.switch')}</span>
-                      <IconChevronDownOutline14 />
+                      <IconChevronDownOutlineMedium />
                     </button>
                   )}
                 />
@@ -226,7 +226,7 @@ export function RequirementsPage(props: {
             className={styles.filterInput}
             value={state.listFilter}
             placeholder={t('view.filterPlaceholder')}
-            icon={<IconSearchOutline16 size={16} />}
+            icon={<IconSearchOutlineRegular size={16} />}
             spellCheck={false}
             aria-label={t('view.filterPlaceholder')}
             onChange={(event) => controller.setListFilter(event.target.value)}
@@ -269,9 +269,9 @@ export function RequirementsPage(props: {
                 title={`${t('view.sort')}: ${t(SORT_KEY[state.listSort])}`}
                 onClick={() => setSortOpen(true)}
               >
-                <IconClockOutline16 size={16} />
+                <IconClockOutlineRegular size={16} />
                 <span>{t(SORT_KEY[state.listSort])}</span>
-                <IconChevronDownOutline14 />
+                <IconChevronDownOutlineMedium />
               </button>
             )}
           />
@@ -286,7 +286,7 @@ export function RequirementsPage(props: {
               title={t('form.closeLabel')}
               onClick={() => controller.dismissBanner()}
             >
-              <IconCloseOutline16 />
+              <IconCloseOutlineRegular />
             </button>
           </div>
         ) : null}

@@ -75,7 +75,7 @@ function summary(
     id: sid(id),
     displayTitle: fields.displayTitle ?? `Title ${id}`,
     running: fields.running ?? false,
-    completed: false,
+    retainedBy: {},
     blank: fields.blank ?? false,
     updatedAt: 0,
   } as SessionSummary

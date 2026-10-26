@@ -12,7 +12,7 @@
  * component's business, so the rows stay a faithful rendering of the input.
  */
 import { useState, type ReactNode } from 'react'
-import { IconEllipsisOutline16, IconPlusOutline16, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconEllipsisOutlineRegular, IconPlusOutlineRegular, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { RequirementRecord } from '../../requirements-shared/protocol.js'
 import type { RequirementsT } from './dictionary.js'
@@ -95,7 +95,7 @@ function RequirementRow(props: {
               title={requirement.title}
               onClick={() => setMenuOpen(true)}
             >
-              <IconEllipsisOutline16 />
+              <IconEllipsisOutlineRegular />
             </button>
           )}
         />
@@ -122,7 +122,7 @@ function AddRequirementCard(props: {
         disabled={props.disabled}
         onClick={props.onAdd}
       >
-        <IconPlusOutline16 />
+        <IconPlusOutlineRegular />
         <span>{props.label}</span>
       </button>
     </li>

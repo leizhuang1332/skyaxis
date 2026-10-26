@@ -9,6 +9,11 @@ const resolveFromRoot = createRequire(import.meta.url).resolve
 // heavy markdown deps the components under test never touch.
 const HEAVY_PRIMITIVES_DEP_FAMILIES = [
   /^anser$/,
+  // 0.2.1-rc.3（0033）：品牌图标字形（siWikipedia/siZhihu…）——SDK 新增未声明裸导入
+  /^simple-icons(\/.*)?$/,
+  // 0.2.1-rc.3（0033）：代码高亮语言映射——SDK 新增未声明裸导入（同上 stub 先例）
+  /^@deepseek-ai\/dsh-util-code-language$/,
+  /^diff$/,
   /^katex(\/.*)?$/,
   /^shiki(\/.*)?$/,
   /^@shikijs\/langs(\/.*)?$/,

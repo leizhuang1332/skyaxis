@@ -16,7 +16,7 @@
  * button and its 0011 regression lock.
  */
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { IconChevronDownOutline14, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconChevronDownOutlineMedium, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { RequirementsT } from './dictionary.js'
 import { OPEN_IN_APP_ICON_PREFIX, type OpenInAppFace } from './open-in-app-controller.js'
@@ -245,7 +245,7 @@ export function OpenInAppButton(props: {
               setOpen((value) => !value)
             }}
           >
-            <IconChevronDownOutline14 size={11} />
+            <IconChevronDownOutlineMedium size={11} />
           </button>
         </div>
       )}

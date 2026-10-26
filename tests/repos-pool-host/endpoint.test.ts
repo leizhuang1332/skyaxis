@@ -44,10 +44,13 @@ async function harness(options?: { subprocess?: SubprocessRuntime }) {
   const connection = ctx.get('connection') as HostConnectionHandle
   registerReposPoolEndpoints(connection, { file, validator })
   const shared = connection.createSharedFetchHandler('/api')
+// 0.2.1-rc.3（0033）：fetch(request, peer) 双参——owner peer 放行（dsh fetch-routes 测试同款夹具）。
+const ownerPeer = connection.createPeer({ principal: { kind: 'owner' } })
+const fetchAs = (request: Request) => shared.fetch(request, ownerPeer)
   const base = 'http://127.0.0.1'
-  const get = (path: string) => shared.fetch(new Request(base + path))
+  const get = (path: string) => fetchAs(new Request(base + path, {}))
   const post = (path: string, body: unknown) =>
-    shared.fetch(new Request(base + path, { method: 'POST', body: JSON.stringify(body) }))
+    fetchAs(new Request(base + path, { method: 'POST', body: JSON.stringify(body) }))
   return { file, validator, get, post, dispose: () => fiber.dispose() }
 }
 

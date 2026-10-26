@@ -62,6 +62,33 @@ export interface TaskGraphConnectorOptions {
   waiting?: import('../waiting-tracker.js').WaitingFace
 }
 
+/**
+ * 0.2.1-rc.3（0033）：SessionListState 退役 subagentsByParent / current 两字段。
+ * 目录改读每父会话的投影值（宿主 ui-workspace tree.ts 同款读法：
+ * projectionsBySession[parent].values.subagentCatalog）；防御性最小形状读，
+ * 不 import dsh-subagent 类型（subagents.ts CatalogLike 先例）。
+ */
+export const subagentsByParentOf = (
+  snapshot: ReturnType<ISessions['list']['getSnapshot']>,
+): Record<SessionId, { entries?: readonly { id: SessionId; label?: string }[] }> => {
+  const map: Record<SessionId, { entries?: readonly { id: SessionId; label?: string }[] }> = {}
+  for (const [parent, projection] of Object.entries(snapshot.projectionsBySession)) {
+    const values = projection.values as Readonly<Record<string, readonly { id: SessionId; label?: string }[] | undefined>>
+    if (values.subagentCatalog !== undefined && values.subagentCatalog.length > 0) {
+      map[parent as SessionId] = { entries: values.subagentCatalog }
+    }
+  }
+  return map
+}
+/**
+ * 0.2.1-rc.3（0033）：主视图正在显示的会话 = retainedBy.mainView 计数为正的
+ * summary（宿主 DocumentTitle 的官方判据，替代退役的 list state current。mainView 键由宿主 UI 包对 SessionReferenceSourceMap 声明合并贡献，skyaxis 类型视野不可见——防御索引读）。
+ */
+export const mainViewSessionIdOf = (
+  snapshot: ReturnType<ISessions['list']['getSnapshot']>,
+): SessionId | undefined =>
+  Object.values(snapshot.byId).find((s) => ((s.retainedBy as Readonly<Record<string, number | undefined>>).mainView ?? 0) > 0)?.id
+
 export function startTaskGraphConnector(
   ctx: Context,
   store: TaskGraphStore,
@@ -144,7 +171,7 @@ export function startTaskGraphConnector(
       const subagentGraph = buildSubagentGraph({
         rootId: sessionId,
         byId: snapshot.byId,
-        subagentsByParent: snapshot.subagentsByParent,
+        subagentsByParent: subagentsByParentOf(snapshot),
         ids: snapshot.ids,
         fallbackLabel: options.subagentFallbackLabel?.() ?? 'Subagent',
         grouped,
@@ -222,13 +249,13 @@ export function startTaskGraphConnector(
   }
 
   // 初始读一次 + 订阅后续 list 变化。
-  handleCurrent(sessions.list.getSnapshot().current)
+  handleCurrent(mainViewSessionIdOf(sessions.list.getSnapshot()))
   const listUnsub = sessions.list.subscribe(() => {
-    handleCurrent(sessions.list.getSnapshot().current)
+    handleCurrent(mainViewSessionIdOf(sessions.list.getSnapshot()))
   })
   // P2b：waiting 面变化 → 同 current 重走签名比对（w 段变化触发重推）。零轮询。
   const waitingUnsub = options.waiting?.subscribe(() => {
-    const nextId = sessions.list.getSnapshot().current
+    const nextId = mainViewSessionIdOf(sessions.list.getSnapshot())
     if (nextId !== undefined) handleCurrent(nextId)
   })
 

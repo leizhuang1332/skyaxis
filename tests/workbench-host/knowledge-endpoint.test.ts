@@ -75,10 +75,13 @@ async function harness() {
   const logs: unknown[] = []
   registerWorkbenchKnowledgeEndpoints(connection, { file, log: (error) => { logs.push(error) } })
   const shared = connection.createSharedFetchHandler('/api')
+// 0.2.1-rc.3（0033）：fetch(request, peer) 双参——owner peer 放行（dsh fetch-routes 测试同款夹具）。
+const ownerPeer = connection.createPeer({ principal: { kind: 'owner' } })
+const fetchAs = (request: Request) => shared.fetch(request, ownerPeer)
   disposables.push(() => fiber.dispose())
-  const get = (query = '') => shared.fetch(new Request(BASE + WORKBENCH_KNOWLEDGE_PATH + query))
+  const get = (query = '') => fetchAs(new Request(BASE + WORKBENCH_KNOWLEDGE_PATH + query))
   const post = (body: unknown) =>
-    shared.fetch(new Request(BASE + WORKBENCH_KNOWLEDGE_PATH, { method: 'POST', body: JSON.stringify(body) }))
+    fetchAs(new Request(BASE + WORKBENCH_KNOWLEDGE_PATH, { method: 'POST', body: JSON.stringify(body) }))
   const seed = async (rows: readonly WorkbenchKnowledgeRecord[]) => {
     const saved = await file.save(0, [...rows])
     if (!saved.ok) throw new Error(`seed failed: ${JSON.stringify(saved)}`)

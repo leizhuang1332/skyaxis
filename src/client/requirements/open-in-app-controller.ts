@@ -12,7 +12,7 @@
  * availability read, the persisted last choice, and the launch POST.
  *
  * Route constants are string literals copied from
- * @deepseek-ai/dsh-host-open-in-app lib/types/shared.ts (dsh 0.1.5-rc.2):
+ * @deepseek-ai/dsh-host-open-in-app src/shared.ts (dsh 0.2.1-rc.3):
  * that package publishes them as a ./shared subpath but is not in the page
  * module graph, and the browser package has no ./shared export — so typed
  * import is unreachable by construction. A mismatch cannot misfire: a

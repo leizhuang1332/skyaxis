@@ -52,20 +52,23 @@ export function registerTaskGraphView(ctx: Context, waiting?: import('../waiting
       waiting,
     })
 
-  // P2a 导航（诚实规则）：优先走 catalog 直系地址 openSubagent；没有地址时
-  // 仅当 id 仍在 host 列表（ids）里才 open（open 对未知 id 会 fail loud）。
+  // P2a 导航（诚实规则，0.2.1-rc.3/0033 改道）：优先走 catalog 直系地址，没有地址时
+  // 仅当 id 仍在 host 列表（ids）里才开——open/openSubagent 已退役，动作统一走
+// UiWorkspace.openSession（单段式，ui-chat 对 childId 同款用法）；face 缺席诚实 no-op。
   // connector 的 buildSubagentGraph 已按同一 ids 门控标 navigable，这里是
   // 点击时的第二道守卫（两道读的是同一份 list 快照事实）。
   const navigate = (id: string): void => {
     const sessions = sessionsFace(ctx)
     const sessionId = id as SessionId
+const uiWorkspace = ctx.get('uiWorkspace') as { openSession(target: unknown): void } | undefined
+if (uiWorkspace === undefined) return
     const address = sessions.subagentAddress(sessionId)
     if (address) {
-      sessions.openSubagent(address)
+      uiWorkspace.openSession(address)
       return
     }
     if (sessions.list.getSnapshot().ids.includes(sessionId)) {
-      sessions.open(sessionId)
+      uiWorkspace.openSession(sessionId)
     }
   }
 

@@ -8,6 +8,9 @@
  * no workflow-named types (155 named types, zero workflow). Shapes below were
  * extracted from the registry tarball `@deepseek-ai/dsh-tool-workflow@0.1.5-rc.2`
  * (lib/types/types.d.ts), same method as research/0003 §四.
+ * Verified against dsh 0.2.1-rc.3: wire literals tool-workflow/* stay (known-event-types.ts:71-74, dsh ui-workflow-run consumes the same four);
+ * payload fields (runId/name/stopReason + agent payloads) unchanged. The renamed -ai/dsh-workflow
+ * package keeps these as its workflow event vocabulary (0033 knife-one).
  *
  * `runId` is a WorkflowRunId brand on the wire; locally a plain string (the
  * brand adds nothing to folding and would need the uninstalled package).

@@ -106,12 +106,15 @@ async function harness(options: { resolveWorkspacePath?: (requirementId: string)
     ...(options.resolveWorkspacePath !== undefined ? { resolveWorkspacePath: options.resolveWorkspacePath } : {}),
   })
   const shared = connection.createSharedFetchHandler('/api')
+// 0.2.1-rc.3（0033）：fetch(request, peer) 双参——owner peer 放行（dsh fetch-routes 测试同款夹具）。
+const ownerPeer = connection.createPeer({ principal: { kind: 'owner' } })
+const fetchAs = (request: Request) => shared.fetch(request, ownerPeer)
   disposables.push(() => fiber.dispose())
-  const get = (path: string) => shared.fetch(new Request(BASE + path))
+  const get = (path: string) => fetchAs(new Request(BASE + path, {}))
   const post = (path: string, body: unknown) =>
-    shared.fetch(new Request(BASE + path, { method: 'POST', body: JSON.stringify(body) }))
+    fetchAs(new Request(BASE + path, { method: 'POST', body: JSON.stringify(body) }))
   const postText = (path: string, text: string, contentType = 'text/plain') =>
-    shared.fetch(new Request(BASE + path, { method: 'POST', body: text, headers: { 'content-type': contentType } }))
+    fetchAs(new Request(BASE + path, { method: 'POST', body: text, headers: { 'content-type': contentType } }))
   // 0032: seeding writes each record's shard once (create at virtual 0 or
   // replace at the shard's current revision); the returned revision is the
   // LAST record's post-save value — every chained-usage call site seeds a

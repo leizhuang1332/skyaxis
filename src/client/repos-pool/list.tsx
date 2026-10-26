@@ -9,7 +9,7 @@
  * nothing.
  */
 import { useState, type ReactNode } from 'react'
-import { IconEllipsisOutline16, IconPlusOutline16, Menu, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconEllipsisOutlineRegular, IconPlusOutlineRegular, Menu, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { AddressSlot, RepoRecord, RepoStatus } from '../../repos-pool-shared/protocol.js'
 import type { ReposPoolT } from './dictionary.js'
@@ -97,7 +97,7 @@ function RepoRow(props: {
               title={repo.name}
               onClick={() => setMenuOpen(true)}
             >
-              <IconEllipsisOutline16 />
+              <IconEllipsisOutlineRegular />
             </button>
           )}
         />
@@ -124,7 +124,7 @@ function AddRepoCard(props: {
         disabled={props.disabled}
         onClick={props.onAdd}
       >
-        <IconPlusOutline16 />
+        <IconPlusOutlineRegular />
         <span>{props.label}</span>
       </button>
     </li>

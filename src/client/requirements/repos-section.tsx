@@ -29,8 +29,8 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import {
   Button,
-  IconEllipsisOutline16,
-  IconPlusOutline16,
+  IconEllipsisOutlineRegular,
+  IconPlusOutlineRegular,
   Input,
   Menu,
   Modal,
@@ -424,7 +424,7 @@ export function ReposSection(props: {
       <div className={styles.repoSection}>
         <div className={styles.sectionTitle}>{t('workspace.sectionRepos')}</div>
         <button type="button" className={styles.repoAddCard} aria-label={t('repos.add')} onClick={openModal}>
-          <IconPlusOutline16 size={16} />
+          <IconPlusOutlineRegular size={16} />
           <span className={styles.setupHint}>{t('repos.emptyHint')}</span>
           <span className={styles.setupAction}>{t('repos.add')}</span>
         </button>
@@ -456,7 +456,7 @@ export function ReposSection(props: {
     <div className={styles.repoSection}>
       <div className={styles.repoSectionHead}>
         <div className={styles.sectionTitle}>{t('workspace.sectionRepos')}</div>
-        <Button variant="ghost" size="sm" icon={<IconPlusOutline16 size={16} />} onClick={openModal}>
+        <Button variant="ghost" size="sm" icon={<IconPlusOutlineRegular size={16} />} onClick={openModal}>
           {t('repos.add')}
         </Button>
       </div>
@@ -602,7 +602,7 @@ function RowMenu(props: {
       }}
       anchor={(
         <button type="button" className={styles.iconButton} aria-label={props.t('repos.menuLabel')} title={props.name} onClick={() => setOpen(true)}>
-          <IconEllipsisOutline16 />
+          <IconEllipsisOutlineRegular />
         </button>
       )}
     />
@@ -648,7 +648,7 @@ function AddRepoModal(props: {
           <Button variant="ghost" onClick={props.onCancel}>{t('form.cancel')}</Button>
           <Button
             variant="primary"
-            icon={<IconPlusOutline16 size={16} />}
+            icon={<IconPlusOutlineRegular size={16} />}
             disabled={props.submitting || props.selection === null}
             onClick={props.onSubmit}
           >

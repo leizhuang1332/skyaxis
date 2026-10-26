@@ -31,7 +31,7 @@ function summary(
     parentId: fields.parentId,
     origin: fields.origin,
     running: fields.running ?? false,
-    completed: false,
+    retainedBy: {},
     blank: fields.blank ?? false,
     updatedAt: 0,
   } as SessionSummary

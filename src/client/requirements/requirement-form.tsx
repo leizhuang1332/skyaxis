@@ -8,7 +8,7 @@
  * readers (see store.ts).
  */
 import { useState, type ReactNode } from 'react'
-import { Button, IconPlusOutline16, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconPlusOutlineRegular, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { RequirementRecord, SaveRequestBody } from '../../requirements-shared/protocol.js'
 import type { RequirementsController } from './controller.js'
 import type { RequirementsT } from './dictionary.js'
@@ -68,7 +68,7 @@ export function RequirementForm(props: {
           <Button variant="ghost" onClick={() => controller.closeForm()}>{t('form.cancel')}</Button>
           <Button
             variant="primary"
-            icon={<IconPlusOutline16 size={16} />}
+            icon={<IconPlusOutlineRegular size={16} />}
             disabled={busy}
             onClick={() => void handleSubmit()}
           >

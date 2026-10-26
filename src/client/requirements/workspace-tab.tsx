@@ -14,7 +14,7 @@
  * precedent): short-lived, no outside readers.
  */
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { Button, IconFolderOpenOutline16, Input, Modal, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconFolderOpenOutlineRegular, Input, Modal, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ClientRemote } from '@deepseek-ai/dsh-api-remotes/client'
@@ -202,7 +202,7 @@ export function WorkspaceTabBody(props: {
           aria-label={t('workspace.setUp')}
           onClick={openModal}
         >
-          <IconFolderOpenOutline16 size={16} />
+          <IconFolderOpenOutlineRegular size={16} />
           <span className={styles.setupHint}>{t('workspace.emptyHint')}</span>
           <span className={styles.setupAction}>{t('workspace.setUp')}</span>
         </button>
@@ -281,7 +281,7 @@ export function WorkspaceTabBody(props: {
               controller={props.openInApp}
               path={requirement.workspacePath}
               fallback={canOpen ? (
-                <Button variant="ghost" size="sm" icon={<IconFolderOpenOutline16 size={16} />} onClick={() => void openDirectory()}>
+                <Button variant="ghost" size="sm" icon={<IconFolderOpenOutlineRegular size={16} />} onClick={() => void openDirectory()}>
                   {t('workspace.open')}
                 </Button>
               ) : null}
@@ -348,7 +348,7 @@ function WorkspaceSetupModal(props: {
           <Button variant="ghost" onClick={props.onCancel}>{t('form.cancel')}</Button>
           <Button
             variant="primary"
-            icon={<IconFolderOpenOutline16 size={16} />}
+            icon={<IconFolderOpenOutlineRegular size={16} />}
             disabled={props.submitting}
             onClick={props.onSubmit}
           >

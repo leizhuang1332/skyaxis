@@ -20,7 +20,7 @@
  * All state is dialog-local useState (short-lived, no outside readers).
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Button, IconPaperclipOutline16, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconPaperclipOutlineRegular, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   IMPORT_MAX_CONTENT_CHARS,
   IMPORT_PRECHECK_MAX_BYTES,
@@ -233,7 +233,7 @@ export function ImportDialog(props: {
               disabled={working}
               onClick={() => fileInputRef.current?.click()}
             >
-              <IconPaperclipOutline16 size={16} />
+              <IconPaperclipOutlineRegular size={16} />
               <span className={styles.importPickHint}>{t('import.pickHint')}</span>
             </button>
             <input
