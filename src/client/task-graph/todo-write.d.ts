@@ -10,9 +10,9 @@
  *
  * Honest shape, per the typert table: `content` + `status` only — **no `turn`
  * field and no protocol id**. Turn attribution is derived from the ambient
- * turn counter (turn/start / user/message) in infer.ts, never from this
- * payload. If a future dsh-tool-todo ships its own types, drop this file and
- * depend on theirs.
+ * turn counter (turn/start / user/message) in document/fold.ts, never from
+ * this payload. If a future dsh-tool-todo ships its own types, drop this file
+ * and depend on theirs.
  * Verified against dsh 0.2.1-rc.3 (todo/tool-todo src/types.ts): shapes unchanged (0033 knife-one).
  */
 // 顶层 `export {}` 让本文件成为模块文件 —— 这是 `declare module` 被当作

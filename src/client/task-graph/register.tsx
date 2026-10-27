@@ -137,6 +137,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       | 'view.empty'
       | 'view.loading'
       | 'view.error'
+      | 'view.earlierEvents'
       | 'node.subagent'
       | 'node.workflow'
       | 'node.workflowMember'

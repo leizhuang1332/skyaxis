@@ -1,10 +1,10 @@
 /**
  * Task-graph 内存快照存储。
  *
- * 数据流：
- *   ctx.sessions.list / binding(id).eventSource  →  connector  →  store.set(...)
- *                                                              ↓
- *                                              view.tsx useSyncExternalStore 读取
+ * 数据流（v0.4 切片 A 起）：
+ *   ctx.sessions.list / binding(id).eventSource  →  connector（组装 facts）
+ *        → document/fold → projections/task-chain ⊕ subagents/workflows
+ *        →  store.set(...)  →  view.tsx useSyncExternalStore 读取
  *
  * v0.1 demo 范围内只用一个 store 实例（按 plan 决策 1：不走 defineStore / store seat）；
  * 实例跟随 `registerTaskGraphView` 的 disposer 一起销毁。
@@ -25,6 +25,11 @@ export interface TaskGraphState {
    * 此时 UI 显示"加载中"占位，避免空画布误导。
    */
   loading: boolean
+  /**
+   * 事件窗口前缀截断位（SessionEventWindow.hasMore，research 0033 §八）：
+   * true = 更早历史未载入，视图顶部诚实标注（v0.4 切片 A）。
+   */
+  hasMore: boolean
 }
 
 const INITIAL_STATE: TaskGraphState = {
@@ -32,6 +37,7 @@ const INITIAL_STATE: TaskGraphState = {
   nodes: [],
   edges: [],
   loading: false,
+  hasMore: false,
 }
 
 /**

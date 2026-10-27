@@ -69,8 +69,8 @@ export function foldWorkflowRuns(
   events: readonly SessionEvent[],
 ): Map<string, WorkflowRunFold> {
   const runs = new Map<string, WorkflowRunFold>()
-  // 按 seq 排序后折叠（对齐 dist foldTeam 的 anchorSeq 排序与 infer 的 seq
-  // 排序）：折叠结果不依赖事件到达顺序（置换不变性，P4 性质测试守护）。
+  // 按 seq 排序后折叠（对齐 dist foldTeam 的 anchorSeq 排序与任务链折叠的
+  // seq 排序）：折叠结果不依赖事件到达顺序（置换不变性，P4 性质测试守护）。
   const sorted = [...events].sort((a, b) => a.seq - b.seq)
   for (const event of sorted) {
     switch (event.type) {

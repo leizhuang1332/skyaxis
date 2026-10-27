@@ -15,7 +15,8 @@ import { describe, expect, it } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
 import { lineageDepths, buildSubagentGraph, subagentSignature, summaryStatus } from '../../src/client/task-graph/subagents.js'
-import { inferTaskGraph } from '../../src/client/task-graph/infer.js'
+import { foldSessionDocument } from '../../src/client/task-graph/document/fold.js'
+import { projectTaskChain } from '../../src/client/task-graph/projections/task-chain.js'
 
 function sid(id: string): SessionId {
   return id as unknown as SessionId
@@ -189,7 +190,7 @@ describe('buildSubagentGraph', () => {
     expect(nodes.find((n) => n.id === 'subagent:fresh')!.data.status).toBe('pending')
   })
 
-  it('keeps id namespaces disjoint from the inferred task graph', () => {
+  it('keeps id namespaces disjoint from the projected task chain', () => {
     const byId = byIdOf(
       summary('root'),
       summary('child', { parentId: sid('root'), origin: 'subagent' }),
@@ -201,11 +202,11 @@ describe('buildSubagentGraph', () => {
       ids: [],
       fallbackLabel: 'Subagent',
     })
-    const task = inferTaskGraph(
-      [
-        {
-          type: 'event',
-          event: {
+    const task = projectTaskChain(
+      foldSessionDocument({
+        sessionId: sid('root'),
+        events: [
+          {
             type: 'user/message',
             seq: 1 as never,
             time: 1000,
@@ -216,18 +217,17 @@ describe('buildSubagentGraph', () => {
               source: { kind: 'user' },
             },
           } as never,
-        },
-        {
-          type: 'event',
-          event: {
+          {
             type: 'todo/write',
             seq: 2 as never,
             time: 2000,
             data: { todos: [{ content: 't', status: 'pending' }] },
           } as never,
-        },
-      ] as never,
-      'Root',
+        ],
+        hasMore: false,
+        label: 'Root',
+        rootStatus: 'running',
+      }),
     )
     const merged = [...task.nodes, ...sub.nodes]
     // 完全唯一：subagent 图不建 root 节点（root 归任务图所有，子图只把

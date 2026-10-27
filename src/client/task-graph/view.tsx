@@ -239,6 +239,21 @@ const taskGraphNodeCss = `
   font-size: 12px;
   cursor: pointer;
 }
+/* v0.4 切片 A：事件窗口前缀截断的诚实标注（research 0033 §八——hasMore
+   是窗口契约不是缺陷；右上角、只读、不抢工具条位置）。 */
+.skyaxis-tg-morenote {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  z-index: 5;
+  padding: 4px 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  pointer-events: none;
+}
 /* P3 tooltip 指标面板 */
 .skyaxis-tg-tooltip {
   position: absolute;
@@ -338,7 +353,7 @@ interface TaskGraphBoardProps {
 }
 
 function TaskGraphBoard({ store, t, navigate }: TaskGraphBoardProps): JSX.Element {
-  const { sessionId, nodes: inferredNodes, edges: inferredEdges, loading } =
+  const { sessionId, nodes: inferredNodes, edges: inferredEdges, loading, hasMore } =
     useSyncExternalStore(
       (l) => store.subscribe(l),
       () => store.getSnapshot(),
@@ -486,6 +501,9 @@ function TaskGraphBoard({ store, t, navigate }: TaskGraphBoardProps): JSX.Elemen
         />
         <span>{t('view.hideFailedAttempts')}</span>
       </label>
+
+      {/* v0.4 切片 A：窗口前缀截断标注（hasMore=true 时的诚实提示）。 */}
+      {hasMore ? <div className="skyaxis-tg-morenote">{t('view.earlierEvents')}</div> : null}
 
       <ReactFlow
         nodes={nodes}

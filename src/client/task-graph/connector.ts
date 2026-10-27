@@ -24,6 +24,10 @@
  * vs subagent:*）。同 current 但 root 摘要或子树签名变化时用缓存的 binding
  * 快照重推。
  *
+ * v0.4 切片 A（ADR 0036）：任务链侧改为 facts → document/fold →
+ * projections/task-chain（退役 inferTaskGraph）；subagents/workflows 仍是
+ * 并列 builder（B/D 切片收编进文档层）。
+ *
  * connector 跟随 `apply` 的 disposer 一起清理；current 切换时先卸旧 listener
  * 再装新的，避免引用旧 binding。
  */
@@ -36,7 +40,9 @@ import type {
 } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { TaskStatus } from './types.js'
 import type { TaskGraphStore } from './store.js'
-import { inferTaskGraph } from './infer.js'
+import { foldSessionDocument } from './document/fold.js'
+import type { TaskGraphFacts } from './document/types.js'
+import { projectTaskChain } from './projections/task-chain.js'
 import { buildSubagentGraph, subagentSignature, summaryStatus } from './subagents.js'
 import { buildWorkflowGraph, foldWorkflowRuns, workflowSignature, attachWorkflowDefinitions, extractWorkflowDefinitions } from './workflows.js'
 
@@ -142,7 +148,17 @@ export function startTaskGraphConnector(
       const rootMetrics = summary?.projectionValues?.skyaxisAgentMetrics ?? undefined
       lastAppliedSignature = signatureFor(sessionId, window)
 
-      const taskGraph = inferTaskGraph(window.entries, label, rootStatus, rootMetrics)
+      // v0.4 切片 A（ADR 0036）：facts → 文档 → 任务链投影（退役 inferTaskGraph）。
+      // B/D 切片再把 activities / delegations / workflows 收编进文档层。
+      const facts: TaskGraphFacts = {
+        sessionId,
+        events: durableEvents(window),
+        hasMore: window.hasMore,
+        label,
+        rootStatus,
+        ...(rootMetrics === undefined ? {} : { rootMetrics }),
+      }
+      const taskGraph = projectTaskChain(foldSessionDocument(facts))
       // P2d：workflow 图（第三命名空间，零新增订阅——同一事件窗口折叠）。
       // P3：先 attach 定义（tool/call 提取 + 时序/name 匹配）再 build。
       const workflowRuns = attachWorkflowDefinitions(
@@ -182,10 +198,11 @@ export function startTaskGraphConnector(
         nodes: [...taskGraph.nodes, ...subagentGraph.nodes, ...workflowGraph.nodes],
         edges: [...taskGraph.edges, ...subagentGraph.edges, ...workflowGraph.edges],
         loading: false,
+        hasMore: window.hasMore,
       })
     } catch (error) {
       console.error('[skyaxis task-graph] graph build failed:', error)
-      store.set({ sessionId, nodes: [], edges: [], loading: false })
+      store.set({ sessionId, nodes: [], edges: [], loading: false, hasMore: window.hasMore })
     }
   }
 
@@ -224,6 +241,7 @@ export function startTaskGraphConnector(
         nodes: [],
         edges: [],
         loading: false,
+        hasMore: false,
       })
       return
     }
@@ -237,6 +255,7 @@ export function startTaskGraphConnector(
         nodes: [],
         edges: [],
         loading: true,
+        hasMore: false,
       })
       return
     }

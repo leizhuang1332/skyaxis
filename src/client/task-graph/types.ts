@@ -13,23 +13,27 @@ import type { WorkflowDefinition } from './workflows.js'
  *
  * 'waiting' 自 P2b 回引：生产者是 waterfall 待决追踪（uiSession.pendingInteractions
  * 只读订阅——approval/user-questions 待决的 sessionId 集，经 connector 叠加），
- * 非 infer 产物；待决压过 running（更精确事实，research 0007 §1.1+§1.2）。
+ * 文档折叠不产出它；待决压过 running（更精确事实，research 0007 §1.1+§1.2）。
  */
 export type TaskStatus = 'pending' | 'running' | 'done' | 'failed' | 'cancelled' | 'waiting'
 
 /**
- * Task graph 节点类型 — v0.3 修订，P2a 起 subagent 落地，P2d 起 workflow 落地。
+ * Task graph 节点类型 — v0.4 修订（ADR 0036），P2a 起 subagent 落地，P2d 起
+ * workflow 落地。
  *
  *   root             session 根（永远 1 个）
  *   user-prompt      用户输入的 user/message（kind === 'user'），DAG 入口节点
+ *                    ——v0.4 切片 A 起无 status 位（用户输入不是任务）
  *   task             来自 todo/write 事件的 TodoItem，核心业务节点
+ *                    ——v0.4 切片 A 起全局身份：`todo-{contentHash}`（无 turn 段）
  *   subagent         subagent session 节点（P2a：血缘来自 sessions.list 投影）
  *   workflow         workflow run 记录（P2d：tool-workflow/run-start|run-end）
  *   workflow-phase   run 内的展示分组（P2d：agent-start.phase 折叠）
  *   workflow-member  run 的成员子会话（P2d：agent-start|agent-end）
  *   approval         approval 节点占位（不生成，待后续）
  *
- * v0.2 时代的 `'step'` 已删除——不再以 assistant message 为粒度建图。
+ * v0.2 时代的 `'step'` 已删除——不再以 assistant message 为粒度建图（B 切片的
+ * activity 节点会以更丰富的形态重新引入 assistant/tool 事实）。
  */
 export type TaskNodeType =
   | 'root'

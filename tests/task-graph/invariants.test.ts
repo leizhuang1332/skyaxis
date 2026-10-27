@@ -14,7 +14,8 @@ import type {
   SessionEventLikeEntry,
   SessionSummary,
 } from '@deepseek-ai/dsh-api-session-controller/client'
-import { inferTaskGraph } from '../../src/client/task-graph/infer.js'
+import { foldSessionDocument } from '../../src/client/task-graph/document/fold.js'
+import { projectTaskChain } from '../../src/client/task-graph/projections/task-chain.js'
 import {
   buildSubagentGraph,
   lineageDepths,
@@ -116,6 +117,19 @@ function eventsOf(entries: readonly Entry[]): SessionEvent[] {
     .map((e) => e.event)
 }
 
+/** v0.4 切片 A 组合面（connector 同款调用序）：fold → projectTaskChain。 */
+function chain(entries: readonly Entry[]) {
+  return projectTaskChain(
+    foldSessionDocument({
+      sessionId: sid('s'),
+      events: eventsOf(entries),
+      hasMore: false,
+      label: 'S',
+      rootStatus: 'running',
+    }),
+  )
+}
+
 function buildWf(entries: readonly Entry[]) {
   return buildWorkflowGraph({
     rootId: sid('root'),
@@ -179,13 +193,13 @@ describe('determinism (dist/04 §12)', () => {
     turnEndError(5, 1),
   ]
 
-  it('inferTaskGraph returns identical output for identical input', () => {
-    expect(inferTaskGraph(mixedEntries, 'S')).toEqual(inferTaskGraph(mixedEntries, 'S'))
+  it('task-chain fold+projection returns identical output for identical input', () => {
+    expect(chain(mixedEntries)).toEqual(chain(mixedEntries))
   })
 
-  it('inferTaskGraph is invariant to input event permutation (seq sort guard)', () => {
+  it('task-chain fold+projection is invariant to input event permutation (seq sort guard)', () => {
     const shuffled = [...mixedEntries].reverse()
-    expect(inferTaskGraph(shuffled, 'S')).toEqual(inferTaskGraph(mixedEntries, 'S'))
+    expect(chain(shuffled)).toEqual(chain(mixedEntries))
   })
 
   it('buildSubagentGraph is deterministic and invariant to byId key order', () => {
@@ -307,19 +321,18 @@ describe('deep lineage (dist/04 §9)', () => {
 })
 
 describe('acyclicity guard (P4 裁定：守卫性质替代未移植的 SCC 测试)', () => {
-  it('infer output is acyclic under adversarial input', () => {
-    const { nodes, edges } = inferTaskGraph(
-      [
-        userMessage(1, 'x'),
-        turnStart(2, 1),
-        todoWrite(3, [{ content: 'a', status: 'pending' }]),
-        todoWrite(4, [{ content: 'a', status: 'in_progress' }, { content: 'a', status: 'pending' }]),
-        todoWrite(1, [{ content: 'z', status: 'completed' }]), // 乱序 seq
-        turnEndError(5, 1),
-      ],
-      'S',
-    )
+  it('task-chain output is acyclic under adversarial input', () => {
+    const { nodes, edges } = chain([
+      userMessage(1, 'x'),
+      turnStart(2, 1),
+      todoWrite(3, [{ content: 'a', status: 'pending' }]),
+      todoWrite(4, [{ content: 'a', status: 'in_progress' }, { content: 'a', status: 'pending' }]),
+      todoWrite(1, [{ content: 'z', status: 'completed' }]), // 乱序 seq
+      turnEndError(5, 1),
+    ])
     assertAcyclic(nodes, edges)
+    // v0.4 切片 A：共享节点下边 id 跨 turn 复现——去重是 React Flow 硬约束。
+    expect(new Set(edges.map((e) => e.id)).size).toBe(edges.length)
   })
 
   it('subagent output excludes cyclic lineage members and stays acyclic', () => {
@@ -380,11 +393,30 @@ describe('fold properties (dist/04 §12 行 3 精神)', () => {
         { content: 'e', status: 'pending' },
       ]),
     ]
-    const { nodes } = inferTaskGraph(writes, 'S')
+    const { nodes } = chain(writes)
     const tasks = nodes.filter((n) => n.type === 'task')
-    // 最后一次 write 的条目数（含同 write 内重复）=== 节点数
+    // 最后一次 write 的条目数（含同 write 内重复）=== 存活节点数
+    // （v0.4 全局身份下即「最新 write 定存活集」不变量）。
     expect(tasks).toHaveLength(3)
     expect(tasks.map((t) => t.data.label).sort()).toEqual(['d', 'd', 'e'])
+  })
+
+  it('document permutation invariance: fold output (signature included) is order-free', () => {
+    const entries = [
+      userMessage(1, '做一下'),
+      turnStart(2, 1),
+      todoWrite(3, [{ content: 'a', status: 'pending' }]),
+      todoWrite(4, [{ content: 'a', status: 'completed' }]),
+      turnEndError(5, 1),
+    ]
+    const a = foldSessionDocument({
+      sessionId: sid('s'), events: eventsOf(entries), hasMore: false, label: 'S', rootStatus: 'running',
+    })
+    const b = foldSessionDocument({
+      sessionId: sid('s'), events: eventsOf([...entries].reverse()), hasMore: false, label: 'S', rootStatus: 'running',
+    })
+    expect(a).toEqual(b)
+    expect(a.signature).toBe(b.signature)
   })
 
   it('duplicate agent-end is idempotent (outcomes and signature unchanged)', () => {

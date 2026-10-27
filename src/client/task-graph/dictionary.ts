@@ -20,6 +20,7 @@ interface TaskGraphDictionary {
   readonly 'view.empty': string
   readonly 'view.loading': string
   readonly 'view.error': string
+  readonly 'view.earlierEvents': string
   readonly 'node.subagent': string
   readonly 'node.workflow': string
   readonly 'node.workflowMember': string
@@ -50,6 +51,7 @@ const zh: TaskGraphDictionary = {
   'view.empty': '暂无选中的 session — 请在左侧打开一个会话。',
   'view.loading': '加载中…',
   'view.error': '任务图加载失败 — 详情见控制台',
+  'view.earlierEvents': '更早的事件未载入',
   'node.subagent': '子代理',
   'node.workflow': '工作流',
   'node.workflowMember': '工作流成员',
@@ -77,6 +79,7 @@ const en: TaskGraphDictionary = {
   'view.empty': 'No session selected — open one from the sidebar.',
   'view.loading': 'Loading…',
   'view.error': 'Failed to load the task graph — see console for details',
+  'view.earlierEvents': 'Earlier events not loaded',
   'node.subagent': 'Subagent',
   'node.workflow': 'Workflow',
   'node.workflowMember': 'Workflow member',
