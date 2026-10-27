@@ -12,6 +12,7 @@
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { TaskNode, TaskEdge } from './types.js'
+import type { SessionDocument } from './document/types.js'
 
 export interface TaskGraphState {
   /** 当前订阅的 session；undefined 表示尚无 selection（fallback 到 seed）。 */
@@ -20,6 +21,11 @@ export interface TaskGraphState {
   nodes: TaskNode[]
   /** 推断出的图边。 */
   edges: TaskEdge[]
+  /**
+   * 会话文档（切片 B）：明细面板的数据源（panel-model 消费）。与 nodes
+   * 同一 applyWindow 产物；无 selection / loading 中为 undefined。
+   */
+  document: SessionDocument | undefined
   /**
    * True 当 current 已变但 binding 还没就绪（list.current 早于 scope mint）。
    * 此时 UI 显示"加载中"占位，避免空画布误导。
@@ -36,6 +42,7 @@ const INITIAL_STATE: TaskGraphState = {
   sessionId: undefined,
   nodes: [],
   edges: [],
+  document: undefined,
   loading: false,
   hasMore: false,
 }

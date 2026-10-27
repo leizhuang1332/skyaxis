@@ -5,13 +5,21 @@
  * 才决定「怎么画」。内容与拓扑分离：节点只挂 ContentRef（轻），原文进
  * contents 索引（零拷贝引用事件本体），明细面按 ref 解引用。
  *
- * 切片 A 范围：turns / tasks / contents / hasMore / signature。activities
- * （assistant/工具/审批）、delegations、workflows 的文档化在 B/D 切片收编
- * （现 subagents.ts / workflows.ts 继续作为并列 builder）。
+ * 切片 A 范围：turns / tasks / contents / hasMore / signature。切片 B 增：
+ * activities（assistant 消息 / 工具调用配对 / 审批配对 / spawn 事实）。
+ * delegations、workflows 的文档化在 D 切片收编（现 subagents.ts /
+ * workflows.ts 继续作为并列 builder）。
  */
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { SkyaxisAgentMetrics } from '../../../agent-metrics.js'
 import type { TaskStatus } from '../types.js'
+
+/**
+ * 会话内「工作」事件的 kind（v0.4 切片 B，ADR 0036 §2.3）。todo 任务不在其列
+ * （tasks 表）；subagent-spawn 不是独立 kind——它是 tool-call 活动上的
+ * `spawn` 事实位（fact 级解析，research 0033 §六）。
+ */
+export type ActivityKind = 'assistant-message' | 'tool-call' | 'approval'
 
 /** `turn/end` 的 wire reason 全息类型（从事件联合里提取，不依赖命名导出）。 */
 export type TurnEndReasonOf = Extract<SessionEvent, { type: 'turn/end' }>['data']['reason']
@@ -72,12 +80,104 @@ export interface TurnDoc {
   userPromptRefs: readonly string[]
   /** 该 turn 最后一次 todo/write 的 key 序（空 = 该 turn 无 write）。 */
   finalListKeys: readonly string[]
+  /**
+   * 该 turn 的活动 key 序（`act:{seq}`，切片 B）——assistant 消息 / 工具调用 /
+   * 审批。turn 面板（panel-model 的 turn 模型）据此聚合本轮工作清单。
+   */
+  activityKeys: readonly string[]
   /** turn 结束原因全息（七种 TurnEndReason 原文；现役代码只读过 error.kind 一个位）。 */
   endReason?: TurnEndReasonOf
   /** turn/start 与 turn/end 的 wall-clock（research 0033 §五：耗时事实 B 用）。 */
   startTime?: number
   endTime?: number
 }
+
+/** tool-call 活动的结果事实（callId 配对的 `tool/result`，fold 预提取）。 */
+export interface ToolResultFacts {
+  /** 是否失败（ToolResultMessage.isError === true）。 */
+  isError: boolean
+  /** 失败身份三件套（wire `error` 字段，仅 isError 时在场）——reason 是人类可读原文。 */
+  errorName?: string
+  errorCode?: string
+  errorReason?: string
+  /** 结果 content 的 text blocks 连接（面板正文）。 */
+  text: string
+  /** result.time − call.time（fact 级派生，research 0033 §五）。 */
+  durationMs: number
+  /** 结果事件的 ContentRef（零拷贝）。 */
+  ref: ContentRef
+}
+
+/** subagent 派生事实（fact 级解析，research 0033 §六三级降级链的第一级）。 */
+export interface SpawnFacts {
+  /** 派生工具结果文本字面包含的 childId（`started subagent <id>`）。 */
+  childId: SessionId
+  /** 派生 arguments 的 description（防御解析，坏 JSON 缺省）。 */
+  description?: string
+  /** 派生 arguments 的 prompt 全文（防御解析，坏 JSON 缺省）。 */
+  promptText?: string
+}
+
+/** assistant 消息活动（`assistant/message`）。 */
+export interface AssistantMessageActivity {
+  key: string
+  kind: 'assistant-message'
+  /** wire 显式 turn/step（fact——不像 todo 依赖环境计数）。 */
+  turn: number
+  step: number
+  ref: ContentRef
+  time: number
+  /** text blocks 连接的全文。 */
+  text: string
+  /** reasoning blocks 连接（在场才挂）。 */
+  reasoningText?: string
+  /** 逐消息 provider/model（dsh-llm source——比会话级 metrics 投影更细）。 */
+  provider?: string
+  model?: string
+  /** 逐 step token 记账（wire usage，在场才挂）。 */
+  usage?: { inputTokens: number; outputTokens: number }
+  /** 中断前缀标记（wire interrupted）。 */
+  interrupted?: true
+}
+
+/** 工具调用活动（`tool/call` ⊕ callId 配对的 `tool/result`）。 */
+export interface ToolCallActivity {
+  key: string
+  kind: 'tool-call'
+  turn: number
+  step: number
+  ref: ContentRef
+  time: number
+  callId: string
+  name: string
+  /** 模型原文 JSON 字符串（未解析；spawn 的 description/prompt 防御解析另行提取）。 */
+  argumentsRaw: string
+  /** 配对结果（孤儿/未决 = 缺省——诚实，不臆造）。 */
+  result?: ToolResultFacts
+  /** 派生事实（result 文本 + catalog 交叉验证双过关才挂）。 */
+  spawn?: SpawnFacts
+}
+
+/** 审批活动（`approval/asked` ⊕ id 配对的 `approval/decided`）。 */
+export interface ApprovalActivity {
+  key: string
+  kind: 'approval'
+  /** payload 无 turn 字段——环境回合计数归属（fold.ts）。 */
+  turn: number
+  ref: ContentRef
+  time: number
+  approvalId: string
+  toolName: string
+  /** 问题文案（asker 的人类可读解释，research 0033 §四）。 */
+  reason?: string
+  /** 被审批的工具调用（有则链到 ToolCallActivity.callId——fact）。 */
+  callId?: string
+  /** 结局（配对 decided；缺 = 待决）。 */
+  outcome?: 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'
+  decidedTime?: number
+}
+
+export type ActivityDoc = AssistantMessageActivity | ToolCallActivity | ApprovalActivity
 
 /**
  * 内容索引的引用形态：`ev:{seq}` —— 零拷贝指向 facts.events 里的本体事件。
@@ -96,12 +196,17 @@ export interface SessionDocument {
   turns: readonly TurnDoc[]
   /** 全局 key → 条目（含退役者——历史在档，投影按 retired 过滤）。 */
   tasks: ReadonlyMap<string, TaskDocEntry>
+  /**
+   * 活动 key（`act:{seq}`）→ 活动事实（切片 B：assistant/工具/审批；
+   * spawn 是 tool-call 上的事实位）。turn 面板与 subagent 面板据此下钻。
+   */
+  activities: ReadonlyMap<string, ActivityDoc>
   /** ContentRef → 事件本体（零拷贝引用）。 */
   contents: ReadonlyMap<ContentRef, SessionEvent>
   /**
-   * 文档结构签名（确定性拼接：turns 骨架 + 任务存活集 + 末修订状态）。
-   * 切片 A 仅奠基（connector 重推门控沿旧签名，避免行为漂移）；C 切片
-   * 投影 memo（fold/filter 参数化）接入。
+   * 文档结构签名（确定性拼接：turns 骨架 + 任务存活集 + 末修订状态 +
+   * 活动面）。切片 A 仅奠基（connector 重推门控沿旧签名，避免行为漂移）；
+   * C 切片投影 memo（fold/filter 参数化）接入。
    */
   signature: string
 }

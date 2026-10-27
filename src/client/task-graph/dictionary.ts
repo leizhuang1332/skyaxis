@@ -35,6 +35,29 @@ interface TaskGraphDictionary {
   readonly 'metrics.sourceRequest': string
   readonly 'metrics.sourceAdapter': string
   readonly 'metrics.sourceMissing': string
+  readonly 'panel.history': string
+  readonly 'panel.duration': string
+  readonly 'panel.turnMessages': string
+  readonly 'panel.turnActivities': string
+  readonly 'panel.endReason': string
+  readonly 'panel.activity.assistant': string
+  readonly 'panel.activity.tool': string
+  readonly 'panel.activity.approval': string
+  readonly 'panel.tool.args': string
+  readonly 'panel.tool.result': string
+  readonly 'panel.tool.error': string
+  readonly 'panel.approval.reason': string
+  readonly 'panel.approval.outcome': string
+  readonly 'panel.approval.pending': string
+  readonly 'panel.spawn': string
+  readonly 'panel.spawnPrompt': string
+  readonly 'panel.openSession': string
+  readonly 'panel.tokens': string
+  readonly 'panel.reasoning': string
+  readonly 'panel.interrupted': string
+  readonly 'panel.noActivities': string
+  readonly 'legend.fact': string
+  readonly 'legend.inferred': string
   readonly 'status.pending': string
   readonly 'status.running': string
   readonly 'status.done': string
@@ -66,6 +89,29 @@ const zh: TaskGraphDictionary = {
   'metrics.sourceRequest': '请求配置',
   'metrics.sourceAdapter': 'Adapter 默认',
   'metrics.sourceMissing': '未记录',
+  'panel.history': '修订时间线',
+  'panel.duration': '时长',
+  'panel.turnMessages': '输入消息',
+  'panel.turnActivities': '本轮活动',
+  'panel.endReason': '结束原因',
+  'panel.activity.assistant': '助手消息',
+  'panel.activity.tool': '工具调用',
+  'panel.activity.approval': '审批',
+  'panel.tool.args': '参数',
+  'panel.tool.result': '结果',
+  'panel.tool.error': '错误',
+  'panel.approval.reason': '问题',
+  'panel.approval.outcome': '结局',
+  'panel.approval.pending': '待决',
+  'panel.spawn': '委派',
+  'panel.spawnPrompt': '委派 Prompt',
+  'panel.openSession': '打开会话',
+  'panel.tokens': 'Token',
+  'panel.reasoning': '思考',
+  'panel.interrupted': '已中断',
+  'panel.noActivities': '本轮无活动记录',
+  'legend.fact': '实线：wire 事实',
+  'legend.inferred': '虚线：推断顺序',
   'status.pending': '未开始',
   'status.running': '进行中',
   'status.done': '完成',
@@ -94,6 +140,29 @@ const en: TaskGraphDictionary = {
   'metrics.sourceRequest': 'request config',
   'metrics.sourceAdapter': 'adapter default',
   'metrics.sourceMissing': 'not recorded',
+  'panel.history': 'Revision history',
+  'panel.duration': 'Duration',
+  'panel.turnMessages': 'Input messages',
+  'panel.turnActivities': 'Turn activities',
+  'panel.endReason': 'End reason',
+  'panel.activity.assistant': 'Assistant message',
+  'panel.activity.tool': 'Tool call',
+  'panel.activity.approval': 'Approval',
+  'panel.tool.args': 'Arguments',
+  'panel.tool.result': 'Result',
+  'panel.tool.error': 'Error',
+  'panel.approval.reason': 'Question',
+  'panel.approval.outcome': 'Outcome',
+  'panel.approval.pending': 'Pending',
+  'panel.spawn': 'Delegation',
+  'panel.spawnPrompt': 'Delegation prompt',
+  'panel.openSession': 'Open session',
+  'panel.tokens': 'Tokens',
+  'panel.reasoning': 'Reasoning',
+  'panel.interrupted': 'Interrupted',
+  'panel.noActivities': 'No activity recorded in this turn',
+  'legend.fact': 'Solid: wire facts',
+  'legend.inferred': 'Dashed: inferred order',
   'status.pending': 'pending',
   'status.running': 'running',
   'status.done': 'done',

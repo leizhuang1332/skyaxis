@@ -19,7 +19,9 @@ import type { NodeProps } from '@xyflow/react'
 import reactFlowCss from '@xyflow/react/dist/style.css?inline'
 import { applyManualPositions, layoutSignature, layoutTaskGraph } from './layout.js'
 import { filterFailedAttempts } from './workflows.js'
-import type { WorkflowDefinition } from './workflows.js'
+import { formatDuration, panelModelFor } from './projections/panel-model.js'
+import type { PanelModel } from './projections/panel-model.js'
+import type { ActivityDoc, TodoStatusOf } from './document/types.js'
 import type { TaskNode, TaskEdge } from './types.js'
 import type { TaskGraphStore } from './store.js'
 import type { TaskGraphT } from './dictionary.js'
@@ -328,6 +330,90 @@ const taskGraphNodeCss = `
   font-size: 11px;
   white-space: pre;
 }
+/* v0.4 切片 B：明细面板正文 / 活动展开区 / 边证据图例 */
+.skyaxis-tg-panel {
+  overflow-y: auto;
+}
+.skyaxis-tg-panel-pre {
+  overflow-x: auto;
+  margin: 4px 0;
+  padding: 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.skyaxis-tg-panel-row {
+  margin: 2px 0;
+  color: var(--dsw-alias-label-secondary);
+}
+.skyaxis-tg-panel-error {
+  color: var(--dsw-alias-state-error-primary);
+}
+.skyaxis-tg-panel-warn {
+  color: var(--dsw-alias-state-warn-primary);
+}
+.skyaxis-tg-panel-open {
+  margin-top: 8px;
+  padding: 4px 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+.skyaxis-tg-act {
+  border-top: 1px solid var(--dsw-alias-border-l2);
+}
+.skyaxis-tg-act summary {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  padding: 5px 0;
+  cursor: pointer;
+  font-size: 12px;
+  list-style: none;
+}
+.skyaxis-tg-act summary::-webkit-details-marker {
+  display: none;
+}
+.skyaxis-tg-act-kind {
+  flex: none;
+  color: var(--dsw-alias-label-secondary);
+}
+.skyaxis-tg-act-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.skyaxis-tg-act-meta {
+  flex: none;
+  color: var(--dsw-alias-label-secondary);
+}
+.skyaxis-tg-legend {
+  position: absolute;
+  top: 44px;
+  left: 8px;
+  z-index: 5;
+  display: flex;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary);
+  pointer-events: none;
+}
+.skyaxis-tg-legend-solid,
+.skyaxis-tg-legend-dash {
+  display: inline-block;
+  width: 18px;
+  border-top: 2px solid var(--dsw-alias-border-l3);
+  vertical-align: middle;
+  margin-right: 4px;
+}
+.skyaxis-tg-legend-dash {
+  border-top-style: dashed;
+}
 /* 宿主会话壳的宽度拖拽柄在任务图 tab 下是孤儿元素（所属面板已隐藏但
    handle 仍可交互，悬在画布中间——用户报告 2026-09-23）。用稳定的
    data-width-handle 属性定位：class 前缀（wSkVaW_ 之流）是 CSS module
@@ -353,11 +439,19 @@ interface TaskGraphBoardProps {
 }
 
 function TaskGraphBoard({ store, t, navigate }: TaskGraphBoardProps): JSX.Element {
-  const { sessionId, nodes: inferredNodes, edges: inferredEdges, loading, hasMore } =
-    useSyncExternalStore(
-      (l) => store.subscribe(l),
-      () => store.getSnapshot(),
-    )
+  // `document: sessionDocument` —— 解构名避开 DOM 全局（下面 style 注入
+  // effect 里的 `document.createElement` / `document.head` 依赖全局）。
+  const {
+    sessionId,
+    nodes: inferredNodes,
+    edges: inferredEdges,
+    document: sessionDocument,
+    loading,
+    hasMore,
+  } = useSyncExternalStore(
+    (l) => store.subscribe(l),
+    () => store.getSnapshot(),
+  )
 
   // P3 opt-in（P2d 用户裁定，默认关）：隐藏同 run 内同名失败尝试。
   const [hideFailed, setHideFailed] = useState(false)
@@ -365,15 +459,16 @@ function TaskGraphBoard({ store, t, navigate }: TaskGraphBoardProps): JSX.Elemen
   const [manualPositions, setManualPositions] = useState<
     ReadonlyMap<string, { x: number; y: number }>
   >(() => new Map())
-  // P3 tooltip 指标面板 / 定义面板的视图状态。
+  // P3 tooltip 指标面板 / 切片 B 明细面板的视图状态。selected = 点击的节点
+  // （点击语义变更：任意节点单击开面板；导航收进面板按钮——ADR 0036 B）。
   const [hoveredId, setHoveredId] = useState<string | null>(null)
-  const [definition, setDefinition] = useState<WorkflowDefinition | null>(null)
+  const [selected, setSelected] = useState<TaskNode | null>(null)
 
   // 切 session 重置手工布局（对齐 dist 的 per-session 手工布局语义）。
   useEffect(() => {
     setManualPositions(new Map())
     setHoveredId(null)
-    setDefinition(null)
+    setSelected(null)
   }, [sessionId])
 
   // DSH web 的 plugin loader 只扫 `*.module.css`，对 `@tsdown/css` 抽出来的
@@ -430,11 +525,17 @@ function TaskGraphBoard({ store, t, navigate }: TaskGraphBoardProps): JSX.Elemen
 
   // P3 修闪烁：edges 引用也按 signature 门控——store tick 内容不变时保持
   // 同一引用，React Flow 不因新数组引用整画布重渲染。
+  // 切片 B：evidence=inferred 的边注入虚线样式（fact 边保持默认实线）。
   const edgesCache = useRef<{ signature: string; edges: TaskEdge[] } | null>(null)
   const stableEdges = useMemo(() => {
     if (edgesCache.current?.signature === signature) return edgesCache.current.edges
-    edgesCache.current = { signature, edges: filtered.edges }
-    return filtered.edges
+    const styled = filtered.edges.map((e) =>
+      e.data?.evidence === 'inferred'
+        ? { ...e, style: { strokeDasharray: '6 4' } }
+        : e,
+    )
+    edgesCache.current = { signature, edges: styled }
+    return styled
   }, [signature, filtered.edges])
 
   useEffect(() => {
@@ -453,6 +554,15 @@ function TaskGraphBoard({ store, t, navigate }: TaskGraphBoardProps): JSX.Elemen
   }, [fitView, signature])
 
   const hoveredNode = hoveredId === null ? undefined : displayed.find((n) => n.id === hoveredId)
+
+  // 切片 B：明细面板模型（纯选择器；sessionDocument/selected 任一变化重算）。
+  const panelModel = useMemo(
+    () =>
+      selected !== null && sessionDocument !== undefined
+        ? panelModelFor(sessionDocument, selected)
+        : null,
+    [selected, sessionDocument],
+  )
 
   // P3 修定位：直接量节点 DOM（getBoundingClientRect）相对容器定位——不做
   // flow→screen 换算（此前 +230 偏移叠加 zoom 假设导致面板远离节点）。
@@ -502,6 +612,12 @@ function TaskGraphBoard({ store, t, navigate }: TaskGraphBoardProps): JSX.Elemen
         <span>{t('view.hideFailedAttempts')}</span>
       </label>
 
+      {/* 切片 B：边证据图例（实线 wire 事实 / 虚线推断顺序）。 */}
+      <div className="skyaxis-tg-legend">
+        <span className="skyaxis-tg-legend-solid" aria-hidden="true" /> {t('legend.fact')}
+        <span className="skyaxis-tg-legend-dash" aria-hidden="true" /> {t('legend.inferred')}
+      </div>
+
       {/* v0.4 切片 A：窗口前缀截断标注（hasMore=true 时的诚实提示）。 */}
       {hasMore ? <div className="skyaxis-tg-morenote">{t('view.earlierEvents')}</div> : null}
 
@@ -518,13 +634,8 @@ function TaskGraphBoard({ store, t, navigate }: TaskGraphBoardProps): JSX.Elemen
             return next
           })
         }}
-        onNodeClick={(_, node) => {
-          if (node.type === 'workflow' && node.data.definition !== undefined) {
-            setDefinition(node.data.definition)
-            return
-          }
-          if (node.data.navigationId) navigate(node.data.navigationId)
-        }}
+        onNodeClick={(_, node) => setSelected(node)}
+        onPaneClick={() => setSelected(null)}
         onNodeMouseEnter={(_, node) => setHoveredId(node.id)}
         onNodeMouseLeave={() => setHoveredId(null)}
         fitView
@@ -545,6 +656,11 @@ function TaskGraphBoard({ store, t, navigate }: TaskGraphBoardProps): JSX.Elemen
           {hoveredNode.data.status !== undefined ? (
             <div className="skyaxis-tg-tooltip-row">
               {statusLabel(hoveredNode.data.status, t)}
+            </div>
+          ) : null}
+          {hoveredNode.data.durationMs !== undefined ? (
+            <div className="skyaxis-tg-tooltip-row">
+              {t('panel.duration')}: {formatDuration(hoveredNode.data.durationMs)}
             </div>
           ) : null}
           {hoveredNode.data.metrics === undefined ? (
@@ -574,30 +690,320 @@ function TaskGraphBoard({ store, t, navigate }: TaskGraphBoardProps): JSX.Elemen
         </div>
       ) : null}
 
-      {/* P3 workflow 定义面板（run 节点点击，画布内绝对定位）。 */}
-      {definition !== null ? (
-        <div className="skyaxis-tg-defpanel" role="dialog" aria-label={t('view.definition')}>
-          <header className="skyaxis-tg-defpanel-head">
-            <strong>{definition.meta.name}</strong>
-            <button type="button" onClick={() => setDefinition(null)}>
-              {t('view.close')}
+      {/* 切片 B：明细面板（任意节点单击打开；P3 defpanel 的 workflow 定义
+          面板并入此处，definition 成为 run 面板的一个 section）。 */}
+      {panelModel !== null ? (
+        <TaskGraphPanel
+          model={panelModel}
+          t={t}
+          navigate={navigate}
+          onClose={() => setSelected(null)}
+        />
+      ) : null}
+    </div>
+  )
+}
+
+/** todo wire status → 既有 status 词典键（修订时间线行复用状态词表）。 */
+function todoStatusLabel(status: TodoStatusOf, t: TaskGraphT): string {
+  switch (status) {
+    case 'pending':
+      return t('status.pending')
+    case 'in_progress':
+      return t('status.running')
+    case 'completed':
+      return t('status.done')
+  }
+}
+
+const timeOf = (ms: number): string => new Date(ms).toLocaleTimeString()
+
+/** 指标三行（tooltip 与面板共用同一形状）。 */
+function MetricsRows({
+  metrics,
+  t,
+}: {
+  metrics: NonNullable<TaskNode['data']['metrics']>
+  t: TaskGraphT
+}): JSX.Element {
+  return (
+    <>
+      <div className="skyaxis-tg-tooltip-row">
+        {t('metrics.provider')}: {metrics.provider}
+      </div>
+      <div className="skyaxis-tg-tooltip-row">
+        {t('metrics.model')}: {metrics.model}
+      </div>
+      <div className="skyaxis-tg-tooltip-row">
+        {t('metrics.reasoning')}:{' '}
+        {metrics.reasoningEffort === undefined
+          ? t('metrics.sourceMissing')
+          : `${metrics.reasoningEffort} · ${
+              metrics.reasoningSource === 'adapter-default'
+                ? t('metrics.sourceAdapter')
+                : metrics.reasoningSource === 'request-config'
+                  ? t('metrics.sourceRequest')
+                  : t('metrics.sourceMissing')
+            }`}
+      </div>
+    </>
+  )
+}
+
+/** 活动展开区（<details> 展开后的正文——按 kind 出全文/参数/结果/错误）。 */
+function ActivityDetails({ activity, t }: { activity: ActivityDoc; t: TaskGraphT }): JSX.Element {
+  switch (activity.kind) {
+    case 'assistant-message':
+      return (
+        <div>
+          <pre className="skyaxis-tg-panel-pre">{activity.text}</pre>
+          {activity.reasoningText !== undefined ? (
+            <>
+              <h4>{t('panel.reasoning')}</h4>
+              <pre className="skyaxis-tg-panel-pre">{activity.reasoningText}</pre>
+            </>
+          ) : null}
+          {activity.provider !== undefined && activity.model !== undefined ? (
+            <div className="skyaxis-tg-panel-row">
+              {t('metrics.provider')}: {activity.provider} · {t('metrics.model')}: {activity.model}
+            </div>
+          ) : null}
+          {activity.usage !== undefined ? (
+            <div className="skyaxis-tg-panel-row">
+              {t('panel.tokens')}: {activity.usage.inputTokens.toLocaleString()} →{' '}
+              {activity.usage.outputTokens.toLocaleString()}
+            </div>
+          ) : null}
+          {activity.interrupted === true ? (
+            <div className="skyaxis-tg-panel-row">{t('panel.interrupted')}</div>
+          ) : null}
+        </div>
+      )
+    case 'tool-call':
+      return (
+        <div>
+          <h4>{t('panel.tool.args')}</h4>
+          <pre className="skyaxis-tg-panel-pre">{activity.argumentsRaw}</pre>
+          {activity.result !== undefined ? (
+            <>
+              <h4>{t('panel.tool.result')}</h4>
+              {activity.result.text !== '' ? (
+                <pre className="skyaxis-tg-panel-pre">{activity.result.text}</pre>
+              ) : null}
+              {activity.result.isError ? (
+                <div className="skyaxis-tg-panel-row skyaxis-tg-panel-error">
+                  {t('panel.tool.error')}:{' '}
+                  {activity.result.errorName !== undefined ? `${activity.result.errorName} ` : ''}
+                  {activity.result.errorCode !== undefined ? `(${activity.result.errorCode}) ` : ''}
+                  {activity.result.errorReason ?? ''}
+                </div>
+              ) : null}
+            </>
+          ) : null}
+        </div>
+      )
+    case 'approval':
+      return (
+        <div>
+          {activity.reason !== undefined ? (
+            <>
+              <h4>{t('panel.approval.reason')}</h4>
+              <pre className="skyaxis-tg-panel-pre">{activity.reason}</pre>
+            </>
+          ) : null}
+          <div className="skyaxis-tg-panel-row">
+            {t('panel.approval.outcome')}:{' '}
+            {activity.outcome ?? t('panel.approval.pending')}
+            {activity.decidedTime !== undefined ? ` · ${timeOf(activity.decidedTime)}` : ''}
+          </div>
+        </div>
+      )
+  }
+}
+
+/** 明细面板（切片 B）：PanelModel 的唯一渲染面。 */
+function TaskGraphPanel({
+  model,
+  t,
+  navigate,
+  onClose,
+}: {
+  model: PanelModel
+  t: TaskGraphT
+  navigate: (id: string) => void
+  onClose: () => void
+}): JSX.Element {
+  return (
+    <div className="skyaxis-tg-defpanel skyaxis-tg-panel" role="dialog" aria-label={model.label}>
+      <header className="skyaxis-tg-defpanel-head">
+        <strong>{model.label}</strong>
+        <button type="button" onClick={onClose}>
+          {t('view.close')}
+        </button>
+      </header>
+
+      {model.kind === 'root' ? (
+        <div>
+          {model.status !== undefined ? (
+            <div className="skyaxis-tg-panel-row">{statusLabel(model.status, t)}</div>
+          ) : null}
+          {model.metrics !== undefined ? <MetricsRows metrics={model.metrics} t={t} /> : null}
+          {model.hasMore ? (
+            <div className="skyaxis-tg-panel-row">{t('view.earlierEvents')}</div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {model.kind === 'turn' ? (
+        <div>
+          {model.durationMs !== undefined ? (
+            <div className="skyaxis-tg-panel-row">
+              {t('panel.duration')}: {formatDuration(model.durationMs)}
+            </div>
+          ) : null}
+          <h4>{t('panel.turnMessages')}</h4>
+          {model.messages.map((m, i) => (
+            <pre key={i} className="skyaxis-tg-panel-pre">
+              {m.text}
+            </pre>
+          ))}
+          {model.endReason !== undefined ? (
+            <>
+              <h4>{t('panel.endReason')}</h4>
+              <div className="skyaxis-tg-panel-row">
+                {model.endReason.kind}
+                {model.endReason.message !== undefined ? ` — ${model.endReason.message}` : ''}
+                {model.endReason.code !== undefined ? ` (${model.endReason.code})` : ''}
+              </div>
+            </>
+          ) : null}
+          <h4>{t('panel.turnActivities')}</h4>
+          {model.activities.length === 0 ? (
+            <div className="skyaxis-tg-panel-row">{t('panel.noActivities')}</div>
+          ) : (
+            model.activities.map((line) => (
+              <details key={line.key} className="skyaxis-tg-act">
+                <summary>
+                  <span className="skyaxis-tg-act-kind">
+                    {line.kind === 'tool-call'
+                      ? t('panel.activity.tool')
+                      : line.kind === 'approval'
+                        ? t('panel.activity.approval')
+                        : t('panel.activity.assistant')}
+                  </span>
+                  <span className="skyaxis-tg-act-title">{line.title}</span>
+                  {line.durationMs !== undefined ? (
+                    <span className="skyaxis-tg-act-meta">{formatDuration(line.durationMs)}</span>
+                  ) : null}
+                  {line.isError === true ? (
+                    <span className="skyaxis-tg-act-meta skyaxis-tg-panel-error">
+                      {t('status.failed')}
+                    </span>
+                  ) : null}
+                  {line.pending === true ? (
+                    <span className="skyaxis-tg-act-meta skyaxis-tg-panel-warn">
+                      {t('panel.approval.pending')}
+                    </span>
+                  ) : null}
+                </summary>
+                <ActivityDetails activity={line.activity} t={t} />
+              </details>
+            ))
+          )}
+        </div>
+      ) : null}
+
+      {model.kind === 'task' ? (
+        <div>
+          <pre className="skyaxis-tg-panel-pre">{model.content}</pre>
+          <h4>{t('panel.history')}</h4>
+          {model.history.map((r, i) => (
+            <div key={i} className="skyaxis-tg-panel-row">
+              turn {r.turn} · {timeOf(r.time)} · {todoStatusLabel(r.status, t)}
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {model.kind === 'subagent' ? (
+        <div>
+          {model.status !== undefined ? (
+            <div className="skyaxis-tg-panel-row">{statusLabel(model.status, t)}</div>
+          ) : null}
+          {model.metrics !== undefined ? <MetricsRows metrics={model.metrics} t={t} /> : null}
+          {model.spawn !== undefined ? (
+            <>
+              <h4>{t('panel.spawn')}</h4>
+              {model.spawn.description !== undefined ? (
+                <div className="skyaxis-tg-panel-row">{model.spawn.description}</div>
+              ) : null}
+              {model.spawn.promptText !== undefined ? (
+                <>
+                  <div className="skyaxis-tg-panel-row">{t('panel.spawnPrompt')}:</div>
+                  <pre className="skyaxis-tg-panel-pre">{model.spawn.promptText}</pre>
+                </>
+              ) : null}
+            </>
+          ) : null}
+          {model.navigable && model.navigationId !== undefined ? (
+            <button
+              type="button"
+              className="skyaxis-tg-panel-open"
+              onClick={() => navigate(model.navigationId!)}
+            >
+              {t('panel.openSession')}
             </button>
-          </header>
-          {definition.meta.description !== undefined ? (
-            <p className="skyaxis-tg-defpanel-desc">{definition.meta.description}</p>
           ) : null}
-          {definition.meta.phases !== undefined && definition.meta.phases.length > 0 ? (
-            <ul className="skyaxis-tg-defpanel-phases">
-              {definition.meta.phases.map((p) => (
-                <li key={p.title}>
-                  {p.title}
-                  {p.detail !== undefined ? ` — ${p.detail}` : ''}
-                </li>
-              ))}
-            </ul>
+        </div>
+      ) : null}
+
+      {model.kind === 'workflow' ? (
+        <div>
+          {model.status !== undefined ? (
+            <div className="skyaxis-tg-panel-row">{statusLabel(model.status, t)}</div>
           ) : null}
-          <h4>{t('view.definitionScript')}</h4>
-          <pre className="skyaxis-tg-defpanel-script">{definition.script}</pre>
+          {model.durationMs !== undefined ? (
+            <div className="skyaxis-tg-panel-row">
+              {t('panel.duration')}: {formatDuration(model.durationMs)}
+            </div>
+          ) : null}
+          {model.definition !== undefined ? (
+            <>
+              {model.definition.meta.description !== undefined ? (
+                <p className="skyaxis-tg-defpanel-desc">{model.definition.meta.description}</p>
+              ) : null}
+              {model.definition.meta.phases !== undefined && model.definition.meta.phases.length > 0 ? (
+                <ul className="skyaxis-tg-defpanel-phases">
+                  {model.definition.meta.phases.map((p) => (
+                    <li key={p.title}>
+                      {p.title}
+                      {p.detail !== undefined ? ` — ${p.detail}` : ''}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              <h4>{t('view.definitionScript')}</h4>
+              <pre className="skyaxis-tg-defpanel-script">{model.definition.script}</pre>
+            </>
+          ) : null}
+        </div>
+      ) : null}
+
+      {model.kind === 'node' ? (
+        <div>
+          {model.status !== undefined ? (
+            <div className="skyaxis-tg-panel-row">{statusLabel(model.status, t)}</div>
+          ) : null}
+          {model.metrics !== undefined ? <MetricsRows metrics={model.metrics} t={t} /> : null}
+          {model.navigable === true && model.navigationId !== undefined ? (
+            <button
+              type="button"
+              className="skyaxis-tg-panel-open"
+              onClick={() => navigate(model.navigationId!)}
+            >
+              {t('panel.openSession')}
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>

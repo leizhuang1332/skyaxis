@@ -198,7 +198,8 @@ export function buildSubagentGraph(input: SubagentGraphInput): {
       id: `e-${from}-${nodeId}`,
       source: from,
       target: nodeId,
-      data: { kind: 'delegation' },
+      // parentId 结构关系 = wire 事实（切片 B evidence 标注）。
+      data: { kind: 'delegation', evidence: 'fact' },
     })
   }
   return { nodes, edges }

@@ -94,6 +94,19 @@ describe('projectTaskChain — 基础对齐面（退役 infer.test.ts 承接）'
     expect(nodes[0]!.data.status).toBe('done')
   })
 
+  it('marks sequence edges as inferred evidence (v0.4 切片 B)', () => {
+    const { edges } = project([
+      userMessage(1, '做一下'),
+      todoWrite(2, [
+        { content: 'a', status: 'pending' },
+        { content: 'b', status: 'pending' },
+      ]),
+    ])
+    const sequence = edges.filter((e) => e.data?.kind === 'sequence')
+    expect(sequence.length).toBeGreaterThan(0)
+    for (const e of sequence) expect(e.data?.evidence).toBe('inferred')
+  })
+
   it('handles out-of-order seq defensively by sorting events', () => {
     const { nodes } = project([
       todoWrite(5, [{ content: 'B', status: 'completed' }]),

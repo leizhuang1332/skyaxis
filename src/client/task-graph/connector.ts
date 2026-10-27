@@ -158,7 +158,8 @@ export function startTaskGraphConnector(
         rootStatus,
         ...(rootMetrics === undefined ? {} : { rootMetrics }),
       }
-      const taskGraph = projectTaskChain(foldSessionDocument(facts))
+      const document = foldSessionDocument(facts)
+      const taskGraph = projectTaskChain(document)
       // P2d：workflow 图（第三命名空间，零新增订阅——同一事件窗口折叠）。
       // P3：先 attach 定义（tool/call 提取 + 时序/name 匹配）再 build。
       const workflowRuns = attachWorkflowDefinitions(
@@ -197,12 +198,20 @@ export function startTaskGraphConnector(
         sessionId,
         nodes: [...taskGraph.nodes, ...subagentGraph.nodes, ...workflowGraph.nodes],
         edges: [...taskGraph.edges, ...subagentGraph.edges, ...workflowGraph.edges],
+        document,
         loading: false,
         hasMore: window.hasMore,
       })
     } catch (error) {
       console.error('[skyaxis task-graph] graph build failed:', error)
-      store.set({ sessionId, nodes: [], edges: [], loading: false, hasMore: window.hasMore })
+      store.set({
+        sessionId,
+        nodes: [],
+        edges: [],
+        document: undefined,
+        loading: false,
+        hasMore: window.hasMore,
+      })
     }
   }
 
@@ -240,6 +249,7 @@ export function startTaskGraphConnector(
         sessionId: undefined,
         nodes: [],
         edges: [],
+        document: undefined,
         loading: false,
         hasMore: false,
       })
@@ -254,6 +264,7 @@ export function startTaskGraphConnector(
         sessionId: nextId,
         nodes: [],
         edges: [],
+        document: undefined,
         loading: true,
         hasMore: false,
       })

@@ -44,6 +44,7 @@ export function projectTaskChain(document: SessionDocument): {
   )
 
   // user-prompt 节点：每 turn 一个（label 取首条人类消息；无 status 位）。
+  // 切片 B：turn 时长（start/end 双全才挂——未收场的 turn 诚实缺省）。
   for (const turn of document.turns) {
     if (turn.userPromptRefs.length === 0) continue
     const firstEvent = document.contents.get(turn.userPromptRefs[0]!)
@@ -52,7 +53,12 @@ export function projectTaskChain(document: SessionDocument): {
       id: `user-${turn.index}`,
       type: 'user-prompt',
       position: { x: 0, y: 0 },
-      data: { label: text || `(user turn ${turn.index})` },
+      data: {
+        label: text || `(user turn ${turn.index})`,
+        ...(turn.startTime !== undefined && turn.endTime !== undefined
+          ? { durationMs: turn.endTime - turn.startTime }
+          : {}),
+      },
     })
   }
 
@@ -109,7 +115,8 @@ export function projectTaskChain(document: SessionDocument): {
     if (reaches(target, source)) return
     edgeIds.add(id)
     adjacency.get(source)!.push(target)
-    edges.push({ id, source, target, data: { kind: 'sequence' } })
+    // 顺序边是启发式（非 wire 依赖）——evidence 标注 inferred（切片 B）。
+    edges.push({ id, source, target, data: { kind: 'sequence', evidence: 'inferred' } })
   }
 
   const liveKeys = new Set(

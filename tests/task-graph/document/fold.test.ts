@@ -51,6 +51,123 @@ function todoWrite(
   return ev(seq, 'todo/write', { todos } as never)
 }
 
+function toolCall(
+  seq: number,
+  turn: number,
+  step: number,
+  callId: string,
+  name: string,
+  args: string,
+): SessionEvent {
+  return ev(seq, 'tool/call', { turn, step, callId, name, arguments: args } as never)
+}
+
+function toolResult(
+  seq: number,
+  turn: number,
+  step: number,
+  callId: string,
+  opts: {
+    isError?: boolean
+    error?: { name: string; code: string; reason?: string }
+    text?: string
+  } = {},
+): SessionEvent {
+  return ev(seq, 'tool/result', {
+    turn,
+    step,
+    message: {
+      id: `tr${seq}` as never,
+      role: 'tool',
+      content: [{ type: 'text', text: opts.text ?? '' }],
+      source: { kind: 'tool', callId },
+      toolCallId: callId,
+      ...(opts.isError === true ? { isError: true } : {}),
+    },
+    ...(opts.error === undefined ? {} : { error: opts.error }),
+  } as never)
+}
+
+function assistantMessage(
+  seq: number,
+  turn: number,
+  step: number,
+  opts: {
+    text?: string
+    reasoning?: string
+    provider?: string
+    model?: string
+    usage?: { inputTokens: number; outputTokens: number }
+    interrupted?: true
+  } = {},
+): SessionEvent {
+  return ev(seq, 'assistant/message', {
+    turn,
+    step,
+    message: {
+      id: `m${seq}` as never,
+      role: 'assistant',
+      content: [{ type: 'text', text: opts.text ?? '' }],
+      source: { kind: 'model', provider: opts.provider ?? 'p', model: opts.model ?? 'm' },
+    },
+    ...(opts.usage === undefined ? {} : { usage: opts.usage }),
+    ...(opts.interrupted === undefined ? {} : { interrupted: opts.interrupted }),
+  } as never)
+}
+
+/** 带 reasoning block 的 assistant 消息（message.content 双 block）。 */
+function assistantMessageWithReasoning(
+  seq: number,
+  turn: number,
+  step: number,
+  text: string,
+  reasoning: string,
+): SessionEvent {
+  return ev(seq, 'assistant/message', {
+    turn,
+    step,
+    message: {
+      id: `m${seq}` as never,
+      role: 'assistant',
+      content: [
+        { type: 'reasoning', text: reasoning },
+        { type: 'text', text },
+      ],
+      source: { kind: 'model', provider: 'acme', model: 'model-x' },
+    },
+  } as never)
+}
+
+function approvalAsked(
+  seq: number,
+  id: string,
+  opts: { toolName?: string; callId?: string; reason?: string } = {},
+): SessionEvent {
+  return ev(seq, 'approval/asked', {
+    id,
+    toolName: opts.toolName ?? 'bash',
+    ...(opts.callId === undefined ? {} : { callId: opts.callId }),
+    ...(opts.reason === undefined ? {} : { reason: opts.reason }),
+  } as never)
+}
+
+function approvalDecided(
+  seq: number,
+  id: string,
+  outcome: 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable',
+): SessionEvent {
+  return ev(seq, 'approval/decided', { id, outcome } as never)
+}
+
+function catalogEvent(seq: number, childId: string): SessionEvent {
+  return ev(seq, 'subagent/catalog', {
+    childId,
+    childCreatedAt: 0,
+    version: 0,
+    mode: 'one-shot',
+  } as never)
+}
+
 function factsOf(
   events: readonly SessionEvent[],
   overrides: Partial<Pick<TaskGraphFacts, 'hasMore' | 'label' | 'rootStatus'>> = {},
@@ -256,5 +373,215 @@ describe('foldSessionDocument — 文档级性质', () => {
       turnEnd(2, 0, { kind: 'completed' }),
     ])
     expect(foldSessionDocument(facts)).toEqual(foldSessionDocument(facts))
+  })
+})
+
+describe('foldSessionDocument — activities（切片 B）', () => {
+  it('pairs tool/call with tool/result by callId (text / duration / isError)', () => {
+    const doc = foldSessionDocument(
+      factsOf([
+        turnStart(1, 5),
+        toolCall(2, 5, 1, 'c1', 'read_file', '{"path":"a.ts"}'),
+        toolResult(9, 5, 1, 'c1', { text: 'file body' }),
+      ]),
+    )
+    const call = doc.activities.get('act:2')!
+    expect(call.kind).toBe('tool-call')
+    if (call.kind !== 'tool-call') return
+    expect(call.name).toBe('read_file')
+    expect(call.argumentsRaw).toBe('{"path":"a.ts"}')
+    expect(call.result?.text).toBe('file body')
+    expect(call.result?.isError).toBe(false)
+    expect(call.result?.durationMs).toBe(7000) // time = seq*1000
+  })
+
+  it('preserves the error triple verbatim on a failed result', () => {
+    const doc = foldSessionDocument(
+      factsOf([
+        toolCall(1, 1, 1, 'c1', 'bash', '{}'),
+        toolResult(2, 1, 1, 'c1', {
+          isError: true,
+          error: { name: 'ExecError', code: 'EXIT_1', reason: 'command failed: npm test' },
+          text: 'exit status 1',
+        }),
+      ]),
+    )
+    const call = doc.activities.get('act:1')!
+    if (call.kind !== 'tool-call') throw new Error('expected tool-call')
+    expect(call.result?.isError).toBe(true)
+    expect(call.result?.errorName).toBe('ExecError')
+    expect(call.result?.errorCode).toBe('EXIT_1')
+    expect(call.result?.errorReason).toBe('command failed: npm test')
+  })
+
+  it('skips orphan results and keeps the first result on duplicates (idempotent)', () => {
+    const doc = foldSessionDocument(
+      factsOf([
+        toolResult(1, 1, 1, 'ghost', { text: 'orphan' }),
+        toolCall(2, 1, 1, 'c1', 'x', '{}'),
+        toolResult(3, 1, 1, 'c1', { text: 'first' }),
+        toolResult(4, 1, 1, 'c1', { text: 'second' }),
+      ]),
+    )
+    expect(doc.activities.size).toBe(1)
+    const call = doc.activities.get('act:2')!
+    if (call.kind !== 'tool-call') throw new Error('expected tool-call')
+    expect(call.result?.text).toBe('first')
+  })
+
+  it('pairs approval asked→decided by id; pending without decide; orphans skipped', () => {
+    const doc = foldSessionDocument(
+      factsOf([
+        turnStart(1, 1),
+        approvalAsked(2, 'a1', { toolName: 'bash', reason: '允许执行删除？' }),
+        approvalAsked(3, 'a2', { toolName: 'write' }),
+        approvalDecided(4, 'a1', 'allowed-once'),
+        approvalDecided(5, 'a1', 'rejected'), // 重复 decided 首个胜出
+        approvalDecided(6, 'ghost', 'rejected'), // 孤儿跳过
+      ]),
+    )
+    const a1 = doc.activities.get('act:2')!
+    if (a1.kind !== 'approval') throw new Error('expected approval')
+    expect(a1.reason).toBe('允许执行删除？')
+    expect(a1.outcome).toBe('allowed-once')
+    expect(a1.decidedTime).toBe(4000)
+    const a2 = doc.activities.get('act:3')!
+    if (a2.kind !== 'approval') throw new Error('expected approval')
+    expect(a2.outcome).toBeUndefined() // 待决
+  })
+
+  it('marks spawn only when result text matches AND childId is in the catalog', () => {
+    const args = JSON.stringify({ prompt: '去查一下', description: 'research helper' })
+    const doc = foldSessionDocument(
+      factsOf([
+        catalogEvent(1, 'child-1'),
+        toolCall(2, 1, 1, 'c1', 'subagent', args),
+        toolResult(3, 1, 1, 'c1', { text: 'started subagent child-1' }),
+        toolCall(4, 1, 1, 'c2', 'subagent', args),
+        toolResult(5, 1, 1, 'c2', { text: 'started subagent child-unknown' }), // 不在 catalog
+        toolCall(6, 1, 1, 'c3', 'other', args),
+        toolResult(7, 1, 1, 'c3', { text: 'started subagent child-1' }), // 文本同但工具非派生语境也标——文本+catalog 双关即 fact
+      ]),
+    )
+    const c1 = doc.activities.get('act:2')!
+    if (c1.kind !== 'tool-call') throw new Error('expected tool-call')
+    expect(c1.spawn).toEqual({
+      childId: 'child-1' as never,
+      description: 'research helper',
+      promptText: '去查一下',
+    })
+    const c2 = doc.activities.get('act:4')!
+    if (c2.kind !== 'tool-call') throw new Error('expected tool-call')
+    expect(c2.spawn).toBeUndefined() // catalog 缺席 → 不标
+    const c3 = doc.activities.get('act:6')!
+    if (c3.kind !== 'tool-call') throw new Error('expected tool-call')
+    expect(c3.spawn?.childId).toBe('child-1' as never) // 文本+catalog 双关即标（诚实口径：双条件）
+  })
+
+  it('tolerates malformed spawn arguments JSON (spawn with childId only)', () => {
+    const doc = foldSessionDocument(
+      factsOf([
+        catalogEvent(1, 'child-9'),
+        toolCall(2, 1, 1, 'c1', 'subagent', '{not json'),
+        toolResult(3, 1, 1, 'c1', { text: 'started subagent child-9' }),
+      ]),
+    )
+    const call = doc.activities.get('act:2')!
+    if (call.kind !== 'tool-call') throw new Error('expected tool-call')
+    expect(call.spawn).toEqual({ childId: 'child-9' as never })
+  })
+
+  it('folds assistant messages: text / reasoning / provider/model / usage / interrupted', () => {
+    const doc = foldSessionDocument(
+      factsOf([
+        assistantMessage(1, 2, 1, {
+          text: '结论：可行',
+          provider: 'acme',
+          model: 'model-x',
+          usage: { inputTokens: 1200, outputTokens: 34 },
+        }),
+        assistantMessageWithReasoning(2, 2, 2, '正文', '先想想'),
+        assistantMessage(3, 2, 3, { text: '中断的前缀', interrupted: true }),
+      ]),
+    )
+    const m1 = doc.activities.get('act:1')!
+    if (m1.kind !== 'assistant-message') throw new Error('expected assistant')
+    expect(m1.text).toBe('结论：可行')
+    expect(m1.provider).toBe('acme')
+    expect(m1.model).toBe('model-x')
+    expect(m1.usage).toEqual({ inputTokens: 1200, outputTokens: 34 })
+    const m2 = doc.activities.get('act:2')!
+    if (m2.kind !== 'assistant-message') throw new Error('expected assistant')
+    expect(m2.reasoningText).toBe('先想想')
+    expect(m2.text).toBe('正文')
+    const m3 = doc.activities.get('act:3')!
+    if (m3.kind !== 'assistant-message') throw new Error('expected assistant')
+    expect(m3.interrupted).toBe(true)
+  })
+
+  it('attributes activities to turns: explicit for assistant/tool, ambient for approval', () => {
+    // 环境计数：user/message 自增后 currentTurn=1；assistant/tool 的 wire turn=7
+    // 优先（显式事实）；approval payload 无 turn → 落环境值 1。
+    const doc = foldSessionDocument(
+      factsOf([
+        userMessage(1, '开始'),
+        assistantMessage(2, 7, 1, { text: 'hi' }),
+        toolCall(3, 7, 2, 'c1', 'x', '{}'),
+        approvalAsked(4, 'a1'),
+      ]),
+    )
+    expect(doc.activities.get('act:2')!.turn).toBe(7)
+    expect(doc.activities.get('act:3')!.turn).toBe(7)
+    expect(doc.activities.get('act:4')!.turn).toBe(1)
+  })
+
+  it('collects TurnDoc.activityKeys in event order', () => {
+    const doc = foldSessionDocument(
+      factsOf([
+        turnStart(1, 3),
+        assistantMessage(2, 3, 1, { text: 'a' }),
+        toolCall(3, 3, 1, 'c1', 'x', '{}'),
+        approvalAsked(4, 'a1'),
+      ]),
+    )
+    expect(doc.turns.find((t) => t.index === 3)!.activityKeys).toEqual([
+      'act:2',
+      'act:3',
+      'act:4',
+    ])
+  })
+
+  it('signature changes when an approval outcome or a tool result settles', () => {
+    const base = [
+      toolCall(1, 1, 1, 'c1', 'x', '{}'),
+      approvalAsked(2, 'a1'),
+    ]
+    const withSettles = [
+      ...base,
+      toolResult(3, 1, 1, 'c1', { text: 'ok' }),
+      approvalDecided(4, 'a1', 'rejected'),
+    ]
+    const a = foldSessionDocument(factsOf(base))
+    const b = foldSessionDocument(factsOf(withSettles))
+    expect(a.signature).not.toBe(b.signature)
+    // 结算幂等：再来一份重复事件不改签名
+    const c = foldSessionDocument(
+      factsOf([...withSettles, toolResult(5, 1, 1, 'c1', { text: 'dup' }), approvalDecided(6, 'a1', 'allowed-once')]),
+    )
+    expect(c.signature).toBe(b.signature)
+  })
+
+  it('is invariant to event permutation with activities present', () => {
+    const events = [
+      catalogEvent(1, 'child-1'),
+      toolCall(2, 1, 1, 'c1', 'subagent', '{"prompt":"p"}'),
+      toolResult(3, 1, 1, 'c1', { text: 'started subagent child-1' }),
+      approvalAsked(4, 'a1', { reason: 'q' }),
+      approvalDecided(5, 'a1', 'allowed-once'),
+    ]
+    const a = foldSessionDocument(factsOf(events))
+    const b = foldSessionDocument(factsOf([...events].reverse()))
+    expect(a).toEqual(b)
+    expect(a.signature).toBe(b.signature)
   })
 })

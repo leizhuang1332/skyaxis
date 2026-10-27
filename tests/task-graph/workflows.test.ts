@@ -105,6 +105,27 @@ describe('foldWorkflowRuns + buildWorkflowGraph', () => {
     expect(settled.nodes.find((n) => n.id === 'workflow:run-1')!.data.status).toBe('done')
   })
 
+  it('carries run duration from run-start/run-end times (v0.4 切片 B)', () => {
+    // wfEvent 造 time = seq*1000：1s→90s 跨度。
+    const { nodes } = build([runStart(1, 'r', 'n'), runEnd(90, 'r', 'completed')])
+    expect(nodes.find((n) => n.id === 'workflow:r')!.data.durationMs).toBe(89_000)
+    // 未收场的 run 诚实缺省。
+    const open = build([runStart(1, 'r', 'n')])
+    expect(open.nodes.find((n) => n.id === 'workflow:r')!.data.durationMs).toBeUndefined()
+  })
+
+  it('marks all workflow/phase edges as fact evidence (v0.4 切片 B)', () => {
+    const { edges } = build([
+      runStart(1, 'r', 'n'),
+      agentStart(2, 'r', 1, 'a', 's1'),
+      agentStart(3, 'r', 2, 'b', 's2'),
+    ])
+    expect(edges.length).toBeGreaterThan(0)
+    for (const e of edges) {
+      expect(e.data?.evidence).toBe('fact')
+    }
+  })
+
   it('maps run-end error and cancelled to failed and cancelled', () => {
     const failed = build([runStart(1, 'r', 'n'), runEnd(2, 'r', 'error')])
     expect(failed.nodes.find((n) => n.id === 'workflow:r')!.data.status).toBe('failed')

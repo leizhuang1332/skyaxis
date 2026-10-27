@@ -63,6 +63,12 @@ export type TaskNode = Node<{
    */
   metrics?: SkyaxisAgentMetrics
   /**
+   * wall-clock 时长（v0.4 切片 B）：turn 时长（user-prompt 节点，TurnDoc
+   * start/end 派生）或 workflow run 时长（run 节点，fold 事件 time 派生）——
+   * fact 级（research 0033 §五）。tooltip 与明细面板呈现；画布 label 不塞。
+   */
+  durationMs?: number
+  /**
    * workflow run 的调用定义（P3 定义预览）：tool/call arguments 折叠，
    * attachWorkflowDefinitions 匹配注入；无匹配则缺省（点击不响应）。
    */
@@ -85,5 +91,13 @@ export type TaskNode = Node<{
  */
 export type TaskEdgeKind = 'sequence' | 'delegation' | 'workflow' | 'phase'
 
+/**
+ * 边的证据标注（v0.4 切片 B，ADR 0036 §2.2）：`fact` = wire 上有的结构
+ * （callId/parentId/agent-start childId 等配对），`inferred` = 我们的启发式
+ * （顺序、邻接）。渲染面区分（推断=虚线），把「顺序 ≠ 依赖」从注释搬到
+ * 用户眼前。缺省视为 fact（历史边族全部是结构事实；唯 sequence 标 inferred）。
+ */
+export type TaskEdgeEvidence = 'fact' | 'inferred'
+
 /** Task graph 边；透传至 React Flow 的 `Edge`，语义由 `data.kind` 携带。 */
-export type TaskEdge = Edge<{ kind: TaskEdgeKind }>
+export type TaskEdge = Edge<{ kind: TaskEdgeKind; evidence?: TaskEdgeEvidence }>

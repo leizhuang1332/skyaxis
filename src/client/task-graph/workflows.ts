@@ -41,6 +41,9 @@ export interface WorkflowRunFold {
   outcomes: Map<number, 'completed' | 'failed' | 'cancelled'>
   /** run-start 事件的 seq（定义匹配的时序上界）。 */
   startSeq: number
+  /** run-start / run-end 事件的 wall-clock（切片 B：run 时长派生，fact 级）。 */
+  startTime?: number
+  endTime?: number
   /** attachWorkflowDefinitions 注入（dist/02 §7 移植）；无匹配则缺省。 */
   definition?: WorkflowDefinition
 }
@@ -84,11 +87,13 @@ export function foldWorkflowRuns(
             members: new Map(),
             outcomes: new Map(),
             startSeq: event.seq,
+            startTime: event.time,
           })
         } else if (existing.name === '' && data.name !== '') {
           // P4 修正：孤儿 agent-start 先建的空名壳，在真 run-start 到达时
           // 回填 name——否则折叠结果依赖事件到达顺序（置换不变性不成立）。
           existing.name = data.name
+          if (existing.startTime === undefined) existing.startTime = event.time
         }
         break
       }
@@ -121,7 +126,11 @@ export function foldWorkflowRuns(
       case 'tool-workflow/run-end': {
         const data = event.data
         const run = runs.get(data.runId)
-        if (run) run.stopReason = data.stopReason
+        if (run) {
+          run.stopReason = data.stopReason
+          // 重复 run-end 首个胜出（与 stopReason 同策略：endTime 已在场不覆写）。
+          if (run.endTime === undefined) run.endTime = event.time
+        }
         break
       }
       default:
@@ -189,13 +198,17 @@ export function buildWorkflowGraph(input: WorkflowGraphInput): {
         // run 节点不可导航（定义详情未做前点击无意义，ADR 范围裁定）
         navigable: false,
         ...(run.definition === undefined ? {} : { definition: run.definition }),
+        ...(run.startTime !== undefined && run.endTime !== undefined
+          ? { durationMs: run.endTime - run.startTime }
+          : {}),
       },
     })
     edges.push({
       id: `e-root-${runNodeId}`,
       source: 'root',
       target: runNodeId,
-      data: { kind: 'workflow' },
+      // 归属来自 wire 事件（run-start 的 runId）——fact。
+      data: { kind: 'workflow', evidence: 'fact' },
     })
 
     const members = [...run.members.values()].sort((a, b) => a.seq - b.seq)
@@ -222,7 +235,7 @@ export function buildWorkflowGraph(input: WorkflowGraphInput): {
           id: `e-${runNodeId}-${phaseNodeId}`,
           source: runNodeId,
           target: phaseNodeId,
-          data: { kind: 'phase' },
+          data: { kind: 'phase', evidence: 'fact' },
         })
       }
     }
@@ -260,7 +273,8 @@ export function buildWorkflowGraph(input: WorkflowGraphInput): {
         id: `e-${parentId}-${memberNodeId}`,
         source: parentId,
         target: memberNodeId,
-        data: { kind: 'workflow' },
+        // agent-start 的 runId/seq 归属 = wire 事实。
+        data: { kind: 'workflow', evidence: 'fact' },
       })
     }
   }

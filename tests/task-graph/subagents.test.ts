@@ -238,6 +238,8 @@ describe('buildSubagentGraph', () => {
     for (const n of sub.nodes) expect(n.id.startsWith('subagent:')).toBe(true)
     for (const e of sub.edges) {
       expect(e.source === 'root' || e.source.startsWith('subagent:')).toBe(true)
+      // v0.4 切片 B：血缘边是 parentId 结构事实。
+      expect(e.data?.evidence).toBe('fact')
     }
   })
 })
