@@ -95,12 +95,30 @@ export interface GenericPanel {
   navigationId?: string
 }
 
+/** activity 节点面板（切片 C）：按 activityKey 反查文档活动。 */
+export interface ActivityPanel {
+  kind: 'activity'
+  label: string
+  activity: ActivityDoc
+}
+
+/** turns-aggregate 节点面板（切片 C）：折叠轮次清单摘要。 */
+export interface TurnsPanel {
+  kind: 'turns'
+  label: string
+  count: number
+  totalDurationMs?: number
+  turns: readonly { index: number; title: string; durationMs?: number }[]
+}
+
 export type PanelModel =
   | RootPanel
   | TurnPanel
   | TaskPanel
   | SubagentPanel
   | WorkflowPanel
+  | ActivityPanel
+  | TurnsPanel
   | GenericPanel
 
 /** 节点 id → turn index（task-chain 的 `user-{index}` 约定）。 */
@@ -200,6 +218,43 @@ export function panelModelFor(document: SessionDocument, node: TaskNode): PanelM
         ...(node.data.durationMs === undefined ? {} : { durationMs: node.data.durationMs }),
         ...(node.data.definition === undefined ? {} : { definition: node.data.definition }),
       }
+
+    case 'activity': {
+      const activity =
+        node.data.activityKey === undefined
+          ? undefined
+          : document.activities.get(node.data.activityKey)
+      if (activity === undefined) {
+        return { kind: 'node', label: node.data.label, ...(node.data.status === undefined ? {} : { status: node.data.status }) }
+      }
+      return { kind: 'activity', label: node.data.label, activity }
+    }
+
+    case 'turns-aggregate': {
+      const folded = document.turns.filter((t) => t.endReason?.kind === 'completed')
+      const turns = folded.map((t) => {
+        const firstRef = t.userPromptRefs[0]
+        const event = firstRef === undefined ? undefined : document.contents.get(firstRef)
+        const full = event === undefined ? '' : messageFullText(event)
+        return {
+          index: t.index,
+          title: full.split(/\r?\n/)[0]?.trim() || `turn ${t.index}`,
+          ...(t.startTime !== undefined && t.endTime !== undefined
+            ? { durationMs: t.endTime - t.startTime }
+            : {}),
+        }
+      })
+      const count = node.data.aggregate?.kind === 'turns' ? node.data.aggregate.count : turns.length
+      const totalDurationMs =
+        node.data.aggregate?.kind === 'turns' ? node.data.aggregate.totalDurationMs : undefined
+      return {
+        kind: 'turns',
+        label: node.data.label,
+        count,
+        ...(totalDurationMs === undefined ? {} : { totalDurationMs }),
+        turns,
+      }
+    }
 
     // workflow-phase / workflow-member（及防御兜底）：无文档层专属事实。
     default:

@@ -58,6 +58,16 @@ interface TaskGraphDictionary {
   readonly 'panel.noActivities': string
   readonly 'legend.fact': string
   readonly 'legend.inferred': string
+  readonly 'view.activityDetail': string
+  readonly 'view.activityNone': string
+  readonly 'view.activityNotable': string
+  readonly 'view.activityAll': string
+  readonly 'view.collapseCompleted': string
+  readonly 'panel.foldSubtree': string
+  readonly 'panel.expandSubtree': string
+  readonly 'panel.turnsAggregate': string
+  readonly 'panel.totalDuration': string
+  readonly 'panel.turnCount': string
   readonly 'status.pending': string
   readonly 'status.running': string
   readonly 'status.done': string
@@ -112,6 +122,16 @@ const zh: TaskGraphDictionary = {
   'panel.noActivities': '本轮无活动记录',
   'legend.fact': '实线：wire 事实',
   'legend.inferred': '虚线：推断顺序',
+  'view.activityDetail': '活动详略',
+  'view.activityNone': '关',
+  'view.activityNotable': '卡点',
+  'view.activityAll': '全部',
+  'view.collapseCompleted': '折叠已完成轮次',
+  'panel.foldSubtree': '折叠子树',
+  'panel.expandSubtree': '展开子树',
+  'panel.turnsAggregate': '已完成轮次',
+  'panel.totalDuration': '总时长',
+  'panel.turnCount': '轮数',
   'status.pending': '未开始',
   'status.running': '进行中',
   'status.done': '完成',
@@ -163,6 +183,16 @@ const en: TaskGraphDictionary = {
   'panel.noActivities': 'No activity recorded in this turn',
   'legend.fact': 'Solid: wire facts',
   'legend.inferred': 'Dashed: inferred order',
+  'view.activityDetail': 'Activity detail',
+  'view.activityNone': 'Off',
+  'view.activityNotable': 'Notable',
+  'view.activityAll': 'All',
+  'view.collapseCompleted': 'Collapse completed turns',
+  'panel.foldSubtree': 'Collapse subtree',
+  'panel.expandSubtree': 'Expand subtree',
+  'panel.turnsAggregate': 'Completed turns',
+  'panel.totalDuration': 'Total duration',
+  'panel.turnCount': 'Turns',
   'status.pending': 'pending',
   'status.running': 'running',
   'status.done': 'done',

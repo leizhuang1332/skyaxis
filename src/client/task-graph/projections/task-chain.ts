@@ -16,9 +16,13 @@
  *     （a→b 后又 b→a），线性顺序语义表达不了它——诚实丢弃，改写史在
  *     文档层保留（B 的明细面呈现）。守卫顺带保证 Kahn 无环性质测试绿。
  */
-import type { TaskNode, TaskEdge, TaskStatus } from '../types.js'
-import type { SessionDocument, TodoStatusOf } from '../document/types.js'
+import type { TaskNode, TaskEdge, TaskStatus, TaskEdgeEvidence } from '../types.js'
+import type { ActivityDoc, SessionDocument, TodoStatusOf } from '../document/types.js'
 import { taskNodeId } from '../document/identity.js'
+
+/** activity 节点 id：`activity:{seq}`（文档 key `act:{seq}` 去前缀换域）。 */
+export const activityNodeId = (activityKey: string): string =>
+  `activity:${activityKey.slice('act:'.length)}`
 
 export function projectTaskChain(document: SessionDocument): {
   nodes: TaskNode[]
@@ -78,6 +82,26 @@ export function projectTaskChain(document: SessionDocument): {
     })
   }
 
+  // ---- activity 节点（切片 C：恒发全量——store 超集，view-policy 按详略三档
+  // 过滤；状态是投影层的**派生视图态**，文档层保持事实层）。----
+  for (const activity of document.activities.values()) {
+    const nodeId = activityNodeId(activity.key)
+    nodes.push({
+      id: nodeId,
+      type: 'activity',
+      position: { x: 0, y: 0 },
+      data: {
+        label: activityLabel(activity),
+        status: activityStatus(activity),
+        activityKey: activity.key,
+        activityKind: activity.kind,
+        ...(activity.kind === 'tool-call' && activity.result?.durationMs !== undefined
+          ? { durationMs: activity.result.durationMs }
+          : {}),
+      },
+    })
+  }
+
   // ---- 边（全 sequence；id 去重 + 构造性无环守卫）----
 
   const edges: TaskEdge[] = []
@@ -108,15 +132,16 @@ export function projectTaskChain(document: SessionDocument): {
    * 回头边诚实丢弃——加 source→target 成环当且仅当 target 已可达 source
    * （target→…→source 路径存在，再补 source→target 即闭环）。
    */
-  const addEdge = (source: string, target: string): void => {
+  const addEdge = (source: string, target: string, evidence: TaskEdgeEvidence = 'inferred'): void => {
     if (source === target) return
     const id = `e-${source}-${target}`
     if (edgeIds.has(id)) return
     if (reaches(target, source)) return
     edgeIds.add(id)
     adjacency.get(source)!.push(target)
-    // 顺序边是启发式（非 wire 依赖）——evidence 标注 inferred（切片 B）。
-    edges.push({ id, source, target, data: { kind: 'sequence', evidence: 'inferred' } })
+    // 默认 inferred：顺序边是启发式（非 wire 依赖）；fact 由调用方显式传入
+    // （切片 C：prompt→activity 边按 turn 归属源分——wire 显式=fact、环境计数=inferred）。
+    edges.push({ id, source, target, data: { kind: 'sequence', evidence } })
   }
 
   const liveKeys = new Set(
@@ -150,6 +175,27 @@ export function projectTaskChain(document: SessionDocument): {
     }
   }
 
+  // ---- activity 边（切片 C）：prompt(turn)→首活动 + turn 内 seq 顺序链。
+  // evidence 按归属源：assistant/tool 的 turn 是 wire 显式（fact），approval 是
+  // 环境计数（inferred）；顺序链一律 inferred。无 prompt 的 turn 从 root 接
+  // （活动不悬空）；activity→task 无 wire 链接，不画（诚实）。----
+  for (const turn of document.turns) {
+    if (turn.activityKeys.length === 0) continue
+    const promptId = turn.userPromptRefs.length > 0 ? `user-${turn.index}` : undefined
+    let prevActivityId: string | undefined
+    for (const key of turn.activityKeys) {
+      const activity = document.activities.get(key)
+      if (activity === undefined) continue
+      const nodeId = activityNodeId(key)
+      if (prevActivityId === undefined) {
+        addEdge(promptId ?? 'root', nodeId, activityTurnEvidence(activity))
+      } else {
+        addEdge(prevActivityId, nodeId)
+      }
+      prevActivityId = nodeId
+    }
+  }
+
   return { nodes, edges }
 }
 
@@ -167,6 +213,46 @@ function mapStatus(todoStatus: TodoStatusOf, turnFailed: boolean): TaskStatus {
     case 'completed':
       return 'done'
   }
+}
+
+/** activity 节点 label：工具名 / 消息首行 / 审批工具名（截断 40）。 */
+function activityLabel(activity: ActivityDoc): string {
+  if (activity.kind === 'tool-call') return truncate(activity.name, 40)
+  if (activity.kind === 'approval') return truncate(activity.toolName, 40)
+  return truncate(activity.text.split(/\r?\n/)[0]?.trim() ?? '', 40)
+}
+
+/**
+ * activity 节点状态（投影层派生视图态，文档层不加）：工具 isError→failed /
+ * 有结果→done / 未决→running；审批待决→waiting（等待语义与 waiting 态一致）/
+ * allowed→done / rejected|unavailable→failed / cancelled→cancelled；
+ * assistant 中断→cancelled、其余→done。
+ */
+function activityStatus(activity: ActivityDoc): TaskStatus {
+  switch (activity.kind) {
+    case 'assistant-message':
+      return activity.interrupted === true ? 'cancelled' : 'done'
+    case 'tool-call':
+      if (activity.result === undefined) return 'running'
+      return activity.result.isError ? 'failed' : 'done'
+    case 'approval':
+      switch (activity.outcome) {
+        case undefined:
+          return 'waiting'
+        case 'allowed-once':
+          return 'done'
+        case 'rejected':
+        case 'unavailable':
+          return 'failed'
+        case 'cancelled':
+          return 'cancelled'
+      }
+  }
+}
+
+/** prompt→activity 边证据：turn 归属是 wire 显式（fact）还是环境计数（inferred）。 */
+function activityTurnEvidence(activity: ActivityDoc): TaskEdgeEvidence {
+  return activity.kind === 'approval' ? 'inferred' : 'fact'
 }
 
 /** 首个 text block 的首行（user-prompt 节点 label 来源，infer.ts 移植）。 */

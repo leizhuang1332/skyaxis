@@ -1,4 +1,4 @@
-import { Component, memo, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { Component, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { ErrorInfo, JSX, ReactNode } from 'react'
 import {
   ReactFlow,
@@ -18,11 +18,12 @@ import type { NodeProps } from '@xyflow/react'
 // 所以我们自己在 mount 时 appendChild 一个 <style> 标签，卸载时清掉。
 import reactFlowCss from '@xyflow/react/dist/style.css?inline'
 import { applyManualPositions, layoutSignature, layoutTaskGraph } from './layout.js'
-import { filterFailedAttempts } from './workflows.js'
 import { formatDuration, panelModelFor } from './projections/panel-model.js'
 import type { PanelModel } from './projections/panel-model.js'
+import { applyViewPolicy } from './projections/view-policy.js'
+import type { ActivityDetail } from './projections/view-policy.js'
 import type { ActivityDoc, TodoStatusOf } from './document/types.js'
-import type { TaskNode, TaskEdge } from './types.js'
+import type { TaskNode, TaskEdge, TaskNodeType } from './types.js'
 import type { TaskGraphStore } from './store.js'
 import type { TaskGraphT } from './dictionary.js'
 
@@ -133,38 +134,116 @@ function statusLabel(status: TaskNode['data']['status'], t: TaskGraphT): string 
   }
 }
 
-// P3 修闪烁：memo 化——store tick 引起的画布重渲染不再 churn 节点 DOM
-// （hover 面板闪烁的机制之一）。
-// P4 后：不再挂原生 title 提示——指标面板已覆盖其信息，两者同现会互相
-// 遮挡（用户裁定 2026-09-23）；无鼠标场景的可访问性由 aria/面板承担。
-const TaskGraphNode = memo(function TaskGraphNode({ id, data }: NodeProps<TaskNode>): JSX.Element {
+// P3 修闪烁：memo 化——store tick 引起的画布重渲染不再 churn 节点 DOM。
+// P4 后：不再挂原生 title 提示——指标面板已覆盖其信息（用户裁定 2026-09-23）。
+//
+// v0.4 切片 C：节点渲染注册表——九类节点分型渲染（视觉区分），共享 NodeShell
+// （Handle 锚点 + data 属性驱动 CSS 分型）。注册表必须模块级稳定引用。
+const NodeShell = memo(function NodeShell({
+  id,
+  data,
+  type,
+  children,
+}: NodeProps<TaskNode> & { children: ReactNode }): JSX.Element {
   return (
     <div
       className="skyaxis-tg-node"
       data-node-id={id}
+      data-node-type={type}
       data-status={data.status}
       data-navigable={data.navigable ? 'true' : undefined}
+      data-activity-kind={data.activityKind}
     >
       {/* 边的锚点：React Flow 的边必须挂在 <Handle> 上，没有 Handle 边整条不渲染。
           layout.ts 的 sourcePosition/targetPosition（Bottom/Top）与此对应。 */}
       <Handle type="target" position={Position.Top} isConnectable={false} />
       <span className="skyaxis-tg-node-dot" aria-hidden="true" />
-      <span className="skyaxis-tg-node-label">{data.label}</span>
+      <span className="skyaxis-tg-node-body">{children}</span>
       <Handle type="source" position={Position.Bottom} isConnectable={false} />
     </div>
   )
 })
 
-/** nodeTypes 必须是稳定引用（模块级），否则 React Flow 每帧重挂节点。 */
-const nodeTypes = {
-  root: TaskGraphNode,
-  'user-prompt': TaskGraphNode,
-  task: TaskGraphNode,
-  subagent: TaskGraphNode,
-  workflow: TaskGraphNode,
-  'workflow-phase': TaskGraphNode,
-  'workflow-member': TaskGraphNode,
-  approval: TaskGraphNode,
+/** subtree 折叠徽标文本：`N · 1r/2d/1f`（零计数省略；顺序固定确定性）。 */
+function subtreeBadgeText(aggregate: { count: number; statuses: Partial<Record<string, number>> }): string {
+  const order: (keyof typeof aggregate.statuses)[] = ['running', 'done', 'failed', 'waiting', 'cancelled', 'pending']
+  const parts = order
+    .map((k) => (aggregate.statuses[k] ?? 0) > 0 ? `${aggregate.statuses[k]}${k[0]}` : undefined)
+    .filter((x): x is string => x !== undefined)
+  return parts.length === 0 ? String(aggregate.count) : `${aggregate.count} · ${parts.join('/')}`
+}
+
+/** 聚合徽标行（turns：轮数+总时长；subtree：状态计数）。 */
+function AggregateBadge({ data }: { data: TaskNode['data'] }): JSX.Element | null {
+  if (data.aggregate === undefined) return null
+  if (data.aggregate.kind === 'turns') {
+    return (
+      <span className="skyaxis-tg-node-badge">
+        {data.aggregate.count}
+        {data.aggregate.totalDurationMs !== undefined
+          ? ` · ${formatDuration(data.aggregate.totalDurationMs)}`
+          : ''}
+      </span>
+    )
+  }
+  return <span className="skyaxis-tg-node-badge">{subtreeBadgeText(data.aggregate)}</span>
+}
+
+type TypedNodeProps = NodeProps<TaskNode>
+
+const RootNodeRenderer = (p: TypedNodeProps): JSX.Element => (
+  <NodeShell {...p}>
+    <span className="skyaxis-tg-node-label">{p.data.label}</span>
+  </NodeShell>
+)
+const PromptNodeRenderer = (p: TypedNodeProps): JSX.Element => (
+  <NodeShell {...p}>
+    <span className="skyaxis-tg-node-label">{p.data.label}</span>
+    {p.data.durationMs !== undefined ? (
+      <span className="skyaxis-tg-node-sub">{formatDuration(p.data.durationMs)}</span>
+    ) : null}
+  </NodeShell>
+)
+const TaskNodeRenderer = (p: TypedNodeProps): JSX.Element => (
+  <NodeShell {...p}>
+    <span className="skyaxis-tg-node-label">{p.data.label}</span>
+  </NodeShell>
+)
+// 活动节点：小号分型（CSS 按 data-node-type/data-activity-kind 换装；类型
+// 词与明细在面板/tooltip——画布不堆字形）。
+const ActivityNodeRenderer = (p: TypedNodeProps): JSX.Element => (
+  <NodeShell {...p}>
+    <span className="skyaxis-tg-node-label">{p.data.label}</span>
+    {p.data.durationMs !== undefined ? (
+      <span className="skyaxis-tg-node-sub">{formatDuration(p.data.durationMs)}</span>
+    ) : null}
+  </NodeShell>
+)
+const SubagentNodeRenderer = (p: TypedNodeProps): JSX.Element => (
+  <NodeShell {...p}>
+    <span className="skyaxis-tg-node-label">{p.data.label}</span>
+    <AggregateBadge data={p.data} />
+  </NodeShell>
+)
+const TurnsAggregateRenderer = (p: TypedNodeProps): JSX.Element => (
+  <NodeShell {...p}>
+    <span className="skyaxis-tg-node-label">{p.data.label}</span>
+    <AggregateBadge data={p.data} />
+  </NodeShell>
+)
+
+/** nodeTypes（渲染注册表，切片 C）：模块级稳定引用，否则 React Flow 每帧重挂。 */
+const nodeTypes: Record<TaskNodeType, (p: TypedNodeProps) => JSX.Element> = {
+  root: RootNodeRenderer,
+  'user-prompt': PromptNodeRenderer,
+  task: TaskNodeRenderer,
+  activity: ActivityNodeRenderer,
+  subagent: SubagentNodeRenderer,
+  workflow: TaskNodeRenderer,
+  'workflow-phase': TaskNodeRenderer,
+  'workflow-member': SubagentNodeRenderer,
+  'turns-aggregate': TurnsAggregateRenderer,
+  approval: ActivityNodeRenderer,
 }
 
 /**
@@ -187,6 +266,46 @@ const taskGraphNodeCss = `
 .skyaxis-tg-node[data-navigable='true'] {
   cursor: pointer;
   border-style: dashed;
+}
+/* v0.4 切片 C：节点分型（data-node-type 驱动） */
+.skyaxis-tg-node[data-node-type='root'] {
+  border-width: 2px;
+}
+.skyaxis-tg-node[data-node-type='user-prompt'] {
+  border-left: 3px solid var(--dsw-alias-state-business-primary);
+}
+.skyaxis-tg-node[data-node-type='activity'] {
+  max-width: 180px;
+  padding: 3px 8px;
+  font-size: 11px;
+  opacity: 0.92;
+}
+.skyaxis-tg-node[data-node-type='turns-aggregate'] {
+  max-width: 280px;
+  border-radius: 14px;
+  padding: 6px 14px;
+  background: var(--dsw-alias-bg-layer-2);
+}
+.skyaxis-tg-node-body {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.skyaxis-tg-node-sub {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 10px;
+}
+.skyaxis-tg-node-badge {
+  flex: none;
+  padding: 1px 6px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 10px;
+  white-space: nowrap;
 }
 .skyaxis-tg-node-dot {
   flex: none;
@@ -225,7 +344,7 @@ const taskGraphNodeCss = `
   border-radius: 50%;
   background: var(--dsw-alias-border-l3);
 }
-/* P3 工具条 */
+/* P3 工具条（切片 C 改多控件行） */
 .skyaxis-tg-toolbar {
   position: absolute;
   top: 8px;
@@ -233,13 +352,26 @@ const taskGraphNodeCss = `
   z-index: 5;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 12px;
   padding: 4px 8px;
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 6px;
   background: var(--dsw-alias-bg-layer-1);
   font-size: 12px;
+}
+.skyaxis-tg-toolbar label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   cursor: pointer;
+  white-space: nowrap;
+}
+.skyaxis-tg-toolbar select {
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 4px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: inherit;
+  font-size: 12px;
 }
 /* v0.4 切片 A：事件窗口前缀截断的诚实标注（research 0033 §八——hasMore
    是窗口契约不是缺陷；右上角、只读、不抢工具条位置）。 */
@@ -455,6 +587,19 @@ function TaskGraphBoard({ store, t, navigate }: TaskGraphBoardProps): JSX.Elemen
 
   // P3 opt-in（P2d 用户裁定，默认关）：隐藏同 run 内同名失败尝试。
   const [hideFailed, setHideFailed] = useState(false)
+  // 切片 C：详略三档（默认 none=B 现状）+ 折叠态（默认全展开，保守）。
+  // 详略/轮次折叠是显示偏好跨 session 保留；子树折叠态是会话域的，切 session 重置。
+  const [activityDetail, setActivityDetail] = useState<ActivityDetail>('none')
+  const [collapseCompletedTurns, setCollapseCompletedTurns] = useState(false)
+  const [collapsedSubtrees, setCollapsedSubtrees] = useState<ReadonlySet<string>>(() => new Set())
+  const toggleSubtree = useCallback((sessionId: string): void => {
+    setCollapsedSubtrees((prev) => {
+      const next = new Set(prev)
+      if (next.has(sessionId)) next.delete(sessionId)
+      else next.add(sessionId)
+      return next
+    })
+  }, [])
   // P3 拖拽保留：手工位置覆盖（signature 不变时不被重排冲掉）。
   const [manualPositions, setManualPositions] = useState<
     ReadonlyMap<string, { x: number; y: number }>
@@ -464,11 +609,12 @@ function TaskGraphBoard({ store, t, navigate }: TaskGraphBoardProps): JSX.Elemen
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   const [selected, setSelected] = useState<TaskNode | null>(null)
 
-  // 切 session 重置手工布局（对齐 dist 的 per-session 手工布局语义）。
+  // 切 session 重置手工布局（对齐 dist 的 per-session 手工布局语义）与子树折叠态。
   useEffect(() => {
     setManualPositions(new Map())
     setHoveredId(null)
     setSelected(null)
+    setCollapsedSubtrees(new Set())
   }, [sessionId])
 
   // DSH web 的 plugin loader 只扫 `*.module.css`，对 `@tsdown/css` 抽出来的
@@ -487,13 +633,29 @@ function TaskGraphBoard({ store, t, navigate }: TaskGraphBoardProps): JSX.Elemen
     }
   }, [])
 
-  // opt-in 过滤在 layout 之前：signature 基于过滤后集合 → 切换时重排一次。
+  // 切片 C：视图策略统一应用（hideFailed 收编 + 详略三档 + 两类折叠）。
+  // 过滤在 layout 之前：signature 基于过滤后集合 → 切换时重排一次。
   const filtered = useMemo(
     () =>
-      hideFailed
-        ? filterFailedAttempts(inferredNodes, inferredEdges)
-        : { nodes: inferredNodes, edges: inferredEdges },
-    [hideFailed, inferredNodes, inferredEdges],
+      sessionDocument === undefined
+        ? { nodes: inferredNodes, edges: inferredEdges }
+        : applyViewPolicy(inferredNodes, inferredEdges, sessionDocument, {
+            hideFailed,
+            activityDetail,
+            collapseCompletedTurns,
+            collapsedSubtrees,
+            turnsAggregateLabel: t('panel.turnsAggregate'),
+          }),
+    [
+      hideFailed,
+      activityDetail,
+      collapseCompletedTurns,
+      collapsedSubtrees,
+      inferredNodes,
+      inferredEdges,
+      sessionDocument,
+      t,
+    ],
   )
 
   // P3 signature 门控：节点/边集合不变（status/label/metrics 变化不算）→
@@ -519,6 +681,13 @@ function TaskGraphBoard({ store, t, navigate }: TaskGraphBoardProps): JSX.Elemen
     () => applyManualPositions(laidOut, manualPositions),
     [laidOut, manualPositions],
   )
+
+  // 切片 C：选中节点被策略折叠掉时清选中（面板随图走）。
+  useEffect(() => {
+    if (selected !== null && !displayed.some((n) => n.id === selected.id)) {
+      setSelected(null)
+    }
+  }, [displayed, selected])
 
   const [nodes, setNodes, onNodesChange] = useNodesState<TaskNode>([])
   const [edges, setEdges, onEdgesChange] = useEdgesState<TaskEdge>([])
@@ -602,15 +771,36 @@ function TaskGraphBoard({ store, t, navigate }: TaskGraphBoardProps): JSX.Elemen
       aria-label={t('view.taskGraph')}
       style={{ width: '100%', height: '100%', position: 'relative' }}
     >
-      {/* P3 工具条：opt-in 过滤开关（默认关，P2d 裁定）。 */}
-      <label className="skyaxis-tg-toolbar">
-        <input
-          type="checkbox"
-          checked={hideFailed}
-          onChange={(e) => setHideFailed(e.target.checked)}
-        />
-        <span>{t('view.hideFailedAttempts')}</span>
-      </label>
+      {/* 工具条（P3 hideFailed + 切片 C 详略三档/轮次折叠）。 */}
+      <div className="skyaxis-tg-toolbar">
+        <label>
+          <input
+            type="checkbox"
+            checked={hideFailed}
+            onChange={(e) => setHideFailed(e.target.checked)}
+          />
+          <span>{t('view.hideFailedAttempts')}</span>
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={collapseCompletedTurns}
+            onChange={(e) => setCollapseCompletedTurns(e.target.checked)}
+          />
+          <span>{t('view.collapseCompleted')}</span>
+        </label>
+        <label className="skyaxis-tg-toolbar-select">
+          <span>{t('view.activityDetail')}</span>
+          <select
+            value={activityDetail}
+            onChange={(e) => setActivityDetail(e.target.value as ActivityDetail)}
+          >
+            <option value="none">{t('view.activityNone')}</option>
+            <option value="notable">{t('view.activityNotable')}</option>
+            <option value="all">{t('view.activityAll')}</option>
+          </select>
+        </label>
+      </div>
 
       {/* 切片 B：边证据图例（实线 wire 事实 / 虚线推断顺序）。 */}
       <div className="skyaxis-tg-legend">
@@ -698,6 +888,7 @@ function TaskGraphBoard({ store, t, navigate }: TaskGraphBoardProps): JSX.Elemen
           t={t}
           navigate={navigate}
           onClose={() => setSelected(null)}
+          subtree={{ collapsedIds: collapsedSubtrees, toggle: toggleSubtree }}
         />
       ) : null}
     </div>
@@ -821,17 +1012,19 @@ function ActivityDetails({ activity, t }: { activity: ActivityDoc; t: TaskGraphT
   }
 }
 
-/** 明细面板（切片 B）：PanelModel 的唯一渲染面。 */
+/** 明细面板（切片 B/C）：PanelModel 的唯一渲染面。 */
 function TaskGraphPanel({
   model,
   t,
   navigate,
   onClose,
+  subtree,
 }: {
   model: PanelModel
   t: TaskGraphT
   navigate: (id: string) => void
   onClose: () => void
+  subtree: { collapsedIds: ReadonlySet<string>; toggle: (id: string) => void }
 }): JSX.Element {
   return (
     <div className="skyaxis-tg-defpanel skyaxis-tg-panel" role="dialog" aria-label={model.label}>
@@ -954,6 +1147,36 @@ function TaskGraphPanel({
               {t('panel.openSession')}
             </button>
           ) : null}
+          {model.navigationId !== undefined ? (
+            <button
+              type="button"
+              className="skyaxis-tg-panel-open"
+              onClick={() => subtree.toggle(model.navigationId!)}
+            >
+              {subtree.collapsedIds.has(model.navigationId)
+                ? t('panel.expandSubtree')
+                : t('panel.foldSubtree')}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {model.kind === 'activity' ? <ActivityDetails activity={model.activity} t={t} /> : null}
+
+      {model.kind === 'turns' ? (
+        <div>
+          <div className="skyaxis-tg-panel-row">
+            {t('panel.turnCount')}: {model.count}
+            {model.totalDurationMs !== undefined
+              ? ` · ${t('panel.totalDuration')}: ${formatDuration(model.totalDurationMs)}`
+              : ''}
+          </div>
+          {model.turns.map((turn) => (
+            <div key={turn.index} className="skyaxis-tg-panel-row">
+              turn {turn.index} · {turn.title}
+              {turn.durationMs !== undefined ? ` · ${formatDuration(turn.durationMs)}` : ''}
+            </div>
+          ))}
         </div>
       ) : null}
 

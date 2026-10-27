@@ -109,6 +109,19 @@ export function startTaskGraphConnector(
   let eventUnsub: (() => void) | undefined
   let lastAppliedSignature: string | undefined
 
+  // 切片 C（文档签名兑现·引用同一性实现）：window.entries 引用不变且 root
+  // 事实不变 → 整段复用 fold+投影产物。list 重推路径（subagent/workflow 签名
+  // 变化但事件未动）不再全量重折叠；事件窗口每次发布都是新数组，流式路径
+  // 天然 miss——语义等价于按文档签名 memo，但零字符串比较。
+  let cachedFold: {
+    entries: readonly SessionEventLikeEntry[]
+    label: string
+    rootStatus: TaskStatus
+    rootMetrics: unknown
+    document: ReturnType<typeof foldSessionDocument>
+    taskGraph: ReturnType<typeof projectTaskChain>
+  } | undefined
+
   /** 事件窗口里的持久事件（transient 排除）——infer 与 workflow 折叠共用。 */
   const durableEvents = (window: SessionEventWindow): readonly SessionEvent[] =>
     window.entries
@@ -158,8 +171,24 @@ export function startTaskGraphConnector(
         rootStatus,
         ...(rootMetrics === undefined ? {} : { rootMetrics }),
       }
-      const document = foldSessionDocument(facts)
-      const taskGraph = projectTaskChain(document)
+      let document: ReturnType<typeof foldSessionDocument>
+      let taskGraph: ReturnType<typeof projectTaskChain>
+      if (
+        cachedFold !== undefined &&
+        cachedFold.entries === window.entries &&
+        cachedFold.label === label &&
+        cachedFold.rootStatus === rootStatus &&
+        cachedFold.rootMetrics === rootMetrics
+      ) {
+        // 引用同一性命中：复用文档与任务链投影（下方 subagent/workflow 照常
+        // 重算——它们的输入是 list 快照，不受此缓存影响）。
+        document = cachedFold.document
+        taskGraph = cachedFold.taskGraph
+      } else {
+        document = foldSessionDocument(facts)
+        taskGraph = projectTaskChain(document)
+        cachedFold = { entries: window.entries, label, rootStatus, rootMetrics, document, taskGraph }
+      }
       // P2d：workflow 图（第三命名空间，零新增订阅——同一事件窗口折叠）。
       // P3：先 attach 定义（tool/call 提取 + 时序/name 匹配）再 build。
       const workflowRuns = attachWorkflowDefinitions(

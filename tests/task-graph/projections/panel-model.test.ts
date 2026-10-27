@@ -241,6 +241,46 @@ describe('panelModelFor', () => {
     }
     expect(panelModelFor(document, orphan)).toMatchObject({ kind: 'node', label: '找不到 turn' })
   })
+
+  it('activity node panel resolves the activity by key (切片 C)', () => {
+    const { document, graph } = docOf([
+      toolCall(1, 1, 'c1', 'bash', '{}'),
+      toolResult(2, 1, 'c1', { isError: true, error: { name: 'E', code: 'EXIT_1', reason: '炸了' } }),
+    ])
+    const activityNode = graph.nodes.find((n) => n.id === 'activity:1')!
+    expect(activityNode.data.status).toBe('failed') // 派生视图态
+    const model = panelModelFor(document, activityNode)
+    if (model.kind !== 'activity') throw new Error('expected activity')
+    expect(model.activity.kind).toBe('tool-call')
+    const toolActivity = model.activity
+    if (toolActivity.kind !== 'tool-call') throw new Error('expected tool-call')
+    expect(toolActivity.result?.errorReason).toBe('炸了')
+  })
+
+  it('turns-aggregate panel lists the folded completed turns (切片 C)', () => {
+    const { document } = docOf([
+      userMessage(1, '第一轮的需求'),
+      turnEnd(2, 1, { kind: 'completed' }),
+      userMessage(3, '第二轮'),
+      turnEnd(4, 2, { kind: 'error', error: { message: 'x', code: 'E' } }),
+      userMessage(5, '第三轮'),
+      turnEnd(6, 3, { kind: 'completed' }),
+    ])
+    const node: TaskNode = {
+      id: 'turns:completed',
+      type: 'turns-aggregate',
+      position: { x: 0, y: 0 },
+      data: {
+        label: '已完成轮次',
+        aggregate: { kind: 'turns', count: 2 },
+      },
+    }
+    const model = panelModelFor(document, node)
+    if (model.kind !== 'turns') throw new Error('expected turns')
+    expect(model.count).toBe(2)
+    expect(model.turns.map((t) => t.index)).toEqual([1, 3])
+    expect(model.turns[0]!.title).toBe('第一轮的需求')
+  })
 })
 
 describe('formatDuration', () => {

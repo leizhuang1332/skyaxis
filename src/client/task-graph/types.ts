@@ -19,30 +19,36 @@ export type TaskStatus = 'pending' | 'running' | 'done' | 'failed' | 'cancelled'
 
 /**
  * Task graph 节点类型 — v0.4 修订（ADR 0036），P2a 起 subagent 落地，P2d 起
- * workflow 落地。
+ * workflow 落地，C 切片起 activity / turns-aggregate 落地。
  *
  *   root             session 根（永远 1 个）
  *   user-prompt      用户输入的 user/message（kind === 'user'），DAG 入口节点
  *                    ——v0.4 切片 A 起无 status 位（用户输入不是任务）
  *   task             来自 todo/write 事件的 TodoItem，核心业务节点
  *                    ——v0.4 切片 A 起全局身份：`todo-{contentHash}`（无 turn 段）
+ *   activity         会话内活动节点（v0.4 切片 C：assistant 消息 / 工具调用 / 审批
+ *                    ——task-chain 恒发全量，view-policy 按详略三档过滤）
  *   subagent         subagent session 节点（P2a：血缘来自 sessions.list 投影）
  *   workflow         workflow run 记录（P2d：tool-workflow/run-start|run-end）
  *   workflow-phase   run 内的展示分组（P2d：agent-start.phase 折叠）
  *   workflow-member  run 的成员子会话（P2d：agent-start|agent-end）
- *   approval         approval 节点占位（不生成，待后续）
+ *   turns-aggregate  已完成轮次的折叠聚合节点（v0.4 切片 C：view-policy 产出，
+ *                    error/aborted 轮不折——卡点永远可见）
+ *   approval         approval 节点占位（approval 事实经 activity 节点呈现，此占位保留词表兼容）
  *
- * v0.2 时代的 `'step'` 已删除——不再以 assistant message 为粒度建图（B 切片的
- * activity 节点会以更丰富的形态重新引入 assistant/tool 事实）。
+ * v0.2 时代的 `'step'` 已删除——不再以 assistant message 为粒度建图（C 切片的
+ * activity 节点以活动事实形态重新引入 assistant/tool/approval）。
  */
 export type TaskNodeType =
   | 'root'
   | 'user-prompt'
   | 'task'
+  | 'activity'
   | 'subagent'
   | 'workflow'
   | 'workflow-phase'
   | 'workflow-member'
+  | 'turns-aggregate'
   | 'approval'
 
 /** Task graph 节点。`data` 携带渲染与导航所需的最小事实集。 */
@@ -73,7 +79,38 @@ export type TaskNode = Node<{
    * attachWorkflowDefinitions 匹配注入；无匹配则缺省（点击不响应）。
    */
   definition?: WorkflowDefinition
+  /**
+   * activity 节点回查文档活动的 key（`act:{seq}`，v0.4 切片 C）——
+   * panel-model 据此反查 ActivityDoc，节点本体保持轻。
+   */
+  activityKey?: string
+  /**
+   * activity 节点的类型角标（切片 C 渲染注册表用）：assistant / tool / approval。
+   */
+  activityKind?: 'assistant-message' | 'tool-call' | 'approval'
+  /**
+   * 折叠聚合徽标（v0.4 切片 C，ADR 0001 §七.1 欠账）：turns-aggregate 节点带
+   * 轮次聚合，subagent 节点折叠子树后带后代状态计数（X running / Y done / Z failed）。
+   */
+  aggregate?: AggregateBadge
 }>
+
+/** 折叠聚合徽标（判别联合）。 */
+export type AggregateBadge =
+  | {
+      kind: 'turns'
+      /** 折叠进的已完成轮数。 */
+      count: number
+      /** 各轮 (end−start) 之和（有缺省轮不计）。 */
+      totalDurationMs?: number
+    }
+  | {
+      kind: 'subtree'
+      /** 折叠掉的后代节点数。 */
+      count: number
+      /** 后代节点状态计数（键为 TaskStatus）。 */
+      statuses: Partial<Record<TaskStatus, number>>
+    }
 
 /**
  * Task graph 边的语义类型。

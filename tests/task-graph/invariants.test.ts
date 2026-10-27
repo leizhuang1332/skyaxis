@@ -16,6 +16,7 @@ import type {
 } from '@deepseek-ai/dsh-api-session-controller/client'
 import { foldSessionDocument } from '../../src/client/task-graph/document/fold.js'
 import { projectTaskChain } from '../../src/client/task-graph/projections/task-chain.js'
+import { applyViewPolicy } from '../../src/client/task-graph/projections/view-policy.js'
 import {
   buildSubagentGraph,
   lineageDepths,
@@ -426,5 +427,43 @@ describe('fold properties (dist/04 §12 行 3 精神)', () => {
     const runsTwice = foldWorkflowRuns(eventsOf(twice))
     expect(workflowSignature(runsTwice)).toBe(workflowSignature(runsOnce))
     expect(runsTwice.get('r')!.outcomes.get(1)).toBe('completed')
+  })
+})
+
+describe('view-policy properties (v0.4 切片 C)', () => {
+  const entries: Entry[] = [
+    userMessage(1, 't1'),
+    turnStart(2, 1),
+    todoWrite(3, [{ content: 'a', status: 'pending' }]),
+    turnEndError(4, 1),
+    userMessage(5, 't2'),
+    turnStart(6, 2),
+    todoWrite(7, [{ content: 'a', status: 'completed' }]),
+  ]
+
+  it('policy outputs stay acyclic, edge-id-unique and deterministic across modes', () => {
+    const document = foldSessionDocument({
+      sessionId: sid('s'), events: eventsOf(entries), hasMore: false, label: 'S', rootStatus: 'running',
+    })
+    const graph = projectTaskChain(document)
+    for (const detail of ['none', 'notable', 'all'] as const) {
+      for (const collapse of [false, true]) {
+        const a = applyViewPolicy(graph.nodes, graph.edges, document, {
+          hideFailed: false,
+          activityDetail: detail,
+          collapseCompletedTurns: collapse,
+          collapsedSubtrees: new Set<string>(),
+        })
+        const b = applyViewPolicy(graph.nodes, graph.edges, document, {
+          hideFailed: false,
+          activityDetail: detail,
+          collapseCompletedTurns: collapse,
+          collapsedSubtrees: new Set<string>(),
+        })
+        expect(a).toEqual(b)
+        expect(new Set(a.edges.map((e) => e.id)).size).toBe(a.edges.length)
+        assertAcyclic(a.nodes, a.edges)
+      }
+    }
   })
 })
