@@ -327,7 +327,7 @@ interface WorkbenchDictionary {
   readonly 'detail.drop': string
   readonly 'detail.dropTitle': string
   // md.* — MarkdownText labels (the prd-section precedent; stable identity via useMemo at the call site)
-  // + 0021 渲染轮: md.edit/md.preview — 任务书预览面的渲染↔编辑切换钮
+  // + 0021 渲染轮: md.edit/md.preview — 任务书预览面的渲染↔编辑切换钮（上线单导出面 2026-10-27 同款复用）
   readonly 'md.copyCode': string
   readonly 'md.copiedCode': string
   readonly 'md.edit': string
@@ -502,6 +502,8 @@ interface WorkbenchDictionary {
   readonly 'sheet.download': string
   readonly 'sheet.downloaded': string
   readonly 'sheet.downloadFailed': string
+  // 上线单编辑轮 (2026-10-27): 脏编辑时的重建钮（sow.resetEdit 同款）
+  readonly 'sheet.resetEdit': string
   // declare.* — 声明块导入（P3b：抓取 + 粘贴 + 逐条勾选两段式）
   readonly 'declare.importButton': string
   readonly 'declare.title': string
@@ -1139,6 +1141,7 @@ const zh: WorkbenchDictionary = {
   'sheet.download': '下载为文件',
   'sheet.downloaded': '已下载',
   'sheet.downloadFailed': '下载失败：请改用复制。',
+  'sheet.resetEdit': '恢复生成内容',
   // declare.* — 声明块导入（P3b）
   'declare.importButton': '导入声明',
   'declare.title': '导入声明',
@@ -1747,6 +1750,7 @@ const en: WorkbenchDictionary = {
   'sheet.download': 'Download as file',
   'sheet.downloaded': 'Downloaded',
   'sheet.downloadFailed': 'Download failed: use copy instead.',
+  'sheet.resetEdit': 'Restore generated text',
   // declare.* — declare-block import (P3b)
   'declare.importButton': 'Import declare',
   'declare.title': 'Import declare block',

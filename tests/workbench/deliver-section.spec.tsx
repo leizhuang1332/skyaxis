@@ -264,7 +264,7 @@ describe('S5 交付节：回滚预案与导出', () => {
     expect(screen.getByRole('button', { name: workbenchZh['release.revokeRollbackPlan'] })).toBeTruthy()
   })
 
-  it('导出：Modal 预览含上线单标题/组（戳已退役 2026-10-23），copy 注入收到全文', async () => {
+  it('导出：默认渲染面 + 切编辑读全文（戳已退役 2026-10-23），copy 注入收到全文', async () => {
     const copy = vi.fn(async (_text: string) => true)
     const rendered = subject(slot({ record: record({
       releaseItems: [item('R0001', { status: 'confirmed' })],
@@ -272,7 +272,13 @@ describe('S5 交付节：回滚预案与导出', () => {
     }) }), fakeController(), copy)
     fireEvent.click(rendered.getByRole('button', { name: workbenchZh['release.exportButton'] }))
     const dialog = await screen.findByRole('dialog')
-    const preview = within(dialog).getByTestId('sheet-preview').textContent ?? ''
+    // 渲染轮（2026-10-27）：默认渲染面——MarkdownText 在 vitest 下是代理桩，
+    // 只钉容器/缺席，不做到 Markdown 层（0021 纪律）。
+    expect(within(dialog).getByTestId('sheet-rendered')).toBeTruthy()
+    expect(within(dialog).queryByTestId('sheet-preview')).toBeNull()
+    // 读文本一律幂等切编辑态读 textarea value（waitFor 轮询不翻转——0009 纪律）。
+    fireEvent.click(within(dialog).getByTestId('sheet-view-toggle'))
+    const preview = (within(dialog).getByTestId('sheet-preview') as HTMLTextAreaElement).value
     expect(preview).toContain('上线单：报价管理：导入导出与数据校验')
     expect(preview).toContain('## SQL（1）')
     expect(preview).not.toContain('生成于 revision')
@@ -280,6 +286,51 @@ describe('S5 交付节：回滚预案与导出', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: workbenchZh['sheet.copy'] }))
     await waitFor(() => expect(copy.mock.calls[0]?.[0]).toContain('## SQL（1）'))
     await waitFor(() => expect(within(dialog).getByText(workbenchZh['sheet.copied'])).toBeTruthy())
+  })
+
+  it('编辑轮：渲染↔编辑往返（钮文案随面翻转）；编辑跨切换持久，恢复生成内容重建；copy/download 收编辑文本；重开复位', async () => {
+    const copy = vi.fn(async (_text: string) => true)
+    const download = vi.fn((_filename: string, _text: string) => true)
+    const rendered = subject(slot({ record: record({
+      releaseItems: [item('R0001', { status: 'confirmed' })],
+      rollbackPlanConfirmedAt: AT,
+    }) }), fakeController(), copy, download)
+    fireEvent.click(rendered.getByRole('button', { name: workbenchZh['release.exportButton'] }))
+    const dialog = await screen.findByRole('dialog')
+    // 渲染面钮文案=编辑（点了去编辑面）。
+    expect(within(dialog).getByRole('button', { name: workbenchZh['md.edit'] })).toBeTruthy()
+    fireEvent.click(within(dialog).getByTestId('sheet-view-toggle'))
+    expect(within(dialog).getByTestId('sheet-preview')).toBeTruthy()
+    expect(within(dialog).queryByTestId('sheet-rendered')).toBeNull()
+    expect(within(dialog).getByRole('button', { name: workbenchZh['md.preview'] })).toBeTruthy()
+
+    // 键入后切渲染再切编辑：0009 编辑跨切换持久。
+    fireEvent.change(within(dialog).getByTestId('sheet-preview'), { target: { value: '# 我改过的上线单' } })
+    fireEvent.click(within(dialog).getByTestId('sheet-view-toggle'))
+    expect(within(dialog).queryByTestId('sheet-preview')).toBeNull()
+    expect(within(dialog).getByTestId('sheet-rendered')).toBeTruthy()
+    fireEvent.click(within(dialog).getByTestId('sheet-view-toggle'))
+    expect((within(dialog).getByTestId('sheet-preview') as HTMLTextAreaElement).value).toBe('# 我改过的上线单')
+
+    // 脏编辑 ⇒ 恢复生成内容在场；copy/download 动词收到编辑文本（0009：动词用 text）。
+    expect(within(dialog).getByRole('button', { name: workbenchZh['sheet.resetEdit'] })).toBeTruthy()
+    fireEvent.click(within(dialog).getByRole('button', { name: workbenchZh['sheet.copy'] }))
+    await waitFor(() => expect(copy.mock.calls[0]?.[0]).toBe('# 我改过的上线单'))
+    fireEvent.click(within(dialog).getByRole('button', { name: workbenchZh['sheet.download'] }))
+    expect(download.mock.calls[0]?.[1]).toBe('# 我改过的上线单')
+
+    // 恢复生成内容 ⇒ 重建 live build（编辑面 textarea 回到全文）。
+    fireEvent.click(within(dialog).getByRole('button', { name: workbenchZh['sheet.resetEdit'] }))
+    expect((within(dialog).getByTestId('sheet-preview') as HTMLTextAreaElement).value).toContain('## SQL（1）')
+
+    // 关闭重开 ⇒ 渲染默认面 + 编辑态/编辑文本复位（open effect——sow-modal 重开纪律）。
+    const cancel = within(dialog).getAllByRole('button', { name: workbenchZh['action.cancel'] })
+    fireEvent.click(cancel[cancel.length - 1]!)
+    fireEvent.click(rendered.getByRole('button', { name: workbenchZh['release.exportButton'] }))
+    const reopened = await screen.findByRole('dialog')
+    expect(within(reopened).getByTestId('sheet-rendered')).toBeTruthy()
+    expect(within(reopened).queryByTestId('sheet-preview')).toBeNull()
+    expect(within(reopened).queryByRole('button', { name: workbenchZh['sheet.resetEdit'] })).toBeNull()
   })
 
   it('导出下载（挂账轮）：注入收到 release-sheet 文件名与全文；失败出警示行', async () => {

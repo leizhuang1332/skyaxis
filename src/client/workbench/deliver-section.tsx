@@ -361,6 +361,7 @@ export function DeliverSection(props: {
           releaseDrifted: slot.releaseDrifted,
         })}
         filename={`release-sheet-${requirementId}.md`}
+        renderMarkdown
         copy={props.copy}
         download={props.download}
         onClose={() => { setExportOpen(false) }}

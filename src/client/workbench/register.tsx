@@ -615,6 +615,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       | 'sheet.download'
       | 'sheet.downloadFailed'
       | 'sheet.downloaded'
+      | 'sheet.resetEdit'
       | 'sheet.title'
       | 'sow.analysisButton'
       | 'sow.copied'

@@ -340,6 +340,10 @@ describe('P5a：workspace 行呈现 + path 触发 tag + 知识导出', () => {
     expect(preview).toContain('## 知识-k1')
     expect(preview).toContain('scope 本需求 · type business')
     expect(preview).toContain('导出于 skyaxis 知识库 ·')
+    // 渲染轮（2026-10-27）不动清单钉：知识导出面保持 pre-only（未点名对象——
+    // 无渲染容器、无源码切换钮）。
+    expect(within(dialog).queryByTestId('sheet-rendered')).toBeNull()
+    expect(within(dialog).queryByTestId('sheet-view-toggle')).toBeNull()
     const cancelButtons = within(dialog).getAllByRole('button', { name: workbenchZh['action.cancel'] })
     fireEvent.click(cancelButtons[cancelButtons.length - 1]!)
     await waitFor(() => expect(screen.queryByRole('dialog', { name: workbenchZh['knowledge.exportTitle'] })).toBeNull())
