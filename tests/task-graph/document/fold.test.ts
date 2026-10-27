@@ -326,6 +326,58 @@ describe('foldSessionDocument — turn 事实', () => {
     expect(doc.tasks.get(hashContent('ambient'))!.history[0]!.turn).toBe(3)
   })
 
+  it('attaches the human message to the OPEN wire turn when turn/start precedes it (实机时序回归)', () => {
+    // 实测全部会话的 wire 顺序：turn/start 先于 user/message（S@4 U@8）。
+    // 纯自增会把 prompt 挂到 wire 轮 +1、start/end 落到空轮——时长/结束
+    // 原因/折叠资格/失败标记全落空（2026-10-27 实机取证后修正）。
+    const doc = foldSessionDocument(
+      factsOf([
+        turnStart(1, 1),
+        userMessage(2, '主 prompt'),
+        todoWrite(3, [{ content: 'task-a', status: 'pending' }]),
+        turnEnd(4, 1, { kind: 'completed' }),
+      ]),
+    )
+    const turn1 = doc.turns.find((t) => t.index === 1)!
+    expect(turn1.userPromptRefs).toEqual(['ev:2'])
+    expect(turn1.startTime).toBe(1000)
+    expect(turn1.endTime).toBe(4000)
+    expect(turn1.endReason).toEqual({ kind: 'completed' })
+    expect(doc.tasks.get(hashContent('task-a'))!.history[0]!.turn).toBe(1)
+    // 不产生空轮 2（纯自增时代的偏移产物）。
+    expect(doc.turns.find((t) => t.index === 2)).toBeUndefined()
+  })
+
+  it('keeps synthetic injections out of prompts AND out of the counter (实机 kind 词表)', () => {
+    // 实测一轮内宿主注入 runtime-context / skill-catalog / time-context——
+    // 未知 kind 落 'other'：不建 prompt、不自增计数。
+    const doc = foldSessionDocument(
+      factsOf([
+        turnStart(1, 1),
+        userMessage(2, '主 prompt'),
+        userMessage(3, 'Current runtime context...', 'runtime-context' as never),
+        userMessage(4, '<system-reminder>...', 'skill-catalog' as never),
+        todoWrite(5, [{ content: 't', status: 'pending' }]),
+      ]),
+    )
+    expect(doc.turns.find((t) => t.index === 1)!.userPromptRefs).toEqual(['ev:2'])
+    expect(doc.tasks.get(hashContent('t'))!.history[0]!.turn).toBe(1)
+  })
+
+  it('aligns the counter after turn/end — the next marker-less message increments from the wire number', () => {
+    const doc = foldSessionDocument(
+      factsOf([
+        turnStart(1, 1),
+        userMessage(2, '第一轮'),
+        turnEnd(3, 1, { kind: 'completed' }),
+        userMessage(4, '第二轮（无标记 queued 输入）'),
+        todoWrite(5, [{ content: 't2', status: 'pending' }]),
+      ]),
+    )
+    expect(doc.turns.find((t) => t.index === 2)!.userPromptRefs).toEqual(['ev:4'])
+    expect(doc.tasks.get(hashContent('t2'))!.history[0]!.turn).toBe(2)
+  })
+
   it('records the final list keys of each turn (last write wins within the turn)', () => {
     const doc = foldSessionDocument(
       factsOf([

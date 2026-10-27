@@ -14,12 +14,11 @@
  * （childId 收集）＋ spawn fact 级解析（result 文本 + catalog 双交叉验证，
  * research 0033 §六降级链第一级）。
  *
- * 环境回合计数原样移植（P1 生产 bug 的修法）：todo/write 的 wire payload
- * 没有 turn 字段（todo-write.d.ts 锚定），归属由环境事件决定——turn/start
- * 显式覆盖、user/message 自增；事件按 seq 排序后顺扫即得。turn/start 在
- * user/message 之后到达时会改写 currentTurn 而已生成的 prompt ref 留在自增
- * turn 下（P1 时代 infer.test.ts 钉过的微妙语义，git 历史可考；fold.test.ts
- * 同款用例保平移）。
+ * 环境回合计数（实机验收修订）：todo/write 与 approval/asked 的 wire payload
+ * 没有 turn 字段（todo-write.d.ts / approval.d.ts 锚定），归属由环境事件决定。
+ * 实测 wire 时序为 turn/start 先于 user/message（见 fold 内开轮锚注释），
+ * 计数规则：开轮内的人类消息归属该轮不自增；无开轮标记的消息自增开新轮
+ * （旧 infer 的纯自增在此时序下系统性偏移 +1，实机 2026-10-27 取证后修正）。
  *
  * 失败标记**不在 fold 里做**：history 是 wire 真值，投影层按「末修订所属
  * turn 是否 error 收场」派生 failed——与退役 infer 的时序行为等价（turn/end
@@ -78,24 +77,36 @@ export function foldSessionDocument(facts: TaskGraphFacts): SessionDocument {
     return created
   }
 
-  /** 环境回合计数：turn/start 显式覆盖 / user/message 自增（P1 语义原样）。 */
+  /**
+   * 环境回合计数 + wire 开轮锚（实机验收修订，2026-10-27）：
+   * 实测全部会话的 wire 时序是 **turn/start 先于其 user/message**（S@n <
+   * U@n+k）——纯自增计数会把 prompt/todo 挂到 wire 轮号 +1 的空轮上，
+   * turn 时长/结束原因/折叠资格/失败标记随之全部落空（旧 infer 同病，
+   * B/C 的面板让它显形）。修法：turn/start 开轮记住轮号，开轮内到达的
+   * 人类消息**归属该轮不自增**；无开轮标记的消息（queued 输入先于 start
+   * 的旧路径）才自增开新轮。turn/end 关轮并对齐计数器。
+   */
   let currentTurn = 0
+  let openWireTurn: number | undefined
 
   for (const event of events) {
     switch (event.type) {
       case 'turn/start': {
         const t = (event.data as unknown as { turn?: number }).turn ?? 0
         currentTurn = t
+        openWireTurn = t
         turnOf(t).startTime = event.time
         break
       }
 
       case 'user/message': {
         // 只收人类直输（source.kind === 'user'）；plugin 注入 / 合成上下文
-        // 不建 prompt 事实（ContextForm 归档是 B 以后的噪音折叠正路）。
+        // （runtime-context / skill-catalog / time-context 等未知 kind 落
+        // 'other'）不建 prompt 事实、也不动计数（实机取证 2026-10-27：
+        // 一轮内宿主注入 3+ 种 kind）。
         const userMsg = event.data as unknown as { source?: unknown }
         if (readUserSourceKind(userMsg.source) !== 'user') break
-        currentTurn += 1
+        if (openWireTurn === undefined) currentTurn += 1
         const turn = currentTurn
         const ref = `ev:${event.seq}`
         contents.set(ref, event)
@@ -268,6 +279,10 @@ export function foldSessionDocument(facts: TaskGraphFacts): SessionDocument {
         const builder = turnOf(event.data.turn)
         builder.endReason = event.data.reason
         builder.endTime = event.time
+        // 关轮 + 对齐计数器：后续无标记事件落在已关轮号之后，下一条消息
+        // 从 wire 轮号起自增（与下个 turn/start 的显式轮号汇合）。
+        openWireTurn = undefined
+        currentTurn = event.data.turn
         break
       }
 
