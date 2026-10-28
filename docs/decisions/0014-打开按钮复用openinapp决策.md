@@ -16,7 +16,7 @@
 
 第 ③ 层的事实链：
 
-1. **路由在场**：web profile 组合 bundles = `dsh-base` + `dsh-web-app` + `@lz/skyaxis`（`~/.dsh/profiles/web/package.json`）；`dsh-web-app` 依赖 `dsh-host-open-in-app`（cordis 插件 `open-in-app`），在组合 `webServer` 上挂三条路由：GET `/open-in-app/apps`（已解析应用 id 列表，宿主每生命周期探测一次）、GET `/open-in-app/icon/<id>`（每应用 PNG 图标）、POST `/open-in-app/open`（body `{app, path}`，校验绝对路径+目录存在，argv 永不走 shell）。
+1. **路由在场**：web profile 组合 bundles = `dsh-base` + `dsh-web-app` + `@leizhuang1332/skyaxis`（`~/.dsh/profiles/web/package.json`）；`dsh-web-app` 依赖 `dsh-host-open-in-app`（cordis 插件 `open-in-app`），在组合 `webServer` 上挂三条路由：GET `/open-in-app/apps`（已解析应用 id 列表，宿主每生命周期探测一次）、GET `/open-in-app/icon/<id>`（每应用 PNG 图标）、POST `/open-in-app/open`（body `{app, path}`，校验绝对路径+目录存在，argv 永不走 shell）。
 2. **信任栅栏可过**：三条路由全在 `connection.requestRejection` 栅栏后（Host/Origin 防 DNS rebinding + 登录 cookie）；skyaxis 客户端同源 fetch 自动带 cookie——fetcher.ts 头注即此先例（repos-pool 传承）。
 3. **Menu 原语已链接**：dsh 分体按钮的菜单即 `@deepseek-ai/dsh-client-ui-primitives` 的 `Menu`，skyaxis 已在 requirements/list.tsx 运行时使用同包。
 4. **记忆键可共享**：dsh 控制器 choice 用 `createSnapshotStore('', { persist: { name: 'dsh.open-in-app.choice' } })`，而 dsh-client-store 的 persist 语义是**裸 localStorage 键**（`localStorage.getItem(name)` 原样）。
