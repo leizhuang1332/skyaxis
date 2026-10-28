@@ -1,7 +1,7 @@
 {
   "name": "@leizhuang1332/skyaxis",
   "description": "Host-authoritative task board for the DSH Web GUI with real session execution, Host cron scheduling, and optional cross-platform idle-sleep protection; mounted without DSH source changes.",
-  "version": "0.3.24",
+  "version": "0.4.0",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
