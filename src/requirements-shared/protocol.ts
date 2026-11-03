@@ -22,6 +22,13 @@ export interface LinkedRepo {
   readonly repoId: string
   /** Branch created (checkout -b) after cloning. */
   readonly branch: string
+  /**
+   * Checkout start point (`origin/<fromBranch>`) when the remote has NO
+   * same-name branch; absent = the repo's default branch. Voided when the
+   * tracking arm wins (remote same-name branch present) but kept here as
+   * declared intent — the engine never writes the ledger back.
+   */
+  readonly fromBranch?: string
 }
 
 export interface RequirementRecord {
@@ -115,6 +122,8 @@ export interface ReposLinkRequest {
   readonly repoUrl: string
   readonly repoName: string
   readonly branch: string
+  /** Optional checkout start point; absent/empty = the repo's default branch. */
+  readonly fromBranch?: string
 }
 
 export interface ReposUnlinkRequest {
@@ -392,7 +401,9 @@ export function isWorkspaceStatusResponse(v: unknown): v is WorkspaceStatusRespo
 function isLinkedRepo(v: unknown): v is LinkedRepo {
   if (typeof v !== 'object' || v === null) return false
   const r = v as Record<string, unknown>
-  return isString(r.repoId) && r.repoId.length > 0 && isString(r.branch) && r.branch.length > 0
+  return isString(r.repoId) && r.repoId.length > 0
+    && isString(r.branch) && r.branch.length > 0
+    && (r.fromBranch === undefined || (isString(r.fromBranch) && r.fromBranch.length > 0))
 }
 
 const CLONE_STATUSES = ['cloning', 'branching', 'done', 'failed']

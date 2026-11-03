@@ -22,6 +22,17 @@ import { PRD_CREATE_MAX_CHARS, PRD_NAME_MAX_CHARS } from '../requirements-shared
  */
 export const LedgerBranchSchema = z.string().trim().min(1).max(100).regex(/^[^\x00-\x1f^-]/, 'no control chars, no leading dash')
 
+/**
+ * The optional face of the branch column (fromBranch): blank normalizes to
+ * undefined so a hand-edited `fromBranch: ''` yaml row reads back harmlessly
+ * instead of degrading the whole file. The constraint truth stays in
+ * LedgerBranchSchema — nothing is restated here.
+ */
+export const OptionalLedgerBranchSchema = z.preprocess(
+  (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+  LedgerBranchSchema.optional(),
+)
+
 export const RequirementRecordSchema = z.object({
   id: z.uuid(),
   title: z.string().trim().min(1).max(64),
@@ -32,6 +43,7 @@ export const RequirementRecordSchema = z.object({
   linkedRepos: z.array(z.object({
     repoId: z.uuid(),
     branch: LedgerBranchSchema,
+    fromBranch: OptionalLedgerBranchSchema,
   })).default([]),
   createdAt: z.iso.datetime({ offset: true }),
   updatedAt: z.iso.datetime({ offset: true }),
@@ -96,6 +108,7 @@ const ReposLinkSchema = z.object({
   repoUrl: z.string().trim().min(1).max(2048),
   repoName: z.string().trim().min(1).max(64),
   branch: LedgerBranchSchema,
+  fromBranch: OptionalLedgerBranchSchema,
 })
 
 const ReposUnlinkSchema = z.object({

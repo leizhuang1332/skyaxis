@@ -247,6 +247,7 @@ export function ReposSection(props: {
   const [filter, setFilter] = useState('')
   const [selection, setSelection] = useState<Selection>(null)
   const [branch, setBranch] = useState('')
+  const [fromBranch, setFromBranch] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [inlineError, setInlineError] = useState<string | null>(null)
   const [adoptingId, setAdoptingId] = useState<string | null>(null)
@@ -321,6 +322,12 @@ export function ReposSection(props: {
     // seeds only the first link.
     const last = requirement.linkedRepos[requirement.linkedRepos.length - 1]
     setBranch(last !== undefined ? last.branch : `req-${requirement.id.slice(0, 8)}`)
+    // fromBranch NEVER carries over: branch is requirement-coupled (one dev
+    // branch name spans the requirement's repos) while fromBranch is
+    // repo-coupled (each repo's baseline differs), and a stale base value
+    // only surfaces as a loud failure AFTER a full clone — empty is itself
+    // the meaningful "repo default branch" answer.
+    setFromBranch('')
     setInlineError(null)
     refreshPool()
     setModalOpen(true)
@@ -372,7 +379,7 @@ export function ReposSection(props: {
     const repoUrl = (selection.slot === 'ssh' ? repo.urlSsh : repo.urlHttp)
       ?? pickAddress(repo)?.url
       ?? ''
-    const outcome = await controller.linkRepo(requirement.id, { repoId: repo.id, repoUrl, repoName: repo.name }, branch.trim())
+    const outcome = await controller.linkRepo(requirement.id, { repoId: repo.id, repoUrl, repoName: repo.name }, branch.trim(), fromBranch.trim())
     setSubmitting(false)
     if (outcome.kind === 'ok') {
       // Seed the fresh rows (cloning state visible immediately); the gate
@@ -435,12 +442,14 @@ export function ReposSection(props: {
             pool={pool}
             filter={filter}
             branch={branch}
+            fromBranch={fromBranch}
             submitting={submitting}
             inlineError={inlineError}
             linkedIds={linkedIds}
             selection={selection}
             onFilterChange={setFilter}
             onBranchChange={(value) => { setBranch(value); setInlineError(null) }}
+            onFromBranchChange={(value) => { setFromBranch(value); setInlineError(null) }}
             onSelectRepo={selectRepo}
             onSelectAddress={selectAddress}
             onCancel={() => setModalOpen(false)}
@@ -478,7 +487,10 @@ export function ReposSection(props: {
               {/* Name + branch only — the addresses are picker concerns; a
                   linked row's URL snapshot is ledger-invisible anyway. */}
               <span className={styles.repoName}>{name}</span>
-              <span className={styles.repoBranch}>{linked.branch}</span>
+              <span className={styles.repoBranch}>
+                {linked.branch}
+                {linked.fromBranch !== undefined ? ` ← ${linked.fromBranch}` : ''}
+              </span>
             </div>
             <div className={styles.repoStatus}>
               {taskStatus(t, task)}
@@ -502,12 +514,14 @@ export function ReposSection(props: {
           pool={pool}
           filter={filter}
           branch={branch}
+          fromBranch={fromBranch}
           submitting={submitting}
           inlineError={inlineError}
           linkedIds={linkedIds}
           selection={selection}
           onFilterChange={setFilter}
           onBranchChange={(value) => { setBranch(value); setInlineError(null) }}
+          onFromBranchChange={(value) => { setFromBranch(value); setInlineError(null) }}
           onSelectRepo={selectRepo}
           onSelectAddress={selectAddress}
           onCancel={() => setModalOpen(false)}
@@ -614,12 +628,14 @@ function AddRepoModal(props: {
   pool: PoolState
   filter: string
   branch: string
+  fromBranch: string
   submitting: boolean
   inlineError: string | null
   linkedIds: ReadonlySet<string>
   selection: Selection
   onFilterChange: (value: string) => void
   onBranchChange: (value: string) => void
+  onFromBranchChange: (value: string) => void
   onSelectRepo: (repoId: string) => void
   onSelectAddress: (repoId: string, slot: AddressSlot) => void
   onCancel: () => void
@@ -721,6 +737,15 @@ function AddRepoModal(props: {
             )
           })}
         </div>
+        <label className={styles.fieldLabel}>
+          {t('repos.fromBranchLabel')}
+          <Input
+            value={props.fromBranch}
+            placeholder={t('repos.fromBranchPlaceholder')}
+            spellCheck={false}
+            onChange={(event) => props.onFromBranchChange(event.target.value)}
+          />
+        </label>
         <label className={styles.fieldLabel}>
           {t('repos.branchLabel')}
           <Input value={props.branch} spellCheck={false} onChange={(event) => props.onBranchChange(event.target.value)} />

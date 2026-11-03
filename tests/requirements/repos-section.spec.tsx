@@ -20,6 +20,8 @@ const DICT = {
     'repos.add': '从仓库池添加',
     'repos.emptyHint': '从仓库池选择一个仓库，clone 到工作区 repos/ 目录。',
     'repos.branchLabel': '分支名',
+    'repos.fromBranchLabel': 'from 分支',
+    'repos.fromBranchPlaceholder': '选填，留空使用仓库默认分支',
     'repos.cloning': '克隆中',
     'repos.branching': '创建分支中',
     'repos.failedTag': '克隆失败',
@@ -86,7 +88,7 @@ const dualRepo = (id: string, name: string, sshStatus: RepoStatus = 'verified', 
   lastErrorHttp: null,
 })
 
-const record = (linkedRepos: ReadonlyArray<{ repoId: string; branch: string }> = []): RequirementRecord => ({
+const record = (linkedRepos: ReadonlyArray<{ repoId: string; branch: string; fromBranch?: string }> = []): RequirementRecord => ({
   id: '11111111-1111-4111-8111-111111111111',
   title: '既有需求',
   description: '既有说明',
@@ -181,8 +183,51 @@ describe('ReposSection (0003 P3b: linked repositories)', () => {
       '11111111-1111-4111-8111-111111111111',
       { repoId: '22222222-2222-4222-8222-222222222222', repoUrl: 'https://example.com/org/repo-a.git', repoName: 'repo-a' },
       'req-11111111',
+      '',
     ))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    unmount()
+  })
+
+  it('threads the from-branch input (trimmed) into the link call', async () => {
+    vi.stubGlobal('fetch', stubPool())
+    const controller = fakeController()
+    const { unmount } = subject({ requirement: record(), controller })
+    fireEvent.click(screen.getByRole('button', { name: DICT.zh['repos.add'] }))
+    await waitFor(() => expect(screen.getByText('repo-a')).toBeTruthy())
+    fireEvent.click(screen.getByText('repo-a'))
+    fireEvent.change(screen.getByPlaceholderText(DICT.zh['repos.fromBranchPlaceholder']), { target: { value: '  product  ' } })
+    fireEvent.click(screen.getByRole('button', { name: DICT.zh['repos.link'] }))
+    await waitFor(() => expect(controller.linkRepo).toHaveBeenCalledWith(
+      '11111111-1111-4111-8111-111111111111',
+      { repoId: '22222222-2222-4222-8222-222222222222', repoUrl: 'https://example.com/org/repo-a.git', repoName: 'repo-a' },
+      'req-11111111',
+      'product',
+    ))
+    unmount()
+  })
+
+  it('seeds the from-branch input empty even when the last link declared one', async () => {
+    vi.stubGlobal('fetch', stubPool())
+    const controller = fakeController()
+    const linked = record([{ repoId: '22222222-2222-4222-8222-222222222222', branch: 'dev/feat', fromBranch: 'product' }])
+    const { unmount } = subject({ requirement: linked, controller })
+    fireEvent.click(screen.getByRole('button', { name: DICT.zh['repos.add'] }))
+    await waitFor(() => expect(screen.getByText('repo-b')).toBeTruthy())
+    // branch carries over from the last link; fromBranch never does — a
+    // stale base value would only surface after a full clone.
+    expect(screen.getByDisplayValue('dev/feat')).toBeTruthy()
+    expect((screen.getByPlaceholderText(DICT.zh['repos.fromBranchPlaceholder']) as HTMLInputElement).value).toBe('')
+    unmount()
+  })
+
+  it('renders the declared from branch as a suffix on the linked row', async () => {
+    vi.stubGlobal('fetch', stubPool())
+    const controller = fakeController()
+    const linked = record([{ repoId: '22222222-2222-4222-8222-222222222222', branch: 'req-11111111', fromBranch: 'product' }])
+    const { unmount } = subject({ requirement: linked, controller })
+    await waitFor(() => expect(screen.getByText('repo-a')).toBeTruthy())
+    expect(screen.getByText('req-11111111 ← product')).toBeTruthy()
     unmount()
   })
 
@@ -325,6 +370,7 @@ describe('ReposSection (0005 P4: dual-address picker)', () => {
       REQUIREMENT_ID,
       { repoId: DUAL_ID, repoUrl: 'https://example.com/org/repo-a.git', repoName: 'repo-a' },
       'req-11111111',
+      '',
     ))
     unmount()
   })
@@ -350,6 +396,7 @@ describe('ReposSection (0005 P4: dual-address picker)', () => {
       REQUIREMENT_ID,
       { repoId: DUAL_ID, repoUrl: 'https://example.com/org/repo-a.git', repoName: 'repo-a' },
       'req-11111111',
+      '',
     ))
     unmount()
   })
@@ -371,6 +418,7 @@ describe('ReposSection (0005 P4: dual-address picker)', () => {
       REQUIREMENT_ID,
       { repoId: DUAL_ID, repoUrl: 'git@example.com:org/repo-a.git', repoName: 'repo-a' },
       'req-11111111',
+      '',
     ))
     unmount()
   })
@@ -395,6 +443,7 @@ describe('ReposSection (0005 P4: dual-address picker)', () => {
       REQUIREMENT_ID,
       { repoId: DUAL_ID, repoUrl: 'https://example.com/org/repo-a.git', repoName: 'repo-a' },
       'req-11111111',
+      '',
     ))
     unmount()
   })
@@ -480,6 +529,7 @@ describe('ReposSection (0005 P4: dual-address picker)', () => {
       REQUIREMENT_ID,
       { repoId: '33333333-3333-4333-8333-333333333333', repoUrl: 'git@example.com:org/repo-b.git', repoName: 'repo-b' },
       'req-11111111',
+      '',
     ))
     unmount()
   })

@@ -5,7 +5,9 @@
  * The probe checks refs/remotes/origin/<branch> (zero network — the full
  * clone already fetched every branch): remote branch present ⇒ `checkout -B
  * --track` (start point = remote tip + upstream), absent ⇒ `checkout -b`
- * (the new-branch case, decided in the 0003 P3 plan).
+ * (the new-branch case, decided in the 0003 P3 plan) — from HEAD, or from
+ * `origin/<fromBranch>` with `--no-track` when the link declared one
+ * (decisions/0037).
  *
  * Shape notes (all decided in the 0003 P3 plan):
  * - Single slot per (requirement, repo): the latest task per link wins,
@@ -47,6 +49,8 @@ export interface CloneStartInput {
   readonly repoUrl: string
   readonly repoName: string
   readonly branch: string
+  /** Checkout start point for the new-branch arm; undefined = repo default branch. */
+  readonly fromBranch?: string
 }
 
 export type ClonePreflight =
@@ -62,6 +66,7 @@ interface CloneTask {
   readonly repoId: string
   readonly repoName: string
   readonly branch: string
+  readonly fromBranch?: string
   readonly destPath: string
   readonly controller: AbortController
   status: CloneStatus
@@ -144,6 +149,17 @@ export class CloneTaskRegistry {
     if (branchOk !== true) {
       return { ok: false, reason: branchOk === null ? 'git-missing' : 'invalid-branch' }
     }
+    // fromBranch rides the same zero-network name check (blank never reaches
+    // here — the wire schema normalizes it away); its failures reuse the
+    // invalid-branch vocabulary so both branch fields answer with one inline
+    // message (the wire layer already folds fromBranch shape violations into
+    // bad-request → the same copy).
+    if (input.fromBranch !== undefined) {
+      const fromOk = await this.#spawnOnce(exe, ['check-ref-format', '--branch', input.fromBranch])
+      if (fromOk !== true) {
+        return { ok: false, reason: fromOk === null ? 'git-missing' : 'invalid-branch' }
+      }
+    }
     return { ok: true, exe }
   }
 
@@ -206,6 +222,7 @@ export class CloneTaskRegistry {
       repoId: input.repoId,
       repoName: input.repoName,
       branch: input.branch,
+      ...(input.fromBranch !== undefined ? { fromBranch: input.fromBranch } : {}),
       destPath,
       controller: new AbortController(),
       status: 'cloning',
@@ -280,13 +297,21 @@ export class CloneTaskRegistry {
    * refs/remotes/origin/<branch> picks the checkout arm — remote branch
    * present ⇒ `checkout -B <branch> --track origin/<branch>` (start point =
    * remote tip, upstream set; -B also covers branch == the default branch
-   * name, where -b would hit "already exists"), absent ⇒ `checkout -b` (the
-   * new-branch case). A probe spawn/driver failure is a provider-level
-   * fault: settle unknown{cleanup} rather than falling back to -b, which
-   * would silently produce the wrong-start-point branch this phase exists
-   * to prevent (explicit `--track` guards a global branch.autoSetupMerge=
-   * false, which disables implicit upstream setup for remote-tracking start
-   * points).
+   * name, where -b would hit "already exists"; a declared fromBranch is
+   * voided here — continuing the remote same-name branch wins), absent ⇒
+   * `checkout -b`, from HEAD (repo default branch) or, when fromBranch is
+   * declared, from `origin/<fromBranch>` with an explicit `--no-track` (the
+   * mirror of the --track defense above: autoSetupMerge's default true would
+   * silently set upstream to the BASE branch — a push under
+   * push.default=upstream would then land dev commits on it; --no-track keeps
+   * the from-arm in the same no-upstream family as the plain -b arm). A
+   * missing remote fromBranch fails this checkout loudly (bad-branch +
+   * cleanup — deliberately no second probe). A probe spawn/driver failure is
+   * a provider-level fault: settle unknown{cleanup} rather than falling back
+   * to -b, which would silently produce the wrong-start-point branch this
+   * phase exists to prevent (explicit `--track` guards a global
+   * branch.autoSetupMerge= false, which disables implicit upstream setup for
+   * remote-tracking start points).
    */
   #branchPhase(task: CloneTask, exe: string): void {
     const probeHandle = this.#spawnGuarded(
@@ -310,7 +335,9 @@ export class CloneTaskRegistry {
         }
         const checkoutArgv = probeOutcome.exitCode === 0
           ? [exe, '-c', 'credential.helper=', '-C', task.destPath, 'checkout', '-B', task.branch, '--track', `origin/${task.branch}`]
-          : [exe, '-c', 'credential.helper=', '-C', task.destPath, 'checkout', '-b', task.branch]
+          : task.fromBranch !== undefined
+            ? [exe, '-c', 'credential.helper=', '-C', task.destPath, 'checkout', '-b', task.branch, '--no-track', `origin/${task.fromBranch}`]
+            : [exe, '-c', 'credential.helper=', '-C', task.destPath, 'checkout', '-b', task.branch]
         const checkoutHandle = this.#spawnGuarded(checkoutArgv, task.controller.signal)
         if (checkoutHandle === undefined) {
           this.#cleanupDest(task)

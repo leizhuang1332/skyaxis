@@ -93,6 +93,37 @@ describe('RequirementsFileStore: read/write roundtrip', () => {
     // And the wire guard accepts exactly the same shape (both halves agree).
     expect(isRequirementRecord(back)).toBe(true)
   })
+
+  it('round-trips linkedRepos fromBranch and normalizes a blank cell to absent', async () => {
+    // The optional member needs its OWN disk anchor: the compile-time mirror
+    // assertions in types.ts stay silent on optional-field drift (an object
+    // missing an optional key still satisfies the interface), and zod strips
+    // unknown keys silently — drop fromBranch from RequirementRecordSchema
+    // and this goes red.
+    const { store, file } = fixture()
+    const repoId = randomUUID()
+    const bound: RequirementRecord = {
+      ...record('from 分支'),
+      workspacePath: 'C:/ws/repo-2',
+      linkedRepos: [{ repoId, branch: 'req-11111111', fromBranch: 'product' }],
+    }
+    await store.save(0, [bound])
+    const loaded = store.load()
+    expect(loaded.ok).toBe(true)
+    if (!loaded.ok) return
+    const back = loaded.value.requirements[0]
+    expect(back.linkedRepos).toEqual([{ repoId, branch: 'req-11111111', fromBranch: 'product' }])
+    expect(isRequirementRecord(back)).toBe(true)
+
+    // A hand-edited blank cell reads back as absent instead of degrading the
+    // whole file (the OptionalLedgerBranchSchema preprocess normalization).
+    const yaml = readFileSync(file, 'utf8')
+    expect(yaml).toContain('fromBranch: product')
+    writeFileSync(file, yaml.replace('fromBranch: product', "fromBranch: ''"), 'utf8')
+    const blanked = store.load()
+    expect(blanked.ok).toBe(true)
+    expect(blanked.ok && blanked.value.requirements[0].linkedRepos).toEqual([{ repoId, branch: 'req-11111111' }])
+  })
 })
 
 describe('RequirementsFileStore: revision guard', () => {

@@ -536,13 +536,18 @@ describe('requirements endpoints: workspace binding', () => {
   })
 })
 
-/** Scripted subprocess fake for clone flows: a queue of outcomes. */
+/** Scripted subprocess fake for clone flows: a queue of outcomes. The runtime
+ * also carries a `calls` array of every spawn argv (the fromBranch-threading
+ * assertion surface; reach it through a `{ calls }` cast). */
 function cloneGit(outcomes: Array<{ exitCode?: number | null; signal?: string | null; stderr?: string; hang?: boolean }>): SubprocessRuntime {
   let spawned = 0
+  const calls: Array<readonly string[]> = []
   const terminate = vi.fn()
   const runtime = {
+    calls,
     resolveExecutable: async () => '/usr/bin/git',
-    spawn() {
+    spawn(spec: { argv: readonly string[] }) {
+      calls.push(spec.argv)
       const outcome = outcomes[Math.min(spawned, outcomes.length - 1)] ?? {}
       spawned += 1
       const text = outcome.stderr ?? ''
@@ -572,7 +577,7 @@ describe('requirements endpoints: linked repositories', () => {
     return created.requirement.id
   }
 
-  const LINK = (id: string, expectedRevision: number, overrides?: Partial<{ branch: string; repoId: string }>) => ({
+  const LINK = (id: string, expectedRevision: number, overrides?: Partial<{ branch: string; repoId: string; fromBranch: string }>) => ({
     expectedRevision,
     id,
     action: 'link',
@@ -580,6 +585,7 @@ describe('requirements endpoints: linked repositories', () => {
     repoUrl: 'https://example.com/org/repo.git',
     repoName: 'My Repo',
     branch: overrides?.branch ?? 'req-11111111',
+    ...(overrides?.fromBranch !== undefined ? { fromBranch: overrides.fromBranch } : {}),
   })
 
   it('link writes the ledger row and answers with requirement + initial tasks', async () => {
@@ -606,6 +612,57 @@ describe('requirements endpoints: linked repositories', () => {
     const listed = await (await h.get(REQUIREMENTS_LIST_PATH)).json() as ListResponse
     expect(listed.ok && listed.requirements[0]?.linkedRepos).toEqual([])
     expect(listed.ok && listed.revision).toBe(2)
+    await h.dispose()
+  })
+
+  it('link with fromBranch writes the declared start point into the ledger row', async () => {
+    const h = await harness({ subprocess: cloneGit([{ exitCode: 0, signal: null }, { exitCode: 0, signal: null }, { exitCode: 0, signal: null }, { exitCode: 0, signal: null }]) })
+    const id = await setup(h)
+    const res = await h.post(REQUIREMENTS_REPOS_PATH, LINK(id, 2, { fromBranch: 'product' }))
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { requirement: { linkedRepos: Array<{ repoId: string; branch: string; fromBranch?: string }> } }
+    expect(body.requirement.linkedRepos).toEqual([{ repoId: REPO_ID, branch: 'req-11111111', fromBranch: 'product' }])
+    await h.dispose()
+  })
+
+  it('a blank fromBranch on the wire lands as absent (blank → undefined normalization)', async () => {
+    const h = await harness({ subprocess: cloneGit([{ exitCode: 0, signal: null }, { exitCode: 0, signal: null }, { exitCode: 0, signal: null }]) })
+    const id = await setup(h)
+    await h.post(REQUIREMENTS_REPOS_PATH, LINK(id, 2, { fromBranch: '' }))
+    await h.post(REQUIREMENTS_REPOS_PATH, LINK(id, 3, { repoId: '33333333-3333-4333-8333-333333333333', fromBranch: '   ' }))
+    const listed = await (await h.get(REQUIREMENTS_LIST_PATH)).json() as ListResponse
+    expect(listed.ok && listed.requirements[0]?.linkedRepos).toEqual([
+      { repoId: REPO_ID, branch: 'req-11111111' },
+      { repoId: '33333333-3333-4333-8333-333333333333', branch: 'req-11111111' },
+    ])
+    await h.dispose()
+  })
+
+  it('link preflight rejects an invalid fromBranch (invalid-branch) and leaves the ledger untouched', async () => {
+    const h = await harness({ subprocess: cloneGit([{ exitCode: 0, signal: null }, { exitCode: 1, signal: null }]) })
+    const id = await setup(h)
+    const invalid = await h.post(REQUIREMENTS_REPOS_PATH, LINK(id, 2, { fromBranch: 'bad..from' }))
+    expect(invalid.status).toBe(400)
+    expect(((await invalid.json()) as ErrorResponse).code).toBe('invalid-branch')
+    const listed = await (await h.get(REQUIREMENTS_LIST_PATH)).json() as ListResponse
+    expect(listed.ok && listed.requirements[0]?.linkedRepos).toEqual([])
+    await h.dispose()
+  })
+
+  it('reclone replays the ledgered fromBranch through a check-ref-format on it', async () => {
+    const git = cloneGit([{ exitCode: 0, signal: null }, { exitCode: 0, signal: null }, { exitCode: 0, signal: null }])
+    const h = await harness({ subprocess: git })
+    const id = await setup(h)
+    await h.post(REQUIREMENTS_REPOS_PATH, LINK(id, 2, { fromBranch: 'product' }))
+    const res = await h.post(REQUIREMENTS_REPOS_PATH, {
+      id, action: 'reclone', repoId: REPO_ID, repoUrl: 'https://example.com/org/repo.git', repoName: 'My Repo',
+    })
+    expect(res.status).toBe(200)
+    // The ledger → engine channel: the reclone's own name check runs on
+    // 'product' (wire schema carries no fromBranch — the ledger row is the
+    // only source).
+    const calls = (git as unknown as { calls: Array<readonly string[]> }).calls
+    expect(calls.some((argv) => argv.length === 4 && argv[1] === 'check-ref-format' && argv[3] === 'product')).toBe(true)
     await h.dispose()
   })
 

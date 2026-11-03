@@ -253,6 +253,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       | 'repos.add'
       | 'repos.adopt'
       | 'repos.branchLabel'
+      | 'repos.fromBranchLabel'
+      | 'repos.fromBranchPlaceholder'
       | 'repos.branching'
       | 'repos.cancel'
       | 'repos.cancelled'

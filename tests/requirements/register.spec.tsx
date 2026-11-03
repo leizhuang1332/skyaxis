@@ -186,6 +186,8 @@ describe('requirements: dictionaries', () => {
       'repos.failGitMissing',
       'repos.failNetwork',
       'repos.failedTag',
+      'repos.fromBranchLabel',
+      'repos.fromBranchPlaceholder',
       'repos.link',
       'repos.menuLabel',
       'repos.poolError',

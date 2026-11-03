@@ -125,6 +125,8 @@ interface RequirementsDictionary {
   // repos.* — linked repositories / clone (0003 P3b)
   readonly 'repos.add': string
   readonly 'repos.branchLabel': string
+  readonly 'repos.fromBranchLabel': string
+  readonly 'repos.fromBranchPlaceholder': string
   readonly 'repos.branching': string
   readonly 'repos.cancelled': string
   readonly 'repos.cancel': string
@@ -302,6 +304,8 @@ const zh: RequirementsDictionary = {
   'openIn.app.konsole': 'Konsole',
   'repos.add': "从仓库池添加",
   'repos.branchLabel': "分支名",
+  'repos.fromBranchLabel': "from 分支",
+  'repos.fromBranchPlaceholder': "选填，留空使用仓库默认分支",
   'repos.branching': "创建分支中",
   'repos.cancelled': "已取消",
   'repos.cancel': "取消克隆",
@@ -471,6 +475,8 @@ const en: RequirementsDictionary = {
   'openIn.app.konsole': 'Konsole',
   'repos.add': "Add from repo pool",
   'repos.branchLabel': "Branch name",
+  'repos.fromBranchLabel': "From branch",
+  'repos.fromBranchPlaceholder': "Optional; empty uses the repo default branch",
   'repos.branching': "Creating branch",
   'repos.cancelled': "Cancelled",
   'repos.cancel': "Cancel clone",

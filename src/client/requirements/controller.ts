@@ -225,8 +225,10 @@ export function createRequirementsController(store: RequirementsStore, fetcher: 
     return { kind: 'failed' }
   }
 
-  async function linkRepo(id: string, repo: { repoId: string; repoUrl: string; repoName: string }, branch: string, signal?: AbortSignal): Promise<ReposOutcome> {
-    return mutateRepos({ expectedRevision: store.getSnapshot().revision, id, action: 'link', ...repo, branch }, true, signal)
+  async function linkRepo(id: string, repo: { repoId: string; repoUrl: string; repoName: string }, branch: string, fromBranch?: string, signal?: AbortSignal): Promise<ReposOutcome> {
+    // Blank never rides the wire — fromBranch means "declared start point",
+    // and the host schema normalizes blanks away anyway (belt and braces).
+    return mutateRepos({ expectedRevision: store.getSnapshot().revision, id, action: 'link', ...repo, branch, ...(fromBranch !== undefined && fromBranch !== '' ? { fromBranch } : {}) }, true, signal)
   }
 
   /** Reverse-link an already-cloned directory — branch is host-read, never sent. */

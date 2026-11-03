@@ -146,6 +146,9 @@ export function registerRequirementsReposEndpoints(connection: HostConnectionHan
           repoUrl: body.repoUrl,
           repoName: body.repoName,
           branch: linked.branch,
+          // fromBranch rides the ledger like branch — reclone replays the
+          // declared start point (the wire schema stays field-free by design).
+          ...(linked.fromBranch !== undefined ? { fromBranch: linked.fromBranch } : {}),
         }
         const result = await clones.reclone(input)
         if (!result.ok) return errorResponse(400, PREFLIGHT_CODE[result.reason])
@@ -234,12 +237,13 @@ export function registerRequirementsReposEndpoints(connection: HostConnectionHan
         repoUrl: body.repoUrl,
         repoName: body.repoName,
         branch: body.branch,
+        ...(body.fromBranch !== undefined ? { fromBranch: body.fromBranch } : {}),
       }
       const pre = await clones.preflight(input)
       if (!pre.ok) return errorResponse(400, PREFLIGHT_CODE[pre.reason])
       const next: RequirementRecord = {
         ...record,
-        linkedRepos: [...record.linkedRepos, { repoId: body.repoId, branch: body.branch }],
+        linkedRepos: [...record.linkedRepos, { repoId: body.repoId, branch: body.branch, ...(body.fromBranch !== undefined ? { fromBranch: body.fromBranch } : {}) }],
         ...refreshTimestamps(record),
       }
       const nextRequirements = current.value.requirements.map((candidate) => (candidate.id === next.id ? next : candidate))

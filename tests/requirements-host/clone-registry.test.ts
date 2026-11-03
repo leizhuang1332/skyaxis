@@ -164,6 +164,114 @@ describe('CloneTaskRegistry', () => {
     expect(fake.spawnCalls[3]?.argv).toEqual(['/usr/bin/git', '-c', 'credential.helper=', '-C', join(ws, 'repos', 'My-Repo'), 'checkout', '-b', 'req-11111111'])
   })
 
+  it('a declared fromBranch reroutes the -b arm to origin/<fromBranch> with --no-track', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'clone-test-'))
+    dirs.push(dir)
+    const ws = join(dir, 'ws')
+    const check = makeScript()
+    const fromCheck = makeScript()
+    const clone = makeScript()
+    const probe = makeScript()
+    const checkout = makeScript()
+    check.outcome.resolve({ exitCode: 0, signal: null })
+    fromCheck.outcome.resolve({ exitCode: 0, signal: null })
+    clone.outcome.resolve({ exitCode: 0, signal: null })
+    probe.outcome.resolve({ exitCode: 1, signal: null })
+    checkout.outcome.resolve({ exitCode: 0, signal: null })
+    const fake = fakeService({ scripts: [check, fromCheck, clone, probe, checkout] })
+    const registry = new CloneTaskRegistry()
+    registry.setSubprocess(fake.service)
+
+    const pre = await registry.preflight({ ...input(ws), fromBranch: 'product' })
+    expect(pre).toEqual({ ok: true, exe: '/usr/bin/git' })
+    // fromBranch rides its own zero-network name check after the branch check.
+    expect(fake.spawnCalls[1]?.argv).toEqual(['/usr/bin/git', 'check-ref-format', '--branch', 'product'])
+
+    registry.begin({ ...input(ws), fromBranch: 'product' }, (pre as { ok: true; exe: string }).exe)
+    await checkout.outcome.promise
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(registry.snapshot(REQ)[0]?.status).toBe('done')
+    // probe exit 1 (no remote same-name branch) + declared fromBranch ⇒ the
+    // from arm: --no-track keeps it in the no-upstream family — a bare
+    // two-arg form would let a default branch.autoSetupMerge silently set
+    // upstream to the BASE branch (decisions/0037 D2).
+    expect(fake.spawnCalls[4]?.argv).toEqual(['/usr/bin/git', '-c', 'credential.helper=', '-C', join(ws, 'repos', 'My-Repo'), 'checkout', '-b', 'req-11111111', '--no-track', 'origin/product'])
+  })
+
+  it('a remote same-name branch still wins over a declared fromBranch (0011 tracking arm verbatim)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'clone-test-'))
+    dirs.push(dir)
+    const ws = join(dir, 'ws')
+    const check = makeScript()
+    const fromCheck = makeScript()
+    const clone = makeScript()
+    const probe = makeScript()
+    const checkout = makeScript()
+    check.outcome.resolve({ exitCode: 0, signal: null })
+    fromCheck.outcome.resolve({ exitCode: 0, signal: null })
+    clone.outcome.resolve({ exitCode: 0, signal: null })
+    probe.outcome.resolve({ exitCode: 0, signal: null })
+    checkout.outcome.resolve({ exitCode: 0, signal: null })
+    const fake = fakeService({ scripts: [check, fromCheck, clone, probe, checkout] })
+    const registry = new CloneTaskRegistry()
+    registry.setSubprocess(fake.service)
+
+    const pre = await registry.preflight({ ...input(ws), fromBranch: 'product' })
+    registry.begin({ ...input(ws), fromBranch: 'product' }, (pre as { ok: true; exe: string }).exe)
+    await checkout.outcome.promise
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(registry.snapshot(REQ)[0]?.status).toBe('done')
+    // probe exit 0 voids the declared fromBranch — continuing the remote
+    // same-name branch wins (decisions/0037 D1); argv identical to the
+    // no-fromBranch tracking arm.
+    expect(fake.spawnCalls[4]?.argv).toEqual(['/usr/bin/git', '-c', 'credential.helper=', '-C', join(ws, 'repos', 'My-Repo'), 'checkout', '-B', 'req-11111111', '--track', 'origin/req-11111111'])
+  })
+
+  it('a missing remote fromBranch fails the checkout loudly: bad-branch + first-line detail + cleaned dest', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'clone-test-'))
+    dirs.push(dir)
+    const ws = join(dir, 'ws')
+    const check = makeScript()
+    const fromCheck = makeScript()
+    const clone = makeScript()
+    const probe = makeScript()
+    const checkout = makeScript()
+    check.outcome.resolve({ exitCode: 0, signal: null })
+    fromCheck.outcome.resolve({ exitCode: 0, signal: null })
+    clone.outcome.resolve({ exitCode: 0, signal: null })
+    probe.outcome.resolve({ exitCode: 1, signal: null })
+    checkout.appendStderr("fatal: 'origin/product' is not a commit and a branch 'req-11111111' cannot be created from it")
+    checkout.outcome.resolve({ exitCode: 128, signal: null })
+    const fake = fakeService({ scripts: [check, fromCheck, clone, probe, checkout] })
+    const registry = new CloneTaskRegistry()
+    registry.setSubprocess(fake.service)
+    const pre = await registry.preflight({ ...input(ws), fromBranch: 'product' })
+    registry.begin({ ...input(ws), fromBranch: 'product' }, (pre as { ok: true; exe: string }).exe)
+    await checkout.outcome.promise
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    // The failed checkout IS the probe for a missing fromBranch — no second
+    // show-ref, no new failure class (decisions/0037 D3).
+    const [failed] = registry.snapshot(REQ)
+    expect(failed?.failureClass).toBe('bad-branch')
+    expect(failed?.detail).toContain('not a commit')
+    expect(statSync(join(ws, 'repos', 'My-Repo'), { throwIfNoEntry: false })).toBeUndefined()
+  })
+
+  it('preflight rejects an invalid fromBranch before any clone spawn (invalid-branch, no new vocabulary)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'clone-test-'))
+    dirs.push(dir)
+    const check = makeScript()
+    check.outcome.resolve({ exitCode: 0, signal: null })
+    const fromCheck = makeScript()
+    fromCheck.outcome.resolve({ exitCode: 1, signal: null })
+    const fake = fakeService({ scripts: [check, fromCheck] })
+    const registry = new CloneTaskRegistry()
+    registry.setSubprocess(fake.service)
+    const pre = await registry.preflight({ ...input(dir), fromBranch: 'bad..from' })
+    expect(pre).toEqual({ ok: false, reason: 'invalid-branch' })
+    expect(fake.spawnCalls).toHaveLength(2)
+  })
+
   it('parses progress incrementally: two snapshots advance 45% → 71%', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'clone-test-'))
     dirs.push(dir)
