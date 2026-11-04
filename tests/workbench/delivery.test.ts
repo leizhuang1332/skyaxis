@@ -1,9 +1,13 @@
 /**
- * SOW 投递闭包单元（0017 刀一 v3）：结构面组装（services 缺席 ⇒ face 为
- * undefined，按钮不渲染的诚实降级前提）+ v3 主路径（create{cwd} → binding →
- * prompt('queue')，不 setDraft 不导航，sent:true）+ 降级尾巴（prompt
- * 拒/抛/面缺席 → setDraft+openSession，sent:false）+ no-service/failed
- * 收敛。刀零实机四查已过门（ok:true/accepted/created id 直接变实）。
+ * SOW 投递闭包单元（0017 刀一 v3；0038 rc.3 引用纪律修订）：结构面组装
+ * （services 缺席/形状不对 ⇒ face 为 undefined，按钮不渲染的诚实降级前提，
+ * 0038 起 retain 是必需成员）+ v3 主路径（create{cwd|workspaceId} →
+ * retain('skyaxisDelivery') → reference.binding.session.prompt('queue')，
+ * 不 setDraft 不导航，sent:true）+ 降级尾巴（prompt 拒/抛/面缺席 →
+ * setDraft+openSession，sent:false，仍在 retain 作用域内）+ no-service/
+ * failed 收敛。0038 回归钉：binding()/scope() 对 unretained id 答
+ * undefined（rc.3 client scopes 纪律）——投递必须走 retain 借 binding，
+ * 否则双臂全哑（0.2.1-rc.3 实机「投递失败：请复制后手动粘贴」缺陷）。
  */
 import { describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
@@ -25,39 +29,51 @@ const fakeCtx = (services: Record<string, unknown>): Context => {
 type PromptImpl = (content: { type: 'text'; text: string }[], mode: 'queue' | 'steer') => Promise<{ ok: boolean }>
 
 const sessions = (opts?: {
-  createImpl?: (opts?: { cwd?: string }) => Promise<string>
+  createImpl?: (opts?: { cwd?: string; workspaceId?: string }) => Promise<string>
   promptImpl?: PromptImpl
-  /** 供降级路径用——默认即真实形状（scope 在场）。 */
+  /** 供降级路径用——reference.binding 无 session 面。 */
   noBinding?: boolean
 }) => {
   const prompt = vi.fn(opts?.promptImpl ?? (async () => ({ ok: true })))
+  const releases = { count: 0 }
+  // rc.3 形状：retain 同步给 reference（binding 立即可借），release 归还.
+  const reference = {
+    binding: opts?.noBinding === true ? {} : { session: { prompt } },
+    release: (): void => { releases.count += 1 },
+  }
+  const retain = vi.fn((_id: string, _opts: { source: string }) => reference)
   const face = {
     create: opts?.createImpl ?? (async () => 'sess-new'),
-    binding: opts?.noBinding === true ? () => undefined : () => ({ session: { prompt } }),
+    retain,
+    // 0038 回归钉：unretained id 上 binding() 答 undefined——真实 rc.3 形状
+    // （scopes map 空），任何「直接 binding(createdId)」的回退都会在主路径哑火.
+    binding: () => undefined,
     scope: (id: string) => ({ sessionId: id }),
   }
-  return { face, prompt }
+  return { face, prompt, retain, releases }
 }
 
 const conversation = (setDraft = vi.fn()) => ({ input: { for: (actx: unknown) => ({ setDraft: (text: string) => setDraft(text, actx) }) } })
 
 describe('createSowDelivery', () => {
-  it('sessions 缺席 / 形状不对（create/binding/scope 任一）⇒ undefined（诚实不建面）', () => {
+  it('sessions 缺席 / 形状不对（create/retain/binding/scope 任一）⇒ undefined（诚实不建面）', () => {
     expect(createSowDelivery(fakeCtx({}))).toBeUndefined()
     expect(createSowDelivery(fakeCtx({ sessions: {} }))).toBeUndefined()
     expect(createSowDelivery(fakeCtx({ sessions: { create: async () => 's' } }))).toBeUndefined()
     expect(createSowDelivery(fakeCtx({ sessions: { create: async () => 's', binding: () => undefined } }))).toBeUndefined()
+    // 0038 钉：缺 retain（rc.2 形状）⇒ 不建面——建了面也只能次次降级，诚实消失优于哑弹.
+    expect(createSowDelivery(fakeCtx({ sessions: { create: async () => 's', binding: () => undefined, scope: () => undefined } }))).toBeUndefined()
   })
 
-  it('0033 回归钉：face 无 open 成员（0.2.1-rc.3 退役）照常建面——投递/返工发送钮不消失', () => {
+  it('0038 回归钉：face 无 open 成员（0.2.1-rc.3 退役）但有 retain 照常建面——投递/返工发送钮不消失', () => {
     const { face } = sessions()
     expect(createSowDelivery(fakeCtx({ sessions: face }))).toBeDefined()
     expect(createSessionMessenger(fakeCtx({ sessions: face }))).toBeDefined()
   })
 
-  it('v3 主路径：create 带 cwd（空串省略）→ prompt([{type:"text"}],"queue")；不 setDraft / 不导航；sent:true；conversation 缺席不挡主路径', async () => {
+  it('v3 主路径：create 带 cwd（空串省略）→ retain(source skyaxisDelivery) → reference.prompt([{type:"text"}],"queue")；不 setDraft / 不导航；sent:true；release 恰一次；conversation 缺席不挡主路径', async () => {
     const create = vi.fn(async (opts?: { cwd?: string }) => (opts?.cwd === 'C:/ws/a' ? 'sess-1' : 'sess-default'))
-    const { face, prompt } = sessions({ createImpl: create })
+    const { face, prompt, retain, releases } = sessions({ createImpl: create })
     const setDraft = vi.fn()
     const ui = { openSession: vi.fn() }
     // conversation 故意缺席——主路径独立性（v2 曾以之为硬前置）。
@@ -67,18 +83,21 @@ describe('createSowDelivery', () => {
     const ok = await deliver('任务书全文', 'C:/ws/a')
     expect(ok).toEqual({ ok: true, sessionId: 'sess-1', sent: true })
     expect(create).toHaveBeenCalledWith({ cwd: 'C:/ws/a' })
+    expect(retain).toHaveBeenCalledWith('sess-1', { source: 'skyaxisDelivery' })
     expect(prompt).toHaveBeenCalledWith([{ type: 'text', text: '任务书全文' }], 'queue')
     expect(ui.openSession).not.toHaveBeenCalled()
     expect(setDraft).not.toHaveBeenCalled()
+    expect(releases.count).toBe(1)
 
     await deliver('x', '')
     expect(create).toHaveBeenLastCalledWith(undefined) // 空串 cwd ⇒ 省略 opts（host defaultCwd）
     await deliver('x', undefined)
     expect(create).toHaveBeenLastCalledWith(undefined)
+    expect(releases.count).toBe(3) // 每次投递各借各还
   })
 
-  it('降级尾巴（D3）：prompt 被拒 ⇒ setDraft+openSession，sent:false（任务不中断）', async () => {
-    const { face, prompt } = sessions({ promptImpl: async () => ({ ok: false }) })
+  it('降级尾巴（D3）：prompt 被拒 ⇒ setDraft+openSession，sent:false（任务不中断；release 仍恰一次）', async () => {
+    const { face, prompt, releases } = sessions({ promptImpl: async () => ({ ok: false }) })
     const setDraft = vi.fn()
     const ui = { openSession: vi.fn() }
     const deliver = createSowDelivery(fakeCtx({ sessions: face, conversation: conversation(setDraft), uiWorkspace: ui }))!
@@ -87,19 +106,22 @@ describe('createSowDelivery', () => {
     expect(prompt).toHaveBeenCalledTimes(1)
     expect(setDraft).toHaveBeenCalledWith('t', { sessionId: 'sess-new' })
     expect(ui.openSession).toHaveBeenCalledWith('sess-new')
+    expect(releases.count).toBe(1)
   })
 
-  it('降级触发面：prompt 抛错 / binding 无 session 面 ⇒ 同一 v2 尾巴', async () => {
+  it('降级触发面：prompt 抛错 / reference 无 session 面 ⇒ 同一 v2 尾巴（retain 作用域内）', async () => {
     const throwing = sessions({ promptImpl: async () => { throw new Error('rpc down') } })
     const deliverThrowing = createSowDelivery(fakeCtx({ sessions: throwing.face, conversation: conversation() }))!
     expect(await deliverThrowing('t', 'C:/ws')).toEqual({ ok: true, sessionId: 'sess-new', sent: false })
+    expect(throwing.releases.count).toBe(1)
 
     const bare = sessions({ noBinding: true })
     const deliverBare = createSowDelivery(fakeCtx({ sessions: bare.face, conversation: conversation() }))!
     expect(await deliverBare('t', 'C:/ws')).toEqual({ ok: true, sessionId: 'sess-new', sent: false })
+    expect(bare.releases.count).toBe(1)
   })
 
-  it('openSession 抛错不阻塞降级；create 抛错 ⇒ {ok:false,"failed"}', async () => {
+  it('openSession 抛错不阻塞降级；create 抛错 ⇒ {ok:false,"failed"} 且零 retain', async () => {
     const badUi = { openSession: () => { throw new Error('shape mismatch') } }
     const degraded = createSowDelivery(fakeCtx({ sessions: sessions({ promptImpl: async () => ({ ok: false }) }).face, conversation: conversation(), uiWorkspace: badUi }))!
     expect(await degraded('t', 'C:/ws')).toEqual({ ok: true, sessionId: 'sess-new', sent: false })
@@ -108,10 +130,11 @@ describe('createSowDelivery', () => {
     expect(await failing('t', 'C:/ws')).toEqual({ ok: false, reason: 'failed' })
   })
 
-  it('no-service：prompt 面缺席且 conversation 缺席 ⇒ 诚实失败（复制兜底在场）', async () => {
+  it('no-service：prompt 面缺席且 conversation 缺席 ⇒ 诚实失败（复制兜底在场；release 不泄漏）', async () => {
     const bare = sessions({ noBinding: true })
     const deliver = createSowDelivery(fakeCtx({ sessions: bare.face }))!
     await expect(deliver('t', 'C:/ws')).resolves.toEqual({ ok: false, reason: 'no-service' })
+    expect(bare.releases.count).toBe(1)
   })
 
   it('刀一验收修正——工作区挂靠：路径命中已注册工作区（大小写/反斜杠/尾斜杠不敏感）⇒ create({workspaceId})，不注册不传 cwd', async () => {
@@ -159,15 +182,15 @@ describe('createSowDelivery', () => {
   })
 })
 
-describe('createSessionMessenger（0019 返工话信使）', () => {
+describe('createSessionMessenger（0019 返工话信使；0038 retain 纪律）', () => {
   it('sessions 缺席 / 形状不对 ⇒ undefined（诚实不建面——返工话 Modal 隐藏发送钮，复制兜底）', () => {
     expect(createSessionMessenger(fakeCtx({}))).toBeUndefined()
     expect(createSessionMessenger(fakeCtx({ sessions: { binding: () => undefined } }))).toBeUndefined()
   })
 
-  it('主路径：零 create——prompt([{type:"text"}],"queue") 打进指定会话；sent:true；conversation 缺席不挡主路径', async () => {
+  it('主路径：零 create——retain(目标 id) → reference.prompt([{type:"text"}],"queue") 打进指定会话；sent:true；release 恰一次；conversation 缺席不挡主路径', async () => {
     const create = vi.fn(async () => 'never-minted')
-    const { face, prompt } = sessions({ createImpl: create })
+    const { face, prompt, retain, releases } = sessions({ createImpl: create })
     const setDraft = vi.fn()
     const ui = { openSession: vi.fn() }
     // conversation 故意缺席——主路径独立性。
@@ -176,9 +199,11 @@ describe('createSessionMessenger（0019 返工话信使）', () => {
 
     expect(await send('sess-dev-9', '返工话全文')).toEqual({ ok: true, sessionId: 'sess-dev-9', sent: true })
     expect(create).not.toHaveBeenCalled()
+    expect(retain).toHaveBeenCalledWith('sess-dev-9', { source: 'skyaxisDelivery' })
     expect(prompt).toHaveBeenCalledWith([{ type: 'text', text: '返工话全文' }], 'queue')
     expect(ui.openSession).not.toHaveBeenCalled()
     expect(setDraft).not.toHaveBeenCalled()
+    expect(releases.count).toBe(1)
   })
 
   it('降级尾巴：prompt 被拒 ⇒ setDraft+openSession 打到同一 id（scope 透传），sent:false（返工话不中断）', async () => {
@@ -192,7 +217,7 @@ describe('createSessionMessenger（0019 返工话信使）', () => {
     expect(ui.openSession).toHaveBeenCalledWith('sess-dev-9')
   })
 
-  it('降级触发面：prompt 抛错 / binding 无 session 面 ⇒ 同一 v2 尾巴', async () => {
+  it('降级触发面：prompt 抛错 / reference 无 session 面 ⇒ 同一 v2 尾巴', async () => {
     const throwing = sessions({ promptImpl: async () => { throw new Error('rpc down') } })
     const sendThrowing = createSessionMessenger(fakeCtx({ sessions: throwing.face, conversation: conversation() }))!
     expect(await sendThrowing('s1', 't')).toEqual({ ok: true, sessionId: 's1', sent: false })

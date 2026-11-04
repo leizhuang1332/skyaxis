@@ -1,5 +1,6 @@
 /**
- * SOW delivery v3 (0017 D1; probe-verified on the real machine 2026-10-19):
+ * SOW delivery v3 (0017 D1; probe-verified on the real machine 2026-10-19 on
+ * host 0.1.5-rc.2; rc.3 rework 2026-11-03, decisions/0038):
  * create the session in the requirement's workspace and PROMPT the task book
  * straight into it — no open(), no jump, no draft. The modal preview IS the
  * send consent (the text there has been user-editable since 0009 and the
@@ -9,14 +10,22 @@
  * (0016 D2-A steering verbs stay deep-link-only).
  *
  * Probe evidence (0017 刀零): prompt into a NEVER-opened created session is
- * accepted and the created id turns real (the client flips blankBit=false
- * and fires onEngaged on acceptance — dsh-api-session-controller
- * client.js:1695-1699). The v2 shell pathology (the real conversation
- * materializing at a NEW id after the user sent via the conversation Hero —
- * decisions/0016 修订 #95/#96) never occurs on this path: the Hero is never
- * involved. Static supports: binding() materializes for any listed session
- * (resolve()/eligible()), and the SDK itself RPCs into never-opened created
- * sessions (fork() → binding(childId).session.rename).
+ * accepted and the created id turns real. The v2 shell pathology (the real
+ * conversation materializing at a NEW id after the user sent via the
+ * conversation Hero — decisions/0016 修订 #95/#96) never occurs on this
+ * path: the Hero is never involved.
+ *
+ * rc.3 session-reference discipline (0033 upgrade regression, 0038 修复轮):
+ * `create()` only CATALOGUES the id — `binding()`/`scope()` answer undefined
+ * until `retain()` materializes the shared scope (client service.ts scopes
+ * map; the SDK's own doc: "retain it before borrowing its binding"). The
+ * 0017 probe predates the host upgrade (0.1.5-rc.2 bound created ids
+ * without retain), so post-0033 both the prompt arm AND the v2 tail's
+ * scope() silently dead-armed — every delivery degraded to the copy
+ * fallback. Fix: retain({source:'skyaxisDelivery'}) around BOTH arms,
+ * release in finally (the admitted prompt is host-durable; release only
+ * tears down the client scope/history window — the sidebar re-retains on
+ * open).
  *
  * Degrade (0017 D3): a rejected/throwing prompt — or a missing prompt face —
  * falls back to the v2 tail (setDraft + openSession 导航), so the task is
@@ -30,10 +39,10 @@
  * sessions never ATTACH and stay invisible in the DSH sidebar's per-workspace
  * list. See resolveCreateOpts.
  *
- * Access: same cordis `ctx.get` discipline as v2 — sessions (create/binding/
- * scope; 0033：open 退役) is required at arm time; conversation (degrade-only now) is
- * armed reactively via ctx.inject (the machine-verified waiting-tracker
- * pattern) and resolved again at call time.
+ * Access: same cordis `ctx.get` discipline as v2 — sessions (create/retain/
+ * binding/scope; 0033：open 退役, 0038：retain 必需) is required at arm time;
+ * conversation (degrade-only now) is armed reactively via ctx.inject (the
+ * machine-verified waiting-tracker pattern) and resolved again at call time.
  */
 import type { Context } from '@deepseek-ai/cordis'
 
@@ -65,9 +74,17 @@ interface ConversationFace {
   input: { for(actx: unknown): ConversationInputFace }
 }
 
-/** Minimal shape of ctx.sessions.create/binding/scope (ISessions 消费面；0033：open 退役出清单). */
+/** Minimal SessionReference 消费面（rc.3 引用纪律：retain 同步物化共享 scope，release 归还）. */
+interface SessionReferenceFace {
+  /** Shared binding; valid until release (client service.ts:196-199). */
+  readonly binding: BindingFace
+  release(): void
+}
+
+/** Minimal shape of ctx.sessions.create/retain/binding/scope (ISessions 消费面；0033：open 退役；0038：retain 必需). */
 interface SessionsCreateFace {
   create(opts?: { cwd?: string; workspaceId?: string }): Promise<string>
+  retain(id: string, options: { source: string }): SessionReferenceFace
   binding(id: string): BindingFace | undefined
   scope(sessionId: string): unknown
 }
@@ -192,10 +209,10 @@ function v2Tail(
   return { ok: true, sessionId, sent: false }
 }
 
-/** The sessions-face shape check shared by both closures (three members；0033：open 退役出清单). */
+/** The sessions-face shape check shared by both closures (four members；0033：open 退役；0038：retain 必需). */
 const sessionsFaceOk = (sessions: SessionsCreateFace | undefined): sessions is SessionsCreateFace =>
   sessions !== undefined && typeof sessions.create === 'function' && typeof sessions.binding === 'function'
-    && typeof sessions.scope === 'function'
+    && typeof sessions.scope === 'function' && typeof sessions.retain === 'function'
 
 /**
  * Assemble the delivery closure from ctx. Returns undefined when the SESSIONS
@@ -219,27 +236,35 @@ export function createSowDelivery(ctx: Context): DeliverFace | undefined {
       return { ok: false, reason: 'failed' }
     }
 
-    // v3 main: prompt straight into the never-opened session (刀零实证：
-    // 接受即变实，无 shell 物化、无 Hero 交互).
-    const session = sessions.binding(sessionId)?.session
-    if (session !== undefined && typeof session.prompt === 'function') {
-      try {
-        const admitted = await session.prompt([{ type: 'text', text }], 'queue')
-        if (admitted.ok) return { ok: true, sessionId, sent: true }
-      } catch {
-        // 落入降级尾巴（D3）——任务不中断.
-      }
-    }
-
-    // Degrade = the v2 tail: draft + open + jump, the user presses send.
-    const conversationFace = resolveConversation() ?? get?.('conversation') as ConversationFace | undefined
-    if (conversationFace === undefined || typeof conversationFace.input?.for !== 'function') {
-      return { ok: false, reason: 'no-service' }
-    }
+    // rc.3 引用纪律（0038）: create 只入目录，retain 才物化共享 scope——
+    // 引用须覆盖双臂（v2 尾的 scope() 同样吃它），prompt 落定后即归还
+    // （宿主侧已持久，release 只拆客户端 scope/历史窗）.
+    const reference = sessions.retain(sessionId, { source: 'skyaxisDelivery' })
     try {
-      return v2Tail(sessions, conversationFace, sessionId, text, get)
-    } catch {
-      return { ok: false, reason: 'failed' }
+      // v3 main: prompt straight into the never-opened session (刀零实证：
+      // 接受即变实，无 shell 物化、无 Hero 交互).
+      const session = reference.binding.session
+      if (session !== undefined && typeof session.prompt === 'function') {
+        try {
+          const admitted = await session.prompt([{ type: 'text', text }], 'queue')
+          if (admitted.ok) return { ok: true, sessionId, sent: true }
+        } catch {
+          // 落入降级尾巴（D3）——任务不中断.
+        }
+      }
+
+      // Degrade = the v2 tail: draft + open + jump, the user presses send.
+      const conversationFace = resolveConversation() ?? get?.('conversation') as ConversationFace | undefined
+      if (conversationFace === undefined || typeof conversationFace.input?.for !== 'function') {
+        return { ok: false, reason: 'no-service' }
+      }
+      try {
+        return v2Tail(sessions, conversationFace, sessionId, text, get)
+      } catch {
+        return { ok: false, reason: 'failed' }
+      }
+    } finally {
+      reference.release()
     }
   }
 }
@@ -266,24 +291,32 @@ export function createSessionMessenger(ctx: Context): SendMessageFace | undefine
   const resolveConversation = armConversation(ctx, get)
 
   return async (sessionId: string, text: string): Promise<DeliverOutcome> => {
-    const session = sessions.binding(sessionId)?.session
-    if (session !== undefined && typeof session.prompt === 'function') {
-      try {
-        const admitted = await session.prompt([{ type: 'text', text }], 'queue')
-        if (admitted.ok) return { ok: true, sessionId, sent: true }
-      } catch {
-        // 落入降级尾巴——返工话不中断.
-      }
-    }
-
-    const conversationFace = resolveConversation() ?? get?.('conversation') as ConversationFace | undefined
-    if (conversationFace === undefined || typeof conversationFace.input?.for !== 'function') {
-      return { ok: false, reason: 'no-service' }
-    }
+    // rc.3 引用纪律（0038）同投递主路径：retain 物化 scope 后才借得到
+    // binding——目标会话可能从未被任何人 retain（投递后即 release 的壳），
+    // refcount 对已被侧栏 retain 的活跃会话安全（+1/-1）.
+    const reference = sessions.retain(sessionId, { source: 'skyaxisDelivery' })
     try {
-      return v2Tail(sessions, conversationFace, sessionId, text, get)
-    } catch {
-      return { ok: false, reason: 'failed' }
+      const session = reference.binding.session
+      if (session !== undefined && typeof session.prompt === 'function') {
+        try {
+          const admitted = await session.prompt([{ type: 'text', text }], 'queue')
+          if (admitted.ok) return { ok: true, sessionId, sent: true }
+        } catch {
+          // 落入降级尾巴——返工话不中断.
+        }
+      }
+
+      const conversationFace = resolveConversation() ?? get?.('conversation') as ConversationFace | undefined
+      if (conversationFace === undefined || typeof conversationFace.input?.for !== 'function') {
+        return { ok: false, reason: 'no-service' }
+      }
+      try {
+        return v2Tail(sessions, conversationFace, sessionId, text, get)
+      } catch {
+        return { ok: false, reason: 'failed' }
+      }
+    } finally {
+      reference.release()
     }
   }
 }
