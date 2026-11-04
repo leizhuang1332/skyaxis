@@ -1977,9 +1977,13 @@ export const KNOWLEDGE_INJECTION_MAX_BYTES = 8 * 1024
 //        before any adoption anchors it; tamper vs planBaseline.docHash)
 //   GET  ?kind=split-result&requirementId=<uuid>          (0012: file-first; tamper
 //        vs splitProposals.seed.contentHash)
-//        → ArtifactContentResponseOk (404 when the file is missing; hash
-//          mismatch answers 200 + contentTampered, never silently, never
-//          blocking — decisions/0005 细化④)
+//        → ArtifactContentResponseOk (0042: the five PROBE faces answer
+//          200 + content:null when the file is missing/unarmed — a routine
+//          absent doc is a state, not a failed request, and the browser's
+//          automatic non-2xx logging painted every workbench open red;
+//          a too-large file answers 413. The on-demand plan/review faces
+//          keep 404 for a listed-but-gone body. Hash mismatch answers 200 +
+//          contentTampered, never silently, never blocking — 细化④)
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
@@ -2127,7 +2131,14 @@ export interface ArtifactWriteResponseOk {
 
 export interface ArtifactContentResponseOk {
   readonly ok: true
-  readonly content: string
+  /**
+   * null = the PROBE faces' honest missing (analysis-report / requirement-doc /
+   * planning-doc / split-result / wp-plan-doc: no file to show yet — 0042's
+   * 200-null envelope, killing the routine 404 console lines). The on-demand
+   * plan/review faces always carry text (their 404s address a listed-but-gone
+   * body, gated by the detail existence projections — never a routine probe).
+   */
+  readonly content: string | null
   /** Ledger hash present AND disk bytes differ — warn, don't block. */
   readonly contentTampered: boolean
 }
@@ -2712,7 +2723,7 @@ export function isArtifactWriteResponseOk(v: unknown): v is ArtifactWriteRespons
 export function isArtifactContentResponse(v: unknown): v is ArtifactContentResponseOk {
   if (typeof v !== 'object' || v === null) return false
   const r = v as Record<string, unknown>
-  return r.ok === true && isString(r.content) && typeof r.contentTampered === 'boolean'
+  return r.ok === true && (r.content === null || isString(r.content)) && typeof r.contentTampered === 'boolean'
 }
 
 /**

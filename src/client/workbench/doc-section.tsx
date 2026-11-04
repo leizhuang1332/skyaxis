@@ -86,11 +86,12 @@ export function WorkspaceDocSection(props: {
         return
       }
       if (result.kind === 'ok') {
-        setState({ kind: 'ready' })
+        // 0042: the probe faces answer 200 + content:null for an absent doc
+        // (the honest missing state — no session has written it yet); the
+        // 404 arm below stays as a belt for stale-server shapes.
+        setState(result.content === null ? { kind: 'missing' } : { kind: 'ready' })
         return
       }
-      // 404 = the honest missing state (no session has written the doc yet);
-      // every other failure is the error state with retry.
       setState(result.kind === 'http-error' && result.status === 404 ? { kind: 'missing' } : { kind: 'error' })
     })
     return () => { abort.abort() }
@@ -167,6 +168,10 @@ function DocPreviewModal(props: {
         return
       }
       if (result.kind === 'ok') {
+        if (result.content === null) {
+          setState('missing') // 0042: the 200 null envelope's honest missing
+          return
+        }
         setText(result.content)
         setTampered(result.contentTampered)
         setState('ready')

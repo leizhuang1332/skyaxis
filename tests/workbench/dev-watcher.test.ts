@@ -173,6 +173,37 @@ describe('0016 P1a: register-level dev-declare watcher', () => {
     watcher.dispose()
   })
 
+  it('0041 回归钉：split 未批准（提案期 WP 已在场）⇒ 标题命中也不发 bind——镜像宿主 locked-split 门，堵住每次清扫的 400 重试串', async () => {
+    const TITLE = '# 工作包任务书 WP1 · 修图APP'
+    const { face, flip } = fakeFace([
+      { id: 'sess-shell', running: false },
+      { id: 'sess-delivered', running: true, displayTitle: TITLE },
+    ])
+    // 提案期形状：workPackages 已落地（split-proposal 行先于批准），splitApprovedAt 缺席.
+    const unsplit = { ...record(RID, 'WP1', 'sess-shell'), splitApprovedAt: undefined } as WorkbenchRecord
+    const binds: Array<{ requirementId: string; workPackageId: string; sessionId: string }> = []
+    const watcher = createDevDeclareWatcher({
+      fetcher: {
+        list: async () => ({ kind: 'ok' as const, rows: [{ requirementId: RID, revision: 5, record: unsplit }] }),
+        bindSession: async (requirementId: string, _expectedRevision: number, workPackageId: string, sessionId: string) => {
+          binds.push({ requirementId, workPackageId, sessionId })
+          return { kind: 'ok' as const, revision: 6, record: unsplit }
+        },
+      } as unknown as WorkbenchFetcher,
+      controller: fakeController([]),
+      sessions: face,
+      throttleMs: 0,
+    })
+    flip([
+      { id: 'sess-shell', running: false },
+      { id: 'sess-delivered', running: false, displayTitle: TITLE },
+    ])
+    await flush()
+    // 宿主对未批准 split 的 bindSession 答 400 locked-split——客户端不得发注定被拒的请求.
+    expect(binds).toEqual([])
+    watcher.dispose()
+  })
+
 
   it('idle edge → one sweep seeds every due in-dev WP (cross-requirement); a pending slot on the CURRENT binding is skipped client-side', async () => {
     const { face, flip } = fakeFace([{ id: 'sess-a', running: true }])

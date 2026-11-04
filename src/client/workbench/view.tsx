@@ -308,7 +308,8 @@ export function WorkbenchTabBody(props: {
     setPlanAckDoc('probing')
     void controller.planningDocContent(requirementId, abort.signal).then((result) => {
       if (abort.signal.aborted) return
-      setPlanAckDoc(result !== undefined && result.kind === 'ok' ? 'doc' : 'no-doc')
+      // 0042: content:null = the 200 null envelope's honest missing.
+      setPlanAckDoc(result !== undefined && result.kind === 'ok' && result.content !== null ? 'doc' : 'no-doc')
     })
     return () => { abort.abort() }
   }, [planAdoptOpen, controller, requirementId, planWorkspacePath])

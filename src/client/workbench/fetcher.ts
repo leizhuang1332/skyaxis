@@ -104,7 +104,7 @@ export type WorkbenchArtifactWriteResult =
   | WorkbenchFailure
 
 export type WorkbenchArtifactContentResult =
-  | { readonly kind: 'ok'; readonly content: string; readonly contentTampered: boolean }
+  | { readonly kind: 'ok'; readonly content: string | null; readonly contentTampered: boolean }
   | WorkbenchFailure
 
 export type DeclareFetchResult =
@@ -532,13 +532,14 @@ export function createWorkbenchFetcher() {
       return artifactContentResult(await request(`${WORKBENCH_ARTIFACTS_PATH}?${query.toString()}`, { method: 'GET' }, signal))
     },
 
-    /** 文件交付轮: the workspace analysis report file (kind=analysis-report face; 404 = honest missing, the panel renders it). */
+    /** 文件交付轮: the workspace analysis report file (kind=analysis-report face;
+     * 0042: absent ⇒ 200 + content:null — the honest missing envelope, no console red). */
     async analysisReportContent(requirementId: string, signal?: AbortSignal): Promise<WorkbenchArtifactContentResult> {
       const query = new URLSearchParams({ kind: 'analysis-report', requirementId })
       return artifactContentResult(await request(`${WORKBENCH_ARTIFACTS_PATH}?${query.toString()}`, { method: 'GET' }, signal))
     },
 
-    /** 0008: the requirement-baseline doc file (kind=requirement-doc face; 404 = honest missing). */
+    /** 0008: the requirement-baseline doc file (kind=requirement-doc face; 0042: absent ⇒ 200 + content:null). */
     async requirementDocContent(requirementId: string, signal?: AbortSignal): Promise<WorkbenchArtifactContentResult> {
       const query = new URLSearchParams({ kind: 'requirement-doc', requirementId })
       return artifactContentResult(await request(`${WORKBENCH_ARTIFACTS_PATH}?${query.toString()}`, { method: 'GET' }, signal))

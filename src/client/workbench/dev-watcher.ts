@@ -54,6 +54,13 @@ export function devTitleBindTargets(
   record: WorkbenchRecord,
   face: { ids: readonly string[]; summariesById: Readonly<Record<string, { displayTitle: string; running: boolean; blank: boolean } | undefined>> },
 ): Array<{ workPackageId: string; sessionId: string }> {
+  // 0041: mirror the host bindSession lifecycle gate (locked-split) —
+  // proposal-stage records already carry their WPs (split-proposal rows
+  // land in workPackages[] before approval), so a delivered task-book
+  // session title-matching WP<n> would otherwise fire a bind the host must
+  // refuse on EVERY sweep (the「会话切换瞬间 400 重试串」console finding).
+  // Binding is an execution-phase association: no approved split, no binds.
+  if (record.splitApprovedAt === undefined) return []
   const bound = new Set(record.workPackages.flatMap((wp) => wp.sessions.map((binding) => binding.sessionId)))
   const matchByWp = new Map<string, string>()
   for (const id of face.ids) {

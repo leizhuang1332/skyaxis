@@ -135,6 +135,12 @@ export function WorkPackageDialog(props: {
         return
       }
       if (result.kind === 'ok') {
+        // Belt: the on-demand plan face always carries text (existence-gated
+        // by the detail projection) — a null would mean listed-but-gone.
+        if (result.content === null) {
+          cache(selectedVersion, { phase: 'missing' })
+          return
+        }
         cache(selectedVersion, { phase: 'ready', content: result.content, tampered: result.contentTampered })
         return
       }

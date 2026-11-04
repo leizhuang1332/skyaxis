@@ -69,7 +69,9 @@ async function defaultPlanText(requirementId: string, workPackage: WorkbenchWork
     .sort((a, b) => b.version - a.version)[0]
   if (approved === undefined) return undefined
   const result = await createWorkbenchFetcher().planContent(requirementId, workPackage.id, approved.version)
-  return result.kind === 'ok' ? result.content : undefined
+  // content:null never occurs on the on-demand plan face (a listed version's
+  // body is existence-gated) — the null arm is the shared type's belt.
+  return result.kind === 'ok' && result.content !== null ? result.content : undefined
 }
 
 export function SowModal(props: {

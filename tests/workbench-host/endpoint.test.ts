@@ -98,11 +98,15 @@ async function harness(options: { resolveWorkspacePath?: (requirementId: string)
   })
   await fiber.await()
   const connection = ctx.get('connection') as HostConnectionHandle
+  // 0041: the 400 observability seam — the opaque arms log field-level
+  // diagnosis (zod issue paths / the offending id).
+  const logs: Error[] = []
   registerWorkbenchEndpoints(connection, {
     records: recordStore,
     knowledgeFile,
     workbenchRoot,
     declareReader,
+    log: (error) => logs.push(error as Error),
     ...(options.resolveWorkspacePath !== undefined ? { resolveWorkspacePath: options.resolveWorkspacePath } : {}),
   })
   const shared = connection.createSharedFetchHandler('/api')
@@ -130,7 +134,7 @@ const fetchAs = (request: Request) => shared.fetch(request, ownerPeer)
     }
     return revision
   }
-  return { recordStore, knowledgeFile, dir, workbenchRoot, declareReader, get, post, postText, seed }
+  return { recordStore, knowledgeFile, dir, workbenchRoot, declareReader, get, post, postText, seed, logs }
 }
 
 type Harness = Awaited<ReturnType<typeof harness>>
@@ -539,14 +543,18 @@ describe('POST /api/skyaxis/workbench — action union', () => {
     expect(((await staleRemove.json()) as ErrorResponse).currentRevision).toBe(1)
   })
 
-  it('answers 400 bad-request for schema-violating bodies (unknown stage, unknown action, malformed JSON)', async () => {
+  it('answers 400 bad-request for schema-violating bodies (unknown stage, unknown action, malformed JSON) and LOGS the offending field (0041)', async () => {
     const h = await harness()
     const bogusStage = await h.post(WORKBENCH_PATH, { expectedRevision: 0, requirementId: RID, action: 'advanceStage', stage: 'bogus' })
     expect(bogusStage.status).toBe(400)
     expect(await errorCode(bogusStage)).toBe('bad-request')
+    // 0041: the schema arm names the offending field — no more archaeology.
+    expect(h.logs.at(-1)?.message).toContain('workbench mutate 400 schema:')
+    expect(h.logs.at(-1)?.message).toContain('stage')
 
     const unknownAction = await h.post(WORKBENCH_PATH, { expectedRevision: 0, requirementId: RID, action: 'teleport' })
     expect(unknownAction.status).toBe(400)
+    expect(h.logs.at(-1)?.message).toContain('action')
 
     const malformed = await h.postText(WORKBENCH_PATH, '{broken json', 'application/json')
     expect(malformed.status).toBe(400)
@@ -564,6 +572,9 @@ describe('POST /api/skyaxis/workbench — action union', () => {
     })
     expect(res.status).toBe(400)
     expect(await errorCode(res)).toBe('bad-request')
+    // 0041: the id arm logs the offending value (the response body carries none).
+    expect(h.logs.at(-1)?.message).toContain('workbench mutate 400 requirementId:')
+    expect(h.logs.at(-1)?.message).toContain('AAAAAAAA')
     const listed = (await (await h.get(WORKBENCH_PATH)).json()) as { rows: unknown[] }
     expect(listed.rows).toHaveLength(0)
   })
@@ -2588,13 +2599,14 @@ describe('文件交付轮：报告文件通道（file-first seed / analysis-repo
     expect((await h.post(WORKBENCH_PATH, body('dismissAnalysisClarification', { id: q1Again! }, 5))).status).toBe(200)
   })
 
-  it('analysis-report GET：unarmed 通道 / 文件缺失 → 404（诚实缺失态，不造占位）', async () => {
+  it('analysis-report GET：unarmed 通道 / 文件缺失 → 200 空信封（0042 诚实缺失态，不造占位、不出控制台红行）', async () => {
     const h = await harness() // no resolver
     const res = await h.get(`${WORKBENCH_ARTIFACTS_PATH}?kind=analysis-report&requirementId=${RID}`)
-    expect(res.status).toBe(404)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true, content: null, contentTampered: false })
     const ws = fileWorkspace(null)
     const h2 = await harness({ resolveWorkspacePath: ws.resolve })
-    expect((await h2.get(`${WORKBENCH_ARTIFACTS_PATH}?kind=analysis-report&requirementId=${RID}`)).status).toBe(404)
+    expect((await h2.get(`${WORKBENCH_ARTIFACTS_PATH}?kind=analysis-report&requirementId=${RID}`)).status).toBe(200)
   })
 })
 
@@ -2728,7 +2740,7 @@ describe('0008 需求基线文档：approveUnderstand 专属 flow + requirement-
     expect(res.status).toBe(413)
   })
 
-  it('requirement-doc GET：正文 + 未定稿读 untampered-silent + 定稿锚对照翻 contentTampered + 缺失 404', async () => {
+  it('requirement-doc GET：正文 + 未定稿读 untampered-silent + 定稿锚对照翻 contentTampered + 缺失 200 空信封（0042）', async () => {
     const text = '# 需求基线 · 报价管理\n\n## 术语表\n- 导出：……'
     const ws = docWorkspace(text)
     const h = await harness({ resolveWorkspacePath: ws.resolve })
@@ -2743,12 +2755,14 @@ describe('0008 需求基线文档：approveUnderstand 专属 flow + requirement-
     writeFileSync(join(ws.dir, '.skyaxis', 'requirements', `${RID}.md`), `${text}\n<!-- edited -->`, 'utf8')
     const read2 = await h.get(`${WORKBENCH_ARTIFACTS_PATH}?kind=requirement-doc&requirementId=${RID}`)
     expect(((await read2.json()) as { contentTampered: boolean }).contentTampered).toBe(true)
-    // 缺失 / unarmed ⇒ 404（诚实缺失态）。
+    // 缺失 / unarmed ⇒ 200 空信封（0042 诚实缺失态）。
     const ws2 = docWorkspace(null)
     const h2 = await harness({ resolveWorkspacePath: ws2.resolve })
-    expect((await h2.get(`${WORKBENCH_ARTIFACTS_PATH}?kind=requirement-doc&requirementId=${RID}`)).status).toBe(404)
+    const missing = await h2.get(`${WORKBENCH_ARTIFACTS_PATH}?kind=requirement-doc&requirementId=${RID}`)
+    expect(missing.status).toBe(200)
+    expect(await missing.json()).toEqual({ ok: true, content: null, contentTampered: false })
     const h3 = await harness()
-    expect((await h3.get(`${WORKBENCH_ARTIFACTS_PATH}?kind=requirement-doc&requirementId=${RID}`)).status).toBe(404)
+    expect((await h3.get(`${WORKBENCH_ARTIFACTS_PATH}?kind=requirement-doc&requirementId=${RID}`)).status).toBe(200)
   })
 })
 
@@ -2830,7 +2844,7 @@ describe('0012 两步化：adoptPlan / seedSplit 专属 flow + planning-doc / sp
     expect(((await revoked.json()) as { record: WorkbenchRecord }).record.planAdoptedAt).toBeUndefined()
   })
 
-  it('planning-doc GET：采纳前 untampered-silent；采纳后手改 ⇒ contentTampered；缺失 ⇒ 404', async () => {
+  it('planning-doc GET：采纳前 untampered-silent；采纳后手改 ⇒ contentTampered；缺失 ⇒ 200 空信封（0042）', async () => {
     const text = '# 技术规划\n\n## 技术方案\n……'
     const ws = channelWorkspace({ planning: text })
     const h = await harness({ resolveWorkspacePath: ws.resolve })
@@ -2843,7 +2857,7 @@ describe('0012 两步化：adoptPlan / seedSplit 专属 flow + planning-doc / sp
     expect(((await read2.json()) as { contentTampered: boolean }).contentTampered).toBe(true)
     const ws2 = channelWorkspace({})
     const h2 = await harness({ resolveWorkspacePath: ws2.resolve })
-    expect((await h2.get(`${WORKBENCH_ARTIFACTS_PATH}?kind=planning-doc&requirementId=${RID}`)).status).toBe(404)
+    expect((await h2.get(`${WORKBENCH_ARTIFACTS_PATH}?kind=planning-doc&requirementId=${RID}`)).status).toBe(200)
   })
 
   it('seedSplit：容器缺失 404；文件缺失 ⇒ 200 零写 seedMissing；文件在 ⇒ 提议落账（坏行跳过）+ 同 hash 重放 revision 不 bump + 手改（新 hash）替换未登记批', async () => {
@@ -2914,7 +2928,7 @@ describe('0012 两步化：adoptPlan / seedSplit 专属 flow + planning-doc / sp
     expect(((await read2.json()) as { contentTampered: boolean }).contentTampered).toBe(true)
     const ws2 = channelWorkspace({})
     const h3 = await harness({ resolveWorkspacePath: ws2.resolve })
-    expect((await h3.get(`${WORKBENCH_ARTIFACTS_PATH}?kind=split-result&requirementId=${RID}`)).status).toBe(404)
+    expect((await h3.get(`${WORKBENCH_ARTIFACTS_PATH}?kind=split-result&requirementId=${RID}`)).status).toBe(200)
   })
 })
 
@@ -2995,7 +3009,7 @@ describe('0018 工作包规划两步化：recordWpPlanSession / seedWpPlan 专�
     expect(readFileSync(artifactTarget, 'utf8')).toBe(PLAN_FILE)
   })
 
-  it('seedWpPlan：文件缺失 ⇒ 200 零写 wp-plan-file-missing（armed 空目录与 unarmed 同形）；wp-plan-doc GET：seed 前 untampered-silent、seed 后手改 ⇒ contentTampered、缺失 404、坏 wpId 400', async () => {
+  it('seedWpPlan：文件缺失 ⇒ 200 零写 wp-plan-file-missing（armed 空目录与 unarmed 同形）；wp-plan-doc GET：seed 前 untampered-silent、seed 后手改 ⇒ contentTampered、缺失 200 空信封（0042）、坏 wpId 400', async () => {
     // armed 但目录空（会话可能尚未写完——advisory，不失败）。
     const wsEmpty = wpPlanWorkspace({})
     const hEmpty = await harness({ resolveWorkspacePath: wsEmpty.resolve })
@@ -3020,8 +3034,8 @@ describe('0018 工作包规划两步化：recordWpPlanSession / seedWpPlan 专�
     writeFileSync(join(ws.dir, '.skyaxis', 'wps', 'WP1', 'plan.md'), `${PLAN_FILE}\n<!-- edited -->`, 'utf8')
     const read2 = await h.get(`${WORKBENCH_ARTIFACTS_PATH}?kind=wp-plan-doc&requirementId=${RID}&workPackageId=WP1`)
     expect(((await read2.json()) as { contentTampered: boolean }).contentTampered).toBe(true)
-    // 缺失 ⇒ 404；坏 WP 号 ⇒ 400。
-    expect((await h.get(`${WORKBENCH_ARTIFACTS_PATH}?kind=wp-plan-doc&requirementId=${RID}&workPackageId=WP9`)).status).toBe(404)
+    // 缺失 ⇒ 200 空信封（0042）；坏 WP 号 ⇒ 400。
+    expect((await h.get(`${WORKBENCH_ARTIFACTS_PATH}?kind=wp-plan-doc&requirementId=${RID}&workPackageId=WP9`)).status).toBe(200)
     expect((await h.get(`${WORKBENCH_ARTIFACTS_PATH}?kind=wp-plan-doc&requirementId=${RID}&workPackageId=bad`)).status).toBe(400)
   })
 })

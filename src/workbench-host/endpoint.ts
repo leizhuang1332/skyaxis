@@ -219,11 +219,22 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
 
   async function mutateFlow(request: Request): Promise<Response> {
     const parsed = WorkbenchMutateSchema.safeParse(await readJsonBody(request))
-    if (!parsed.success) return errorResponse(400, 'bad-request')
+    if (!parsed.success) {
+      // 0041 observability: these two 400 arms are otherwise silent (the 500
+      // catch logs; the 400s didn't) and the response body carries no
+      // distinguishing detail — zod's issue path names the offending field.
+      // Business-rejection arms (locked-split etc.) stay unlogged: their
+      // response codes are self-describing.
+      log?.(new Error(`workbench mutate 400 schema: ${parsed.error.issues.map((issue) => `${issue.path.join('.')}:${issue.code}`).join(', ')}`))
+      return errorResponse(400, 'bad-request')
+    }
     const body = parsed.data
     // z.uuid() tolerates uppercase; artifact paths and the detail route are
     // lowercase-only — a non-lowercase id must never mint a ghost record.
-    if (!REQUIREMENT_ID_RE.test(body.requirementId)) return errorResponse(400, 'bad-request')
+    if (!REQUIREMENT_ID_RE.test(body.requirementId)) {
+      log?.(new Error(`workbench mutate 400 requirementId: ${body.requirementId}`))
+      return errorResponse(400, 'bad-request')
+    }
 
     const current = records.loadRecord(body.requirementId)
     if (!current.ok && current.degraded) return errorResponse(409, 'unreadable-file')
@@ -1194,7 +1205,11 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     // honest missing state; the S1 panel renders it, never a placeholder).
     if (kind === 'analysis-report') {
       const reportFile = readAnalysisReportFile(requirementId)
-      if (reportFile.status !== 'ok') return errorResponse(404, 'not-found')
+      // 0042: missing/unarmed ⇒ the 200 null envelope (a routine absent doc is
+      // a state, not a failed request — the browser paints every non-2xx
+      // probe red); too-large stays an honest 413 (a file EXISTS, unreadable).
+      if (reportFile.status === 'too-large') return errorResponse(413, 'too-large')
+      if (reportFile.status !== 'ok') return json({ ok: true, content: null, contentTampered: false })
       const current = records.loadRecord(requirementId)
       if (!current.ok && current.degraded) return errorResponse(409, 'unreadable-file')
       const record = current.ok ? current.value.record : undefined
@@ -1213,7 +1228,9 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     // ledger joins only for tamper compare against understandBaseline.docHash).
     if (kind === 'requirement-doc') {
       const doc = readRequirementDocFile(requirementId)
-      if (doc.status !== 'ok') return errorResponse(404, 'not-found')
+      // 0042: same 200 null envelope as the analysis-report face above.
+      if (doc.status === 'too-large') return errorResponse(413, 'too-large')
+      if (doc.status !== 'ok') return json({ ok: true, content: null, contentTampered: false })
       const current = records.loadRecord(requirementId)
       if (!current.ok && current.degraded) return errorResponse(409, 'unreadable-file')
       const record = current.ok ? current.value.record : undefined
@@ -1229,7 +1246,9 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     // against planBaseline.docHash).
     if (kind === 'planning-doc') {
       const doc = readPlanningDocFile(requirementId)
-      if (doc.status !== 'ok') return errorResponse(404, 'not-found')
+      // 0042: same 200 null envelope as the analysis-report face above.
+      if (doc.status === 'too-large') return errorResponse(413, 'too-large')
+      if (doc.status !== 'ok') return json({ ok: true, content: null, contentTampered: false })
       const current = records.loadRecord(requirementId)
       if (!current.ok && current.degraded) return errorResponse(409, 'unreadable-file')
       const record = current.ok ? current.value.record : undefined
@@ -1245,7 +1264,9 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
     // like; an unseeded container reads untampered-silent).
     if (kind === 'split-result') {
       const doc = readSplitResultFile(requirementId)
-      if (doc.status !== 'ok') return errorResponse(404, 'not-found')
+      // 0042: same 200 null envelope as the analysis-report face above.
+      if (doc.status === 'too-large') return errorResponse(413, 'too-large')
+      if (doc.status !== 'ok') return json({ ok: true, content: null, contentTampered: false })
       const current = records.loadRecord(requirementId)
       if (!current.ok && current.degraded) return errorResponse(409, 'unreadable-file')
       const record = current.ok ? current.value.record : undefined
@@ -1263,7 +1284,9 @@ export function registerWorkbenchEndpoints(connection: HostConnectionHandle, ser
       const workPackageId = url.searchParams.get('workPackageId')
       if (workPackageId === null || !isWorkPackageId(workPackageId)) return errorResponse(400, 'bad-request')
       const planFile = readWpPlanFile(requirementId, workPackageId)
-      if (planFile.status !== 'ok') return errorResponse(404, 'not-found')
+      // 0042: same 200 null envelope as the analysis-report face above.
+      if (planFile.status === 'too-large') return errorResponse(413, 'too-large')
+      if (planFile.status !== 'ok') return json({ ok: true, content: null, contentTampered: false })
       const current = records.loadRecord(requirementId)
       if (!current.ok && current.degraded) return errorResponse(409, 'unreadable-file')
       const record = current.ok ? current.value.record : undefined

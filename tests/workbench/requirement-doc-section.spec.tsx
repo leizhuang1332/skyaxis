@@ -57,14 +57,21 @@ describe('0008 S1 需求基线文档卡片（report 卡片先例）', () => {
     expect(within(dialog).getByText(workbenchZh['baseline.tampered'])).toBeTruthy()
   })
 
-  it('missing（404）⇒ 诚实提示（未生成）+ [刷新] 重试再触发；无假卡片', async () => {
-    const controller = fakeController(async () => ({ kind: 'http-error', status: 404 }))
+  it('missing（0042 空信封 content:null）⇒ 诚实提示（未生成）+ [刷新] 重试再触发；无假卡片', async () => {
+    const controller = fakeController(async () => ({ kind: 'ok', content: null, contentTampered: false }))
     render(<RequirementDocSection t={bindZh()} controller={controller} requirementId={RID} workspacePath={WS} />)
 
     await waitFor(() => expect(screen.getByText(workbenchZh['baseline.missing'])).toBeTruthy())
     expect(screen.queryByRole('button', { name: new RegExp(workbenchZh['baseline.preview']) })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: workbenchZh['baseline.refresh'] }))
     await waitFor(() => expect(controller.requirementDocContent).toHaveBeenCalledTimes(2))
+  })
+
+  it('missing（404 旧形状带）⇒ 同一诚实提示（stale-server 兜底臂仍在）', async () => {
+    const controller = fakeController(async () => ({ kind: 'http-error', status: 404 }))
+    render(<RequirementDocSection t={bindZh()} controller={controller} requirementId={RID} workspacePath={WS} />)
+    await waitFor(() => expect(screen.getByText(workbenchZh['baseline.missing'])).toBeTruthy())
+    expect(screen.queryByRole('button', { name: new RegExp(workbenchZh['baseline.preview']) })).toBeNull()
   })
 
   it('error（undefined）⇒ 错误行 + [刷新] 重试', async () => {

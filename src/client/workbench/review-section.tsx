@@ -688,6 +688,12 @@ function ReportDetailModal(props: {
         return
       }
       if (result.kind === 'ok') {
+        // Belt: the on-demand review face always carries text — a null would
+        // mean listed-but-gone.
+        if (result.content === null) {
+          setBody({ phase: 'missing' })
+          return
+        }
         setBody({ phase: 'ready', content: result.content, tampered: result.contentTampered })
         return
       }
